@@ -12,7 +12,7 @@
 import { LineF, PointF, type ScaleF } from '../../../framework/draw/types/geometry'
 import { Fraction } from '../../types/fraction'
 import {
-    BarLineType, ElementType, Key, MeasureNumberPlacement, VOICES, staff2track, track2staff, type staff_idx_t,
+    AlignH, BarLineType, DurationType, ElementType, Key, MeasureNumberPlacement, VOICES, staff2track, track2staff, type staff_idx_t,
 } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { Factory } from '../../dom/factory'
@@ -39,6 +39,9 @@ import { BeamLayout } from './beamlayout'
 import { ChordLayout } from './chordlayout'
 import { RestLayout } from './restlayout'
 import { SlurTieLayout } from './slurtielayout'
+import type { MMRest } from '../../dom/mmrest'
+import type { EngravingItem } from '../../dom/engravingitem'
+import type { TextBase } from '../../dom/textbase'
 
 interface MeasureStartEndPos {
     x1: number
@@ -46,6 +49,267 @@ interface MeasureStartEndPos {
 }
 
 const segmentCreate = (m: Measure, st: SegmentType, t: Fraction): Segment => new Segment(m, st, t)
+
+const BREAK_TYPES = new Set<ElementType>([
+    ElementType.TEMPO_TEXT,
+    ElementType.REHEARSAL_MARK,
+    ElementType.HARMONY,
+    ElementType.STAFF_TEXT,
+    ElementType.EXPRESSION,
+    ElementType.DYNAMIC,
+    ElementType.SYSTEM_TEXT,
+    ElementType.TRIPLET_FEEL,
+    ElementType.PLAYTECH_ANNOTATION,
+    ElementType.CAPO,
+    ElementType.INSTRUMENT_CHANGE,
+    ElementType.STRING_TUNINGS,
+    ElementType.SYMBOL,
+    ElementType.FRET_DIAGRAM,
+    ElementType.HARP_DIAGRAM,
+    ElementType.PLAY_COUNT_TEXT,
+    ElementType.BREATH,
+])
+
+const ALWAYS_BREAK_TYPES = new Set<ElementType>([
+    ElementType.TEMPO_TEXT,
+    ElementType.REHEARSAL_MARK,
+])
+
+const CONDITIONAL_BREAK_TYPES = new Set<ElementType>([
+    ElementType.HARMONY,
+    ElementType.STAFF_TEXT,
+    ElementType.EXPRESSION,
+    ElementType.DYNAMIC,
+    ElementType.SYSTEM_TEXT,
+    ElementType.TRIPLET_FEEL,
+    ElementType.PLAYTECH_ANNOTATION,
+    ElementType.CAPO,
+    ElementType.INSTRUMENT_CHANGE,
+    ElementType.STRING_TUNINGS,
+    ElementType.SYMBOL,
+    ElementType.FRET_DIAGRAM,
+    ElementType.HARP_DIAGRAM,
+    ElementType.BREATH,
+])
+
+function validMMRestMeasure(ctx: LayoutContext, m: Measure): boolean {
+    if (m.irregular()) {
+        return false
+    }
+
+    const nstaves = ctx.dom().nstaves()
+    for (let staffIdx = 0; staffIdx < nstaves; ++staffIdx) {
+        if (m.isMeasureRepeatGroup(staffIdx)) {
+            return false
+        }
+    }
+
+    let n = 0
+    for (let s = m.first(); s; s = s.next()) {
+        for (const e of s.annotations()) {
+            if (e.staffIdx() >= nstaves || !e.staff()!.show() || !e.visible()) {
+                continue
+            }
+            if (BREAK_TYPES.has(e.type()) && !s.rtick().isZero()) {
+                // play count text is permitted at the end of a measure
+                if (!e.isPlayCountText()) {
+                    return false
+                }
+            }
+        }
+        if (s.isChordRestType()) {
+            let restFound = false
+            const tracks = ctx.dom().ntracks()
+            for (let track = 0; track < tracks; ++track) {
+                if ((track % VOICES) === 0 && !ctx.dom().staff(Math.trunc(track / VOICES))!.show()) {
+                    track += VOICES - 1
+                    continue
+                }
+                const e = s.element(track)
+                if (e) {
+                    if (!e.isRest()) {
+                        return false
+                    } else {
+                        const isNonEmptyIrregular = m.isIrregular() && !(e as Rest).isFullMeasureRest()
+                        if (isNonEmptyIrregular) {
+                            return false
+                        }
+                    }
+                    restFound = true
+                }
+            }
+            for (const e of s.annotations()) {
+                if (e.isFermata()) {
+                    return false
+                }
+            }
+            if (restFound) {
+                ++n
+            }
+            // measure is not empty if there is more than one rest
+            if (n > 1) {
+                return false
+            }
+        }
+    }
+    return true
+}
+
+function breakMultiMeasureRest(ctx: LayoutContext, m: Measure): boolean {
+    if (m.breakMultiMeasureRest()) {
+        return true
+    }
+
+    const pm = m.prevMeasure()
+    if (m.repeatStart()
+        || (pm && pm.repeatEnd())
+        || m.isIrregular()
+        || (pm && pm.isIrregular())
+        || (pm && pm.sectionBreak())) {
+        return true
+    }
+
+    const breakSpannerTypes = new Set<ElementType>([ElementType.VOLTA, ElementType.GRADUAL_TEMPO_CHANGE, ElementType.TEXTLINE])
+    // Break for spanners/textLines in this measure
+    for (const s of ctx.dom().spannerMap().findOverlapping(m.tick().ticks(), m.endTick().ticks())) {
+        if (!s.visible()) {
+            continue
+        }
+        const spannerStartsInside = s.tick().ge(m.tick()) && s.tick().lt(m.endTick())
+        const spannerEndsInside = s.tick2().ge(m.tick()) && s.tick2().lt(m.endTick())
+        if (breakSpannerTypes.has(s.type()) && (spannerStartsInside || spannerEndsInside)) {
+            return true
+        }
+    }
+    // Break for spanners/textLines starting or ending mid-way inside the *previous* measure
+    if (pm) {
+        for (const s of ctx.dom().spannerMap().findOverlapping(pm.tick().ticks(), pm.endTick().ticks())) {
+            if (!s.visible()) {
+                continue
+            }
+            const spannerStartsInside = s.tick().gt(pm.tick()) && s.tick().lt(pm.endTick())
+            const spannerEndsInside = s.tick2().gt(pm.tick()) && s.tick2().lt(pm.endTick())
+            if (breakSpannerTypes.has(s.type()) && (spannerStartsInside || spannerEndsInside)) {
+                return true
+            }
+        }
+    }
+
+    const markerAlignedRight = (e: EngravingItem): boolean => e.isTextBase() && (e as TextBase).align().horizontal === AlignH.RIGHT
+
+    // break for marker in this measure
+    for (const e of m.el()) {
+        if (e.isMarker() && !markerAlignedRight(e)) {
+            return true
+        }
+    }
+
+    // break for marker & jump in previous measure
+    if (pm) {
+        for (const e of pm.el()) {
+            if (e.isJump()) {
+                return true
+            } else if (e.isMarker() && markerAlignedRight(e)) {
+                return true
+            }
+        }
+    }
+
+    const breakForAnnotation = (e: EngravingItem): boolean => {
+        if (ALWAYS_BREAK_TYPES.has(e.type())) {
+            return true
+        }
+        const breakForElement = e.systemFlag() || e.staff()!.show()
+        return CONDITIONAL_BREAK_TYPES.has(e.type()) && breakForElement
+    }
+
+    // Break for annotations found mid-way into the previous measure
+    if (pm) {
+        for (let s = pm.first(); s; s = s.next()) {
+            for (const e of s.annotations()) {
+                if (!e.visible()) {
+                    continue
+                }
+                const isInMidMeasure = e.rtick().gt(new Fraction(0, 1))
+                if (isInMidMeasure && breakForAnnotation(e)) {
+                    return true
+                }
+            }
+        }
+    }
+
+    for (let s = m.first(); s; s = s.next()) {
+        // Break for annotations in this measure
+        for (const e of s.annotations()) {
+            if (e.visible() && breakForAnnotation(e)) {
+                return true
+            }
+        }
+        for (let staffIdx = 0; staffIdx < ctx.dom().nstaves(); ++staffIdx) {
+            if (!ctx.dom().staff(staffIdx)!.show()) {
+                continue
+            }
+            const e = s.element(staffIdx * VOICES)
+            if (!e || e.generated()) {
+                continue
+            }
+            if (s.isStartRepeatBarLineType()) {
+                return true
+            }
+            if (s.isSegType(SegmentType.KeySig | SegmentType.TimeSig) && m.tick().isNotZero()) {
+                return true
+            }
+            if (s.isClefType()) {
+                if (!s.tick().eq(m.endTick()) && m.tick().isNotZero()) {
+                    return true
+                }
+            }
+        }
+    }
+    if (pm) {
+        const s = pm.findSegmentR(SegmentType.EndBarLine, pm.ticks())
+        if (s) {
+            for (let staffIdx = 0; staffIdx < ctx.dom().nstaves(); ++staffIdx) {
+                const bl = s.element(staffIdx * VOICES) as BarLine | null
+                if (bl) {
+                    const t = bl.barLineType()
+                    if (t !== BarLineType.NORMAL && t !== BarLineType.BROKEN && t !== BarLineType.DOTTED && !bl.generated()) {
+                        return true
+                    } else {
+                        break
+                    }
+                }
+            }
+        }
+        // Check for courtesy clefs at the end of the previous measure
+        // Only break if the clef is on a visible staff
+        const hasVisibleElement = (seg: Segment): boolean => {
+            for (let staffIdx = 0; staffIdx < ctx.dom().nstaves(); ++staffIdx) {
+                if (!ctx.dom().staff(staffIdx)!.show()) {
+                    continue
+                }
+                const e = seg.element(staffIdx * VOICES)
+                if (e && !e.generated()) {
+                    return true
+                }
+            }
+            return false
+        }
+        const clefSeg = pm.findSegment(SegmentType.Clef, m.tick())
+        if (clefSeg && hasVisibleElement(clefSeg)) {
+            return true
+        }
+        const tsSeg = pm.findSegment(SegmentType.TimeSigType, m.tick())
+        if (tsSeg && hasVisibleElement(tsSeg)) {
+            return true
+        }
+        const ksSeg = pm.findSegment(SegmentType.KeySigType, m.tick())
+        if (ksSeg && hasVisibleElement(ksSeg)) {
+            return true
+        }
+    }
+    return false
+}
 
 export class MeasureLayout {
     // ---------------------------------------------------------
@@ -126,8 +390,365 @@ export class MeasureLayout {
         if (!currentMB.isMeasure() || ctx.dom().nstaves() === 0) {
             return
         }
+        const mno = ctx.state().measureNo()
+        const firstMeasure = currentMB as Measure
+
         if (ctx.conf().styleB(Sid.createMultiMeasureRests)) {
-            // TODO(port): MeasureLayout::createMMRest
+            let measureToBeChecked = firstMeasure
+            let lastMeasure = measureToBeChecked
+            let n = 0
+            let len = new Fraction(0, 1)
+
+            while (validMMRestMeasure(ctx, measureToBeChecked)) {
+                if (n && breakMultiMeasureRest(ctx, measureToBeChecked)) {
+                    break
+                }
+                if (measureToBeChecked !== firstMeasure) {
+                    const measureNo = MeasureLayout.adjustMeasureNo(measureToBeChecked, ctx.state().measureNo())
+                    ctx.mutState().setMeasureNo(measureNo)
+                }
+                ++n
+                len = len.plus(measureToBeChecked.ticks())
+                lastMeasure = measureToBeChecked
+                const nextMeasureBase = ctx.conf().isShowVBox() ? measureToBeChecked.next() : measureToBeChecked.nextMeasure()
+                if (!(nextMeasureBase && nextMeasureBase.isMeasure())) {
+                    break
+                }
+                measureToBeChecked = nextMeasureBase as Measure
+            }
+
+            if (n >= ctx.conf().styleI(Sid.minEmptyMeasures)) {
+                MeasureLayout.createMMRest(ctx, firstMeasure, lastMeasure, len)
+                ctx.mutState().setCurMeasure(firstMeasure.mmRest())
+                ctx.mutState().setNextMeasure(ctx.conf().isShowVBox() ? lastMeasure.next() : lastMeasure.nextMeasure())
+            } else {
+                if (firstMeasure.mmRest()) {
+                    MeasureLayout.removeMMRestElements(firstMeasure.mmRest()!)
+                    firstMeasure.setMMRest(null)
+                }
+                firstMeasure.setMMRestCount(0)
+                ctx.mutState().setMeasureNo(mno)
+            }
+        } else if (firstMeasure.mmRest()) {
+            MeasureLayout.removeMMRestElements(firstMeasure.mmRest()!)
+            if (firstMeasure.mmRestCount() > 0) {
+                const measureNo = ctx.state().measureNo() + firstMeasure.mmRestCount() - 1
+                ctx.mutState().setMeasureNo(measureNo)
+            }
+        }
+    }
+
+    static createMMRest(ctx: LayoutContext, firstMeasure: Measure, lastMeasure: Measure, len: Fraction): void {
+        const score = ctx.score()
+        let numMeasuresInMMRest = 1
+        if (firstMeasure !== lastMeasure) {
+            for (let m = firstMeasure.nextMeasure(); m; m = m.nextMeasure()) {
+                ++numMeasuresInMMRest
+                m.setMMRestCount(-1)
+                if (m.mmRest()) {
+                    m.setMMRest(null)
+                }
+                if (m === lastMeasure) {
+                    break
+                }
+            }
+        }
+
+        // mmrMeasure coexists with n undisplayed measures of rests
+        let mmrMeasure = firstMeasure.mmRest()
+        if (mmrMeasure) {
+            // reuse existing mmrest
+            if (!mmrMeasure.ticks().eq(len)) {
+                const bls = mmrMeasure.findSegmentR(SegmentType.EndBarLine, mmrMeasure.ticks())
+                const cs = mmrMeasure.findSegmentR(SegmentType.Clef, mmrMeasure.ticks())
+                // adjust length
+                mmrMeasure.setTicks(len)
+                // move existing end barline and clef
+                if (bls) {
+                    bls.setRtick(len)
+                }
+                if (cs) {
+                    cs.setRtick(len)
+                }
+            }
+            MeasureLayout.removeSystemTrailer(mmrMeasure, ctx)
+        } else {
+            mmrMeasure = Factory.createItem(ElementType.MEASURE, score) as Measure
+            mmrMeasure.setScore(score)
+            mmrMeasure.setTicks(len)
+            mmrMeasure.setTick(firstMeasure.tick())
+            firstMeasure.setMMRest(mmrMeasure)
+        }
+        mmrMeasure.setTimesig(firstMeasure.timesig())
+        mmrMeasure.setPageBreak(lastMeasure.pageBreak())
+        mmrMeasure.setLineBreak(lastMeasure.lineBreak())
+        mmrMeasure.setRepeatCount(lastMeasure.repeatCount())
+        mmrMeasure.setMMRestCount(numMeasuresInMMRest)
+        mmrMeasure.setNo(firstMeasure.no())
+
+        // TODO(port): system locks (updateSystemLocksOnCreateMMRest)
+
+        //
+        // set mmrMeasure with same barline as last underlying measure
+        //
+        const lastMeasureEndBarlineSeg = lastMeasure.findSegmentR(SegmentType.EndBarLine, lastMeasure.ticks())
+        if (lastMeasureEndBarlineSeg) {
+            const mmrEndBarlineSeg = mmrMeasure.undoGetSegmentR(SegmentType.EndBarLine, mmrMeasure.ticks())
+            for (let staffIdx = 0; staffIdx < ctx.dom().nstaves(); ++staffIdx) {
+                const e = lastMeasureEndBarlineSeg.element(staffIdx * VOICES)
+                if (e) {
+                    const generated = e.generated()
+                    if (!mmrEndBarlineSeg.element(staffIdx * VOICES)) {
+                        const eClone = generated ? e.clone() : e.linkedClone()
+                        eClone.setGenerated(generated)
+                        eClone.setParent(mmrEndBarlineSeg)
+                        score.addElement(eClone)
+                    } else {
+                        const mmrEndBarline = mmrEndBarlineSeg.element(staffIdx * VOICES) as BarLine
+                        const lastMeasureEndBarline = e as BarLine
+                        if (!generated && !mmrEndBarline.links()) {
+                            mmrEndBarline.linkTo(lastMeasureEndBarline)
+                        }
+                        if (mmrEndBarline.barLineType() !== lastMeasureEndBarline.barLineType()) {
+                            // change directly when generating mmrests, do not change underlying measures or follow links
+                            mmrEndBarline.setProperty(Pid.BARLINE_TYPE, lastMeasureEndBarline.barLineType())
+                            mmrEndBarline.setGenerated(generated)
+                        }
+                    }
+                }
+            }
+            MeasureLayout.cloneAnnotationsToMMRest(lastMeasureEndBarlineSeg, mmrEndBarlineSeg, ctx)
+        }
+
+        //
+        // if last underlying measure ends with clef change, show same at end of mmrest
+        //
+        const lastMeasureClefSeg = lastMeasure.findSegmentR(SegmentType.Clef | SegmentType.HeaderClef, lastMeasure.ticks())
+        if (lastMeasureClefSeg) {
+            const mmrClefSeg = mmrMeasure.undoGetSegment(lastMeasureClefSeg.segmentType(), lastMeasure.endTick())
+            for (let staffIdx = 0; staffIdx < ctx.dom().nstaves(); ++staffIdx) {
+                const track = staff2track(staffIdx)
+                const e = lastMeasureClefSeg.element(track)
+                if (e && e.isClef()) {
+                    const lastMeasureClef = e as Clef
+                    if (!mmrClefSeg.element(track)) {
+                        const mmrClef = (lastMeasureClef.generated() ? lastMeasureClef.clone() : lastMeasureClef.linkedClone()) as Clef
+                        mmrClef.setParent(mmrClefSeg)
+                        score.addElement(mmrClef)
+                    } else {
+                        const mmrClef = mmrClefSeg.element(track) as Clef
+                        mmrClef.setClefType(lastMeasureClef.clefType())
+                        mmrClef.setShowCourtesy(lastMeasureClef.showCourtesy())
+                    }
+                }
+            }
+        }
+
+        mmrMeasure.setRepeatStart(firstMeasure.repeatStart() || lastMeasure.repeatStart())
+        mmrMeasure.setRepeatEnd(firstMeasure.repeatEnd() || lastMeasure.repeatEnd())
+        mmrMeasure.setSectionBreak(lastMeasure.sectionBreak())
+
+        //
+        // copy markers to mmrMeasure
+        //
+        const oldList = mmrMeasure.takeElements()
+        const newList = [...lastMeasure.el()]
+        for (const e of firstMeasure.el()) {
+            if (e.isMarker() && firstMeasure !== lastMeasure) {
+                newList.push(e)
+            }
+        }
+        for (const e of newList) {
+            let found = false
+            for (const ee of oldList) {
+                if (ee.type() === e.type() && ee.subtype() === e.subtype()) {
+                    mmrMeasure.add(ee)
+                    oldList.splice(oldList.indexOf(ee), 1)
+                    found = true
+                    break
+                }
+            }
+            if (!found) {
+                const newEl = e.isLayoutBreak() ? e.clone() : e.linkedClone()
+                newEl.setParent(mmrMeasure)
+                score.addElement(newEl)
+            }
+        }
+        // the elements of oldList are not added again (C++ doUndoRemoveElement)
+
+        const s = mmrMeasure.undoGetSegmentR(SegmentType.ChordRest, new Fraction(0, 1))
+        for (let staffIdx = 0; staffIdx < ctx.dom().nstaves(); ++staffIdx) {
+            const track = staffIdx * VOICES
+            if (!s.element(track)) {
+                const mmr = Factory.createItem(ElementType.MMREST, s) as MMRest
+                mmr.setDurationType(DurationType.V_MEASURE)
+                mmr.setTicks(mmrMeasure.ticks())
+                mmr.setTrack(track)
+                mmr.setParent(s)
+                score.addElement(mmr)
+            }
+        }
+
+        //
+        // further check for clefs
+        //
+        let underlyingSeg = lastMeasure.findSegmentR(SegmentType.Clef, lastMeasure.ticks())
+        let mmrSeg = mmrMeasure.findSegment(SegmentType.Clef, lastMeasure.endTick())
+        if (underlyingSeg) {
+            if (!mmrSeg) {
+                mmrSeg = mmrMeasure.undoGetSegmentR(SegmentType.Clef, lastMeasure.ticks())
+            }
+            mmrSeg.setEnabled(underlyingSeg.enabled())
+            mmrSeg.setTrailer(underlyingSeg.trailer())
+            for (let staffIdx = 0; staffIdx < ctx.dom().nstaves(); ++staffIdx) {
+                const track = staffIdx * VOICES
+                const clef = underlyingSeg.element(track) as Clef | null
+                if (clef && !mmrSeg.element(track)) {
+                    mmrSeg.add(clef.clone())
+                }
+            }
+        } else if (mmrSeg) {
+            mmrMeasure.remove(mmrSeg)
+        }
+
+        //
+        // check for time signature
+        //
+        const copyTimeSigs = (underlying: Segment, mmrTsSeg: Segment): void => {
+            for (let staffIdx = 0; staffIdx < ctx.dom().nstaves(); ++staffIdx) {
+                const track = staffIdx * VOICES
+                const underlyingTimeSig = underlying.element(track) as TimeSig | null
+                if (underlyingTimeSig) {
+                    let mmrTimeSig = mmrTsSeg.element(track) as TimeSig | null
+                    if (!mmrTimeSig) {
+                        mmrTimeSig = (underlyingTimeSig.generated() ? underlyingTimeSig.clone() : underlyingTimeSig.linkedClone()) as TimeSig
+                        mmrTimeSig.setParent(mmrTsSeg)
+                        score.addElement(mmrTimeSig)
+                    } else {
+                        TLayout.layoutTimeSig(mmrTimeSig, ctx)
+                    }
+                }
+            }
+        }
+        underlyingSeg = firstMeasure.findSegmentR(SegmentType.TimeSig, new Fraction(0, 1))
+        mmrSeg = mmrMeasure.findSegment(SegmentType.TimeSig, firstMeasure.tick())
+        if (underlyingSeg) {
+            if (!mmrSeg) {
+                mmrSeg = mmrMeasure.undoGetSegmentR(SegmentType.TimeSig, new Fraction(0, 1))
+            }
+            mmrSeg.setEnabled(underlyingSeg.enabled())
+            mmrSeg.setHeader(underlyingSeg.header())
+            copyTimeSigs(underlyingSeg, mmrSeg)
+        } else if (mmrSeg) {
+            mmrMeasure.remove(mmrSeg)
+        }
+
+        //
+        // check for end of measure time signature
+        //
+        underlyingSeg = lastMeasure.findSegmentR(SegmentType.TimeSig, lastMeasure.ticks())
+        mmrSeg = mmrMeasure.findSegmentR(SegmentType.TimeSig, mmrMeasure.ticks())
+        if (underlyingSeg) {
+            if (!mmrSeg) {
+                mmrSeg = mmrMeasure.undoGetSegmentR(SegmentType.TimeSig, mmrMeasure.ticks())
+            }
+            mmrSeg.setEnabled(underlyingSeg.enabled())
+            mmrSeg.setHeader(underlyingSeg.header())
+            mmrSeg.setEndOfMeasureChange(underlyingSeg.endOfMeasureChange())
+            copyTimeSigs(underlyingSeg, mmrSeg)
+        } else if (mmrSeg) {
+            mmrMeasure.remove(mmrSeg)
+        }
+
+        // TODO(port): ambitus
+
+        //
+        // check for key signature
+        //
+        underlyingSeg = firstMeasure.findSegmentR(SegmentType.KeySig, new Fraction(0, 1))
+        mmrSeg = mmrMeasure.findSegmentR(SegmentType.KeySig, new Fraction(0, 1))
+        if (underlyingSeg) {
+            if (!mmrSeg) {
+                mmrSeg = mmrMeasure.undoGetSegmentR(SegmentType.KeySig, new Fraction(0, 1))
+            }
+            mmrSeg.setEnabled(underlyingSeg.enabled())
+            mmrSeg.setHeader(underlyingSeg.header())
+            for (let staffIdx = 0; staffIdx < ctx.dom().nstaves(); ++staffIdx) {
+                const track = staffIdx * VOICES
+                const underlyingKeySig = underlyingSeg.element(track) as KeySig | null
+                if (underlyingKeySig) {
+                    let mmrKeySig = mmrSeg.element(track) as KeySig | null
+                    if (!mmrKeySig) {
+                        mmrKeySig = (underlyingKeySig.generated() ? underlyingKeySig.clone() : underlyingKeySig.linkedClone()) as KeySig
+                        mmrKeySig.setParent(mmrSeg)
+                        mmrKeySig.setGenerated(true)
+                        score.addElement(mmrKeySig)
+                    } else if (!mmrKeySig.keySigEvent().equals(underlyingKeySig.keySigEvent())) {
+                        mmrKeySig.setKeySigEvent(underlyingKeySig.keySigEvent())
+                    }
+                }
+            }
+        } else if (mmrSeg) {
+            mmrSeg.setEnabled(false)
+        }
+
+        mmrMeasure.checkHeader()
+        mmrMeasure.checkTrailer()
+
+        //
+        // check for rehearsal mark etc.
+        //
+        underlyingSeg = firstMeasure.findSegmentR(SegmentType.ChordRest, new Fraction(0, 1))
+        MeasureLayout.cloneAnnotationsToMMRest(underlyingSeg, s, ctx)
+
+        const nm = ctx.conf().isShowVBox() ? lastMeasure.next() : lastMeasure.nextMeasure()
+        mmrMeasure.setNext(nm)
+        mmrMeasure.setPrev(firstMeasure.prev())
+    }
+
+    private static cloneAnnotationsToMMRest(underlyingSeg: Segment | null, mmrSeg: Segment, ctx: LayoutContext): void {
+        if (!underlyingSeg) {
+            return
+        }
+        // clone elements from underlying measure to mmr
+        for (const e of underlyingSeg.annotations()) {
+            // look at elements in underlying measure
+            if (!BREAK_TYPES.has(e.type()) || !e.visible()) {
+                continue
+            }
+            // try to find a match in mmr
+            const found = mmrSeg.annotations().some(ee => e.linkList().includes(ee))
+            // add to mmr if no match found
+            if (!found) {
+                const eClone = e.linkedClone()
+                eClone.setParent(mmrSeg)
+                ctx.score().addElement(eClone)
+            }
+        }
+
+        // remove stray elements (possibly leftover from a previous layout of this mmr)
+        for (const e of [...mmrSeg.annotations()]) {
+            if (!BREAK_TYPES.has(e.type())) {
+                continue
+            }
+            const found = underlyingSeg.annotations().some(ee => e.linkList().includes(ee))
+            if (!found) {
+                ctx.score().removeElement(e)
+            }
+        }
+    }
+
+    static removeMMRestElements(mmRestMeasure: Measure): void {
+        // Removed linked clones that were created for the mmRest measure
+        for (const item of [...mmRestMeasure.el()]) {
+            item.undoUnlink()
+            mmRestMeasure.score().removeElement(item)
+        }
+        for (let seg = mmRestMeasure.first(); seg && seg.rtick().isZero(); seg = seg.next()) {
+            for (const item of [...seg.annotations()]) {
+                item.undoUnlink()
+                mmRestMeasure.score().removeElement(item)
+            }
         }
     }
 
@@ -514,17 +1135,27 @@ export class MeasureLayout {
                     continue
                 }
                 const staffIdx = e.staffIdx()
+                const modernMMRest = e.isMMRest() && !(e as MMRest).isOldStyle()
                 if ((e.isRest() && (e as Rest).isFullMeasureRest()) || e.isMMRest() || e.isMeasureRepeat()) {
                     //
                     // element has to be centered in free space
                     //    x1 - left measure position of free space
                     //    x2 - right measure position of free space
-                    const measureStartEnd = MeasureLayout.getMeasureStartEndPos(m, s, staffIdx, e.isMMRest(), false, ctx)
+                    const measureStartEnd = MeasureLayout.getMeasureStartEndPos(m, s, staffIdx, e.isMMRest(), modernMMRest, ctx)
                     const x1 = measureStartEnd.x1
                     const x2 = measureStartEnd.x2
 
-                    if (e.isMMRest() || e.isMeasureRepeat()) {
-                        // TODO(port): MMRest, MeasureRepeat
+                    if (e.isMMRest()) {
+                        const mmrest = e as MMRest
+                        // center multimeasure rest
+                        const d = ctx.conf().styleMM(Sid.multiMeasureRestMargin)
+                        const w = x2 - x1 - 2 * d
+                        const mmrestLD = mmrest.mutldata()
+                        mmrestLD.restWidth = w
+                        TLayout.layoutMMRest(mmrest, ctx)
+                        mmrestLD.setPosX(x1 - s.x() + d)
+                    } else if (e.isMeasureRepeat()) {
+                        // TODO(port): MeasureRepeat
                     } else {
                         // full measure rest or one-measure repeat
                         TLayout.layoutItem(e, ctx)

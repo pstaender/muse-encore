@@ -4,7 +4,7 @@
  *
  * usage: npm run compare -- <file.mscz|mscx> [out-dir] [dpi]
  *   writes <name>-<page>-ref.png, <name>-<page>-web.png and <name>-<page>-diff.png
- *   (diff: black = both, red = only MuseScore, blue = only this port)
+ *   (diff: black = both, red = only MuseScore, blue = only this port; differences of one pixel are tolerated)
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
@@ -29,26 +29,57 @@ export function diffPngs(refFile: string, webFile: string, diffFile: string, pag
     const web = PNG.sync.read(readFileSync(webFile))
     const w = Math.max(ref.width, web.width)
     const h = Math.max(ref.height, web.height)
+    const inkMap = (png: PNG): Float32Array => {
+        const m = new Float32Array(w * h)
+        for (let y = 0; y < png.height; ++y) {
+            for (let x = 0; x < png.width; ++x) {
+                m[y * w + x] = ink(png.data, (y * png.width + x) * 4)
+            }
+        }
+        return m
+    }
+    // max over the 3x3 neighborhood: differences of up to one pixel (anti-aliasing, rounding) are tolerated
+    const dilate = (m: Float32Array): Float32Array => {
+        const d = new Float32Array(w * h)
+        for (let y = 0; y < h; ++y) {
+            for (let x = 0; x < w; ++x) {
+                let v = 0
+                for (let dy = -1; dy <= 1; ++dy) {
+                    for (let dx = -1; dx <= 1; ++dx) {
+                        const xx = x + dx
+                        const yy = y + dy
+                        if (xx >= 0 && yy >= 0 && xx < w && yy < h) {
+                            v = Math.max(v, m[yy * w + xx])
+                        }
+                    }
+                }
+                d[y * w + x] = v
+            }
+        }
+        return d
+    }
+    const r = inkMap(ref)
+    const b = inkMap(web)
+    const rd = dilate(r)
+    const bd = dilate(b)
     const out = new PNG({ width: w, height: h })
     let refInk = 0
     let webInk = 0
     let onlyRef = 0
     let onlyWeb = 0
-    for (let y = 0; y < h; ++y) {
-        for (let x = 0; x < w; ++x) {
-            const r = x < ref.width && y < ref.height ? ink(ref.data, (y * ref.width + x) * 4) : 0
-            const b = x < web.width && y < web.height ? ink(web.data, (y * web.width + x) * 4) : 0
-            refInk += r
-            webInk += b
-            const both = Math.min(r, b)
-            onlyRef += r - both
-            onlyWeb += b - both
-            const o = (y * w + x) * 4
-            out.data[o] = Math.round(255 * (1 - both - (b - both)))
-            out.data[o + 1] = Math.round(255 * (1 - both - (r - both) - (b - both)))
-            out.data[o + 2] = Math.round(255 * (1 - both - (r - both)))
-            out.data[o + 3] = 255
-        }
+    for (let i = 0; i < w * h; ++i) {
+        refInk += r[i]
+        webInk += b[i]
+        const or = Math.max(0, r[i] - bd[i])
+        const ob = Math.max(0, b[i] - rd[i])
+        onlyRef += or
+        onlyWeb += ob
+        const both = Math.max(0, Math.max(r[i], b[i]) - or - ob)
+        const o = i * 4
+        out.data[o] = Math.round(255 * (1 - both - ob))
+        out.data[o + 1] = Math.round(255 * (1 - both - or - ob))
+        out.data[o + 2] = Math.round(255 * (1 - both - or))
+        out.data[o + 3] = 255
     }
     writeFileSync(diffFile, PNG.sync.write(out))
     const score = refInk + webInk > 0 ? (onlyRef + onlyWeb) / (refInk + webInk) : 0

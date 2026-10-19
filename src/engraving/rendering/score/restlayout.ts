@@ -8,7 +8,7 @@
  * TODO(port): tablature rests, dead slapped, images, MMRest shape
  */
 
-import { PointF } from '../../../framework/draw/types/geometry'
+import { PointF, RectF } from '../../../framework/draw/types/geometry'
 import { RealIsNull, lrint } from '../../../framework/global/realfn'
 import { Fraction } from '../../types/fraction'
 import { SymId } from '../../types/symid'
@@ -28,6 +28,7 @@ import type { LayoutConfiguration, LayoutContext } from './layoutcontext'
 import { TLayout } from './tlayout'
 import { ChordLayout } from './chordlayout'
 import { BeamLayout } from './beamlayout'
+import type { MMRest } from '../../dom/mmrest'
 
 type RestGroup = Rest[]
 type InterruptionPoints = Fraction[][]
@@ -106,13 +107,13 @@ export class RestLayout {
         }
     }
 
-    static fillShape(item: Rest, _conf: LayoutConfiguration): void {
+    static fillShape(item: Rest, conf: LayoutConfiguration): void {
         switch (item.type()) {
         case ElementType.REST:
             RestLayout.fillRestShape(item)
             break
         case ElementType.MMREST:
-            // TODO(port): MMRest
+            RestLayout.fillMMRestShape(item as MMRest, conf)
             break
         default:
             break
@@ -574,6 +575,17 @@ export class RestLayout {
     }
 
     /** C++ fillShape(const Rest*, Rest::LayoutData*) */
+    static fillMMRestShape(item: MMRest, conf: LayoutConfiguration): void {
+        const ldata = item.mutldata()
+        const shape = new Shape(undefined, null, ShapeType.Composite)
+        const vStrokeHeight = conf.styleMM(Sid.mmRestHBarVStrokeHeight)
+        shape.add(new RectF(0.0, -(vStrokeHeight * 0.5), ldata.restWidth, vStrokeHeight), item)
+        if (item.showNumber()) {
+            shape.add(item.numberRect().translated(item.numberPos()), item)
+        }
+        ldata.setShape(shape)
+    }
+
     static fillRestShape(item: Rest): void {
         const ldata = item.mutldata()
         const shape = new Shape(undefined, null, ShapeType.Composite)

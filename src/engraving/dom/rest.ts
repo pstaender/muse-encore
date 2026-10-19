@@ -6,7 +6,7 @@
  * Port of src/engraving/dom/rest.h/.cpp
  */
 
-import { PointF } from '../../framework/draw/types/geometry'
+import { PointF, RectF } from '../../framework/draw/types/geometry'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import { SymId } from '../types/symid'
@@ -70,6 +70,8 @@ export class Rest extends ChordRest {
     }
 
     protected override createLayoutData(): RestLayoutData { return new RestLayoutData(this) }
+
+    numberRect(): RectF { return new RectF() } // TODO: add style to show number over 1-measure rests
     override ldata(): RestLayoutData { return super.ldata() as RestLayoutData }
     override mutldata(): RestLayoutData { return super.ldata() as RestLayoutData }
 

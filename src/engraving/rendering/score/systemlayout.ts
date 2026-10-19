@@ -421,8 +421,13 @@ export class SystemLayout {
 
             // preserve state of next measure (which is about to become current measure)
             if (ctx.state().nextMeasure()) {
-                const nmb = ctx.mutState().nextMeasure()!
-                // TODO(port): mmRest()
+                let nmb = ctx.mutState().nextMeasure()!
+                if (nmb.isMeasure() && ctx.conf().styleB(Sid.createMultiMeasureRests)) {
+                    const nm = nmb as Measure
+                    if (nm.hasMMRest()) {
+                        nmb = nm.mmRest()!
+                    }
+                }
                 if (nmb.isMeasure()) {
                     prevMeasureState.clear()
                     prevMeasureState.measure = nmb as Measure

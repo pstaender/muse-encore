@@ -17,12 +17,13 @@ import { FillRule } from '../../../framework/draw/types/painterpath'
 import type { Painter } from '../../../framework/draw/painter'
 import { RealIsNull } from '../../../framework/global/realfn'
 import { SymId } from '../../types/symid'
-import { ArticulationTextType, BarLineType, BracketType, ElementType, SlurStyleType } from '../../types/types'
+import { ArticulationTextType, BarLineType, BracketType, ElementType, SlurStyleType, VOICES } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { DefaultStyle } from '../../style/defaultstyle'
 import { CrossMeasure } from '../../dom/chordrest'
 import { Pid } from '../../dom/property'
 import type { Accidental } from '../../dom/accidental'
+import type { MMRest } from '../../dom/mmrest'
 import type { Breath } from '../../dom/breath'
 import type { Fermata } from '../../dom/fermata'
 import type { Articulation } from '../../dom/articulation'
@@ -86,6 +87,8 @@ export class TDraw {
         case ElementType.NOTEDOT: TDraw.drawNoteDot(item as NoteDot, painter, opt)
             break
         case ElementType.REST: TDraw.drawRest(item as Rest, painter, opt)
+            break
+        case ElementType.MMREST: TDraw.drawMMRest(item as MMRest, painter, opt)
             break
         case ElementType.SLUR_SEGMENT: TDraw.drawSlurSegment(item as SlurSegment, painter, opt)
             break
@@ -537,6 +540,67 @@ export class TDraw {
         painter.setPen(item.curColor(opt))
         // TODO(port): dead slapped rests
         item.drawSymbol(item.ldata().sym, painter)
+    }
+
+    static drawMMRest(item: MMRest, painter: Painter, opt: PaintOptions): void {
+        if (item.shouldNotBeDrawn() || (item.track() % VOICES)) { //only on voice 1
+            return
+        }
+        const ldata = item.ldata()
+        const _spatium = item.spatium()
+
+        // draw number
+        painter.setPen(item.curColor(opt))
+        const numberBox = item.symBboxList(ldata.numberSym)
+        const numberPos = item.numberPos()
+        if (item.showNumber()) {
+            item.drawSymbols(ldata.numberSym, painter, numberPos)
+        }
+        const numberBoxT = numberBox.translated(numberPos)
+
+        if (item.isOldStyle()) {
+            // draw rest symbols
+            let x = (ldata.restWidth - ldata.symsWidth) * 0.5
+            const spacing = item.style().styleMM(Sid.mmRestOldStyleSpacing)
+            for (const sym of ldata.restSyms) {
+                const y = sym === SymId.restWhole ? -_spatium : 0
+                item.drawSymbol(sym, painter, new PointF(x, y))
+                x += item.symBbox(sym).width() + spacing
+            }
+        } else {
+            const mag = item.staff()!.staffMag(item.tick())
+            const pen = painter.pen().clone()
+            pen.setCapStyle(PenCapStyle.FlatCap)
+
+            // draw horizontal line
+            const hBarThickness = item.style().styleMM(Sid.mmRestHBarThickness) * mag
+            if (hBarThickness) { // don't draw at all if 0, QPainter interprets 0 pen width differently
+                pen.setWidthF(hBarThickness)
+                painter.setPen(pen)
+                const halfHBarThickness = hBarThickness * 0.5
+                if (item.showNumber() // avoid painting line through number
+                    && item.style().styleB(Sid.mmRestNumberMaskHBar)
+                    && numberBoxT.bottom() >= -halfHBarThickness
+                    && numberBoxT.top() <= halfHBarThickness) {
+                    const gapDistance = (numberBoxT.width() + _spatium) * 0.5
+                    const midpoint = ldata.restWidth * 0.5
+                    painter.drawLine(new LineF(0.0, 0.0, midpoint - gapDistance, 0.0))
+                    painter.drawLine(new LineF(midpoint + gapDistance, 0.0, ldata.restWidth, 0.0))
+                } else {
+                    painter.drawLine(new LineF(0.0, 0.0, ldata.restWidth, 0.0))
+                }
+            }
+
+            // draw vertical lines
+            const vStrokeThickness = item.style().styleMM(Sid.mmRestHBarVStrokeThickness) * mag
+            if (vStrokeThickness) {
+                pen.setWidthF(vStrokeThickness)
+                painter.setPen(pen)
+                const halfVStrokeHeight = item.style().styleMM(Sid.mmRestHBarVStrokeHeight) * 0.5 * mag
+                painter.drawLine(new LineF(0.0, -halfVStrokeHeight, 0.0, halfVStrokeHeight))
+                painter.drawLine(new LineF(ldata.restWidth, -halfVStrokeHeight, ldata.restWidth, halfVStrokeHeight))
+            }
+        }
     }
 
     private static slurTiePen(item: SlurTieSegment, painter: Painter, penColor: Color, mag: number): Pen {

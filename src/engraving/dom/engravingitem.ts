@@ -613,6 +613,35 @@ export abstract class EngravingItem extends EngravingObject {
 
     allowTimeAnchor(): boolean { return false }
 
+    /** C++ clone() (copy constructor) */
+    clone(): EngravingItem {
+        return this.cloneObject()
+    }
+
+    /** C++ linkedClone() */
+    linkedClone(): EngravingItem {
+        const e = this.clone()
+        e.setAutoplace(true)
+        e.linkTo(this)
+        return e
+    }
+
+    protected override onCloned(original: this): void {
+        super.onCloned(original)
+        this.m_layoutData = null
+        this.setFlag(ElementFlag.SELECTED, false)
+        if (original.m_leftParenthesis) {
+            this.m_leftParenthesis = original.m_leftParenthesis.clone()
+            this.m_leftParenthesis.setParent(this)
+            this.m_leftParenthesis.setTrack(this.track())
+        }
+        if (original.m_rightParenthesis) {
+            this.m_rightParenthesis = original.m_rightParenthesis.clone()
+            this.m_rightParenthesis.setParent(this)
+            this.m_rightParenthesis.setTrack(this.track())
+        }
+    }
+
     setPlacementBasedOnVoiceAssignment(styledDirection: DirectionV): void {
         const oldPlacement = this.placement()
         const offsetIsStyled = this.isStyled(Pid.OFFSET)

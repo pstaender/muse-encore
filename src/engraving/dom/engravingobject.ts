@@ -28,6 +28,32 @@ export type ElementStyle = readonly StyledProperty[]
 
 const EMPTY_STYLE: ElementStyle = []
 
+function cloneFieldValue(v: unknown): unknown {
+    if (v === null || typeof v !== 'object') {
+        return v
+    }
+    if (v instanceof EngravingObject) {
+        return v
+    }
+    if (Array.isArray(v)) {
+        return v.map(cloneFieldValue)
+    }
+    if (v instanceof Map) {
+        return new Map(v)
+    }
+    if (v instanceof Set) {
+        return new Set(v)
+    }
+    const c = (v as { clone?: () => unknown }).clone
+    if (typeof c === 'function') {
+        return c.call(v)
+    }
+    if (Object.getPrototypeOf(v) === Object.prototype) {
+        return { ...(v as object) }
+    }
+    return v
+}
+
 export abstract class EngravingObject {
     protected m_elementStyle: ElementStyle = EMPTY_STYLE
     protected m_propertyFlagsList: PropertyFlags[] = []
@@ -37,6 +63,7 @@ export abstract class EngravingObject {
     private m_parent: EngravingObject | null = null
     private m_isParentExplicitlySet = false
     private m_children: EngravingObject[] = []
+    private m_links: EngravingObject[] | null = null // shared list of linked objects (C++ LinkedObjects)
 
     constructor(type: ElementType, parent: EngravingObject | null) {
         this.m_type = type
@@ -94,6 +121,65 @@ export abstract class EngravingObject {
     }
 
     children(): readonly EngravingObject[] { return this.m_children }
+
+    // ---------------------------------------------------------------------------------
+    // links (C++ LinkedObjects, without undo)
+    // ---------------------------------------------------------------------------------
+
+    links(): readonly EngravingObject[] | null { return this.m_links }
+
+    /** all linked objects, or only this object if it is not linked */
+    linkList(): readonly EngravingObject[] { return this.m_links ?? [this] }
+
+    linkTo(other: EngravingObject): void {
+        if (other.m_links) {
+            if (!other.m_links.includes(this)) {
+                other.m_links.push(this)
+            }
+            this.m_links = other.m_links
+        } else {
+            this.m_links = [other, this]
+            other.m_links = this.m_links
+        }
+    }
+
+    unlink(): void {
+        if (!this.m_links) {
+            return
+        }
+        const i = this.m_links.indexOf(this)
+        if (i >= 0) {
+            this.m_links.splice(i, 1)
+        }
+        if (this.m_links.length === 1) {
+            this.m_links[0].m_links = null
+        }
+        this.m_links = null
+    }
+
+    undoUnlink(): void { this.unlink() }
+
+    /**
+     * Generic replacement for the C++ copy constructors: value fields are copied (objects with a clone() method are
+     * cloned, arrays are copied), references to other engraving objects are shared, children and links are not copied.
+     * Subclasses fix up their fields in onCloned().
+     */
+    protected cloneObject(): this {
+        const c = Object.create(Object.getPrototypeOf(this)) as this
+        for (const key of Object.keys(this)) {
+            (c as unknown as Record<string, unknown>)[key] = cloneFieldValue((this as unknown as Record<string, unknown>)[key])
+        }
+        c.m_children = []
+        c.m_links = null
+        c.m_parent = null
+        if (this.m_parent) {
+            c.doSetParent(this.m_parent)
+        }
+        c.onCloned(this)
+        return c
+    }
+
+    protected onCloned(_original: this): void {}
 
     protected addChild(o: EngravingObject): void {
         if (o === this) {

@@ -773,6 +773,11 @@ export abstract class TextBase extends EngravingItem {
     }
 
     protected override createLayoutData(): TextBaseLayoutData { return new TextBaseLayoutData(this) }
+
+    protected override onCloned(original: this): void {
+        super.onCloned(original)
+        this.m_cursor = original.m_cursor.clone(this)
+    }
     override ldata(): TextBaseLayoutData { return super.ldata() as TextBaseLayoutData }
     override mutldata(): TextBaseLayoutData { return super.ldata() as TextBaseLayoutData }
 

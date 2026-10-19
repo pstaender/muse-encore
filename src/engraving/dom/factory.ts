@@ -56,6 +56,7 @@ import { Expression } from './expression'
 import { Dynamic } from './dynamic'
 import { Fermata } from './fermata'
 import { Breath } from './breath'
+import { MMRest } from './mmrest'
 
 type Parent = EngravingObject | null
 
@@ -101,6 +102,7 @@ export class Factory {
         case ElementType.NOTEDOT: return new NoteDot(parent && (parent.isNote() || parent.isRest()) ? parent as unknown as Note : dummy().note())
         case ElementType.CHORD: return new Chord(segmentOrDummy())
         case ElementType.REST: return new Rest(segmentOrDummy())
+        case ElementType.MMREST: return new MMRest(segmentOrDummy())
         case ElementType.BEAM: return new Beam(dummy().system())
         case ElementType.HOOK: return new Hook(chordOrDummy())
         case ElementType.STEM: return new Stem(chordOrDummy())

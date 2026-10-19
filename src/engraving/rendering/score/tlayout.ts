@@ -85,6 +85,7 @@ import type { RehearsalMark } from '../../dom/rehearsalmark'
 import type { StaffText, SystemText } from '../../dom/stafftextbase'
 import type { TempoText } from '../../dom/tempotext'
 import { DynamicsLayout } from './dynamicslayout'
+import type { MMRest } from '../../dom/mmrest'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -177,6 +178,7 @@ export class TLayout {
         case ElementType.NOTE: TLayout.layoutNote(item as Note, ctx); break
         case ElementType.NOTEDOT: TLayout.layoutNoteDot(item as NoteDot); break
         case ElementType.REST: TLayout.layoutRest(item as Rest, ctx); break
+        case ElementType.MMREST: TLayout.layoutMMRest(item as MMRest, ctx); break
         case ElementType.SLUR: TLayout.layoutSlur(item as Slur, ctx); break
         case ElementType.SPACER: TLayout.layoutSpacer(item as Spacer, ctx); break
         case ElementType.STEM: TLayout.layoutStem(item as Stem, ctx); break
@@ -202,6 +204,58 @@ export class TLayout {
             // TODO(port): element type not ported yet
             break
         }
+    }
+
+    static layoutMMRest(item: MMRest, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        // TODO(port): dead slapped, symbols and images attached to the rest (item.el())
+
+        //! NOTE This is not look like layout data, perhaps this is should be set not here
+        ldata.number = item.measure().mmRestCount()
+        ldata.setNumberSym(ldata.number)
+        ldata.yNumberPos = ctx.conf().styleMM(Sid.mmRestNumberPos)
+
+        const staff = item.staff()!
+        if (staff.lines(item.tick()) === 1) {
+            ldata.yNumberPos = Math.min(ldata.yNumberPos, -item.spatium())
+        }
+
+        if (item.isOldStyle()) {
+            const restSyms: SymId[] = []
+            let symsWidth = 0.0
+            let remaining = ldata.number
+            const spacing = ctx.conf().styleMM(Sid.mmRestOldStyleSpacing)
+            while (remaining > 0) {
+                let sym: SymId
+                if (remaining >= 4) {
+                    sym = SymId.restLonga
+                    remaining -= 4
+                } else if (remaining >= 2) {
+                    sym = SymId.restDoubleWhole
+                    remaining -= 2
+                } else {
+                    sym = SymId.restWhole
+                    remaining -= 1
+                }
+                restSyms.push(sym)
+                symsWidth += item.symBbox(sym).width()
+                if (remaining > 0) { // do not add spacing after last symbol
+                    symsWidth += spacing
+                }
+            }
+            ldata.restSyms = restSyms
+            ldata.symsWidth = symsWidth
+        }
+
+        // Only need to set y position here; x position is handled in MeasureLayout::layoutMeasureElements()
+        const staffType = item.staffType()!
+        let midline = staffType.middleLine() / 2.0
+        if (item.isOldStyle()) {
+            midline = Math.max(1.0, midline)
+        }
+        ldata.setPos(0, midline * staffType.lineDistance().val() * item.spatium())
+
+        ChordLayout.fillShape(item, ctx)
     }
 
     static layoutBreath(item: Breath, ctx: LayoutContext): void {
