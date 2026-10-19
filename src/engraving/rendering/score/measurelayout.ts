@@ -49,6 +49,7 @@ import { TremoloLayout } from './tremololayout'
 import { ParenthesisLayout } from './parenthesislayout'
 import type { Parenthesis } from '../../dom/parenthesis'
 import { findFollowingRepeatMeasures } from '../../dom/utils'
+import type { MeasureRepeat } from '../../dom/measurerepeat'
 
 interface MeasureStartEndPos {
     x1: number
@@ -1166,8 +1167,13 @@ export class MeasureLayout {
                         mmrestLD.restWidth = w
                         TLayout.layoutMMRest(mmrest, ctx)
                         mmrestLD.setPosX(x1 - s.x() + d)
-                    } else if (e.isMeasureRepeat()) {
-                        // TODO(port): MeasureRepeat
+                    } else if (e.isMeasureRepeat() && !((e as MeasureRepeat).numMeasures() % 2)) {
+                        // two- or four-measure repeat, center on following barline
+                        const measureWidth = x2 - s.x() + 0.5 * m.styleP(Sid.barWidth)
+                        e.mutldata().setPosX(measureWidth - 0.5 * e.width())
+                        if ((e as MeasureRepeat).numMeasures() === 4 && ctx.conf().styleB(Sid.fourMeasureRepeatShowExtenders)) {
+                            TLayout.layoutMeasureRepeatExtender(e as MeasureRepeat, ctx)
+                        }
                     } else {
                         // full measure rest or one-measure repeat
                         TLayout.layoutItem(e, ctx)

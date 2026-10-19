@@ -77,6 +77,7 @@ import { TremoloTwoChord } from './tremolotwochord'
 import { StaffTypeChange } from './stafftypechange'
 import { LaissezVib, LaissezVibSegment } from './laissezvib'
 import { PartialTie, PartialTieSegment } from './partialtie'
+import { MeasureRepeat } from './measurerepeat'
 
 type Parent = EngravingObject | null
 
@@ -98,6 +99,7 @@ export class Factory {
         case ElementType.ARPEGGIO: return new Arpeggio(chordOrDummy())
         case ElementType.STAFFTYPE_CHANGE: return new StaffTypeChange(parent as MeasureBase)
         case ElementType.LAISSEZ_VIB: return new LaissezVib(parent as Note)
+        case ElementType.MEASURE_REPEAT: return new MeasureRepeat(parent)
         case ElementType.PARTIAL_TIE: return new PartialTie(parent as Note)
         case ElementType.PARTIAL_TIE_SEGMENT: return new PartialTieSegment(null)
         case ElementType.LAISSEZ_VIB_SEGMENT: return new LaissezVibSegment(null)

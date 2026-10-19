@@ -66,6 +66,7 @@ import type { Arpeggio } from '../../dom/arpeggio'
 import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { LaissezVibSegment } from '../../dom/laissezvib'
+import type { MeasureRepeat } from '../../dom/measurerepeat'
 
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
@@ -121,6 +122,8 @@ export class TDraw {
         case ElementType.REST: TDraw.drawRest(item as Rest, painter, opt)
             break
         case ElementType.MMREST: TDraw.drawMMRest(item as MMRest, painter, opt)
+            break
+        case ElementType.MEASURE_REPEAT: TDraw.drawMeasureRepeat(item as MeasureRepeat, painter, opt)
             break
         case ElementType.TRILL_SEGMENT: {
             const ts = item as TrillSegment
@@ -1022,6 +1025,29 @@ export class TDraw {
         painter.setPen(item.curColor(opt))
         // TODO(port): dead slapped rests
         item.drawSymbol(item.ldata().sym, painter)
+    }
+
+    static drawMeasureRepeat(item: MeasureRepeat, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+
+        painter.setPen(new Pen(item.curColor(opt)))
+        item.drawSymbol(ldata.symId, painter)
+
+        if (ldata.numberSym.length) {
+            const numberPos = item.numberPosition(item.symBboxList(ldata.numberSym))
+            item.drawSymbols(ldata.numberSym, painter, numberPos)
+        }
+
+        if (item.style().styleB(Sid.fourMeasureRepeatShowExtenders) && item.numMeasures() === 4) {
+            const hBarThickness = item.style().styleMM(Sid.mmRestHBarThickness)
+            const pen = painter.pen().clone()
+            pen.setCapStyle(PenCapStyle.FlatCap)
+            pen.setWidthF(hBarThickness)
+            painter.setPen(pen)
+
+            painter.drawLine(ldata.extenderLineLeft)
+            painter.drawLine(ldata.extenderLineRight)
+        }
     }
 
     static drawMMRest(item: MMRest, painter: Painter, opt: PaintOptions): void {

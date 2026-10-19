@@ -18,7 +18,7 @@ import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
     StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff, SpannerSegmentType, LineType, PlacementV,
-    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType, ArpeggioType } from '../../types/types'
+    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType, ArpeggioType, nidx } from '../../types/types'
 import { SymNames } from '../../types/symnames'
 import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull } from '../../../framework/global/realfn'
 import { Pid, PropertyFlags } from '../../dom/property'
@@ -121,6 +121,8 @@ import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { StaffTypeChange } from '../../dom/stafftypechange'
 import type { LaissezVib } from '../../dom/laissezvib'
+import type { MeasureRepeat } from '../../dom/measurerepeat'
+import { MeasureLayout } from './measurelayout'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -220,6 +222,7 @@ export class TLayout {
         case ElementType.NOTEDOT: TLayout.layoutNoteDot(item as NoteDot); break
         case ElementType.REST: TLayout.layoutRest(item as Rest, ctx); break
         case ElementType.MMREST: TLayout.layoutMMRest(item as MMRest, ctx); break
+        case ElementType.MEASURE_REPEAT: TLayout.layoutMeasureRepeat(item as MeasureRepeat, ctx); break
         case ElementType.HAIRPIN: TLayout.layoutHairpin(item as Hairpin, ctx); break
         case ElementType.HAIRPIN_SEGMENT: TLayout.layoutHairpinSegment(item as HairpinSegment, ctx); break
         case ElementType.TEXTLINE:
@@ -274,6 +277,122 @@ export class TLayout {
             // TODO(port): element type not ported yet
             break
         }
+    }
+
+    static layoutMeasureRepeat(item: MeasureRepeat, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        for (const e of item.el()) {
+            switch (e.type()) {
+            case ElementType.SYMBOL:
+                TLayout.layoutSymbol(e as SymbolItem, ctx)
+                break
+            default:
+                // TODO(port): DEAD_SLAPPED, IMAGE
+                break
+            }
+        }
+
+        switch (item.numMeasures()) {
+        case 1: {
+            ldata.setSymId(SymId.repeat1Bar)
+            if (ctx.conf().styleB(Sid.mrNumberSeries) && item.track() !== nidx) {
+                let placeInSeries = 2 // "1" would be the measure actually being repeated
+                const staffIdx = item.staffIdx()
+                let m: Measure | null = item.measure()
+                while (m && m.isOneMeasureRepeat(staffIdx) && m.prevIsOneMeasureRepeat(staffIdx)) {
+                    placeInSeries++
+                    m = m.prevMeasure()
+                }
+                if (placeInSeries % ctx.conf().styleI(Sid.mrNumberEveryXMeasures) === 0) {
+                    if (ctx.conf().styleB(Sid.mrNumberSeriesWithParentheses)) {
+                        ldata.setNumberSym(`(${placeInSeries})`)
+                    } else {
+                        ldata.setNumberSym(placeInSeries)
+                    }
+                } else {
+                    ldata.clearNumberSym()
+                }
+            } else if (ctx.conf().styleB(Sid.oneMeasureRepeatShow1)) {
+                ldata.setNumberSym(1)
+            } else {
+                ldata.clearNumberSym()
+            }
+            break
+        }
+        case 2:
+            ldata.setSymId(SymId.repeat2Bars)
+            ldata.setNumberSym(item.numMeasures())
+            break
+        case 4:
+            ldata.setSymId(SymId.repeat4Bars)
+            ldata.setNumberSym(item.numMeasures())
+            break
+        default:
+            ldata.setSymId(SymId.noSym) // should never happen
+            ldata.clearNumberSym()
+            break
+        }
+
+        const bbox = item.symBbox(ldata.symId)
+
+        if (item.track() !== nidx) { // if this is in score rather than a palette cell
+            // For unknown reasons, the symbol has some offset in almost all SMuFL fonts
+            // We compensate for it, to make sure the symbol is visually centered around the staff line
+            const offset = (-bbox.top() - bbox.bottom()) / 2.0
+
+            const staffType = item.staffType()!
+
+            // Only need to set y position here; x position is handled in MeasureLayout::layoutMeasureElements()
+            ldata.setPos(0, Math.floor(staffType.middleLine() / 2.0) * staffType.lineDistance().val() * item.spatium() + offset)
+        }
+
+        ChordLayout.fillShape(item, ctx)
+    }
+
+    static layoutMeasureRepeatExtender(item: MeasureRepeat, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        ldata.extenderLineLeft = new LineF()
+        ldata.extenderLineRight = new LineF()
+
+        const parentMeasure = item.measure()
+        if (!parentMeasure) {
+            return
+        }
+
+        const startMeasure = parentMeasure.prevMeasure()
+        if (!startMeasure || startMeasure.system() !== parentMeasure.system()) {
+            return
+        }
+
+        let endMeasure = parentMeasure.nextMeasure()
+        if (endMeasure) {
+            endMeasure = endMeasure.nextMeasure()
+        }
+        if (!endMeasure || endMeasure.system() !== parentMeasure.system()) {
+            return
+        }
+
+        // Reuse the function that calculates start and end pos for mmRests,
+        // except start and end point are on different measures
+        const staffIdx = item.staffIdx()
+        let xStart = MeasureLayout.getMeasureStartEndPos(startMeasure, startMeasure.first(SegmentType.ChordRest)!, staffIdx,
+            /*needHeaderException*/ startMeasure.header(), /*modernMMrest*/ true, ctx).x1
+        let xEnd = MeasureLayout.getMeasureStartEndPos(endMeasure, endMeasure.first(SegmentType.ChordRest)!, staffIdx,
+            /*needHeaderException*/ false, /*modernMRest*/ true, ctx).x2
+
+        const margin = ctx.conf().styleMM(Sid.multiMeasureRestMargin)
+        xStart += margin
+        xEnd -= margin
+
+        const xItemInSysCoords = item.x() + item.segment()!.x() + parentMeasure.x()
+
+        const startPoint = new PointF(xStart + startMeasure.x() - xItemInSysCoords, 0.0)
+        const midPointL = new PointF(-0.5 * item.spatium(), 0.0)
+        ldata.extenderLineLeft = new LineF(startPoint, midPointL)
+
+        const midPointR = new PointF(item.symWidth(ldata.symId) + 0.5 * item.spatium(), 0.0)
+        const endPoint = new PointF(xEnd + endMeasure.x() - xItemInSysCoords, 0.0)
+        ldata.extenderLineRight = new LineF(midPointR, endPoint)
     }
 
     static layoutMMRest(item: MMRest, ctx: LayoutContext): void {

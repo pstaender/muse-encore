@@ -53,6 +53,7 @@ import type { Ornament } from '../../dom/ornament'
 import { ArpeggioLayout } from './arpeggiolayout'
 import { paddingTable } from '../paddingtable'
 import { TremoloLayout } from './tremololayout'
+import type { MeasureRepeat } from '../../dom/measurerepeat'
 
 export class ChordPosInfo {
     chords: Chord[] = []
@@ -2893,9 +2894,13 @@ export class ChordLayout {
         case ElementType.CHORD:
             ChordLayout.fillChordShape(item as Chord)
             break
-        case ElementType.MEASURE_REPEAT:
-            // TODO(port): MeasureRepeat
-            break
+        case ElementType.MEASURE_REPEAT: {
+            const mr = item as MeasureRepeat
+            const shape = new Shape(undefined, null, ShapeType.Composite)
+            shape.add(mr.numberRect(), mr)
+            shape.add(mr.symBbox(mr.ldata().symId), mr)
+            mr.mutldata().setShape(shape)
+        } break
         default:
             RestLayout.fillShape(item as Rest, ctx.conf())
             break

@@ -13,6 +13,7 @@ import type { PropertyValue } from '../types/propertyvalue'
 import {
     AccidentalVal, AutoOnOff, BarLineType, DurationType, ElementType, VOICES, nidx, track2voice,
     type staff_idx_t, type track_idx_t,
+    staff2track,
 } from '../types/types'
 import { Sid } from '../style/styledef'
 import { EngravingItem, ElementFlag } from './engravingitem'
@@ -39,6 +40,7 @@ import type { Tuplet } from './tuplet'
 import type { Marker } from './marker'
 import type { StaffTypeChange } from './stafftypechange'
 import type { StaffType } from './stafftype'
+import type { MeasureRepeat } from './measurerepeat'
 
 export enum MeasureNumberMode {
     AUTO, // show measure number depending on style
@@ -1047,7 +1049,9 @@ export class Measure extends MeasureBase {
             strack = staffIdx * VOICES
             etrack = strack + VOICES
         }
-        // TODO(port): measure repeat groups
+        if (this.isMeasureRepeatGroup(staffIdx)) {
+            return false
+        }
         for (let s = this.first(SegmentType.ChordRest); s; s = s.next(SegmentType.ChordRest)) {
             for (let track = strack; track < etrack; ++track) {
                 let e = s.element(track)
@@ -1377,7 +1381,6 @@ export class Measure extends MeasureBase {
         return m ? m.m_mmRest! : this
     }
 
-    // TODO(port): measure repeats
     measureRepeatCount(staffIdx: staff_idx_t): number {
         return staffIdx < this.m_mstaves.length ? this.m_mstaves[staffIdx].measureRepeatCount() : 0
     }
@@ -1388,7 +1391,62 @@ export class Measure extends MeasureBase {
     }
 
     isMeasureRepeatGroup(staffIdx: staff_idx_t): boolean { return this.measureRepeatCount(staffIdx) > 0 }
-    isOneMeasureRepeat(_staffIdx: staff_idx_t): boolean { return false }
+    firstOfMeasureRepeatGroup(staffIdx: staff_idx_t): Measure | null {
+        if (!this.isMeasureRepeatGroup(staffIdx)) {
+            return null
+        }
+        let m: Measure = this
+        for (let i = 1; i < this.measureRepeatCount(staffIdx); ++i) {
+            m = m.prevMeasure()!
+        }
+        return m
+    }
+
+    measureRepeatElement(staffIdx: staff_idx_t): MeasureRepeat | null {
+        let m = this.firstOfMeasureRepeatGroup(staffIdx)
+        if (!m) {
+            return null
+        }
+        while (m && m.isMeasureRepeatGroup(staffIdx)) {
+            const strack = staff2track(staffIdx)
+            const etrack = staff2track(staffIdx + 1)
+            for (let track = strack; track < etrack; ++track) {
+                // should only be in first track, but just in case
+                for (let s = m.first(SegmentType.ChordRest); s; s = s.next(SegmentType.ChordRest)) {
+                    // should only be in first segment, but just in case
+                    const e = s.element(track)
+                    if (e && e.isMeasureRepeat()) {
+                        return e as MeasureRepeat
+                    }
+                }
+            }
+            const nm: Measure | null = m.nextMeasure()
+            if (nm && nm.measureRepeatCount(staffIdx) === m.measureRepeatCount(staffIdx) + 1) {
+                m = nm
+            } else {
+                break
+            }
+        }
+        return null
+    }
+
+    measureRepeatNumMeasures(staffIdx: staff_idx_t): number {
+        const el = this.measureRepeatElement(staffIdx)
+        if (!el) {
+            return 0
+        }
+        return el.numMeasures()
+    }
+
+    isOneMeasureRepeat(staffIdx: staff_idx_t): boolean { return this.measureRepeatNumMeasures(staffIdx) === 1 }
+
+    prevIsOneMeasureRepeat(staffIdx: staff_idx_t): boolean {
+        const pm = this.prevMeasure()
+        if (!pm) {
+            return false
+        }
+        return pm.isOneMeasureRepeat(staffIdx)
+    }
 
     lastChordRest(track: track_idx_t): ChordRest | null {
         for (let seg = this.last(); seg; seg = seg.prev()) {

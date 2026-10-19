@@ -10,7 +10,7 @@
 
 import { Fraction } from '../../types/fraction'
 import { Spatium } from '../../types/dimension'
-import { AutoOnOff, BarLineType, DurationType, ElementType, PlacementV, VOICES } from '../../types/types'
+import { AutoOnOff, BarLineType, DurationType, ElementType, PlacementV, VOICES, ClefToBarlinePosition } from '../../types/types'
 import { TConv } from '../../types/typesconv'
 import { Factory } from '../../dom/factory'
 import { Location } from '../../dom/location'
@@ -36,6 +36,7 @@ import type { Fermata } from '../../dom/fermata'
 import type { Breath } from '../../dom/breath'
 import type { StaffText } from '../../dom/stafftextbase'
 import type { Harmony } from '../../dom/harmony'
+import type { MeasureRepeat } from '../../dom/measurerepeat'
 
 export class MeasureRead {
     static readMeasure(measure: Measure, e: XmlReader, ctx: ReadContext, staffIdx: number): void {
@@ -344,8 +345,44 @@ export class MeasureRead {
                 clef.setTrack(ctx.track())
                 TRead.readClef(clef, e, ctx)
                 clef.setGenerated(false)
-                segment = measure.getSegment(clef.isHeader() ? SegmentType.HeaderClef : SegmentType.Clef, ctx.tick())
+
+                let header = clef.isHeader()
+                if (ctx.mscVersion() < 410) {
+                    // read400: we used to try to guess if the clef is a header based on context, which is very unreliable.
+                    // After 4.1, we just TAG it.
+                    // there may be more than one clef segment for same tick position
+                    // the first clef may be missing and is added later in layout
+                    if (!ctx.tick().eq(measure.tick())) {
+                        header = false
+                    } else if (!segment) {
+                        header = true
+                    } else {
+                        header = true
+                        for (let s = measure.first(); s && s.rtick().isZero(); s = s.next()) {
+                            if (s.isKeySigType() || s.isTimeSigType()) {
+                                // hack: there may be other segment types which should
+                                // generate a clef at current position
+                                header = false
+                                break
+                            }
+                        }
+                    }
+                }
+
+                if (ctx.mscVersion() < 450) {
+                    // read400/read410: Clef segments are sorted on layout now.
+                    // Previously, clef barline position could be out of sync with segment placement.
+                    if (!ctx.tick().isZero() && ctx.tick().eq(measure.tick())
+                        && !(measure.prevMeasure() && measure.prevMeasure()!.repeatEnd()) && !header) {
+                        clef.setClefToBarlinePosition(ClefToBarlinePosition.AFTER)
+                    }
+                }
+
+                segment = measure.getSegment(header ? SegmentType.HeaderClef : SegmentType.Clef, ctx.tick())
                 segment.add(clef)
+                if (ctx.mscVersion() < 410) {
+                    clef.setIsHeader(header)
+                }
             } else if (tag === 'TimeSig') {
                 const ts = Factory.createItem(ElementType.TIMESIG, ctx.score()) as TimeSig
                 ts.setTrack(ctx.track())
@@ -423,8 +460,22 @@ export class MeasureRead {
                 startingBeam = beam
             } else if (tag === 'Segment' && segment) {
                 TRead.readSegment(segment, e, ctx)
+            } else if (tag === 'MeasureRepeat' || tag === 'RepeatMeasure') {
+                //             4.x                       3.x
+                segment = measure.getSegment(SegmentType.ChordRest, ctx.tick())
+                const mr = Factory.createItem(ElementType.MEASURE_REPEAT, segment) as MeasureRepeat
+                mr.setTrack(ctx.track())
+                TRead.readMeasureRepeat(mr, e, ctx)
+                if (!mr.numMeasures()) {
+                    mr.setNumMeasures(1) // 3.x doesn't have any other possibilities
+                }
+                if (!measure.measureRepeatCount(staffIdx)) {
+                    measure.setMeasureRepeatCount(1, staffIdx)
+                }
+                segment.add(mr)
+                ctx.incTick(measure.ticks())
             } else {
-                // TODO(port): MeasureRepeat, TremoloBar, Sticking, InstrumentChange, Image,
+                // TODO(port): TremoloBar, Sticking, InstrumentChange, Image,
                 // PlayCountText, Ambitus, ...
                 e.skipCurrentElement()
             }

@@ -116,6 +116,7 @@ import type { TremoloCompat } from '../compat/tremolocompat'
 import type { StaffTypeChange } from '../../dom/stafftypechange'
 import type { LaissezVib } from '../../dom/laissezvib'
 import type { PartialTie } from '../../dom/partialtie'
+import type { MeasureRepeat } from '../../dom/measurerepeat'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -2155,18 +2156,37 @@ export class TRead {
         return true
     }
 
-    static readRest(r: Rest, e: XmlReader, ctx: ReadContext): void {
+    static readMeasureRepeat(r: MeasureRepeat, e: XmlReader, ctx: ReadContext): void {
         while (e.readNextStartElement()) {
             const tag = e.name()
-            if (tag === 'NoteDot') {
-                const dot = Factory.createItem(ElementType.NOTEDOT, r) as NoteDot
-                dot.setParent(r)
-                TRead.readItemPropertiesOnly(dot, e, ctx)
-                r.add(dot)
-            } else if (TRead.readStyledProperty(r, tag, e, ctx)) {
-            } else if (TRead.readPropertyIfTag(r, tag, e, ctx, Pid.ALIGN_WITH_OTHER_RESTS)) {
-            } else if (TRead.readChordRestProperties(r, e, ctx)) {
-            } else {
+            if (tag === 'subtype') {
+                r.setNumMeasures(e.readInt())
+            } else if (!TRead.readRestProperties(r, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    /** C++ TRead::readProperties(Rest*, ...) */
+    private static readRestProperties(r: Rest, e: XmlReader, ctx: ReadContext): boolean {
+        const tag = e.name()
+        if (tag === 'NoteDot') {
+            const dot = Factory.createItem(ElementType.NOTEDOT, r) as NoteDot
+            dot.setParent(r)
+            TRead.readItemPropertiesOnly(dot, e, ctx)
+            r.add(dot)
+        } else if (TRead.readStyledProperty(r, tag, e, ctx)) {
+        } else if (TRead.readPropertyIfTag(r, tag, e, ctx, Pid.ALIGN_WITH_OTHER_RESTS)) {
+        } else if (TRead.readChordRestProperties(r, e, ctx)) {
+        } else {
+            return false
+        }
+        return true
+    }
+
+    static readRest(r: Rest, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            if (!TRead.readRestProperties(r, e, ctx)) {
                 e.unknown()
             }
         }
