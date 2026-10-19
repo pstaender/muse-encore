@@ -100,6 +100,10 @@ import { Grip } from '../../editing/editdata'
 import { Spatium } from '../../types/dimension'
 import { OffsetChange } from '../../dom/engravingitem'
 import { TabBeamGrid, type TabDurationSymbol } from '../../dom/tabdurationsymbol'
+import type { Marker } from '../../dom/marker'
+import type { Jump } from '../../dom/jump'
+import { MarkerLayout } from './markerlayout'
+import type { Measure } from '../../dom/measure'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -229,6 +233,8 @@ export class TLayout {
         case ElementType.EXPRESSION: TLayout.layoutExpression(item as Expression, ctx); break
         case ElementType.FERMATA: TLayout.layoutFermata(item as Fermata, ctx); break
         case ElementType.REHEARSAL_MARK: TLayout.layoutRehearsalMark(item as RehearsalMark, ctx); break
+        case ElementType.MARKER: MarkerLayout.layoutMarker(item as Marker, ctx); break
+        case ElementType.JUMP: TLayout.layoutJump(item as Jump, ctx); break
         case ElementType.STAFF_TEXT: TLayout.layoutStaffText(item as StaffText, ctx); break
         case ElementType.SYSTEM_TEXT: TLayout.layoutSystemText(item as SystemText, ctx); break
         case ElementType.TEMPO_TEXT: TLayout.layoutTempoText(item as TempoText, ctx); break
@@ -2289,6 +2295,43 @@ export class TLayout {
                 TLayout.layoutItem(e, ctx)
             }
         }
+    }
+
+    static layoutJump(item: Jump, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        TextLayout.layoutBaseTextBase(item, ctx)
+
+        const position = item.position()
+
+        // ignore courtesy keysig, timesig, but fall back if needed
+        const measure = item.parent() as Measure
+        const bl = measure.endBarLine()
+        const xAdj0 = bl ? bl.segment()!.x() + bl.ldata().bbox().width() : measure.width()
+        let xAdj = xAdj0
+
+        const avoidBarline = item.staffIdx() !== 0 && position !== AlignH.HCENTER
+        if (avoidBarline) {
+            const startRepeat = measure.repeatStart()
+            const endRepeat = measure.repeatEnd()
+            const blAboveIdx = item.staffIdx() - 1
+
+            const fontSizeScaleFactor = item.size() / 10.0
+            const padding = (startRepeat || endRepeat) ? 0.0 : 0.5 * item.spatium() * fontSizeScaleFactor
+
+            if (position === AlignH.LEFT) {
+                const blAbove = startRepeat || !measure.prevMeasure()
+                    ? measure.startBarLine(blAboveIdx) : measure.prevMeasure()!.endBarLine(blAboveIdx)
+                const blWidth = (startRepeat && blAbove) ? blAbove.width() : 0.0
+                xAdj += padding + blWidth
+            } else if (position === AlignH.RIGHT) {
+                const blAbove = measure.endBarLine(blAboveIdx)
+                const blWidth = blAbove ? blAbove.width() : 0.0
+                xAdj -= blWidth + padding
+            }
+        }
+        ldata.moveX(xAdj)
+
+        Autoplace.autoplaceMeasureElement(item, ldata)
     }
 
     static layoutMeasureNumber(item: MeasureNumber, ctx: LayoutContext): void {

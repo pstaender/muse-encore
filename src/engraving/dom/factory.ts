@@ -65,6 +65,8 @@ import { Pedal, PedalSegment } from './pedal'
 import { LyricsLine } from './lyricsline'
 import { LetRing, LetRingSegment } from './letring'
 import { PalmMute, PalmMuteSegment } from './palmmute'
+import { Marker } from './marker'
+import { Jump } from './jump'
 
 type Parent = EngravingObject | null
 
@@ -101,6 +103,8 @@ export class Factory {
         case ElementType.SLUR: return new Slur(itemOrDummy())
         case ElementType.TIE: return new Tie(itemOrDummy())
         case ElementType.SPACER: return new Spacer(measureOrDummy())
+        case ElementType.MARKER: return new Marker(measureOrDummy())
+        case ElementType.JUMP: return new Jump(measureOrDummy())
         case ElementType.LAYOUT_BREAK: return new LayoutBreak(parent && parent.isMeasureBase() ? parent as MeasureBase : dummy().measure())
         case ElementType.LYRICS: return new Lyrics(parent && parent.isChordRest() ? parent as unknown as ChordRest : dummy().chord())
         case ElementType.HBOX: return new HBox(dummy().system())

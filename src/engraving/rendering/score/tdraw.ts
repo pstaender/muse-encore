@@ -145,6 +145,8 @@ export class TDraw {
         case ElementType.SYSTEM_TEXT:
         case ElementType.TEMPO_TEXT:
         case ElementType.REHEARSAL_MARK:
+        case ElementType.MARKER:
+        case ElementType.JUMP:
             TDraw.drawTextBase(item as TextBase, painter, opt)
             break
         default:

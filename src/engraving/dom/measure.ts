@@ -36,6 +36,7 @@ import type { Clef } from './clef'
 import type { LayoutBreak } from './layoutbreak'
 import type { Spacer } from './spacer'
 import type { Tuplet } from './tuplet'
+import type { Marker } from './marker'
 
 export enum MeasureNumberMode {
     AUTO, // show measure number depending on style
@@ -646,7 +647,7 @@ export class Measure extends MeasureBase {
         }
         case ElementType.JUMP:
         case ElementType.MARKER:
-            if (e.isJump() || (e.isMarker() && (e as unknown as { isRightMarker(): boolean }).isRightMarker())) {
+            if (e.isJump() || (e.isMarker() && (e as Marker).isRightMarker())) {
                 this.setRepeatJump(true)
             }
             this.el().push(e)

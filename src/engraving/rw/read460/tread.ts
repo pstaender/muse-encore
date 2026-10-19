@@ -99,6 +99,8 @@ import type { LyricsLine } from '../../dom/lyricsline'
 import type { LineSegment, SLine } from '../../dom/line'
 import type { ChordTextLineBase } from '../../dom/chordtextlinebase'
 import { CompatUtils } from '../compat/compatutils'
+import type { Marker } from '../../dom/marker'
+import type { Jump } from '../../dom/jump'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -167,6 +169,8 @@ export class TRead {
         case ElementType.SYSTEM_TEXT: TRead.readStaffTextBase(item as StaffTextBase, xml, ctx); break
         case ElementType.TEMPO_TEXT: TRead.readTempoText(item as TempoText, xml, ctx); break
         case ElementType.REHEARSAL_MARK: TRead.readTextBase(item as TextBase, xml, ctx); break
+        case ElementType.MARKER: TRead.readMarker(item as Marker, xml, ctx); break
+        case ElementType.JUMP: TRead.readJump(item as Jump, xml, ctx); break
         case ElementType.EXPRESSION: TRead.readExpression(item as Expression, xml, ctx); break
         case ElementType.DYNAMIC: TRead.readDynamic(item as Dynamic, xml, ctx); break
         case ElementType.FERMATA: TRead.readFermata(item as Fermata, xml, ctx); break
@@ -581,6 +585,49 @@ export class TRead {
             } else if (tag === 'pause') {
                 b.setPause(e.readDouble())
             } else if (!TRead.readItemProperties(b, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readMarker(m: Marker, e: XmlReader, ctx: ReadContext): void {
+        // This property was written in the wrong order from 4.6.0-4.6.2
+        // It was written before the text style and was reset on initialising the text style
+        let symbolSize: number | null = null
+
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'label') {
+                m.setLabel(e.readAsciiText())
+            } else if (TRead.readPropertyIfTag(m, tag, e, ctx, Pid.MARKER_TYPE)) {
+            } else if (TRead.readPropertyIfTag(m, tag, e, ctx, Pid.MARKER_CENTER_ON_SYMBOL)) {
+            } else if (tag === 'musicSymbolSize') {
+                symbolSize = e.readDouble()
+            } else if (!TRead.readTextBaseProperties(m, e, ctx)) {
+                e.unknown()
+            }
+        }
+
+        if (symbolSize !== null) {
+            m.setProperty(Pid.MUSIC_SYMBOL_SIZE, symbolSize)
+            if (m.isStyled(Pid.MUSIC_SYMBOL_SIZE)) {
+                m.setPropertyFlags(Pid.MUSIC_SYMBOL_SIZE, PropertyFlags.UNSTYLED)
+            }
+        }
+    }
+
+    static readJump(j: Jump, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'jumpTo') {
+                j.setJumpTo(e.readText())
+            } else if (tag === 'playUntil') {
+                j.setPlayUntil(e.readText())
+            } else if (tag === 'continueAt') {
+                j.setContinueAt(e.readText())
+            } else if (tag === 'playRepeats') {
+                j.setPlayRepeats(e.readBool())
+            } else if (!TRead.readTextBaseProperties(j, e, ctx)) {
                 e.unknown()
             }
         }

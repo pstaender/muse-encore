@@ -73,7 +73,13 @@ export class MeasureRead {
                 ctx.setTick(measure.tick())
                 MeasureRead.readVoice(measure, e, ctx, staffIdx, irregular)
             } else if (tag === 'Marker' || tag === 'Jump') {
-                e.skipCurrentElement() // TODO(port): markers and jumps
+                const el = Factory.createItemByName(tag, measure)!
+                el.setTrack(ctx.track())
+                TRead.readItem(el, e, ctx)
+                if (el.systemFlag() && el.isTopSystemObject()) {
+                    el.setTrack(0) // original system object always goes on top
+                }
+                measure.add(el)
             } else if (tag === 'stretch') {
                 let val = e.readDouble()
                 if (val < 0.0) {
