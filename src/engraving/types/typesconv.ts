@@ -1,0 +1,262 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-only
+ * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
+ * Copyright (C) 2021-2026 MuseScore Limited and others
+ *
+ * Port of src/engraving/types/typesconv.h/.cpp
+ *
+ * C++ uses overloads of TConv::fromXml/toXml; here every type has its own function
+ * (e.g. TConv.fromXmlAlignH). The tables are generated into typesconvdata.ts.
+ */
+
+import { SymId } from './symid'
+import { SymNames } from './symnames'
+import {
+    Align, AlignH, AlignV, AutoOnOff, BarLineType, BeamMode, BracketType, ChordStylePreset, ClefType,
+    DirectionH, DirectionV, DurationType, DynamicType, ElementType, GlissandoStyle, HookType, KeyMode,
+    LayoutBreakType, LineType, LyricsSyllabic, MarkerType, MeasureNumberPlacement, NoteHeadGroup, NoteHeadScheme,
+    NoteHeadType, NoteSpellingType, Orientation, OrnamentInterval, OrnamentStyle, PlacementH, PlacementV,
+    RepeatPlayCountPreset, StaffGroup, TextPlace, TextStyleType, TieDotsPlacement, TiePlacement, TimeSigPlacement,
+    TimeSigStyle, TimeSigVSMargin, TremoloType, TrillType, VoiceAssignment, AutoCustomHide, LyricsDashSystemStart,
+    ArpeggioType, JumpType, GlissandoType, VeloType, ArticulationTextType, VibratoType, PartialSpannerDirection,
+} from './types'
+import * as D from './typesconvdata'
+import type { Item } from './typesconvdata'
+
+function findXmlTagByType<T>(cont: readonly Item<T>[], v: T): string {
+    const it = cont.find(i => i.type === v)
+    return it ? it.xml : ''
+}
+
+function findUserNameByType<T>(cont: readonly Item<T>[], v: T): string {
+    const it = cont.find(i => i.type === v)
+    return it ? it.userName : ''
+}
+
+function findTypeByXmlTag<T>(cont: readonly Item<T>[], tag: string, def: T): T {
+    const it = cont.find(i => i.xml === tag)
+    return it ? it.type : def
+}
+
+/** compatibility: old files may store enums as integers */
+function compatInt<T>(tag: string, def: T): T {
+    if (/^-?\d+$/.test(tag.trim())) {
+        return parseInt(tag, 10) as unknown as T
+    }
+    return def
+}
+
+const OLD_TST_TAGS: Record<string, TextStyleType> = {
+    'Default': TextStyleType.DEFAULT,
+    'Title': TextStyleType.TITLE,
+    'Subtitle': TextStyleType.SUBTITLE,
+    'Composer': TextStyleType.COMPOSER,
+    'Lyricist': TextStyleType.LYRICIST,
+    'Translator': TextStyleType.TRANSLATOR,
+    'Frame': TextStyleType.FRAME,
+    'Instrument Name (Part)': TextStyleType.INSTRUMENT_EXCERPT,
+    'Instrument Name (Long)': TextStyleType.INSTRUMENT_LONG,
+    'Instrument Name (Short)': TextStyleType.INSTRUMENT_SHORT,
+    'Instrument Change': TextStyleType.INSTRUMENT_CHANGE,
+    'Header': TextStyleType.HEADER,
+    'Footer': TextStyleType.FOOTER,
+    'Copyright': TextStyleType.COPYRIGHT,
+    'Page Number': TextStyleType.PAGE_NUMBER,
+    'Measure Number': TextStyleType.MEASURE_NUMBER,
+    'Multimeasure Rest Range': TextStyleType.MMREST_RANGE,
+    'Tempo': TextStyleType.TEMPO,
+    'Metronome': TextStyleType.METRONOME,
+    'Repeat Text Left': TextStyleType.REPEAT_LEFT,
+    'Repeat Text Right': TextStyleType.REPEAT_RIGHT,
+    'Rehearsal Mark': TextStyleType.REHEARSAL_MARK,
+    'System': TextStyleType.SYSTEM,
+    'Staff': TextStyleType.STAFF,
+    'Expression': TextStyleType.EXPRESSION,
+    'Dynamics': TextStyleType.DYNAMICS,
+    'Hairpin': TextStyleType.HAIRPIN,
+    'Lyrics Odd Lines': TextStyleType.LYRICS_ODD,
+    'Lyrics Even Lines': TextStyleType.LYRICS_EVEN,
+    'Chord Symbol': TextStyleType.HARMONY_A,
+    'Chord Symbol (Alternate)': TextStyleType.HARMONY_B,
+    'Roman Numeral Analysis': TextStyleType.HARMONY_ROMAN,
+    'Nashville Number': TextStyleType.HARMONY_NASHVILLE,
+    'Tuplet': TextStyleType.TUPLET,
+    'Sticking': TextStyleType.STICKING,
+    'Fingering': TextStyleType.FINGERING,
+    'LH Guitar Fingering': TextStyleType.LH_GUITAR_FINGERING,
+    'RH Guitar Fingering': TextStyleType.RH_GUITAR_FINGERING,
+    'String Number': TextStyleType.STRING_NUMBER,
+    'Text Line': TextStyleType.TEXTLINE,
+    'Note-anchored Line': TextStyleType.NOTELINE,
+    'Volta': TextStyleType.VOLTA,
+    'Ottava': TextStyleType.OTTAVA,
+    'Glissando': TextStyleType.GLISSANDO,
+    'Pedal': TextStyleType.PEDAL,
+    'Bend': TextStyleType.BEND,
+    'Let Ring': TextStyleType.LET_RING,
+    'Palm Mute': TextStyleType.PALM_MUTE,
+    'User-1': TextStyleType.USER1,
+    'User-2': TextStyleType.USER2,
+    'User-3': TextStyleType.USER3,
+    'User-4': TextStyleType.USER4,
+    'User-5': TextStyleType.USER5,
+    'User-6': TextStyleType.USER6,
+    'User-7': TextStyleType.USER7,
+    'User-8': TextStyleType.USER8,
+    'User-9': TextStyleType.USER9,
+    'User-10': TextStyleType.USER10,
+    'User-11': TextStyleType.USER11,
+    'User-12': TextStyleType.USER12,
+    'Technique': TextStyleType.EXPRESSION,
+    '12': TextStyleType.DYNAMICS,
+    '26': TextStyleType.STAFF,
+}
+
+export const TConv = {
+    // ElementType
+    toXmlElementType: (v: ElementType): string => findXmlTagByType(D.ELEMENT_TYPES, v),
+    fromXmlElementType: (tag: string, def: ElementType = ElementType.INVALID): ElementType => findTypeByXmlTag(D.ELEMENT_TYPES, tag, def),
+    userNameElementType: (v: ElementType): string => findUserNameByType(D.ELEMENT_TYPES, v),
+
+    // Align
+    fromXmlAlignH: (tag: string, def: AlignH): AlignH => findTypeByXmlTag(D.ALIGN_H, tag, def),
+    fromXmlAlignV: (tag: string, def: AlignV): AlignV => findTypeByXmlTag(D.ALIGN_V, tag, def),
+    toXmlAlignH: (v: AlignH): string => findXmlTagByType(D.ALIGN_H, v),
+    toXmlAlignV: (v: AlignV): string => findXmlTagByType(D.ALIGN_V, v),
+    toXmlAlign: (v: Align): string => `${findXmlTagByType(D.ALIGN_H, v.horizontal)},${findXmlTagByType(D.ALIGN_V, v.vertical)}`,
+    fromXmlAlign(str: string, def: Align = new Align()): Align {
+        const sl = str.split(',')
+        if (sl.length !== 2) {
+            return def.clone()
+        }
+        return new Align(findTypeByXmlTag(D.ALIGN_H, sl[0], def.horizontal), findTypeByXmlTag(D.ALIGN_V, sl[1], def.vertical))
+    },
+
+    fromXmlOrnamentInterval(str: string, def: OrnamentInterval): OrnamentInterval {
+        const sl = str.split(',')
+        if (sl.length !== 2) {
+            return def
+        }
+        return new OrnamentInterval(findTypeByXmlTag(D.INTERVAL_STEP, sl[0], def.step), findTypeByXmlTag(D.INTERVAL_TYPE, sl[1], def.type))
+    },
+
+    fromXmlTiePlacement: (tag: string, def: TiePlacement): TiePlacement => findTypeByXmlTag(D.TIE_PLACEMENT, tag, def),
+    fromXmlTieDotsPlacement: (tag: string, def: TieDotsPlacement): TieDotsPlacement => findTypeByXmlTag(D.TIE_DOTS_PLACEMENT, tag, def),
+    fromXmlTimeSigPlacement: (tag: string, def: TimeSigPlacement): TimeSigPlacement => findTypeByXmlTag(D.TIMESIG_PLACEMENT, tag, def),
+    fromXmlTimeSigStyle: (tag: string, def: TimeSigStyle): TimeSigStyle => findTypeByXmlTag(D.TIMESIG_STYLE, tag, def),
+    fromXmlTimeSigVSMargin: (tag: string, def: TimeSigVSMargin): TimeSigVSMargin => findTypeByXmlTag(D.TIMESIG_MARGIN, tag, def),
+    fromXmlNoteSpellingType: (tag: string, def: NoteSpellingType): NoteSpellingType => findTypeByXmlTag(D.NOTE_SPELLING_TYPE, tag, def),
+    fromXmlChordStylePreset: (tag: string, def: ChordStylePreset): ChordStylePreset => findTypeByXmlTag(D.CHORD_STYLE_PRESET, tag, def),
+    fromXmlRepeatPlayCountPreset: (tag: string, def: RepeatPlayCountPreset): RepeatPlayCountPreset => findTypeByXmlTag(D.REPEAT_COUNT_PRESET, tag, def),
+    fromXmlAutoCustomHide: (tag: string, def: AutoCustomHide): AutoCustomHide => findTypeByXmlTag(D.AUTO_CUSTOM_HIDE, tag, def),
+    fromXmlVoiceAssignment: (tag: string, def: VoiceAssignment): VoiceAssignment => findTypeByXmlTag(D.VOICE_ASSIGNMENT, tag, def),
+    fromXmlAutoOnOff: (tag: string, def: AutoOnOff): AutoOnOff => findTypeByXmlTag(D.AUTO_ON_OFF, tag, def),
+    fromXmlPartialSpannerDirection: (tag: string, def: PartialSpannerDirection): PartialSpannerDirection =>
+        findTypeByXmlTag(D.PARTIAL_SPANNER_DIRECTION, tag, def),
+
+    toXmlSymId: (v: SymId): string => SymNames.nameForSymId(v),
+    fromXmlSymId: (tag: string, def: SymId = SymId.noSym): SymId => SymNames.symIdByName(tag, def),
+
+    fromXmlOrientation: (tag: string, def: Orientation): Orientation => findTypeByXmlTag(D.ORIENTATION, tag, def),
+    fromXmlNoteHeadType: (tag: string, def: NoteHeadType): NoteHeadType => findTypeByXmlTag(D.NOTEHEAD_TYPES, tag, def),
+    fromXmlNoteHeadScheme: (tag: string, def: NoteHeadScheme): NoteHeadScheme => findTypeByXmlTag(D.NOTEHEAD_SCHEMES, tag, def),
+    fromXmlNoteHeadGroup: (tag: string, def: NoteHeadGroup): NoteHeadGroup => {
+        const it = D.NOTEHEAD_GROUPS.find(i => i.xml === tag)
+        return it ? it.type : compatInt(tag, def)
+    },
+
+    toXmlClefType: (v: ClefType): string => findXmlTagByType(D.CLEF_TYPES, v),
+    fromXmlClefType: (tag: string, def: ClefType): ClefType => {
+        const it = D.CLEF_TYPES.find(i => i.xml === tag)
+        return it ? it.type : compatInt(tag, def)
+    },
+
+    toXmlDynamicType: (v: DynamicType): string => findXmlTagByType(D.DYNAMIC_TYPES, v),
+    fromXmlDynamicType: (tag: string, def: DynamicType): DynamicType => findTypeByXmlTag(D.DYNAMIC_TYPES, tag, def),
+
+    fromXmlHookType: (tag: string, def: HookType): HookType => {
+        const it = D.HOOK_TYPES.find(i => i.xml === tag)
+        return it ? it.type : compatInt(tag, def)
+    },
+    fromXmlLineType: (tag: string, def: LineType): LineType => findTypeByXmlTag(D.LINE_TYPES, tag, def),
+    fromXmlKeyMode: (tag: string, def: KeyMode): KeyMode => findTypeByXmlTag(D.KEY_MODES, tag, def),
+
+    toXmlTextStyleType: (v: TextStyleType): string => findXmlTagByType(D.TEXTSTYLE_TYPES, v),
+    fromXmlTextStyleType: (tag: string, def: TextStyleType = TextStyleType.DEFAULT): TextStyleType => {
+        const it = D.TEXTSTYLE_TYPES.find(i => i.xml === tag)
+        if (it) {
+            return it.type
+        }
+        return OLD_TST_TAGS[tag] ?? def
+    },
+
+    toXmlDurationType: (v: DurationType): string => findXmlTagByType(D.DURATION_TYPES, v),
+    fromXmlDurationType: (tag: string, def: DurationType): DurationType => findTypeByXmlTag(D.DURATION_TYPES, tag, def),
+
+    fromXmlOrnamentStyle: (tag: string, def: OrnamentStyle): OrnamentStyle => findTypeByXmlTag(D.ORNAMENTSTYLE_TYPES, tag, def),
+    fromXmlPlacementV: (tag: string, def: PlacementV): PlacementV => {
+        const it = D.PLACEMENTV_TYPES.find(i => i.xml === tag)
+        return it ? it.type : compatInt(tag, def)
+    },
+    fromXmlPlacementH: (tag: string, def: PlacementH): PlacementH => {
+        const it = D.PLACEMENTH_TYPES.find(i => i.xml === tag)
+        return it ? it.type : compatInt(tag, def)
+    },
+    fromXmlTextPlace: (tag: string, def: TextPlace): TextPlace => {
+        const it = D.TEXTPLACE_TYPES.find(i => i.xml === tag) ?? D.OLD_TEXTPLACE_TYPES.find(i => i.xml === tag)
+        return it ? it.type : def
+    },
+    fromXmlDirectionV: (tag: string, def: DirectionV): DirectionV => findTypeByXmlTag(D.DIRECTIONV_TYPES, tag, def),
+    fromXmlDirectionH: (tag: string, def: DirectionH): DirectionH => {
+        const it = D.DIRECTIONH_TYPES.find(i => i.xml === tag)
+        return it ? it.type : compatInt(tag, def)
+    },
+    fromXmlLayoutBreakType: (tag: string, def: LayoutBreakType): LayoutBreakType => findTypeByXmlTag(D.LAYOUTBREAK_TYPES, tag, def),
+    fromXmlVeloType: (tag: string, def: VeloType): VeloType => findTypeByXmlTag(D.VELO_TYPES, tag, def),
+    fromXmlBeamMode: (tag: string, def: BeamMode): BeamMode => {
+        const it = D.BEAMMODE_TYPES.find(i => i.xml === tag)
+        return it ? it.type : compatInt(tag, def)
+    },
+    fromXmlGlissandoStyle: (tag: string, def: GlissandoStyle): GlissandoStyle => {
+        const it = D.GLISSANDOSTYLE_TYPES.find(i => i.xml === tag)
+        return it ? it.type : (tag === 'Chromatic' ? GlissandoStyle.CHROMATIC : def)
+    },
+    toXmlBarLineType: (v: BarLineType): string => findXmlTagByType(D.BARLINE_TYPES, v),
+    fromXmlBarLineType: (tag: string, def: BarLineType): BarLineType => {
+        const it = D.BARLINE_TYPES.find(i => i.xml === tag)
+        return it ? it.type : compatInt(tag, def)
+    },
+    fromXmlTremoloType: (tag: string, def: TremoloType): TremoloType => findTypeByXmlTag(D.TREMOLO_TYPES, tag, def),
+    fromXmlBracketType: (tag: string, def: BracketType): BracketType => {
+        const it = D.BRACKET_TYPES.find(i => i.xml === tag)
+        return it ? it.type : (tag === 'Akkolade' ? BracketType.BRACE : def)
+    },
+    fromXmlArpeggioType: (tag: string, def: ArpeggioType): ArpeggioType => findTypeByXmlTag(D.ARPEGGIO_TYPES, tag, def),
+    fromXmlGlissandoType: (tag: string, def: GlissandoType): GlissandoType => findTypeByXmlTag(D.GLISSANDO_TYPES, tag, def),
+    fromXmlJumpType: (tag: string, def: JumpType): JumpType => findTypeByXmlTag(D.JUMP_TYPES, tag, def),
+    fromXmlMarkerType: (tag: string, def: MarkerType): MarkerType => {
+        const it = D.MARKER_TYPES.find(i => i.xml === tag)
+        return it ? it.type : (tag === 'Repeat' ? MarkerType.TOCODA : def)
+    },
+    fromXmlStaffGroup: (tag: string, def: StaffGroup): StaffGroup => findTypeByXmlTag(D.STAFFGROUP_TYPES, tag, def),
+    fromXmlTrillType: (tag: string, def: TrillType): TrillType => {
+        const it = D.TRILL_TYPES.find(i => i.xml === tag)
+        if (it) {
+            return it.type
+        }
+        if (tag === '0') {
+            return TrillType.TRILL_LINE
+        } else if (tag === 'pure') {
+            return TrillType.PRALLPRALL_LINE
+        }
+        return def
+    },
+    fromXmlVibratoType: (tag: string, def: VibratoType): VibratoType => findTypeByXmlTag(D.VIBRATO_TYPES, tag, def),
+    fromXmlArticulationTextType: (tag: string, def: ArticulationTextType): ArticulationTextType =>
+        findTypeByXmlTag(D.ARTICULATIONTEXT_TYPES, tag, def),
+    fromXmlLyricsSyllabic: (tag: string, def: LyricsSyllabic): LyricsSyllabic => findTypeByXmlTag(D.LYRICSSYLLABIC_TYPES, tag, def),
+    fromXmlLyricsDashSystemStart: (tag: string, def: LyricsDashSystemStart): LyricsDashSystemStart =>
+        findTypeByXmlTag(D.LYRICS_DASH_SYSTEM_START_TYPES, tag, def),
+    fromXmlMeasureNumberPlacement: (tag: string, def: MeasureNumberPlacement): MeasureNumberPlacement =>
+        findTypeByXmlTag(D.MEASURE_NUMBER_MODES, tag, def),
+}
