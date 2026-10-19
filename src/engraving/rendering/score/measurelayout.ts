@@ -12,7 +12,7 @@
 import { LineF, PointF, type ScaleF } from '../../../framework/draw/types/geometry'
 import { Fraction } from '../../types/fraction'
 import {
-    AlignH, BarLineType, DirectionH, DurationType, ElementType, Key, MeasureNumberPlacement, ParenthesesMode, TimeSigPlacement, VOICES,
+    AlignH, BarLineType, CourtesyBarlineMode, DirectionH, DurationType, ElementType, Key, MeasureNumberPlacement, ParenthesesMode, TimeSigPlacement, VOICES,
     staff2track, track2staff, type staff_idx_t, type track_idx_t,
 } from '../../types/types'
 import { Sid } from '../../style/styledef'
@@ -1332,16 +1332,16 @@ export class MeasureLayout {
             const isRepeatSigBarline = ctx.conf().styleB(Sid.barlineBeforeSigChange) && nextMeasRepeat
             // Key sig barline
             const keySigBarlineMode = ctx.conf().styleI(Sid.keySigCourtesyBarlineMode)
-            const beforeKSCourtesy = keySigBarlineMode === 1 /* DOUBLE_BEFORE_COURTESY */ && m.hasCourtesyKeySig()
-            const alwaysDoubleKS = keySigBarlineMode === 2 /* ALWAYS_DOUBLE */ && hasKeySig
+            const beforeKSCourtesy = keySigBarlineMode === CourtesyBarlineMode.DOUBLE_BEFORE_COURTESY && m.hasCourtesyKeySig()
+            const alwaysDoubleKS = keySigBarlineMode === CourtesyBarlineMode.ALWAYS_DOUBLE && hasKeySig
             const beforeRepeatKS = isRepeatSigBarline && hasKeySig && ctx.conf().styleB(Sid.doubleBarlineBeforeKeySig)
             if (beforeKSCourtesy || alwaysDoubleKS || beforeRepeatKS) {
                 blType = BarLineType.DOUBLE
             }
             // Time sig barline
             const timeSigBarlineMode = ctx.conf().styleI(Sid.timeSigCourtesyBarlineMode)
-            const beforeTSCourtesy = timeSigBarlineMode === 1 /* DOUBLE_BEFORE_COURTESY */ && hasCourtesyTimeSig
-            const alwaysDoubleTS = timeSigBarlineMode === 2 /* ALWAYS_DOUBLE */ && hasTimeSig
+            const beforeTSCourtesy = timeSigBarlineMode === CourtesyBarlineMode.DOUBLE_BEFORE_COURTESY && hasCourtesyTimeSig
+            const alwaysDoubleTS = timeSigBarlineMode === CourtesyBarlineMode.ALWAYS_DOUBLE && hasTimeSig
             const beforeRepeatTS = isRepeatSigBarline && hasTimeSig && ctx.conf().styleB(Sid.doubleBarlineBeforeTimeSig)
             if (beforeTSCourtesy || alwaysDoubleTS || beforeRepeatTS) {
                 blType = BarLineType.DOUBLE

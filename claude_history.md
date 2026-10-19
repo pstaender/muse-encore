@@ -139,6 +139,6 @@
   4th system fits on page 1.
 - ornament-9: hairpins on vocal staves (4.2 file) are placed above the staff, MuseScore places them below; with a
   4.5 file and a vocal instrument MuseScore also places them above. Cause not found yet.
-- bigTimeSig-7/8: barline before a key change is drawn as a double barline.
+- bigTimeSig-8: first measure after an across-staves header time signature is ~1sp wider than in MuseScore.
 - Cross-staff spacing (e.g. cross-10) differs.
 - 3.x and older files (read302/206/114) are rejected.

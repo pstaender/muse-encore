@@ -12,7 +12,7 @@
 import { PointF } from '../../../framework/draw/types/geometry'
 import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull, stdRound } from '../../../framework/global/realfn'
 import { BeamMode, DirectionH, DirectionV, DurationType, ElementType, track2voice, NoteHeadType, VOICES, staff2track,
-    type staff_idx_t, type track_idx_t } from '../../types/types'
+    NoteHeadGroup, type staff_idx_t, type track_idx_t } from '../../types/types'
 import { Shape, ShapeType } from '../../infrastructure/shape'
 import { Sid } from '../../style/styledef'
 import { SymId } from '../../types/symid'
@@ -676,7 +676,7 @@ export class ChordLayout {
                 const result = note.pos().plus(item.pos())
                 const center = SlurTieLayout.noteOpticalCenterForTie(note, up)
                 let visualInsetSp: number
-                if (note.headGroup() === 1 /* NoteHeadGroup.HEAD_SLASH */ || note.shouldHideFret()) {
+                if (note.headGroup() === NoteHeadGroup.HEAD_SLASH || note.shouldHideFret()) {
                     visualInsetSp = 0.2
                 } else if (item.up() && up) {
                     visualInsetSp = 0.7
