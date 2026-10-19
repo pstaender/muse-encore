@@ -7,7 +7,7 @@
  * (editing commands not ported)
  */
 
-import { PointF } from '../../framework/draw/types/geometry'
+import { PointF, RectF } from '../../framework/draw/types/geometry'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import {
@@ -259,6 +259,16 @@ export class Measure extends MeasureBase {
 
     setHasVoices(staffIdx: staff_idx_t, v: boolean): void {
         this.mstaff(staffIdx)?.setHasVoices(v)
+    }
+
+    staffPageBoundingRect(staffIdx: staff_idx_t): RectF {
+        const s = this.system()
+        if (!s) {
+            return new RectF()
+        }
+        const sysStaffPageBbox = s.staff(staffIdx)!.bbox().translated(s.pagePos())
+        const measurePageBbox = this.pageBoundingRect()
+        return new RectF(measurePageBbox.x(), sysStaffPageBbox.y(), measurePageBbox.width(), sysStaffPageBbox.height())
     }
 
     staffLines(staffIdx: staff_idx_t): StaffLines {
