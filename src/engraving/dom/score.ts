@@ -32,6 +32,7 @@ import type { Page } from './page'
 import type { Spanner } from './spanner'
 import type { Text } from './text'
 import { SystemLocks, type SystemLock } from './systemlock'
+import { ChordList } from './chordlist'
 
 export enum LayoutMode {
     PAGE, FLOAT, LINE, SYSTEM, HORIZONTAL_FIXED,
@@ -96,6 +97,7 @@ export class Score extends EngravingObject {
     protected m_pages: Page[] = []
     protected m_spanner = new SpannerMap()
     protected m_unmanagedSpanners = new Set<Spanner>()
+    private m_chordList = new ChordList()
     protected m_metaTags = new Map<string, string>()
     protected m_engravingFont: EngravingFont | null = null
     protected m_noteHeadWidth: number | null = null
@@ -255,6 +257,13 @@ export class Score extends EngravingObject {
 
     /** C++ dummy()->system(): parent for newly created elements */
     dummySystem(): System { return scoreDummyHooks.system!(this) }
+
+    chordList(): ChordList { return this.m_chordList }
+
+    /** C++ Score::checkChordList() (dom/utils.cpp) */
+    checkChordList(): void {
+        this.m_chordList.checkChordList(this.style())
+    }
 
     lastSegment(): Segment | null {
         const m = this.lastMeasure()

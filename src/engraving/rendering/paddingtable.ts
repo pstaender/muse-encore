@@ -4,14 +4,13 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/engraving/rendering/paddingtable.h/.cpp
- *
- * TODO(port): ParenPaddingTable (parentheses)
  */
 
 import { ElementType } from '../types/types'
 import { Sid } from '../style/styledef'
 import type { MStyle } from '../style/style'
 import type { Score } from '../dom/score'
+import type { EngravingItem } from '../dom/engravingitem'
 
 export const TOT_ELEMENT_TYPES = ElementType.MAXTYPE
 
@@ -256,3 +255,178 @@ export function paddingTable(score: Score): PaddingTable {
 }
 
 export function resetPaddingTable(score: Score): void { s_tables.delete(score) }
+
+/** padding between a parenthesis and the items before / after it */
+export abstract class ParenPaddingTable {
+    protected m_parenBefore = new Float64Array(TOT_ELEMENT_TYPES)
+    protected m_parenAfter = new Float64Array(TOT_ELEMENT_TYPES)
+
+    abstract createTable(style: MStyle): void
+
+    padding(type1: ElementType, type2: ElementType): number {
+        const row = type1 === ElementType.PARENTHESIS ? this.m_parenAfter : this.m_parenBefore
+        const otherType = type1 === ElementType.PARENTHESIS ? type2 : type1
+        return row[otherType]
+    }
+
+    static getPaddingTable(parent: EngravingItem): ParenPaddingTable {
+        let table: ParenPaddingTable
+        switch (parent.type()) {
+        case ElementType.NOTE:
+        case ElementType.CHORD:
+            table = new NoteParenPaddingTable()
+            break
+        case ElementType.KEYSIG:
+            table = new KeySigParenPaddingTable()
+            break
+        case ElementType.TIMESIG:
+            table = new TimeSigParenPaddingTable()
+            break
+        case ElementType.CLEF:
+            table = new ClefParenPaddingTable()
+            break
+        default:
+            throw new Error('Not a valid parenthesised type')
+        }
+
+        const spatium = parent.style().spatium()
+        const minPadUnit = 0.1 * spatium
+        table.initPaddingTable(minPadUnit)
+
+        table.createTable(parent.style())
+
+        return table
+    }
+
+    protected initPaddingTable(minPadUnit: number): void {
+        this.m_parenBefore.fill(minPadUnit)
+        this.m_parenAfter.fill(minPadUnit)
+    }
+}
+
+class NoteParenPaddingTable extends ParenPaddingTable {
+    createTable(style: MStyle): void {
+        const T = ElementType
+        const spatium = style.spatium()
+        const b = this.m_parenBefore
+        const a = this.m_parenAfter
+
+        b[T.ARPEGGIO] = style.styleMM(Sid.arpeggioAccidentalDistance)
+        b[T.BAR_LINE] = style.styleMM(Sid.barAccidentalDistance)
+        b[T.CLEF] = 0.6 * spatium
+        b[T.HOOK] = 0.35 * spatium
+        b[T.KEYSIG] = 1.6 * spatium
+        b[T.LEDGER_LINE] = style.styleMM(Sid.accidentalNoteDistance)
+        b[T.NOTEDOT] = 0.35 * spatium
+        b[T.NOTE] = 0.35 * spatium
+        b[T.REST] = 0.45 * spatium
+        b[T.STEM] = 0.35 * spatium
+        b[T.TIMESIG] = 0.8 * spatium
+        b[T.PARENTHESIS] = style.styleMM(Sid.minNoteDistance) * 0.5
+
+        a[T.ACCIDENTAL] = Math.max(style.styleMM(Sid.accidentalNoteDistance), 0.35 * spatium)
+        a[T.ARPEGGIO] = 0.6 * spatium
+        a[T.BAR_LINE] = style.styleMM(Sid.noteBarDistance)
+        a[T.CLEF] = 0.8 * spatium
+        a[T.KEYSIG] = 0.75 * spatium
+        a[T.LEDGER_LINE] = 0.35 * spatium
+        a[T.NOTE] = Math.max(style.styleMM(Sid.accidentalNoteDistance), 0.35 * spatium)
+        a[T.REST] = style.styleMM(Sid.minNoteDistance)
+        a[T.STEM] = style.styleMM(Sid.minNoteDistance)
+        a[T.TIMESIG] = 0.75 * spatium
+        a[T.PARENTHESIS] = style.styleMM(Sid.minNoteDistance) * 0.5
+    }
+}
+
+class KeySigParenPaddingTable extends ParenPaddingTable {
+    createTable(style: MStyle): void {
+        const T = ElementType
+        const spatium = style.spatium()
+        const b = this.m_parenBefore
+        const a = this.m_parenAfter
+
+        b[T.BAR_LINE] = 0.5 * spatium
+        b[T.CLEF] = 0.25 * spatium
+        b[T.HOOK] = 0.35 * spatium
+        b[T.KEYSIG] = 0.25 * spatium
+        b[T.NOTEDOT] = 0.35 * spatium
+        b[T.NOTE] = style.styleMM(Sid.noteBarDistance)
+        b[T.REST] = b[T.NOTE]
+        b[T.STEM] = 0.35 * spatium
+        b[T.TIMESIG] = 0.25 * spatium
+        b[T.PARENTHESIS] = 1.0 * spatium
+
+        a[T.BAR_LINE] = 0.5 * spatium
+        a[T.CLEF] = 0.2 * spatium
+        a[T.HOOK] = 0.35 * spatium
+        a[T.KEYSIG] = 0.25 * spatium
+        a[T.NOTEDOT] = 0.35 * spatium
+        a[T.NOTE] = style.styleMM(Sid.barNoteDistance)
+        a[T.REST] = a[T.NOTE]
+        a[T.STEM] = 0.35 * spatium
+        a[T.TIMESIG] = 0.25 * spatium
+        a[T.PARENTHESIS] = 1.0 * spatium
+    }
+}
+
+class TimeSigParenPaddingTable extends ParenPaddingTable {
+    createTable(style: MStyle): void {
+        const T = ElementType
+        const spatium = style.spatium()
+        const b = this.m_parenBefore
+        const a = this.m_parenAfter
+
+        b[T.BAR_LINE] = 0.5 * spatium
+        b[T.CLEF] = 0.25 * spatium
+        b[T.HOOK] = 0.35 * spatium
+        b[T.KEYSIG] = 0.25 * spatium
+        b[T.NOTEDOT] = 0.35 * spatium
+        b[T.NOTE] = style.styleMM(Sid.noteBarDistance)
+        b[T.REST] = b[T.NOTE]
+        b[T.STEM] = 0.35 * spatium
+        b[T.TIMESIG] = 0.25 * spatium
+        b[T.PARENTHESIS] = 1.0 * spatium
+
+        a[T.BAR_LINE] = 0.5 * spatium
+        a[T.CLEF] = 0.2 * spatium
+        a[T.HOOK] = 0.35 * spatium
+        a[T.KEYSIG] = 0.35 * spatium
+        a[T.NOTEDOT] = 0.2 * spatium
+        a[T.NOTE] = style.styleMM(Sid.barNoteDistance)
+        a[T.REST] = a[T.NOTE]
+        a[T.STEM] = 0.35 * spatium
+        a[T.TIMESIG] = 0.25 * spatium
+        a[T.PARENTHESIS] = 1.0 * spatium
+    }
+}
+
+class ClefParenPaddingTable extends ParenPaddingTable {
+    createTable(style: MStyle): void {
+        const T = ElementType
+        const spatium = style.spatium()
+        const b = this.m_parenBefore
+        const a = this.m_parenAfter
+
+        b[T.BAR_LINE] = 0.5 * spatium
+        b[T.CLEF] = 0.25 * spatium
+        b[T.HOOK] = 0.35 * spatium
+        b[T.KEYSIG] = 0.25 * spatium
+        b[T.NOTEDOT] = 0.35 * spatium
+        b[T.NOTE] = style.styleMM(Sid.noteBarDistance)
+        b[T.REST] = b[T.NOTE]
+        b[T.STEM] = 0.35 * spatium
+        b[T.TIMESIG] = 0.25 * spatium
+        b[T.PARENTHESIS] = 1.0 * spatium
+
+        a[T.BAR_LINE] = 0.5 * spatium
+        a[T.CLEF] = 0.25 * spatium
+        a[T.HOOK] = 0.35 * spatium
+        a[T.KEYSIG] = 0.35 * spatium
+        a[T.NOTEDOT] = 0.35 * spatium
+        a[T.NOTE] = style.styleMM(Sid.barNoteDistance)
+        a[T.REST] = a[T.NOTE]
+        a[T.STEM] = 0.35 * spatium
+        a[T.TIMESIG] = 0.2 * spatium
+        a[T.PARENTHESIS] = 1.0 * spatium
+    }
+}

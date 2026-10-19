@@ -23,7 +23,7 @@ import {
     LineType, LyricsSyllabic, NoteHeadGroup, NoteHeadScheme, NoteHeadType, Orientation, OrnamentStyle, PartialSpannerDirection,
     PlacementH, PlacementV, PreferSharpFlat, SlurStyleType, StaffGroup, TextPlace, TextStyleType, TiePlacement,
     VeloType, VoiceAssignment, AccidentalRole, DynamicType, AutoCustomHide, MarkerType, GlissandoType,
-    ElementType, type track_idx_t,
+    ElementType, ParenthesesMode, type track_idx_t,
     ChangeMethod, DynamicSpeed, SpannerSegmentType, VOICES,
 } from '../../types/types'
 import { Constants } from '../../types/constants'
@@ -101,6 +101,10 @@ import type { ChordTextLineBase } from '../../dom/chordtextlinebase'
 import { CompatUtils } from '../compat/compatutils'
 import type { Marker } from '../../dom/marker'
 import type { Jump } from '../../dom/jump'
+import { HarmonyInfo, type Harmony } from '../../dom/harmony'
+import { HDegree, HDegreeType } from '../../dom/chordlist'
+import type { Parenthesis } from '../../dom/parenthesis'
+import type { NoteCaseType } from '../../dom/pitchspelling'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -170,6 +174,8 @@ export class TRead {
         case ElementType.TEMPO_TEXT: TRead.readTempoText(item as TempoText, xml, ctx); break
         case ElementType.REHEARSAL_MARK: TRead.readTextBase(item as TextBase, xml, ctx); break
         case ElementType.MARKER: TRead.readMarker(item as Marker, xml, ctx); break
+        case ElementType.HARMONY: TRead.readHarmony(item as Harmony, xml, ctx); break
+        case ElementType.PARENTHESIS: TRead.readParenthesis(item as Parenthesis, xml, ctx); break
         case ElementType.JUMP: TRead.readJump(item as Jump, xml, ctx); break
         case ElementType.EXPRESSION: TRead.readExpression(item as Expression, xml, ctx); break
         case ElementType.DYNAMIC: TRead.readDynamic(item as Dynamic, xml, ctx); break
@@ -370,8 +376,11 @@ export class TRead {
             item.setZ(e.readInt())
         } else if (TRead.readPropertyIfTag(item, tag, e, ctx, Pid.HAS_PARENTHESES)) {
         } else if (tag === 'Parenthesis') {
-            // TODO(port): Parenthesis
-            e.skipCurrentElement()
+            const p = Factory.createItem(ElementType.PARENTHESIS, item) as Parenthesis
+            TRead.readParenthesis(p, e, ctx)
+            p.setParent(item)
+            p.setTrack(ctx.track())
+            item.add(p)
         } else {
             return false
         }
@@ -585,6 +594,140 @@ export class TRead {
             } else if (tag === 'pause') {
                 b.setPause(e.readDouble())
             } else if (!TRead.readItemProperties(b, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    private static readHarmonyInfo(info: HarmonyInfo, e: XmlReader): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'bass') {
+                info.setBassTpc(e.readInt())
+            } else if (tag === 'extension') {
+                info.setId(e.readInt())
+            } else if (tag === 'name') {
+                info.setTextName(e.readText())
+            } else if (tag === 'root') {
+                info.setRootTpc(e.readInt())
+            } else {
+                e.unknown()
+            }
+        }
+    }
+
+    static readHarmony(h: Harmony, e: XmlReader, ctx: ReadContext): void {
+        if (ctx.mscVersion() < 460) {
+            TRead.readHarmony410(h, e, ctx)
+            return
+        }
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'bassCase') {
+                h.setBassCase(e.readInt() as NoteCaseType)
+            } else if (tag === 'rootCase') {
+                h.setRootCase(e.readInt() as NoteCaseType)
+            } else if (tag === 'harmonyInfo') {
+                const info = new HarmonyInfo(ctx.score())
+                TRead.readHarmonyInfo(info, e)
+                h.addChord(info)
+            } else if (tag === 'degree') {
+                TRead.readHarmonyDegree(h, e)
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.POS_ABOVE)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.HARMONY_TYPE)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.PLAY)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.HARMONY_VOICE_LITERAL)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.HARMONY_VOICING)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.HARMONY_DURATION)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.HARMONY_BASS_SCALE)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.HARMONY_DO_NOT_STACK_MODIFIERS)) {
+            } else if (!TRead.readTextBaseProperties(h, e, ctx)) {
+                e.unknown()
+            }
+        }
+
+        h.afterRead()
+    }
+
+    /** C++ read400/read410 TRead::read(Harmony*): one chord, stored directly in <Harmony> */
+    private static readHarmony410(h: Harmony, e: XmlReader, ctx: ReadContext): void {
+        const info = new HarmonyInfo(ctx.score())
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'base') {
+                info.setBassTpc(e.readInt())
+            } else if (tag === 'baseCase') {
+                h.setBassCase(e.readInt() as NoteCaseType)
+            } else if (tag === 'extension') {
+                info.setId(e.readInt())
+            } else if (tag === 'name') {
+                info.setTextName(e.readText())
+            } else if (tag === 'root') {
+                info.setRootTpc(e.readInt())
+            } else if (tag === 'rootCase') {
+                h.setRootCase(e.readInt() as NoteCaseType)
+            } else if (tag === 'function') {
+                CompatUtils.setHarmonyRootTpcFromFunction(info, h, e.readText())
+            } else if (tag === 'degree') {
+                TRead.readHarmonyDegree(h, e)
+            } else if (tag === 'leftParen') {
+                h.setParenthesesMode(h.rightParen() ? ParenthesesMode.BOTH : ParenthesesMode.LEFT, true, false)
+                e.skipCurrentElement()
+            } else if (tag === 'rightParen') {
+                h.setParenthesesMode(h.leftParen() ? ParenthesesMode.BOTH : ParenthesesMode.RIGHT, true, false)
+                e.skipCurrentElement()
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.POS_ABOVE)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.HARMONY_TYPE)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.PLAY)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.HARMONY_VOICE_LITERAL)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.HARMONY_VOICING)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.HARMONY_DURATION)) {
+            } else if (!TRead.readTextBaseProperties(h, e, ctx)) {
+                e.unknown()
+            }
+        }
+
+        h.addChord(info)
+
+        h.afterRead()
+    }
+
+    private static readHarmonyDegree(h: Harmony, e: XmlReader): void {
+        let degreeValue = 0
+        let degreeAlter = 0
+        let degreeType = ''
+        while (e.readNextStartElement()) {
+            const t = e.name()
+            if (t === 'degree-value') {
+                degreeValue = e.readInt()
+            } else if (t === 'degree-alter') {
+                degreeAlter = e.readInt()
+            } else if (t === 'degree-type') {
+                degreeType = e.readText()
+            } else {
+                e.unknown()
+            }
+        }
+        if (degreeValue <= 0 || degreeValue > 13
+            || degreeAlter < -2 || degreeAlter > 2
+            || (degreeType !== 'add' && degreeType !== 'alter' && degreeType !== 'subtract')) {
+            // incorrect degree
+        } else {
+            if (degreeType === 'add') {
+                h.addDegree(new HDegree(degreeValue, degreeAlter, HDegreeType.ADD))
+            } else if (degreeType === 'alter') {
+                h.addDegree(new HDegree(degreeValue, degreeAlter, HDegreeType.ALTER))
+            } else if (degreeType === 'subtract') {
+                h.addDegree(new HDegree(degreeValue, degreeAlter, HDegreeType.SUBTRACT))
+            }
+        }
+    }
+
+    static readParenthesis(p: Parenthesis, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (TRead.readPropertyIfTag(p, tag, e, ctx, Pid.HORIZONTAL_DIRECTION)) {
+            } else if (!TRead.readItemProperties(p, e, ctx)) {
                 e.unknown()
             }
         }

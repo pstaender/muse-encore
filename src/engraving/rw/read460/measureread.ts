@@ -35,6 +35,7 @@ import { TRead } from './tread'
 import type { Fermata } from '../../dom/fermata'
 import type { Breath } from '../../dom/breath'
 import type { StaffText } from '../../dom/stafftextbase'
+import type { Harmony } from '../../dom/harmony'
 
 export class MeasureRead {
     static readMeasure(measure: Measure, e: XmlReader, ctx: ReadContext, staffIdx: number): void {
@@ -294,6 +295,18 @@ export class MeasureRead {
                     el.setTrack(0) // original system object always goes on top
                 }
                 segment.add(el)
+            } else if (tag === 'Harmony') {
+                segment = measure.getSegment(SegmentType.ChordRest, ctx.tick())
+                const el = Factory.createItem(ElementType.HARMONY, segment) as Harmony
+
+                el.setTrack(ctx.track())
+                TRead.readHarmony(el, e, ctx)
+                if (el.systemFlag() && el.isTopSystemObject()) {
+                    el.setTrack(0) // original system object always goes on top
+                }
+                if (el.chords().length) { // else: invalid harmony
+                    segment.add(el)
+                }
             } else if (tag === 'SystemText' || tag === 'RehearsalMark') {
                 // TODO(port): Sticking, PlayTechAnnotation, Capo, StringTunings, InstrumentChange, StaffState,
                 // FiguredBass, HarpPedalDiagram
@@ -401,7 +414,7 @@ export class MeasureRead {
             } else if (tag === 'Segment' && segment) {
                 TRead.readSegment(segment, e, ctx)
             } else {
-                // TODO(port): MeasureRepeat, Harmony, FretDiagram, TremoloBar, Sticking, InstrumentChange, Image,
+                // TODO(port): MeasureRepeat, FretDiagram, TremoloBar, Sticking, InstrumentChange, Image,
                 // PlayCountText, Ambitus, ...
                 e.skipCurrentElement()
             }

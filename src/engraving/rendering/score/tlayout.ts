@@ -104,6 +104,10 @@ import type { Marker } from '../../dom/marker'
 import type { Jump } from '../../dom/jump'
 import { MarkerLayout } from './markerlayout'
 import type { Measure } from '../../dom/measure'
+import type { Harmony } from '../../dom/harmony'
+import type { Parenthesis } from '../../dom/parenthesis'
+import { HarmonyLayout } from './harmonylayout'
+import { ParenthesisLayout } from './parenthesislayout'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -234,6 +238,8 @@ export class TLayout {
         case ElementType.FERMATA: TLayout.layoutFermata(item as Fermata, ctx); break
         case ElementType.REHEARSAL_MARK: TLayout.layoutRehearsalMark(item as RehearsalMark, ctx); break
         case ElementType.MARKER: MarkerLayout.layoutMarker(item as Marker, ctx); break
+        case ElementType.HARMONY: HarmonyLayout.layoutHarmony(item as Harmony, ctx); break
+        case ElementType.PARENTHESIS: ParenthesisLayout.layoutParenthesis(item as Parenthesis, ctx); break
         case ElementType.JUMP: TLayout.layoutJump(item as Jump, ctx); break
         case ElementType.STAFF_TEXT: TLayout.layoutStaffText(item as StaffText, ctx); break
         case ElementType.SYSTEM_TEXT: TLayout.layoutSystemText(item as SystemText, ctx); break

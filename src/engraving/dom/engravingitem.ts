@@ -16,7 +16,7 @@ import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import { SmuflAnchorId, SymId, type SymIdList } from '../types/symid'
 import {
-    AutoOnOff, DirectionV, ElementType, ParenthesesMode, PlacementV, VoiceAssignment, nidx, staff2track, track2staff, track2voice, VOICES,
+    AutoOnOff, DirectionH, DirectionV, ElementType, ParenthesesMode, PlacementV, VoiceAssignment, nidx, staff2track, track2staff, track2voice, VOICES,
     type staff_idx_t, type track_idx_t, type voice_idx_t,
 } from '../types/types'
 import { Sid } from '../style/styledef'
@@ -314,6 +314,9 @@ export class LayoutData {
         this.m_staffCenteringInfo = { availableVertSpaceAbove: availSpaceAbove, availableVertSpaceBelow: availSpaceBelow }
     }
 }
+
+/** set by dom/factory.ts (avoids a circular import of parenthesis.ts) */
+export const itemFactories: { createParenthesis?: (parent: EngravingItem) => EngravingItem } = {}
 
 export abstract class EngravingItem extends EngravingObject {
     protected m_z = -1
@@ -996,9 +999,9 @@ export abstract class EngravingItem extends EngravingObject {
         if (e.isParenthesis()) {
             const p = e as EngravingItem & { direction(): number }
             e.setVisible(this.visible())
-            if (p.direction() === 1 /* DirectionH::LEFT */) {
+            if (p.direction() === DirectionH.LEFT) {
                 this.m_leftParenthesis = e
-            } else if (p.direction() === 2 /* DirectionH::RIGHT */) {
+            } else if (p.direction() === DirectionH.RIGHT) {
                 this.m_rightParenthesis = e
             }
         }
@@ -1048,6 +1051,40 @@ export abstract class EngravingItem extends EngravingObject {
     leftParen(): EngravingItem | null { return this.m_leftParenthesis }
     rightParen(): EngravingItem | null { return this.m_rightParenthesis }
     paren(dirLeft: boolean): EngravingItem | null { return dirLeft ? this.m_leftParenthesis : this.m_rightParenthesis }
+
+    /** C++ EngravingItem::setParenthesesMode() (TODO(port): linked elements) */
+    setParenthesesMode(v: ParenthesesMode, _addToLinked = true, generated = false): void {
+        this.setHasParenthesis(true, !!(v & ParenthesesMode.LEFT), generated)
+        this.setHasParenthesis(false, !!(v & ParenthesesMode.RIGHT), generated)
+    }
+
+    /** C++ setHasLeftParenthesis() / setHasRightParenthesis() */
+    private setHasParenthesis(left: boolean, v: boolean, generated: boolean): void {
+        const paren = left ? this.m_leftParenthesis : this.m_rightParenthesis
+        const hasGeneratedParen = !!paren && paren.generated()
+        const hasUserParen = !!paren && !paren.generated()
+
+        if (generated && v === hasGeneratedParen) {
+            return
+        }
+
+        if (!generated && v === hasUserParen) {
+            return
+        }
+
+        if (v) {
+            if (!paren) {
+                const p = itemFactories.createParenthesis!(this)
+                p.setParent(this)
+                p.setTrack(this.track())
+                p.setProperty(Pid.HORIZONTAL_DIRECTION, left ? DirectionH.LEFT : DirectionH.RIGHT)
+                p.setGenerated(generated)
+                this.add(p)
+            }
+        } else if (paren) {
+            this.remove(paren)
+        }
+    }
 
     parenthesesMode(): ParenthesesMode {
         let p = ParenthesesMode.NONE
@@ -1164,7 +1201,7 @@ export abstract class EngravingItem extends EngravingObject {
             this.setExcludeVerticalAlign(!!v)
             break
         case Pid.HAS_PARENTHESES:
-            // TODO(port): parentheses are created by the reader
+            this.setParenthesesMode(v as ParenthesesMode)
             break
         default:
             if (this.explicitParent()) {

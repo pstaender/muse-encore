@@ -6,7 +6,10 @@
  * Port of src/engraving/dom/pitchspelling.h/.cpp (the parts needed for layout)
  */
 
-import { AccidentalVal, Key, PreferSharpFlat } from '../types/types'
+import { AccidentalVal, Key, NoteSpellingType, PreferSharpFlat } from '../types/types'
+
+// C++: declared in types/types.h, re-exported for convenience
+export { NoteSpellingType }
 
 export const INVALID_PITCH = -1
 export const MIN_PITCH = 0
@@ -33,6 +36,10 @@ export const TPCS_PER_STEP = Math.trunc((Tpc.TPC_MAX - Tpc.TPC_MIN + 1) / STEP_D
 export const MIN_STEP = Math.trunc(MIN_PITCH * STEP_DELTA_OCTAVE / PITCH_DELTA_OCTAVE)
 export const MAX_STEP = Math.trunc(MAX_PITCH * STEP_DELTA_OCTAVE / PITCH_DELTA_OCTAVE)
 export const KEY_TO_TPC_OFFSET = Tpc.TPC_C - Key.C
+
+export enum NoteCaseType {
+    AUTO = -1, CAPITAL = 0, LOWER, UPPER,
+}
 
 export enum Prefer {
     FLATS = 8, NEAREST = 11, SHARPS = 13,
@@ -212,4 +219,371 @@ export function tpc2degree(tpc: number, key: Key): number {
     const scale = scales[key + 7]
     const stepName = tpc2stepName(tpc)
     return (names.indexOf(stepName) - names.indexOf(scale) + 28) % 7
+}
+
+// TConv::userName(AccidentalVal, full) (types/typesconv.cpp, untranslated)
+// TODO(port): translation (muse::mtrc)
+const ACCIDENTALS_NAMES: { accidental: AccidentalVal, name: string, fullName: string }[] = [
+    { accidental: AccidentalVal.SHARP3, name: 'triple \u266f', fullName: 'triple sharp' },
+    { accidental: AccidentalVal.SHARP2, name: 'double \u266f', fullName: 'double sharp' },
+    { accidental: AccidentalVal.SHARP, name: '\u266f', fullName: 'sharp' },
+    { accidental: AccidentalVal.NATURAL, name: '\u266e', fullName: 'natural' },
+    { accidental: AccidentalVal.FLAT, name: '\u266d', fullName: 'flat' },
+    { accidental: AccidentalVal.FLAT2, name: 'double \u266d', fullName: 'double flat' },
+    { accidental: AccidentalVal.FLAT3, name: 'triple \u266d', fullName: 'triple flat' },
+]
+
+function accidentalUserName(accidental: AccidentalVal, full: boolean): string {
+    const it = ACCIDENTALS_NAMES.find(i => i.accidental === accidental)
+    return it ? (full ? it.fullName : it.name) : ''
+}
+
+//---------------------------------------------------------
+//   tpc2name
+//    return note name
+//---------------------------------------------------------
+
+export function tpc2name(tpc: number, noteSpelling: NoteSpellingType, noteCase: NoteCaseType, explicitAccidental = false,
+    full = false): string {
+    const { s, acc } = tpc2nameStringAcc(tpc, noteSpelling, noteCase, explicitAccidental, full)
+    return s + (explicitAccidental ? ' ' : '') + acc
+}
+
+/** C++ tpc2name(int, NoteSpellingType, NoteCaseType, String& s, String& acc, bool, bool) */
+export function tpc2nameStringAcc(tpc: number, noteSpelling: NoteSpellingType, noteCase: NoteCaseType, explicitAccidental = false,
+    full = false): { s: string, acc: string } {
+    const { s, acc: accVal } = tpc2nameParts(tpc, noteSpelling, noteCase)
+    let acc = ''
+    switch (accVal) {
+    case AccidentalVal.FLAT3:
+        if (explicitAccidental) {
+            acc = accidentalUserName(AccidentalVal.FLAT3, full)
+        } else if (noteSpelling === NoteSpellingType.GERMAN_PURE) {
+            switch (tpc) {
+            case Tpc.TPC_A_BBB: acc = 'sasas'
+                break
+            case Tpc.TPC_E_BBB: acc = 'seses'
+                break
+            default: acc = 'eseses'
+            }
+        } else {
+            acc = 'bbb'
+        }
+        break
+    case AccidentalVal.FLAT2:
+        if (explicitAccidental) {
+            acc = accidentalUserName(AccidentalVal.FLAT2, full)
+        } else if (noteSpelling === NoteSpellingType.GERMAN_PURE) {
+            switch (tpc) {
+            case Tpc.TPC_A_BB: acc = 'sas'
+                break
+            case Tpc.TPC_E_BB: acc = 'ses'
+                break
+            default: acc = 'eses'
+            }
+        } else {
+            acc = 'bb'
+        }
+        break
+    case AccidentalVal.FLAT:
+        if (explicitAccidental) {
+            acc = accidentalUserName(AccidentalVal.FLAT, full)
+        } else if (noteSpelling === NoteSpellingType.GERMAN_PURE) {
+            acc = (tpc === Tpc.TPC_A_B || tpc === Tpc.TPC_E_B) ? 's' : 'es'
+        } else {
+            acc = 'b'
+        }
+        break
+    case AccidentalVal.NATURAL: acc = ''
+        break
+    case AccidentalVal.SHARP:
+        if (explicitAccidental) {
+            acc = accidentalUserName(AccidentalVal.SHARP, full)
+        } else {
+            acc = (noteSpelling === NoteSpellingType.GERMAN_PURE) ? 'is' : '#'
+        }
+        break
+    case AccidentalVal.SHARP2:
+        if (explicitAccidental) {
+            acc = accidentalUserName(AccidentalVal.SHARP2, full)
+        } else {
+            acc = (noteSpelling === NoteSpellingType.GERMAN_PURE) ? 'isis' : '##'
+        }
+        break
+    case AccidentalVal.SHARP3:
+        if (explicitAccidental) {
+            acc = accidentalUserName(AccidentalVal.SHARP3, full)
+        } else {
+            acc = (noteSpelling === NoteSpellingType.GERMAN_PURE) ? 'isisis' : '###'
+        }
+        break
+    default:
+        acc = ''
+        break
+    }
+    return { s, acc }
+}
+
+/** C++ tpc2name(int, NoteSpellingType, NoteCaseType, String& s, AccidentalVal& acc) */
+export function tpc2nameParts(tpc: number, noteSpelling: NoteSpellingType, noteCase: NoteCaseType): { s: string, acc: AccidentalVal } {
+    const names = 'FCGDAEB'
+    const gnames = 'FCGDAEH'
+    const snames = ['Fa', 'Do', 'Sol', 'Re', 'La', 'Mi', 'Si']
+
+    let acc = tpc2alter(tpc)
+    const idx = (tpc - Tpc.TPC_MIN) % TPC_DELTA_SEMITONE
+    let s: string
+    switch (noteSpelling) {
+    case NoteSpellingType.GERMAN:
+    case NoteSpellingType.GERMAN_PURE:
+        s = gnames[idx]
+        if (s === 'H' && acc === AccidentalVal.FLAT) {
+            s = 'B'
+            if (noteSpelling === NoteSpellingType.GERMAN_PURE) {
+                acc = AccidentalVal.NATURAL
+            }
+        }
+        break
+    case NoteSpellingType.SOLFEGGIO:
+        s = snames[idx]
+        break
+    case NoteSpellingType.FRENCH:
+        s = snames[idx]
+        if (s === 'Re') {
+            s = 'R\u00e9'
+        }
+        break
+    default:
+        s = names[idx]
+        break
+    }
+    switch (noteCase) {
+    case NoteCaseType.LOWER: s = s.toLowerCase()
+        break
+    case NoteCaseType.UPPER: s = s.toUpperCase()
+        break
+    case NoteCaseType.CAPITAL:
+    case NoteCaseType.AUTO:
+    default:
+        break
+    }
+    return { s, acc }
+}
+
+/** Finds tpc of a note based on an altered interval from a starting note */
+export function tpcInterval(startTpc: number, interval: number, alter: number): number {
+    const intervals = [
+        //  1  2  3   4  5  6  7
+        0, 2, 4, -1, 1, 3, 5,
+    ]
+
+    //ensure that we don't have anything more than double sharp or double flat
+    //(I know, breaking some convention, but it's the best we can do for now)
+    return clampEnharmonic(startTpc + intervals[(interval - 1) % 7] + alter * TPC_DELTA_SEMITONE)
+}
+
+/** C++ tpc2Function(int tpc, Key key, String& accName, String& stepName) */
+export function tpc2FunctionParts(tpc: number, key: Key): { accName: string; stepName: string } {
+    if (key === Key.INVALID) {
+        return { accName: '', stepName: '' }
+    }
+    const step = tpc2degree(tpc, key)
+    const stepNames = '1234567'
+    const stepName = stepNames.charAt(step)
+
+    const alter = tpc2alterByKey(tpc, key)
+    const accidentalNo = Math.abs(alter)
+    const flat = alter < 0
+    return { accName: (flat ? 'b' : '#').repeat(accidentalNo), stepName }
+}
+
+export function tpc2Function(tpc: number, key: Key): string {
+    const { accName, stepName } = tpc2FunctionParts(tpc, key)
+    return accName + stepName
+}
+
+const isDigitChar = (c: string): boolean => c >= '0' && c <= '9'
+
+/** C++ function2Tpc(const String&, Key, size_t& idx) */
+export function function2Tpc(s: string, key: Key): { tpc: number; idx: number } {
+    // TODO - PHV: allow for alternate spellings
+    let alter = 0
+    let step: number
+    let idx = 0
+
+    if (s.length && isDigitChar(s.charAt(0))) {
+        step = Number(s.charAt(0))
+        idx = 1
+    } else if (s.length > 1) {
+        const NUM_LEN = 1
+        const accIdx = s.length - NUM_LEN
+        const acc = s.substring(0, accIdx)
+        const num = s.substring(s.length - NUM_LEN)
+        if (num.length > NUM_LEN || num.length === 0 || !isDigitChar(num.charAt(0))) {
+            return { tpc: Tpc.TPC_INVALID, idx }
+        }
+
+        step = Number(num.charAt(0))
+        idx = NUM_LEN
+        if (acc.startsWith('bb')) {
+            alter = -2
+            idx += 2
+        } else if (acc.startsWith('b')) {
+            alter = -1
+            idx += 1
+        } else if (acc.startsWith('#')) {
+            alter = 1
+            idx += 1
+        } else if (acc.startsWith('##')) {
+            alter = 2
+            idx += 2
+        }
+    } else {
+        return { tpc: Tpc.TPC_INVALID, idx }
+    }
+
+    const keyTpc = key + 14 //tpc of key (ex. F# major would be Tpc::F_S)
+    return { tpc: tpcInterval(keyTpc, step, alter), idx }
+}
+
+/** C++ convertNote(const String&, NoteSpellingType, NoteCaseType&, size_t& idx) */
+export function convertNote(s: string, noteSpelling: NoteSpellingType, noteCaseIn: NoteCaseType):
+    { tpc: number; noteCase: NoteCaseType; idx: number } {
+    let useGerman = false
+    let useSolfeggio = false
+    const spellings = [
+        // bb  b   -   #  ##
+        0, 7, 14, 21, 28, // C
+        2, 9, 16, 23, 30, // D
+        4, 11, 18, 25, 32, // E
+        -1, 6, 13, 20, 27, // F
+        1, 8, 15, 22, 29, // G
+        3, 10, 17, 24, 31, // A
+        5, 12, 19, 26, 33, // B
+    ]
+    let noteCase = noteCaseIn
+    let idx = 0
+    if (s.length === 0) {
+        return { tpc: Tpc.TPC_INVALID, noteCase, idx }
+    }
+    const isLower = (c: string): boolean => c !== c.toUpperCase() && c === c.toLowerCase()
+    const isUpper = (c: string): boolean => c !== c.toLowerCase() && c === c.toUpperCase()
+    noteCase = isLower(s.charAt(0)) ? NoteCaseType.LOWER : NoteCaseType.CAPITAL
+    let acci: number
+    switch (noteSpelling) {
+    case NoteSpellingType.SOLFEGGIO:
+    case NoteSpellingType.FRENCH:
+        useSolfeggio = true
+        if (s.toLowerCase().startsWith('sol')) {
+            acci = 3
+        } else {
+            acci = 2
+        }
+        break
+    case NoteSpellingType.GERMAN:
+    case NoteSpellingType.GERMAN_PURE:
+        useGerman = true
+        acci = 1
+        break
+    default:
+        acci = 1
+    }
+    idx = acci
+    let alter = 0
+    const acc = s.substring(acci)
+    if (acc.length) {
+        if (acc.startsWith('bb')) {
+            alter = -2
+            idx += 2
+        } else if (acc.startsWith('b')) {
+            alter = -1
+            idx += 1
+        } else if (useGerman && acc.startsWith('eses')) {
+            alter = -2
+            idx += 4
+        } else if (useGerman && (acc.startsWith('ses') || acc.startsWith('sas'))) {
+            alter = -2
+            idx += 3
+        } else if (useGerman && acc.startsWith('es')) {
+            alter = -1
+            idx += 2
+        } else if (useGerman && acc.startsWith('s') && !acc.startsWith('su')) {
+            alter = -1
+            idx += 1
+        } else if (acc.startsWith('##')) {
+            alter = 2
+            idx += 2
+        } else if (acc.startsWith('x')) {
+            alter = 2
+            idx += 1
+        } else if (acc.startsWith('#')) {
+            alter = 1
+            idx += 1
+        } else if (useGerman && acc.startsWith('isis')) {
+            alter = 2
+            idx += 4
+        } else if (useGerman && acc.startsWith('is')) {
+            alter = 1
+            idx += 2
+        }
+    }
+    let r: number
+    const invalid = { tpc: Tpc.TPC_INVALID, noteCase, idx }
+    if (useGerman) {
+        switch (s.charAt(0).toLowerCase()) {
+        case 'c': r = 0; break
+        case 'd': r = 1; break
+        case 'e': r = 2; break
+        case 'f': r = 3; break
+        case 'g': r = 4; break
+        case 'a': r = 5; break
+        case 'h': r = 6; break
+        case 'b':
+            if (alter && alter !== -1) {
+                return invalid
+            }
+            r = 6
+            alter = -1
+            break
+        default:
+            return invalid
+        }
+    } else if (useSolfeggio) {
+        if (s.length < 2) {
+            return invalid
+        }
+        if (isUpper(s.charAt(1))) {
+            noteCase = NoteCaseType.UPPER
+        }
+        const ss = s.toLowerCase().substring(0, 2)
+        if (ss === 'do') {
+            r = 0
+        } else if (ss === 're' || ss === 'ré') {
+            r = 1
+        } else if (ss === 'mi') {
+            r = 2
+        } else if (ss === 'fa') {
+            r = 3
+        } else if (ss === 'so') { // sol, but only check first 2 characters
+            r = 4
+        } else if (ss === 'la') {
+            r = 5
+        } else if (ss === 'si') {
+            r = 6
+        } else {
+            return { tpc: Tpc.TPC_INVALID, noteCase, idx }
+        }
+    } else {
+        switch (s.charAt(0).toLowerCase()) {
+        case 'c': r = 0; break
+        case 'd': r = 1; break
+        case 'e': r = 2; break
+        case 'f': r = 3; break
+        case 'g': r = 4; break
+        case 'a': r = 5; break
+        case 'b': r = 6; break
+        default: return invalid
+        }
+    }
+    return { tpc: spellings[r * 5 + alter + 2], noteCase, idx }
 }

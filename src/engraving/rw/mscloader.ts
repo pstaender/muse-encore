@@ -14,6 +14,8 @@ import { MscReader } from '../infrastructure/mscreader'
 import { MasterScore } from '../dom/masterscore'
 import { XmlReader } from './xmlreader'
 import { Read460 } from './read460/read460'
+import { Sid } from '../style/styledef'
+import { ChordStylePreset } from '../types/types'
 
 export const MSC_VERSION = 470
 
@@ -30,7 +32,25 @@ export class MscLoader {
                 masterScore.style().readDocument(styleData)
                 masterScore.styleChanged()
             }
-            // TODO(port): chord list, images
+
+            // Read ChordList
+            let chordListOk = false
+            const chordListData = mscReader.readChordListFile()
+            if (chordListData && chordListData.length) {
+                chordListOk = masterScore.chordList().readDevice(chordListData)
+            }
+
+            masterScore.chordList().setCustomChordList(chordListOk)
+
+            if (!chordListOk) {
+                // See also ReadChordListHook::validate()
+                const custom = (masterScore.style().styleV(Sid.chordStyle) as ChordStylePreset) === ChordStylePreset.CUSTOM
+                masterScore.chordList().setCustomChordList(custom)
+
+                // Ensure that `checkChordList` loads the default chord list
+                masterScore.chordList().unload()
+            }
+            // TODO(port): images
         }
 
         const scoreData = mscReader.readScoreFile()
@@ -57,6 +77,10 @@ export class MscLoader {
                 }
                 if (score.mscVersion() < 400) {
                     this.setupDefaultStyle(score, scoreData)
+                }
+                if (score.mscVersion() >= 400) {
+                    // make sure we have a chord list; load the default chord list otherwise
+                    score.checkChordList()
                 }
                 if (!new Read460().readScoreFile(score, e)) {
                     throw new MscLoadError(`bad format: ${e.errorString()}`)

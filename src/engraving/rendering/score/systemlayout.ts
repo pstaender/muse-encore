@@ -750,6 +750,44 @@ export class SystemLayout {
         }
     }
 
+    private static autoplaceHarmony(harmony: EngravingItem): void {
+        // TODO(port): harmonies in invisible fret diagrams
+        Autoplace.autoplaceSegmentElement(harmony, harmony.mutldata())
+    }
+
+    private static layoutHarmonies(harmonies: readonly EngravingItem[], system: System, ctx: LayoutContext): void {
+        if (!ctx.conf().styleB(Sid.verticallyAlignChordSymbols)) {
+            for (const harmony of harmonies) {
+                SystemLayout.autoplaceHarmony(harmony)
+            }
+            return
+        }
+
+        // Only vertically align one chord symbol per tick & staff
+        const harmonyPositions = new Set<string>()
+        const harmonyItemsAlign: EngravingItem[] = []
+        const harmonyItemsNoAlign: EngravingItem[] = []
+
+        for (const h of harmonies) {
+            const key = `${h.tick().ticks()}:${h.staffIdx()}`
+            if (harmonyPositions.has(key)) {
+                harmonyItemsNoAlign.push(h)
+                continue
+            }
+
+            TLayout.layoutItem(h, ctx)
+            SystemLayout.autoplaceHarmony(h)
+            harmonyItemsAlign.push(h)
+            harmonyPositions.add(key)
+        }
+
+        AlignmentLayout.alignItemsForSystem(harmonyItemsAlign, system)
+
+        for (const harmony of harmonyItemsNoAlign) {
+            SystemLayout.autoplaceHarmony(harmony)
+        }
+    }
+
     private static layoutVoltas(elementsToLayout: ElementsToLayout, ctx: LayoutContext): void {
         const system = elementsToLayout.system
 
@@ -973,10 +1011,7 @@ export class SystemLayout {
 
         const hasFretDiagram = elementsToLayout.fretDiagrams.length > 0
         if (!hasFretDiagram) {
-            // TODO(port): layoutHarmonies (alignment)
-            for (const item of elementsToLayout.harmonies) {
-                TLayout.layoutItem(item, ctx)
-            }
+            SystemLayout.layoutHarmonies(elementsToLayout.harmonies, system, ctx)
         }
 
         for (const item of elementsToLayout.staffText) {

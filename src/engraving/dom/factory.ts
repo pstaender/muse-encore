@@ -67,6 +67,8 @@ import { LetRing, LetRingSegment } from './letring'
 import { PalmMute, PalmMuteSegment } from './palmmute'
 import { Marker } from './marker'
 import { Jump } from './jump'
+import { Parenthesis } from './parenthesis'
+import { Harmony } from './harmony'
 
 type Parent = EngravingObject | null
 
@@ -103,6 +105,8 @@ export class Factory {
         case ElementType.SLUR: return new Slur(itemOrDummy())
         case ElementType.TIE: return new Tie(itemOrDummy())
         case ElementType.SPACER: return new Spacer(measureOrDummy())
+        case ElementType.PARENTHESIS: return new Parenthesis(itemOrDummy())
+        case ElementType.HARMONY: return new Harmony(segmentOrDummy())
         case ElementType.MARKER: return new Marker(measureOrDummy())
         case ElementType.JUMP: return new Jump(measureOrDummy())
         case ElementType.LAYOUT_BREAK: return new LayoutBreak(parent && parent.isMeasureBase() ? parent as MeasureBase : dummy().measure())

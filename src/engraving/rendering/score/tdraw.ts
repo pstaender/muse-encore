@@ -57,6 +57,8 @@ import type { LyricsLineSegment } from '../../dom/lyricsline'
 import type { TextLineBaseSegment } from '../../dom/textlinebase'
 import { TabBeamGrid, type TabDurationSymbol } from '../../dom/tabdurationsymbol'
 import { TablatureSymbolRepeat } from '../../dom/stafftype'
+import { ChordSymbolParen, TextSegment, type Harmony } from '../../dom/harmony'
+import type { Parenthesis } from '../../dom/parenthesis'
 
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
@@ -88,6 +90,10 @@ export class TDraw {
         case ElementType.SPACER:
             break
         case ElementType.LEDGER_LINE: TDraw.drawLedgerLine(item as LedgerLine, painter, opt)
+            break
+        case ElementType.HARMONY: TDraw.drawHarmony(item as Harmony, painter, opt)
+            break
+        case ElementType.PARENTHESIS: TDraw.drawParenthesis(item as Parenthesis, painter, opt)
             break
         case ElementType.TAB_DURATION_SYMBOL: TDraw.drawTabDurationSymbol(item as TabDurationSymbol, painter, opt)
             break
@@ -548,6 +554,86 @@ export class TDraw {
             painter.restore()
         }
         item.drawSymbol(ldata.cachedNoteheadSym, painter)
+    }
+
+    static drawHarmony(item: Harmony, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+
+        if (ldata.renderItemList.length === 0) {
+            TDraw.drawTextBase(item, painter, opt)
+            return
+        }
+
+        if (item.hasFrame()) {
+            if (!RealIsNull(item.frameWidth().val())) {
+                const color = item.frameColor()
+                const pen = new Pen(color, item.frameWidth().val() * item.spatium(), PenStyle.SolidLine,
+                    PenCapStyle.SquareCap, PenJoinStyle.MiterJoin)
+                painter.setPen(pen)
+            } else {
+                painter.setNoPen()
+            }
+            const bg = item.bgColor()
+            painter.setBrush(bg.alpha() ? new Brush(bg) : BrushStyle.NoBrush)
+            if (item.circle()) {
+                painter.drawArc(ldata.frame, 0, 5760)
+            } else {
+                const baseSpatium = DefaultStyle.baseStyle().styleD(Sid.spatium)
+                const frameRadius = item.frameRound().val() * (item.sizeIsSpatiumDependent() ? item.spatium() : baseSpatium)
+                painter.drawRoundedRect(ldata.frame, frameRadius, frameRadius)
+            }
+        }
+        painter.setBrush(BrushStyle.NoBrush)
+        const color = item.textColor(opt)
+        painter.setPen(color)
+        for (const renderItem of ldata.renderItemList) {
+            if (renderItem instanceof TextSegment) {
+                painter.setFont(renderItem.font())
+                painter.drawText(renderItem.pos(), renderItem.text())
+            } else if (renderItem instanceof ChordSymbolParen) {
+                const p = renderItem.parenItem
+                painter.translate(renderItem.pos())
+                TDraw.drawParenthesis(p, painter, opt)
+                painter.translate(renderItem.pos().times(-1))
+            }
+        }
+
+        if (item.isPolychord()) {
+            const pen = painter.pen().clone()
+            pen.setWidthF(item.style().styleS(Sid.polychordDividerThickness).val() * item.spatium())
+            pen.setColor(color)
+            painter.setPen(pen)
+            for (const line of ldata.polychordDividerLines) {
+                painter.drawLine(line.translated(new PointF(0.0, ldata.polychordDividerOffset)))
+            }
+        }
+    }
+
+    static drawParenthesis(item: Parenthesis, painter: Painter, opt: PaintOptions): void {
+        const parent = item.parentItem()
+        const parentTs = parent && parent.isTimeSig() ? parent as TimeSig : null
+
+        if (parentTs && !parentTs.showOnThisStaff()) {
+            return
+        }
+
+        const penColor = item.curColor(opt)
+        const pen = new Pen(penColor)
+        const ldata = item.ldata()
+
+        if (ldata.symId !== SymId.noSym) {
+            painter.setPen(pen)
+            item.drawSymbol(ldata.symId, painter, new PointF(), ldata.symScale)
+            return
+        }
+
+        painter.setBrush(new Brush(pen.color()))
+        pen.setCapStyle(PenCapStyle.RoundCap)
+        pen.setJoinStyle(PenJoinStyle.RoundJoin)
+        pen.setWidthF(ldata.endPointThickness * item.spatium() * ldata.intrinsicMag)
+
+        painter.setPen(pen)
+        painter.drawPath(ldata.path)
     }
 
     static drawTabDurationSymbol(item: TabDurationSymbol, painter: Painter, opt: PaintOptions): void {
