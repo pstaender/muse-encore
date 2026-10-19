@@ -1008,7 +1008,8 @@ export class TRead {
         return true
     }
 
-    static readStaffType(t: StaffType, e: XmlReader, _ctx: ReadContext): void {
+    static readStaffType(t: StaffType, e: XmlReader, ctx: ReadContext): void {
+        t.setStyle(ctx.score().style())
         t.setGroup(TConv.fromXmlStaffGroup(e.asciiAttribute('group'), StaffGroup.STANDARD))
         if (t.group() === StaffGroup.TAB) {
             t.setGenKeysig(false)
@@ -1057,6 +1058,8 @@ export class TRead {
                 t.setDurationFontSize(e.readDouble())
             } else if (tag === 'durationFontY') {
                 t.setDurationFontUserY(e.readDouble())
+            } else if (tag === 'fretPresetIdx') {
+                t.setFretPresetIdx(e.readInt())
             } else if (tag === 'fretFontSize') {
                 t.setFretFontSize(e.readDouble())
             } else if (tag === 'fretFontY') {
@@ -1087,9 +1090,6 @@ export class TRead {
                 t.setUseNumbers(e.readBool())
             } else if (tag === 'showBackTied') { // must be after reading "slashStyle"/"stemless" prop, as in older
                 t.setShowBackTied(e.readBool()) // scores, this prop was lacking and controlled by "slashStyle"
-            } else if (tag === 'fretPresetIdx') {
-                // TODO(port): fret presets
-                e.skipCurrentElement()
             } else {
                 e.unknown()
             }

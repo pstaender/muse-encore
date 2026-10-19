@@ -9,6 +9,7 @@
 
 import { fontsDatabase } from './infrastructure/engravingcontext'
 import { engravingFonts } from './infrastructure/engravingfont'
+import { StaffType } from './dom/stafftype'
 
 type Json = Record<string, unknown>
 
@@ -29,6 +30,7 @@ const TEXT_FONTS: FontFile[] = [
     { family: 'FreeSerif', path: 'freefont/FreeSerifItalic.ttf', italic: true },
     { family: 'FreeSerif', path: 'freefont/FreeSerifBoldItalic.ttf', bold: true, italic: true },
     { family: 'FreeSans', path: 'freefont/FreeSans.ttf' },
+    { family: 'MScoreTabulature', path: 'mscoretab/mscoreTab.ttf' },
 ]
 
 const MUSIC_FONTS: { name: string; family: string; path: string; metadata: string }[] = [
@@ -45,7 +47,8 @@ export async function initEngravingFonts(load: FontFileLoader): Promise<void> {
     const decoder = new TextDecoder()
     const toBytes = (d: ArrayBuffer | Uint8Array): Uint8Array => d instanceof Uint8Array ? d : new Uint8Array(d)
 
-    await Promise.all([
+    const [tabConfig] = await Promise.all([
+        load('fonts_tablature.xml'),
         ...TEXT_FONTS.map(async (f) => fdb.addFont(f.family, await load(f.path), { bold: f.bold, italic: f.italic })),
         ...MUSIC_FONTS.map(async (f) => {
             const [data, meta] = await Promise.all([load(f.path), load(f.metadata)])
@@ -53,6 +56,9 @@ export async function initEngravingFonts(load: FontFileLoader): Promise<void> {
             engravingFonts().addInternalFont(f.name, f.family, JSON.parse(decoder.decode(toBytes(meta))) as Json)
         }),
     ])
+
+    // C++ StaffType::initStaffTypes() -> readTabConfigFile()
+    StaffType.readTabConfig(toBytes(tabConfig))
 
     fdb.setDefaultTextFamily('Edwin')
     fdb.setDefaultSymbolFamily('Bravura')

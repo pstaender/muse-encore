@@ -18,7 +18,7 @@ import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
     StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff, SpannerSegmentType, LineType, PlacementV,
-    HookType, TextPlace, Align } from '../../types/types'
+    HookType, TextPlace, Align, BeamMode } from '../../types/types'
 import { SymNames } from '../../types/symnames'
 import { RealIsEqualOrLess, RealIsEqualOrMore } from '../../../framework/global/realfn'
 import { Pid } from '../../dom/property'
@@ -51,7 +51,7 @@ import type { LedgerLine } from '../../dom/ledgerline'
 import type { Lyrics } from '../../dom/lyrics'
 import type { MeasureBase } from '../../dom/measurebase'
 import type { MeasureNumber } from '../../dom/measurenumber'
-import type { Note } from '../../dom/note'
+import { DisplayFretOption, type Note } from '../../dom/note'
 import type { NoteDot } from '../../dom/notedot'
 import type { Rest } from '../../dom/rest'
 import type { Segment } from '../../dom/segment'
@@ -99,6 +99,7 @@ import { Transform } from '../../../framework/draw/types/transform'
 import { Grip } from '../../editing/editdata'
 import { Spatium } from '../../types/dimension'
 import { OffsetChange } from '../../dom/engravingitem'
+import { TabBeamGrid, type TabDurationSymbol } from '../../dom/tabdurationsymbol'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -2180,6 +2181,65 @@ export class TLayout {
         void FontMetrics
     }
 
+    static layoutTabDurationSymbol(item: TabDurationSymbol): void {
+        const ldata = item.mutldata()
+        const TAB_RESTSYMBDISPL = 2.0
+
+        const tab = item.tab()
+        if (!tab) {
+            ldata.setBbox(new RectF())
+            return
+        }
+        const spatium = item.spatium()
+        let hbb: number, wbb: number, xbb: number, ybb: number // bbox sizes
+        let xpos: number, ypos: number // position coords
+
+        ldata.beamGrid = TabBeamGrid.NONE
+        const parent = item.explicitParent()
+        const chord = parent && parent.isChord() ? parent as Chord : null
+        // if no chord (shouldn't happens...) or not a special beam mode, layout regular symbol
+        if (!chord
+            || (chord.beamMode() !== BeamMode.BEGIN && chord.beamMode() !== BeamMode.MID
+                && chord.beamMode() !== BeamMode.END)) {
+            const fm = new FontMetrics(tab.durationFont())
+            hbb = tab.durationBoxH()
+            wbb = fm.width(item.text())
+            xbb = 0.0
+            xpos = 0.0
+            ypos = tab.durationFontYOffset()
+            ybb = tab.durationBoxY() - ypos
+            // with rests, move symbol down by half its displacement from staff
+            if (parent && parent.isRest()) {
+                ybb += TAB_RESTSYMBDISPL * spatium
+                ypos += TAB_RESTSYMBDISPL * spatium
+            }
+        } else {
+            // if on a chord with special beam mode, layout an 'English'-style duration grid
+            hbb = tab.gridStemHeight() * spatium // bbox height is stem height
+            wbb = tab.gridStemWidth() * spatium // bbox width is stem width
+            xbb = -wbb * 0.5 // bbox is half at left and half at right of stem centre
+            ybb = -hbb // bbox top is at top of stem height
+            xpos = 0.75 * spatium // conventional centring of stem on fret marks
+            ypos = tab.durationGridYOffset() // stem start is at bottom
+            if (chord.beamMode() === BeamMode.BEGIN) {
+                ldata.beamGrid = TabBeamGrid.INITIAL
+                ldata.beamLength = 0.0
+            } else if (chord.beamMode() === BeamMode.MID || chord.beamMode() === BeamMode.END) {
+                ldata.beamLevel = chord.durationType().type() - tab.zeroBeamLevel()
+                ldata.beamGrid = (ldata.beamLevel < 1 ? TabBeamGrid.INITIAL : TabBeamGrid.MEDIALFINAL)
+                // _beamLength and bbox x and width will be set in layout2(),
+                // once horiz. positions of chords are known
+            }
+        }
+        // set this' mag from parent chord mag (include staff mag)
+        let mag = chord ? chord.mag() : 1.0
+        ldata.setMag(mag)
+        mag = item.magS() // local mag * score mag
+        // set magnified bbox and position
+        ldata.setBbox(new RectF(xbb * mag, ybb * mag, wbb * mag, hbb * mag))
+        ldata.setPos(xpos * mag, ypos * mag)
+    }
+
     static layoutLedgerLine(item: LedgerLine, ctx: LayoutContext): void {
         const ldata = item.mutldata()
         const chordMag = item.chord()!.mag()
@@ -2246,8 +2306,35 @@ export class TLayout {
 
         let noteBBox: RectF
         if (useTablature) {
-            // TODO(port): tablature notes (fret strings)
-            noteBBox = new RectF()
+            if (item.displayFret() === DisplayFretOption.Hide) {
+                return
+            }
+
+            const st = item.staff()!
+            const tab = st.staffTypeForElement(item)
+            // not complete but we need systems to be laid out to add parenthesis
+            if (item.fixed()) {
+                item.setFretString('/')
+            } else {
+                item.setFretString(tab.fretString(Math.abs(item.fret()), item.string(), item.deadNote()))
+
+                if (item.negativeFretUsed() && !item.deadNote()) {
+                    item.setFretString('-' + item.fretString())
+                }
+
+                if (item.displayFret() === DisplayFretOption.ArtificialHarmonic) {
+                    item.setFretString(`${item.fretString()} <${item.harmonicFret()}>`)
+                } else if (item.displayFret() === DisplayFretOption.NaturalHarmonic) {
+                    item.setFretString(`<${item.harmonicFret()}>`)
+                }
+            }
+
+            const w = item.tabHeadWidth(tab)
+            const mags = item.magS()
+            const y = item.deadNote() ? tab.deadFretBoxY() : tab.fretBoxY()
+            const height = item.deadNote() ? tab.deadFretBoxH() : tab.fretBoxH()
+
+            noteBBox = new RectF(0, y * mags, w, height * mags)
         } else {
             if (item.deadNote()) {
                 item.setHeadGroup(NoteHeadGroup.HEAD_CROSS)

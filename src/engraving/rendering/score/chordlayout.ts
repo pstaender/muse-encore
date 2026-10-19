@@ -11,7 +11,7 @@
 
 import { PointF } from '../../../framework/draw/types/geometry'
 import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull, stdRound } from '../../../framework/global/realfn'
-import { DirectionH, DirectionV, ElementType, NoteHeadType, VOICES, staff2track,
+import { BeamMode, DirectionH, DirectionV, DurationType, ElementType, track2voice, NoteHeadType, VOICES, staff2track,
     type staff_idx_t, type track_idx_t } from '../../types/types'
 import { Shape, ShapeType } from '../../infrastructure/shape'
 import { Sid } from '../../style/styledef'
@@ -27,7 +27,7 @@ import type { Beam } from '../../dom/beam'
 import type { BeamSegment } from '../../dom/beambase'
 import type { Arpeggio } from '../../dom/arpeggio'
 import type { NoteDot } from '../../dom/notedot'
-import type { Chord } from '../../dom/chord'
+import { prevChordRest, type Chord } from '../../dom/chord'
 import type { ChordRest } from '../../dom/chordrest'
 import type { Measure } from '../../dom/measure'
 import type { Note } from '../../dom/note'
@@ -45,6 +45,8 @@ import { RestLayout } from './restlayout'
 import { BeamLayout, ChordBeamAnchorType } from './beamlayout'
 import { Autoplace } from './autoplace'
 import { SystemLayout } from './systemlayout'
+import { TabDurationSymbol } from '../../dom/tabdurationsymbol'
+import { TablatureSymbolRepeat } from '../../dom/stafftype'
 
 export class ChordPosInfo {
     chords: Chord[] = []
@@ -125,6 +127,8 @@ export class ChordLayout {
             ChordLayout.layoutPitched(c, ctx)
         }
 
+        item.setTabDur(null) // no TAB? no duration symbol! (may happen when converting a TAB into PITCHED)
+
         const mag_ = item.staff() ? item.staff()!.staffMag(item) : 1.0 // palette elements do not have a staff
         const dotNoteDistance = ctx.conf().styleMM(Sid.dotNoteDistance) * mag_
 
@@ -201,8 +205,328 @@ export class ChordLayout {
     }
 
     static layoutTablature(item: Chord, ctx: LayoutContext): void {
-        // TODO(port): ChordLayout::layoutTablature
-        ChordLayout.layoutPitched(item, ctx)
+        const _spatium = item.spatium()
+        const mag_ = item.staff() ? item.staff()!.staffMag(item) : 1.0 // palette elements do not have a staff
+        const dotNoteDistance = ctx.conf().styleMM(Sid.dotNoteDistance) * mag_
+        const minNoteDistance = ctx.conf().styleMM(Sid.minNoteDistance) * mag_
+        const minTieLength = ctx.conf().styleMM(Sid.minTieLength) * mag_
+
+        for (const c of item.graceNotes()) {
+            ChordLayout.layoutTablature(c, ctx)
+        }
+
+        let lll = 0.0 // space to leave at left of chord
+        let rrr = 0.0 // space to leave at right of chord
+        let headWidth = item.symWidth(SymId.noteheadBlack)
+        const st = item.staff()!
+        const tab = st.staffTypeForElement(item)
+        const lineDist = tab.lineDistance().val() * _spatium
+        const stemX = 0.5 * headWidth
+        let ledgerLines = 0
+        let llY = 0.0
+
+        const numOfNotes = item.notes().length
+        let minY = 1000.0 // just a very large value
+        for (let i = 0; i < numOfNotes; ++i) {
+            const note = item.notes()[i]
+            note.updateFrettingForTiesAndBends()
+            note.setDotRelativeLine(0, layoutDot)
+            TLayout.layoutNote(note, ctx)
+            // set headWidth to max fret text width
+            const fretWidth = note.ldata().bbox().width()
+            if (headWidth < fretWidth) {
+                headWidth = fretWidth
+            }
+            // centre fret string on stem
+            const x = stemX - fretWidth * 0.5
+            const y = note.fixed() ? note.line() * lineDist / 2 : tab.physStringToYOffset(note.string()) * _spatium
+            note.setPos(x, y)
+            if (y < minY) {
+                minY = y
+            }
+            const currLedgerLines = tab.numOfTabLedgerLines(note.string())
+            if (currLedgerLines > ledgerLines) {
+                ledgerLines = currLedgerLines
+                llY = y
+            }
+
+            // allow extra space for shortened ties; this code must be kept synchronized
+            // with the tie positioning code in Tie::slurPos()
+            // but the allocation of space needs to be performed here
+            const tie = note.tieBack()
+            if (tie && tie.addToSkyline()) {
+                SlurTieLayout.calculateDirection(tie)
+                let overlap = 0.0 // how much tie can overlap start and end notes
+                let shortStart = false // whether tie should clear start note or not
+                const startNote = tie.startNote()
+                const startChord = startNote ? startNote.chord() : null
+                if (startChord && startChord.measure() === item.measure() && startChord === prevChordRest(item)) {
+                    const startNoteWidth = startNote!.width()
+                    // overlap into start chord?
+                    // if in start chord, there are several notes or stem and tie in same direction
+                    if (startChord.notes().length > 1 || (startChord.stem() && startChord.up() === tie.up())) {
+                        // clear start note (1/8 of fret mark width)
+                        shortStart = true
+                        overlap -= startNoteWidth * 0.125
+                    } else { // overlap start note (by ca. 1/3 of fret mark width)
+                        overlap += startNoteWidth * 0.35
+                    }
+                    // overlap into end chord (this)?
+                    // if several notes or neither stem or tie are up
+                    if (item.notes().length > 1 || (item.stem() && !item.up() && !tie.up())) {
+                        // for positive offset:
+                        //    use available space
+                        // for negative x offset:
+                        //    space is allocated elsewhere, so don't re-allocate here
+                        if (!RealIsNull(note.ldata().pos().x())) { // this probably does not work for TAB, as
+                            overlap += Math.abs(note.ldata().pos().x()) // _pos is used to centre the fret on the stem
+                        } else {
+                            overlap -= fretWidth * 0.125
+                        }
+                    } else {
+                        if (shortStart) {
+                            overlap += fretWidth * 0.15
+                        } else {
+                            overlap += fretWidth * 0.35
+                        }
+                    }
+                    const d = Math.max(minTieLength - overlap, 0.0)
+                    lll = Math.max(lll, d)
+                }
+            }
+        }
+
+        // create ledger lines, if required (in some historic styles)
+        if (ledgerLines > 0) {
+            item.resizeLedgerLinesTo(ledgerLines)
+            const extraLen = 0
+            const llX = stemX - (headWidth + extraLen) * 0.5
+            for (let i = 0; i < ledgerLines; i++) {
+                const ldgLin = item.ledgerLines()[i]
+                ldgLin.setParent(item)
+                ldgLin.setTrack(item.track())
+                ldgLin.setVisible(item.visible())
+                ldgLin.setLen(headWidth + extraLen)
+                ldgLin.setPos(llX, llY)
+                TLayout.layoutLedgerLine(ldgLin, ctx)
+                llY += lineDist / ledgerLines
+            }
+            headWidth += extraLen // include ledger lines extra width in chord width
+        }
+
+        // horiz. spacing: leave half width at each side of the (potential) stem
+        const halfHeadWidth = headWidth * 0.5
+        if (lll < stemX - halfHeadWidth) {
+            lll = stemX - halfHeadWidth
+        }
+        if (rrr < stemX + halfHeadWidth) {
+            rrr = stemX + halfHeadWidth
+        }
+        // align dots to the widest fret mark (not needed in all TAB styles, but harmless anyway)
+        item.setDotPosX(headWidth)
+
+        if (item.shouldHaveStem()) {
+            // if stem is required but missing, add it;
+            // set stem position (stem length is set in Chord:layoutStem() )
+            if (!item.stem()) {
+                item.createStem()
+            }
+            item.stem()!.setPos(StemLayout.tabStemPos(item, tab).times(_spatium))
+            const hook = item.hook()
+            if (hook) {
+                if (item.beam()) {
+                    ctx.mutDom().undoRemoveElement(hook)
+                } else {
+                    if (rrr < stemX + hook.width()) {
+                        rrr = stemX + hook.width()
+                    }
+
+                    hook.setPos(item.stem()!.flagPosition())
+                }
+            }
+        } else {
+            if (item.stem()) {
+                ctx.mutDom().doUndoRemoveElement(item.stem()!)
+                item.remove(item.stem()!)
+            }
+            if (item.hook()) {
+                ctx.mutDom().doUndoRemoveElement(item.hook()!)
+                item.remove(item.hook()!)
+            }
+            if (item.beam()) {
+                ctx.mutDom().doUndoRemoveElement(item.beam()!)
+                item.remove(item.beam()!)
+            }
+        }
+
+        if (!tab.genDurations() // if tab is not set for duration symbols
+            || track2voice(item.track()) // or not in first voice
+            || (item.isGrace() // no tab duration symbols if grace notes
+                && item.beamMode() === BeamMode.AUTO)) { // and beammode == AUTO
+            item.setTabDur(null) // delete an existing duration symbol
+        } else {
+            //
+            // tab duration symbols
+            //
+            // if no previous CR
+            // OR symbol repeat set to ALWAYS
+            // OR symbol repeat condition is triggered
+            // OR duration type and/or number of dots is different from current CR
+            // OR chord beam mode not AUTO
+            // OR previous CR is a rest
+            // AND no not-stem
+            // set a duration symbol (trying to re-use existing symbols where existing to minimize
+            // symbol creation and deletion)
+            let needTabDur = false
+            let repeat = false
+            if (!item.noStem()) {
+                // check duration of prev. CR segm
+                const prevCR = prevChordRest(item)
+                if (!prevCR) {
+                    needTabDur = true
+                } else if (item.beamMode() !== BeamMode.AUTO
+                           || prevCR.durationType().type() !== item.durationType().type()
+                           || prevCR.dots() !== item.dots()
+                           || prevCR.tuplet() !== item.tuplet()
+                           || prevCR.isRest()) {
+                    needTabDur = true
+                } else if (tab.symRepeat() === TablatureSymbolRepeat.ALWAYS
+                           || ((tab.symRepeat() === TablatureSymbolRepeat.MEASURE
+                                || tab.symRepeat() === TablatureSymbolRepeat.SYSTEM)
+                               && item.measure() !== prevCR.measure())) {
+                    needTabDur = true
+                    repeat = true
+                }
+            }
+            if (needTabDur) {
+                // symbol needed; if not exist, create; if exists, update duration
+                if (!item.tabDur()) {
+                    item.setTabDur(new TabDurationSymbol(item, tab, item.durationType().type(), item.dots()))
+                } else {
+                    item.tabDur()!.setDuration(item.durationType().type(), item.dots(), tab)
+                }
+                const tabDur = item.tabDur()!
+                tabDur.setParent(item)
+                tabDur.setRepeat(repeat)
+                TLayout.layoutTabDurationSymbol(tabDur)
+                if (minY < 0) { // if some fret extends above tab body (like bass strings)
+                    const tdladata = tabDur.mutldata()
+                    tdladata.moveY(minY) // raise duration symbol
+                    tdladata.setBbox(tdladata.bbox().translated(0, minY))
+                }
+            } else { // symbol not needed: if exists, delete
+                item.setTabDur(null)
+            }
+        } // end of if(duration_symbols)
+
+        // TODO(port): arpeggios
+
+        // allocate enough room for glissandi
+        if (item.endsNoteAnchoredLine()) {
+            if (!item.rtick().isZero()) { // if not at beginning of measure
+                lll += _spatium * 0.5 + minTieLength
+            }
+            // special case of system-initial glissando final note is handled in Glissando::layout() itself
+        }
+
+        if (item.hook()) {
+            if (item.beam()) {
+                ctx.mutDom().undoRemoveElement(item.hook()!)
+            }
+            // tab is never null here (C++ lays out the hook only when tab == 0)
+        }
+
+        if (item.dots()) {
+            let x = 0.0
+            // if stems are beside staff, dots are placed near to stem
+            if (!tab.stemThrough()) {
+                // if there is an unbeamed hook, dots should start after the hook
+                if (item.hook() && !item.beam()) {
+                    x = item.hook()!.width() + dotNoteDistance
+                } else {
+                    // if not, dots should start at a fixed distance right after the stem
+                    x = STAFFTYPE_TAB_DEFAULTDOTDIST_X * _spatium
+                }
+                item.setDotPosX(x)
+            } else {
+                // if stems are through staff, use dot position computed above on fret mark widths
+                x = item.dotPosX() + dotNoteDistance
+                    + (item.dots() - 1) * ctx.conf().styleS(Sid.dotDotDistance).val() * _spatium
+            }
+            x += item.symWidth(SymId.augmentationDot)
+            rrr = Math.max(rrr, x)
+        }
+
+        item.setSpaceLw(lll)
+        item.setSpaceRw(rrr)
+
+        const graceMag = ctx.conf().styleD(Sid.graceNoteMag)
+
+        const graceNotesBefore = item.graceNotesBefore().chords()
+        const nb = graceNotesBefore.length
+        if (nb) {
+            let xl = -(item.spaceLw() + minNoteDistance)
+            for (let i = nb - 1; i >= 0; --i) {
+                const c = graceNotesBefore[i]
+                xl -= c.spaceRw()
+                c.setPos(xl, 0)
+                xl -= c.spaceLw() + minNoteDistance * graceMag
+            }
+            if (-xl > item.spaceLw()) {
+                item.setSpaceLw(item.spaceLw() - xl)
+            }
+        }
+        const gna = item.graceNotesAfter().chords()
+        const na = gna.length
+        if (na) {
+            // get factor for start distance after main note. Values found by testing.
+            let fc: number
+            switch (item.durationType().type()) {
+            case DurationType.V_LONG: fc = 3.8
+                break
+            case DurationType.V_BREVE: fc = 3.8
+                break
+            case DurationType.V_WHOLE: fc = 3.8
+                break
+            case DurationType.V_HALF: fc = 3.6
+                break
+            case DurationType.V_QUARTER: fc = 2.1
+                break
+            case DurationType.V_EIGHTH: fc = 1.4
+                break
+            case DurationType.V_16TH: fc = 1.2
+                break
+            default: fc = 1
+            }
+            let xr = fc * (item.spaceRw() + minNoteDistance)
+            for (let i = 0; i <= na - 1; i++) {
+                const c = gna[i]
+                xr += c.spaceLw() * (i === 0 ? 1.3 : 1)
+                c.setPos(xr, 0)
+                xr += c.spaceRw() + minNoteDistance * graceMag
+            }
+            if (xr > item.spaceRw()) {
+                item.setSpaceRw(xr)
+            }
+        }
+        for (const e of item.el()) {
+            TLayout.layoutItem(e, ctx)
+            // TODO(port): chord lines
+        }
+
+        for (let i = 0; i < numOfNotes; ++i) {
+            ChordLayout.layoutNote2(item.notes()[i], ctx)
+        }
+
+        if (item.stemSlash()) {
+            TLayout.layoutStemSlash(item.stemSlash()!, ctx)
+        }
+
+        ChordLayout.layoutLvArticulation(item, ctx)
+
+        // TODO(port): createParenGroups, ParenthesisLayout::layoutChordParentheses
+
+        ChordLayout.fillShape(item, ctx)
     }
 
     static layoutLvArticulation(item: Chord, ctx: LayoutContext): void {
@@ -1683,7 +2007,7 @@ export class ChordLayout {
             // accumulate return value
             if (!mirror) {
                 const fretBackground = ctx.conf().styleS(Sid.tabFretPadding).val() * note.spatium()
-                const noteWidth = isTab ? note.tabHeadWidth() + 2 * fretBackground : note.bboxRightPos()
+                const noteWidth = isTab ? note.tabHeadWidth(st.staffTypeForElement(note)) + 2 * fretBackground : note.bboxRightPos()
                 maxWidth = Math.max(maxWidth, noteWidth)
             }
 

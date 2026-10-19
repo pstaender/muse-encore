@@ -478,8 +478,8 @@ export class SlurTieLayout {
         }
 
         const __up = item.up() ? -1.0 : 1.0
-        const hw1 = note1 ? (stt ? note1.tabHeadWidth() : note1.headWidth()) : scr.width() * scr.mag() // if stt == 0, tabHeadWidth()
-        const hw2 = note2 ? (stt ? note2.tabHeadWidth() : note2.headWidth()) : ecr.width() * ecr.mag() // defaults to headWidth()
+        const hw1 = note1 ? (stt ? note1.tabHeadWidth(stt) : note1.headWidth()) : scr.width() * scr.mag() // if stt == 0, tabHeadWidth()
+        const hw2 = note2 ? (stt ? note2.tabHeadWidth(stt) : note2.headWidth()) : ecr.width() * ecr.mag() // defaults to headWidth()
         let pt: PointF
         if (sa1 === STEM) { //sc can't be null
             // place slur starting point at stem end point

@@ -14,7 +14,7 @@ import type { PropertyValue } from '../types/propertyvalue'
 import { SmuflAnchorId, SymId } from '../types/symid'
 import {
     AccidentalRole, AccidentalVal, DirectionH, DirectionV, ElementType, Key, NoteHeadGroup, NoteHeadScheme, NoteHeadType,
-    ParenthesesMode, VeloType, type track_idx_t,
+    INVALID_FRET_INDEX, INVALID_STRING_INDEX, ParenthesesMode, VeloType, type track_idx_t,
 } from '../types/types'
 import { RealIsEqual, RealIsNull } from '../../framework/global/realfn'
 import { Sid } from '../style/styledef'
@@ -32,6 +32,8 @@ import type { Accidental, AccidentalType } from './accidental'
 import type { AccidentalState } from './key'
 import type { Spanner } from './spanner'
 import type { Tie } from './tie'
+import { FontMetrics } from '../../framework/draw/fontmetrics'
+import { ParenthesizeTiedFret, ShowTiedFret, type StaffType } from './stafftype'
 
 export const INVALID_LINE = -10000
 
@@ -317,12 +319,24 @@ export class Note extends EngravingItem {
     headWidth(): number { return this.symWidth(this.noteHead()) }
     headHeight(): number { return this.symHeight(this.noteHead()) }
 
-    tabHeadWidth(): number {
-        // TODO(port): fret font metrics
-        return this.headWidth()
+    tabHeadWidth(tab: StaffType | null = null): number {
+        let val: number
+        if (tab && tab.isTabStaff() && this.m_fret !== INVALID_FRET_INDEX && this.m_string !== INVALID_STRING_INDEX) {
+            const f = tab.fretFont().clone()
+            f.setPointSizeF(tab.fretFontSize())
+            val = FontMetrics.width(f, this.m_fretString) * this.magS()
+        } else {
+            val = this.headWidth()
+        }
+        return val
     }
 
-    tabHeadHeight(): number { return this.headHeight() }
+    tabHeadHeight(tab: StaffType | null = null): number {
+        if (tab && this.m_fret !== INVALID_FRET_INDEX && this.m_string !== INVALID_STRING_INDEX) {
+            return tab.fretBoxH() * this.magS()
+        }
+        return this.headHeight()
+    }
 
     stemDownNW(): PointF { return this.symSmuflAnchor(this.noteHead(), SmuflAnchorId.stemDownNW) }
     stemUpSE(): PointF { return this.symSmuflAnchor(this.noteHead(), SmuflAnchorId.stemUpSE) }
@@ -344,7 +358,7 @@ export class Note extends EngravingItem {
     headBodyWidth(): number {
         const st = this.staffType()
         if (st && st.isTabStaff()) {
-            return this.tabHeadWidth()
+            return this.tabHeadWidth(st)
         }
         return this.headWidth() + 2 * this.bboxXShift()
     }
@@ -523,7 +537,81 @@ export class Note extends EngravingItem {
     setFretString(s: string): void { this.m_fretString = s }
     string(): number { return this.m_string }
     setString(val: number): void { this.m_string = val }
-    shouldHideFret(): boolean { return false } // TODO(port): tablature
+    shouldHideFret(): boolean {
+        if (!this.tieBack() || this.shouldForceShowFret() || !this.staffType()!.isTabStaff()) {
+            return false
+        }
+
+        // TODO(port): isContinuationOfBend() (guitar bends)
+
+        const showTiedFret = this.style().styleI(Sid.tabShowTiedFret) as ShowTiedFret
+        if (showTiedFret === ShowTiedFret.TIE_AND_FRET) {
+            return false
+        }
+
+        const parenthTiedFret = this.style().styleI(Sid.tabParenthesizeTiedFret) as ParenthesizeTiedFret
+        if (parenthTiedFret === ParenthesizeTiedFret.NEVER || !this.rtick().isZero()) {
+            return true
+        }
+
+        if (parenthTiedFret === ParenthesizeTiedFret.START_OF_MEASURE) {
+            return false
+        }
+
+        const measure = this.findMeasure()
+        const isStartOfSystem = !!measure && !!measure.system() && measure.isFirstInSystem()
+
+        return !isStartOfSystem
+    }
+
+    shouldForceShowFret(): boolean {
+        if (!this.style().styleB(Sid.parenthesizeTiedFretIfArticulation)) {
+            return false
+        }
+
+        const ch = this.chord()
+        if (!ch) {
+            return false
+        }
+
+        const hasTremoloBar = (): boolean => {
+            for (const item of ch.segment()!.annotations()) {
+                if (item && item.isTremoloBar() && item.track() === this.track()) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        const hasVibratoLine = (): boolean => {
+            for (const sp of this.score().spannerMap().findOverlapping(this.tick().ticks(), ch.endTick().ticks())) {
+                if (sp.isVibrato() && sp.startElement() === ch) {
+                    return true
+                }
+            }
+            return false
+        }
+
+        // TODO(port): guitar bends (bendFor, dips)
+        const startsNonBendSpanner = this.spannerFor().length > 0
+
+        return ch.articulations().length > 0 || !!ch.chordLine() || startsNonBendSpanner || hasTremoloBar() || hasVibratoLine()
+    }
+
+    updateFrettingForTiesAndBends(): void {
+        // TODO(port): bendBack() (guitar bends)
+        const prevNote = this.m_tieBack ? this.m_tieBack.startNote() : null
+
+        if (!prevNote) {
+            return
+        }
+
+        this.setString(prevNote.string())
+        this.setFret(prevNote.fret())
+    }
+
+    /** C++ checks configuration()->negativeFretsAllowed(), which is off by default */
+    negativeFretUsed(): boolean { return false }
     ghost(): boolean { return this.m_ghost }
     setGhost(val: boolean): void { this.m_ghost = val }
     deadNote(): boolean { return this.m_deadNote }
@@ -879,8 +967,26 @@ export class Note extends EngravingItem {
     setDotRelativeLine(dotMove: number, layoutDot: (dot: NoteDot) => void): void {
         let y = dotMove / 2.0
         if (this.staff()!.isTabStaff(this.chord().tick())) {
-            // TODO(port): tablature dots
-            return
+            // with TAB's, dotPosX is not set:
+            // get dot X from width of fret text and use TAB default spacing
+            const st = this.staff()!
+            const tab = st.staffTypeForElement(this)
+            if (tab.stemThrough()) {
+                // if fret mark on lines, use standard processing
+                if (!tab.onLines()) {
+                    // if fret marks above lines, raise the dots by half line distance
+                    y = -0.5
+                }
+                if (dotMove === 0) {
+                    const oddVoice = (this.voice() & 1) !== 0
+                    y = oddVoice ? 0.5 : -0.5
+                } else {
+                    y = 0.5
+                }
+            } else {
+                // if stems beside staff, do nothing
+                return
+            }
         }
         y *= this.spatium() * this.staff()!.lineDistance(this.tick())
 

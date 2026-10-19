@@ -36,7 +36,8 @@ import type { EngravingItem } from '../../dom/engravingitem'
 import type { Hook } from '../../dom/hook'
 import type { KeySig } from '../../dom/keysig'
 import type { LedgerLine } from '../../dom/ledgerline'
-import type { Note } from '../../dom/note'
+import { DisplayFretOption, type Note } from '../../dom/note'
+import { prevChordRest, type Chord } from '../../dom/chord'
 import type { NoteDot } from '../../dom/notedot'
 import type { Rest } from '../../dom/rest'
 import type { SlurTieSegment } from '../../dom/slurtie'
@@ -54,6 +55,8 @@ import type { HairpinSegment } from '../../dom/hairpin'
 import type { SLine } from '../../dom/line'
 import type { LyricsLineSegment } from '../../dom/lyricsline'
 import type { TextLineBaseSegment } from '../../dom/textlinebase'
+import { TabBeamGrid, type TabDurationSymbol } from '../../dom/tabdurationsymbol'
+import { TablatureSymbolRepeat } from '../../dom/stafftype'
 
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
@@ -85,6 +88,8 @@ export class TDraw {
         case ElementType.SPACER:
             break
         case ElementType.LEDGER_LINE: TDraw.drawLedgerLine(item as LedgerLine, painter, opt)
+            break
+        case ElementType.TAB_DURATION_SYMBOL: TDraw.drawTabDurationSymbol(item as TabDurationSymbol, painter, opt)
             break
         case ElementType.NOTE: TDraw.drawNote(item as Note, painter, opt)
             break
@@ -505,10 +510,26 @@ export class TDraw {
         const staffType = item.staff() ? item.staff()!.staffTypeForElement(item) : null
         const isTabStaff = !!staffType && staffType.isTabStaff()
 
+        // TODO(port): negative frets (configuration()->negativeFretsAllowed() is off by default)
         painter.setPen(item.curColor(opt))
 
+        // tablature
         if (isTabStaff) {
-            // TODO(port): tablature frets
+            if (item.displayFret() === DisplayFretOption.Hide || item.shouldHideFret()) {
+                return
+            }
+            const st = item.staff()!
+            const tab = st.staffTypeForElement(item)
+
+            // TODO(port): fret conflict marks (shown only when showUnprintable is set and not printing)
+
+            const f = tab.fretFont().clone()
+            f.setPointSizeF(f.pointSizeF() * item.magS())
+            painter.setFont(f)
+
+            const startPosX = ldata.bbox().x()
+            const yOffset = tab.fretFontYOffset()
+            painter.drawText(new PointF(startPosX, yOffset * item.magS()), item.fretString())
             return
         }
         // skip drawing, if second note of a cross-measure value
@@ -525,6 +546,61 @@ export class TDraw {
             painter.restore()
         }
         item.drawSymbol(ldata.cachedNoteheadSym, painter)
+    }
+
+    static drawTabDurationSymbol(item: TabDurationSymbol, painter: Painter, opt: PaintOptions): void {
+        const tab = item.tab()
+        if (!tab) {
+            return
+        }
+
+        const ldata = item.ldata()
+
+        if (item.isRepeat() && (tab.symRepeat() === TablatureSymbolRepeat.SYSTEM)) {
+            const chord = item.explicitParent() as Chord
+            const prevCR = prevChordRest(chord)
+            if (prevCR && (chord.measure()!.system() === prevCR.measure()!.system())) {
+                return
+            }
+        }
+
+        const mag = item.magS()
+        const imag = 1.0 / mag
+
+        const pen = new Pen(item.curColor(opt))
+        painter.setPen(pen)
+        painter.scale(mag, mag)
+        if (ldata.beamGrid === TabBeamGrid.NONE) {
+            // if no beam grid, draw symbol
+            painter.setFont(tab.durationFont())
+            painter.drawText(new PointF(0.0, 0.0), item.text())
+        } else {
+            // if beam grid, draw stem line
+            const _spatium = item.spatium()
+            pen.setCapStyle(PenCapStyle.FlatCap)
+            pen.setWidthF(tab.gridStemWidth() * _spatium)
+            painter.setPen(pen)
+            // take stem height from bbox, but de-magnify it, as drawing is already magnified
+            let h = ldata.bbox().y() / mag
+            painter.drawLine(new PointF(0.0, h), new PointF(0.0, 0.0))
+            // if beam grid is medial/final, draw beam lines too: lines go from mid of
+            // previous stem (delta x stored in _beamLength) to mid of this' stem (0.0)
+            if (ldata.beamGrid === TabBeamGrid.MEDIALFINAL) {
+                pen.setWidthF(tab.gridBeamWidth() * _spatium)
+                painter.setPen(pen)
+                // lower height available to beams by half a beam width,
+                // so that top beam upper border aligns with stem top
+                h += (tab.gridBeamWidth() * _spatium) * 0.5
+                // draw beams equally spaced within the stem height (this is
+                // different from modern engraving, but common in historic prints)
+                const step = -h / ldata.beamLevel
+                let y = h
+                for (let i = 0; i < ldata.beamLevel; i++, y += step) {
+                    painter.drawLine(new PointF(ldata.beamLength, y), new PointF(0.0, y))
+                }
+            }
+        }
+        painter.scale(imag, imag)
     }
 
     static drawNoteDot(item: NoteDot, painter: Painter, opt: PaintOptions): void {

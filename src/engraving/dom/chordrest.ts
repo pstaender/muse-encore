@@ -19,6 +19,7 @@ import type { Segment, SegmentType } from './segment'
 import type { Beam } from './beam'
 import type { Lyrics } from './lyrics'
 import type { Chord } from './chord'
+import type { TabDurationSymbol } from './tabdurationsymbol'
 
 /** C++ renderer() calls from the DOM; set by the layout module */
 export const chordRestRenderer: {
@@ -53,6 +54,7 @@ export class ChordRestLayoutData extends LayoutData {
 export abstract class ChordRest extends DurationElement {
     protected m_lyrics: Lyrics[] = []
     protected m_beam: Beam | null = null
+    private m_tabDur: TabDurationSymbol | null = null // stores a duration symbol in tablature staves
     protected m_beamlet: unknown = null
     protected m_beamMode: BeamMode = BeamMode.AUTO
     protected m_isSmall = false
@@ -351,5 +353,16 @@ export abstract class ChordRest extends DurationElement {
             de.tuplet()!.scanElements(func)
             de = de.tuplet()!
         }
+        if (this.m_tabDur) {
+            func(this.m_tabDur)
+        }
     }
+
+    protected override onCloned(original: this): void {
+        super.onCloned(original)
+        this.m_tabDur = null // tab dur. symb. depends upon context: can't be simply copied from another CR
+    }
+
+    tabDur(): TabDurationSymbol | null { return this.m_tabDur }
+    setTabDur(s: TabDurationSymbol | null): void { this.m_tabDur = s }
 }

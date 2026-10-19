@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/pagelayout.h/.cpp
  *
- * TODO(port): system dividers, masks, arpeggios, tremolos, fingerings on cross-staff beams,
+ * TODO(port): system dividers, arpeggios, tremolos, fingerings on cross-staff beams,
  * system lock / staff visibility indicators
  */
 
@@ -36,6 +36,7 @@ import { TupletLayout } from './tupletlayout'
 import { ChordLayout } from './chordlayout'
 import { SlurTieLayout } from './slurtielayout'
 import { VerticalGapData, VerticalGapDataList } from './verticalgapdata'
+import { MaskLayout } from './masklayout'
 
 // MScore::verticalOrientation(), MScore::horizontalPageGapEven/Odd (defaults)
 const VERTICAL_ORIENTATION = false
@@ -358,7 +359,9 @@ export class PageLayout {
             }
         }
 
-        // TODO(port): MaskLayout::computeMasks, layoutSystemDividers
+        MaskLayout.computeMasks(ctx, page)
+
+        // TODO(port): layoutSystemDividers
     }
 
     static layoutCrossStaffElements(ctx: LayoutContext, page: Page): void {
