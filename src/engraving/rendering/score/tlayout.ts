@@ -120,6 +120,7 @@ import { TremoloLayout } from './tremololayout'
 import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { StaffTypeChange } from '../../dom/stafftypechange'
+import type { LaissezVib } from '../../dom/laissezvib'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -196,6 +197,7 @@ export class TLayout {
         case ElementType.ARTICULATION: TLayout.layoutArticulation(item as Articulation, ctx); break
         case ElementType.ORNAMENT: TLayout.layoutOrnament(item as Ornament, ctx); break
         case ElementType.ARPEGGIO: TLayout.layoutArpeggio(item as Arpeggio, ctx); break
+        case ElementType.LAISSEZ_VIB: break // C++ TLayout::layoutLaissezVib() does nothing
         case ElementType.STAFFTYPE_CHANGE: TLayout.layoutStaffTypeChange(item as StaffTypeChange, ctx); break
         case ElementType.TREMOLO_SINGLECHORD: TremoloLayout.layoutSingleChord(item as TremoloSingleChord, ctx); break
         case ElementType.TREMOLO_TWOCHORD: TremoloLayout.layoutTwoChord(item as TremoloTwoChord, ctx); break
@@ -2874,7 +2876,15 @@ export class TLayout {
             shape.add(acc.ldata().shape().translated(acc.pos()))
         }
 
-        // TODO(port): laissez vibrer segments, guitar bends
+        const lv = item.laissezVib() as LaissezVib | null
+        const lvSeg = lv && !lv.segmentsEmpty() ? lv.frontLaissezVibSegment() : null
+        if (lvSeg && lvSeg.addToSkyline()) {
+            const bbox = lvSeg.shape().bbox()
+            const cornerClosestToNote = lv!.up() ? bbox.bottomLeft() : bbox.topLeft()
+            const pos = lvSeg.ldata().posRelativeToNote.minus(cornerClosestToNote)
+            shape.add(lvSeg.shape().translate(pos))
+        }
+        // TODO(port): guitar bends
 
         for (const e of item.el()) {
             if (e.addToSkyline()) {

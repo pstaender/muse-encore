@@ -114,6 +114,7 @@ import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { BeamFragment } from '../../dom/beambase'
 import type { TremoloCompat } from '../compat/tremolocompat'
 import type { StaffTypeChange } from '../../dom/stafftypechange'
+import type { LaissezVib } from '../../dom/laissezvib'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -2250,9 +2251,14 @@ export class TRead {
             dot.setParent(n)
             TRead.readItemPropertiesOnly(dot, e, ctx)
             n.add(dot)
+        } else if (tag === 'LaissezVib') {
+            const lv = Factory.createItem(ElementType.LAISSEZ_VIB, n) as LaissezVib
+            TRead.readLaissezVib(lv, e, ctx)
+            lv.setParent(n)
+            n.add(lv)
         } else if (tag === 'Fingering' || tag === 'Image' || tag === 'Bend' || tag === 'Events' || tag === 'ChordLine'
-                   || tag === 'LaissezVib' || tag === 'PartialTie') {
-            // TODO(port): fingering, images, bends, play events, chord lines, laissez vibrer, partial ties
+                   || tag === 'PartialTie') {
+            // TODO(port): fingering, images, bends, play events, chord lines, partial ties
             e.skipCurrentElement()
         } else if (tag === 'offset') {
             TRead.readItemProperties(n, e, ctx)
@@ -2597,6 +2603,17 @@ export class TRead {
             }
             if (!TRead.readSlurTieProperties(s, e, ctx)) {
                 e.unknown()
+            }
+        }
+    }
+
+    static readLaissezVib(lv: LaissezVib, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+            if (TRead.readPropertyIfTag(lv, tag, xml, ctx, Pid.TIE_PLACEMENT)) {
+            } else if (TRead.readPropertyIfTag(lv, tag, xml, ctx, Pid.MIN_LENGTH)) {
+            } else if (!TRead.readSlurTieProperties(lv, xml, ctx)) {
+                xml.unknown()
             }
         }
     }

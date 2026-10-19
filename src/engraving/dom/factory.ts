@@ -75,6 +75,7 @@ import { Trill, TrillSegment } from './trill'
 import { TremoloSingleChord } from './tremolosinglechord'
 import { TremoloTwoChord } from './tremolotwochord'
 import { StaffTypeChange } from './stafftypechange'
+import { LaissezVib, LaissezVibSegment } from './laissezvib'
 
 type Parent = EngravingObject | null
 
@@ -95,6 +96,8 @@ export class Factory {
         case ElementType.BAR_LINE: return new BarLine(segmentOrDummy())
         case ElementType.ARPEGGIO: return new Arpeggio(chordOrDummy())
         case ElementType.STAFFTYPE_CHANGE: return new StaffTypeChange(parent as MeasureBase)
+        case ElementType.LAISSEZ_VIB: return new LaissezVib(parent as Note)
+        case ElementType.LAISSEZ_VIB_SEGMENT: return new LaissezVibSegment(null)
         case ElementType.TREMOLO_SINGLECHORD: return new TremoloSingleChord(chordOrDummy())
         case ElementType.TREMOLO_TWOCHORD: return new TremoloTwoChord(chordOrDummy())
         case ElementType.BRACKET: return new Bracket(itemOrDummy())

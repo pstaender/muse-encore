@@ -65,6 +65,7 @@ import type { TrillSegment } from '../../dom/trill'
 import type { Arpeggio } from '../../dom/arpeggio'
 import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
+import type { LaissezVibSegment } from '../../dom/laissezvib'
 
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
@@ -148,6 +149,8 @@ export class TDraw {
         case ElementType.STEM_SLASH: TDraw.drawStemSlash(item as StemSlash, painter, opt)
             break
         case ElementType.SYMBOL: TDraw.drawSymbol(item as SymbolItem, painter, opt)
+            break
+        case ElementType.LAISSEZ_VIB_SEGMENT: TDraw.drawLaissezVibSegment(item as LaissezVibSegment, painter, opt)
             break
         case ElementType.TIE_SEGMENT: TDraw.drawTieSegment(item as TieSegment, painter, opt)
             break
@@ -1262,6 +1265,16 @@ export class TDraw {
         painter.setPen(TDraw.slurTiePen(item, painter, item.curColor(opt), mag))
         painter.drawPath(item.ldata().path)
         painter.restore()
+    }
+
+    static drawLaissezVibSegment(item: LaissezVibSegment, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+        if (item.score().style().styleB(Sid.laissezVibUseSmuflSym)) {
+            painter.setPen(new Pen(item.curColor(opt)))
+            item.drawSymbol(ldata.symbol, painter)
+        } else {
+            TDraw.drawTieSegment(item, painter, opt)
+        }
     }
 
     static drawTieSegment(item: TieSegment, painter: Painter, opt: PaintOptions): void {

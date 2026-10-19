@@ -349,8 +349,11 @@ export class MeasureLayout {
             for (const note of chord.notes()) {
                 const tieFor = note.tieFor()
                 const tieBack = note.tieBack()
-                // TODO(port): laissez vibrer
-                if (tieFor && tieFor.isCrossStaff()) {
+                const lv = note.laissezVib()
+                if (lv && lv.isCrossStaff()) {
+                    SlurTieLayout.layoutLaissezVibChord(chord, ctx)
+                }
+                if (tieFor && !lv && tieFor.isCrossStaff()) {
                     SlurTieLayout.layoutTieFor(tieFor, item.system()!)
                 }
                 if (tieBack && tieBack.tick().lt(stick) && tieBack.isCrossStaff()) {

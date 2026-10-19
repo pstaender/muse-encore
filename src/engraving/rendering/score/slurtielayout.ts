@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/slurtielayout.h/.cpp
  *
- * TODO(port): laissez vibrer, partial ties, tapping half slurs, guitar bends on tab
+ * TODO(port): partial ties, tapping half slurs, guitar bends on tab
  */
 
 import { PointF, RectF } from '../../../framework/draw/types/geometry'
@@ -42,6 +42,7 @@ import { TremoloLayout } from './tremololayout'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { Arpeggio } from '../../dom/arpeggio'
 import type { Ornament } from '../../dom/ornament'
+import type { LaissezVib, LaissezVibSegment } from '../../dom/laissezvib'
 
 class SlurTiePos {
     p1 = new PointF() // start point of slur
@@ -1676,8 +1677,113 @@ export class SlurTieLayout {
         }
     }
 
-    static layoutLaissezVibChord(_chord: Chord, _ctx: LayoutContext): void {
-        // TODO(port): laissez vibrer
+    static createLaissezVibSegment(item: LaissezVib): LaissezVibSegment {
+        const startChord = item.startNote()!.chord()
+        item.setTick(startChord.tick())
+
+        SlurTieLayout.calculateDirection(item)
+        SlurTieLayout.calculateIsInside(item)
+
+        item.fixupSlurTieSegments(1)
+        const segment = item.segmentAt(0) as LaissezVibSegment
+        segment.setSpannerSegmentType(SpannerSegmentType.SINGLE)
+        segment.setTrack(item.track())
+        segment.setSystem(startChord.segment()!.measure().system())
+        segment.resetAdjustmentOffset()
+
+        return segment
+    }
+
+    private static calculateLaissezVibX(segment: LaissezVibSegment, sPos: SlurTiePos, smufl: boolean): void {
+        const lv = segment.laissezVib()
+
+        SlurTieLayout.computeStartAndEndSystem(lv, sPos)
+        sPos.p1 = SlurTieLayout.computeDefaultStartOrEndPoint(lv, Grip.START)
+
+        SlurTieLayout.correctForCrossStaff(lv, sPos, SpannerSegmentType.SINGLE)
+
+        if (segment.autoplace() && !segment.isEdited()) {
+            SlurTieLayout.adjustX(segment, sPos, Grip.START)
+        }
+
+        if (smufl) {
+            const ldata = segment.mutldata()
+            ldata.symbol = lv.symId()
+            ldata.setBbox(segment.symBbox(ldata.symbol))
+            ldata.setShape(new Shape(ldata.bbox(), segment))
+            ldata.setMag(lv.startNote()!.mag())
+        }
+
+        const width = smufl ? segment.width() : lv.absoluteFromSpatium(lv.minLength())
+
+        sPos.p2 = new PointF(sPos.p1.x() + width, sPos.p1.y())
+    }
+
+    private static calculateLaissezVibY(segment: LaissezVibSegment, sPos: SlurTiePos): void {
+        SlurTieLayout.adjustYforLedgerLines(segment, sPos)
+
+        // TODO(port): note parentheses (Chord::findNoteParenthesisInfo)
+
+        segment.ups(Grip.START).p = sPos.p1.clone()
+        segment.ups(Grip.END).p = sPos.p2.clone()
+
+        if (segment.autoplace() && !segment.isEdited()) {
+            SlurTieLayout.adjustY(segment)
+        } else {
+            SlurTieLayout.computeTieBezier(segment)
+        }
+    }
+
+    static layoutLaissezVibChord(chord: Chord, ctx: LayoutContext): void {
+        // Laissez vib ties should all end at the same rightmost point while honouring each tie's minimum length
+        // Ties drawn by MuseScore can start at differing points
+        // SMuFL symbols will also start at the same point because they are of fixed length
+        let chordLvEndPoint = -Number.MAX_VALUE
+        const lvSegmentsWithPositions = new Map<LaissezVibSegment, SlurTiePos>()
+        const smuflLayout = ctx.conf().styleB(Sid.laissezVibUseSmuflSym)
+
+        for (const note of chord.notes()) {
+            const lv = note.laissezVib() as LaissezVib | null
+            if (!lv) {
+                continue
+            }
+            const sPos = new SlurTiePos()
+            const lvSeg = SlurTieLayout.createLaissezVibSegment(lv)
+
+            SlurTieLayout.calculateLaissezVibX(lvSeg, sPos, smuflLayout)
+
+            chordLvEndPoint = Math.max(chordLvEndPoint, sPos.p2.x())
+
+            lvSegmentsWithPositions.set(lvSeg, sPos)
+        }
+
+        for (const [lvSeg, sPos] of lvSegmentsWithPositions) {
+            const note = lvSeg.laissezVib().startNote()!
+            const xDiff = chordLvEndPoint - sPos.p2.x()
+            sPos.p2.setX(chordLvEndPoint)
+            if (smuflLayout) {
+                sPos.p1.setX(sPos.p1.x() + xDiff)
+            }
+
+            SlurTieLayout.calculateLaissezVibY(lvSeg, sPos)
+
+            const ldata = lvSeg.mutldata()
+            if (smuflLayout) {
+                ldata.setBbox(lvSeg.symBbox(ldata.symbol))
+                ldata.setShape(new Shape(ldata.bbox(), lvSeg))
+                ldata.setPos(sPos.p1)
+            }
+
+            const yOrigin = sPos.system1!.staff(chord.staffIdx())!.y()
+            const yMoved = sPos.system1!.staff(chord.vStaffIdx())!.y()
+            const yDiff = yMoved - yOrigin
+
+            const chordPos = chord.pos().plus(chord.segment()!.pos()).plus(chord.measure()!.pos()).plus(new PointF(0.0, yDiff))
+            const notePos = chordPos.plus(note.pos())
+            ldata.posRelativeToNote = sPos.p1.minus(notePos)
+
+            TLayout.fillNoteShape(note)
+        }
     }
 
     private static correctForCrossStaff(tie: Tie, sPos: SlurTiePos, type: SpannerSegmentType): void {
