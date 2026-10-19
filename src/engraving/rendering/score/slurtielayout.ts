@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/slurtielayout.h/.cpp
  *
- * TODO(port): partial ties, tapping half slurs, guitar bends on tab
+ * TODO(port): tapping half slurs, guitar bends on tab
  */
 
 import { PointF, RectF } from '../../../framework/draw/types/geometry'
@@ -15,7 +15,7 @@ import { RealIsEqualOrMore, RealIsNull, clamp, stdRound } from '../../../framewo
 import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { DirectionV, ElementType, NoteHeadGroup, SlurStyleType, SpannerSegmentType, TieDotsPlacement, TiePlacement, TimeSigPlacement, VOICES, isUpVoice,
-    staff2track } from '../../types/types'
+    staff2track, BarLineType, type staff_idx_t } from '../../types/types'
 import { Shape, ShapeType, type ShapeElement } from '../../infrastructure/shape'
 import { Sid } from '../../style/styledef'
 import { Grip } from '../../editing/editdata'
@@ -43,6 +43,8 @@ import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { Arpeggio } from '../../dom/arpeggio'
 import type { Ornament } from '../../dom/ornament'
 import type { LaissezVib, LaissezVibSegment } from '../../dom/laissezvib'
+import type { PartialTie, PartialTieSegment } from '../../dom/partialtie'
+import type { BarLine } from '../../dom/barline'
 
 class SlurTiePos {
     p1 = new PointF() // start point of slur
@@ -1377,8 +1379,7 @@ export class SlurTieLayout {
         }
 
         if (item.isPartialTie()) {
-            // TODO(port): partial ties
-            return null
+            return SlurTieLayout.layoutPartialTie(item as PartialTie)
         }
 
         SlurTieLayout.calculateDirection(item)
@@ -1453,8 +1454,7 @@ export class SlurTieLayout {
         }
 
         if (item.isPartialTie()) {
-            // TODO(port): partial ties
-            return null
+            return SlurTieLayout.layoutPartialTie(item as PartialTie)
         }
 
         const sPos = new SlurTiePos()
@@ -1674,6 +1674,126 @@ export class SlurTieLayout {
                     }
                 }
             }
+        }
+    }
+
+    private static createPartialTieSegment(item: PartialTie): PartialTieSegment {
+        const chord = item.isOutgoing() ? item.startNote()!.chord() : item.endNote()!.chord()
+        item.setTick(chord.tick())
+
+        SlurTieLayout.calculateDirection(item)
+        SlurTieLayout.calculateIsInside(item)
+
+        item.fixupSlurTieSegments(1)
+        const segment = item.segmentAt(0) as PartialTieSegment
+        segment.setSpannerSegmentType(SpannerSegmentType.SINGLE)
+        segment.setSystem(chord.segment()!.measure().system())
+        segment.setTrack(item.track())
+        segment.resetAdjustmentOffset()
+        // TODO(port): ldata allJumpPointsInactive (tie jump points; only used when not printing)
+
+        return segment
+    }
+
+    static layoutPartialTie(item: PartialTie): PartialTieSegment {
+        const outgoing = item.isOutgoing()
+        const segment = SlurTieLayout.createPartialTieSegment(item)
+        const sPos = new SlurTiePos()
+
+        SlurTieLayout.computeStartAndEndSystem(item, sPos)
+        if (outgoing) {
+            sPos.p1 = SlurTieLayout.computeDefaultStartOrEndPoint(item, Grip.START)
+        } else {
+            sPos.p2 = SlurTieLayout.computeDefaultStartOrEndPoint(item, Grip.END)
+        }
+
+        if (segment.autoplace() && !segment.isEdited()) {
+            SlurTieLayout.adjustX(segment, sPos, outgoing ? Grip.START : Grip.END)
+        }
+
+        SlurTieLayout.setPartialTieEndPos(item, sPos)
+
+        SlurTieLayout.correctForCrossStaff(item, sPos, SpannerSegmentType.SINGLE)
+
+        SlurTieLayout.adjustYforLedgerLines(segment, sPos)
+
+        segment.ups(Grip.START).p = sPos.p1.clone()
+        segment.ups(Grip.END).p = sPos.p2.clone()
+
+        if (segment.autoplace() && !segment.isEdited()) {
+            SlurTieLayout.adjustY(segment)
+        } else {
+            SlurTieLayout.computeTieBezier(segment)
+        }
+
+        SlurTieLayout.addPartialTieLineAttachPoints(segment)
+
+        return segment
+    }
+
+    private static setPartialTieEndPos(item: PartialTie, sPos: SlurTiePos): void {
+        const outgoing = item.isOutgoing()
+
+        const chord = item.parentNote()!.chord()
+        const seg = chord.segment()!
+        const measure = seg.measure()
+        const system = measure.system()
+
+        if (seg.measure().isFirstInSystem() && !outgoing) {
+            sPos.p1 = new PointF(system ? system.firstNoteRestSegmentX(true) : 0, sPos.p2.y())
+            return
+        }
+
+        const shouldSkipSegment = (adjSeg: Segment, staff: staff_idx_t): boolean => {
+            const inactiveOrInvisible = !adjSeg.isActive() || !adjSeg.enabled() || adjSeg.allElementsInvisible()
+                                        || !adjSeg.hasElementsInStaff(staff)
+            const isAboveStaff = adjSeg.isBreathType() || adjSeg.hasTimeSigAboveStaves()
+            return inactiveOrInvisible || isAboveStaff
+        }
+
+        let adjSeg = outgoing ? seg.next1() : seg.prev1()
+        while (adjSeg && shouldSkipSegment(adjSeg, item.vStaffIdx())) {
+            adjSeg = outgoing ? adjSeg.next1() : adjSeg.prev1()
+        }
+
+        let widthToSegment = 0.0
+        if (adjSeg) {
+            const element = adjSeg.element(staff2track(item.vStaffIdx()))
+            let elPos = 0.0
+            let elementWidth = 0.0
+            if (element) {
+                const elemShape = element.shape()
+                elPos = element.pos().x() + elemShape.bbox().x()
+                elementWidth = elemShape.bbox().width()
+            }
+
+            const elPosInSystemCoords = adjSeg.xPosInSystemCoords() + elPos
+            widthToSegment = outgoing ? elPosInSystemCoords - sPos.p1.x() : sPos.p2.x() - (elPosInSystemCoords + elementWidth)
+            const incomingFromBarline = !outgoing && !!element && element.isBarLine()
+                                        && (element as BarLine).barLineType() !== BarLineType.START_REPEAT
+            widthToSegment -= item.style().styleMM(incomingFromBarline ? Sid.barlineToLineStartDistance : Sid.lineEndToBarlineDistance)
+        }
+
+        if (outgoing) {
+            sPos.p2 = new PointF(sPos.p1.x() + widthToSegment, sPos.p1.y())
+        } else {
+            sPos.p1 = new PointF(sPos.p2.x() - widthToSegment, sPos.p2.y())
+        }
+    }
+
+    /** C++ addLineAttachPoints(PartialTieSegment*) */
+    private static addPartialTieLineAttachPoints(segment: PartialTieSegment): void {
+        // Add tie attach point to parent note
+        const tie = segment.partialTie()
+        const note = tie ? tie.note() : null
+        if (!note) {
+            return
+        }
+
+        if (tie.isOutgoing()) {
+            note.addStartLineAttachPoint(segment.ups(Grip.START).pos(), tie)
+        } else {
+            note.addEndLineAttachPoint(segment.ups(Grip.END).pos(), tie)
         }
     }
 

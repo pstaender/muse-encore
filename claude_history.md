@@ -129,12 +129,14 @@
 - Slurs: ornament accidentals/arpeggio rules in the slur collision shape, hasArticulationAbove for ornaments
   (ornament-3 41% -> 5%).
 - Laissez vibrer ties (LaissezVib/LaissezVibSegment, SMuFL symbol or tie drawing): lv-1/2 56% -> 3-4%.
+- Partial ties (without tie jump points, which are only needed for editing/screen display): partialTieEndAlignment
+  17% -> 1.3%.
 - Note: files < 4.6 are read with read460 plus selected read400/read410 compat (fretFontName, harmony, fret
   diagrams, marker type from label); C++ uses separate readers for them.
 
 ### Known differences / missing
 - Not ported (not drawn): fingering, vibrato, gradual tempo changes, partial lyrics lines,
-  measure repeats, chord brackets, tremolo bars, glissandi, guitar bends, images, fret boxes, partial ties, note parentheses on chords, MMRestRange, excerpts.
+  measure repeats, chord brackets, tremolo bars, glissandi, guitar bends, images, fret boxes, note parentheses on chords, MMRestRange, excerpts.
 - harmony-35: chord symbols at size 20 are placed ~0.45sp lower than in MuseScore (10, 15 and 25 match), so a
   4th system fits on page 1.
 - ornament-9: hairpins on vocal staves (4.2 file) are placed above the staff, MuseScore places them below; with a

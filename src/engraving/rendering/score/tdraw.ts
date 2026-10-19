@@ -152,7 +152,8 @@ export class TDraw {
             break
         case ElementType.LAISSEZ_VIB_SEGMENT: TDraw.drawLaissezVibSegment(item as LaissezVibSegment, painter, opt)
             break
-        case ElementType.TIE_SEGMENT: TDraw.drawTieSegment(item as TieSegment, painter, opt)
+        case ElementType.TIE_SEGMENT:
+        case ElementType.PARTIAL_TIE_SEGMENT: TDraw.drawTieSegment(item as TieSegment, painter, opt)
             break
         case ElementType.TIMESIG: TDraw.drawTimeSig(item as TimeSig, painter, opt)
             break

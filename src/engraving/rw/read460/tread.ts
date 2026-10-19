@@ -115,6 +115,7 @@ import type { BeamFragment } from '../../dom/beambase'
 import type { TremoloCompat } from '../compat/tremolocompat'
 import type { StaffTypeChange } from '../../dom/stafftypechange'
 import type { LaissezVib } from '../../dom/laissezvib'
+import type { PartialTie } from '../../dom/partialtie'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -2256,9 +2257,17 @@ export class TRead {
             TRead.readLaissezVib(lv, e, ctx)
             lv.setParent(n)
             n.add(lv)
-        } else if (tag === 'Fingering' || tag === 'Image' || tag === 'Bend' || tag === 'Events' || tag === 'ChordLine'
-                   || tag === 'PartialTie') {
-            // TODO(port): fingering, images, bends, play events, chord lines, partial ties
+        } else if (tag === 'PartialTie') {
+            const pt = Factory.createItem(ElementType.PARTIAL_TIE, n) as PartialTie
+            TRead.readPartialTie(pt, e, ctx)
+            if (pt.isOutgoing()) {
+                pt.setStartNote(n)
+            } else {
+                pt.setEndNote(n)
+            }
+            n.add(pt)
+        } else if (tag === 'Fingering' || tag === 'Image' || tag === 'Bend' || tag === 'Events' || tag === 'ChordLine') {
+            // TODO(port): fingering, images, bends, play events, chord lines
             e.skipCurrentElement()
         } else if (tag === 'offset') {
             TRead.readItemProperties(n, e, ctx)
@@ -2603,6 +2612,17 @@ export class TRead {
             }
             if (!TRead.readSlurTieProperties(s, e, ctx)) {
                 e.unknown()
+            }
+        }
+    }
+
+    static readPartialTie(p: PartialTie, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+            if (TRead.readPropertyIfTag(p, tag, xml, ctx, Pid.TIE_PLACEMENT)) {
+            } else if (TRead.readPropertyIfTag(p, tag, xml, ctx, Pid.PARTIAL_SPANNER_DIRECTION)) {
+            } else if (!TRead.readSlurTieProperties(p, xml, ctx)) {
+                xml.unknown()
             }
         }
     }
