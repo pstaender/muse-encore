@@ -31,6 +31,10 @@ export function loadScore(data: Uint8Array | ArrayBuffer): MasterScore {
 
 /** Lays out the whole score (pages, systems, measures, ...) */
 export function layoutScore(score: MasterScore): void {
+    // MuseScore lays out a loaded score twice (EngravingProject::loadMscz and NotationProject::doLoad) and some
+    // results depend on the previous pass (e.g. chord shapes include the lyrics bboxes, which are only laid out
+    // after the chord shapes are filled), so do the same to get identical results
+    ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
     ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
 }
 

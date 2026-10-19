@@ -5,15 +5,15 @@
  *
  * Port of src/engraving/rendering/score/systemlayout.h/.cpp
  *
- * TODO(port): system lock indicators, MMRestRange, lines (hairpins, voltas, ottavas, pedals, trills, ...),
- * dynamics/expressions/harmony/fret diagrams/figured bass alignment, guitar bends, tremolos, hammer-on/pull-off,
- * centering of elements between staves
+ * TODO(port): system lock indicators, MMRestRange, lines (trills, vibrato, let ring, palm mute, ...),
+ * harmony/fret diagrams/figured bass alignment, guitar bends, tremolos, hammer-on/pull-off,
+ * centering of whammy bars between staves
  */
 
 import { PointF, RectF } from '../../../framework/draw/types/geometry'
 import { RealIsEqual, RealIsNull } from '../../../framework/global/realfn'
 import { Fraction } from '../../types/fraction'
-import { AlignH, AutoOnOff, BracketType, DPI, ElementType, InstrumentLabelVisibility, TimeSigPlacement,
+import { AlignH, AutoOnOff, nidx, BracketType, DPI, ElementType, InstrumentLabelVisibility, TimeSigPlacement,
     VOICES, staff2track, track2staff, type staff_idx_t } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { DefaultStyle } from '../../style/defaultstyle'
@@ -56,6 +56,10 @@ import { LyricsLayout } from './lyricslayout'
 import { BoxLayout } from './boxlayout'
 import { Autoplace } from './autoplace'
 import { AlignmentLayout } from './alignmentlayout'
+import type { LyricsLine } from '../../dom/lyricsline'
+import type { MMRest } from '../../dom/mmrest'
+import type { Shape } from '../../infrastructure/shape'
+import type { SkylineLine } from '../../infrastructure/skyline'
 
 class MeasureState {
     measure: Measure | null = null
@@ -746,9 +750,67 @@ export class SystemLayout {
         }
     }
 
+    private static layoutVoltas(elementsToLayout: ElementsToLayout, ctx: LayoutContext): void {
+        const system = elementsToLayout.system
+
+        SystemLayout.processLines(system, ctx, elementsToLayout.voltas)
+
+        const alignedVoltas = new Set<Spanner>()
+        for (let i = 0; i < elementsToLayout.voltas.length; ++i) {
+            let volta1 = elementsToLayout.voltas[i]
+            if (alignedVoltas.has(volta1)) {
+                continue
+            }
+
+            const voltasToAlign: EngravingItem[] = [volta1.backSegment()]
+
+            for (let j = i + 1; j < elementsToLayout.voltas.length; ++j) {
+                const volta2 = elementsToLayout.voltas[j]
+                if (volta2.staffIdx() === volta1.staffIdx() && volta2.tick().eq(volta1.tick2())) {
+                    voltasToAlign.push(volta2.frontSegment())
+                    volta1 = volta2
+                }
+            }
+
+            if (voltasToAlign.length > 1) {
+                AlignmentLayout.alignItemsGroup(voltasToAlign, system)
+                for (const vs of voltasToAlign) {
+                    alignedVoltas.add((vs as SpannerSegment).spanner()!)
+                }
+            }
+        }
+    }
+
     private static layoutLyrics(elements: ElementsToLayout, ctx: LayoutContext): void {
-        // TODO(port): lyrics lines (melisma and dashes)
-        LyricsLayout.computeVerticalPositions(elements.system, ctx)
+        const system = elements.system
+        // NOTE: in continuous view, this means we layout spanners for the entire score.
+        // TODO: find way to optimize this and only layout where necessary.
+        const measures = system.measures()
+        const stick = measures[0].tick()
+        const etick = measures[measures.length - 1].endTick()
+
+        for (const sp of elements.partialLyricsLines) {
+            TLayout.layoutSystem(sp, system, ctx)
+        }
+
+        //-------------------------------------------------------------
+        // Lyric
+        //-------------------------------------------------------------
+        // Layout lyrics dashes and melisma
+        // NOTE: loop on a *copy* of unmanagedSpanners because in some cases
+        // the underlying operation may invalidate some of the iterators.
+        const dashOnFirstNoteSyllable = ctx.conf().styleB(Sid.lyricsShowDashIfSyllableOnFirstNote)
+        for (const sp of [...ctx.dom().unmanagedSpanners()]) {
+            if (!sp.systemFlag() && sp.staff() && !sp.staff()!.show()) {
+                continue
+            }
+            const dashOnFirst = dashOnFirstNoteSyllable && !(sp as LyricsLine).isEndMelisma()
+            if (sp.tick().ge(etick) || sp.tick2().lt(stick) || (sp.tick2().eq(stick) && !dashOnFirst)) {
+                continue
+            }
+            TLayout.layoutSystem(sp, system, ctx)
+        }
+        LyricsLayout.computeVerticalPositions(system, ctx)
     }
 
     static layoutSystemElements(system: System, ctx: LayoutContext): void {
@@ -941,8 +1003,7 @@ export class SystemLayout {
             TLayout.layoutItem(item, ctx)
         }
 
-        // TODO(port): layoutVoltas (alignment of consecutive voltas)
-        SystemLayout.processLines(system, ctx, elementsToLayout.voltas)
+        SystemLayout.layoutVoltas(elementsToLayout, ctx)
 
         for (const item of elementsToLayout.rehMarks) {
             TLayout.layoutItem(item, ctx)
@@ -2435,8 +2496,207 @@ export class SystemLayout {
         }
     }
 
-    static centerElementsBetweenStaves(_system: System): void {
-        // TODO(port): hairpins, dynamics, expressions, MM rests, whammy bars
+    static centerElementsBetweenStaves(system: System): void {
+        const centeredItems: EngravingItem[] = []
+
+        for (const spannerSeg of system.spannerSegments()) {
+            if (spannerSeg.isHairpinSegment() && SystemLayout.elementShouldBeCenteredBetweenStaves(spannerSeg, system)) {
+                SystemLayout.centerElementBetweenStaves(spannerSeg, system)
+                centeredItems.push(spannerSeg)
+            }
+            // TODO(port): whammy bar segments
+        }
+
+        for (const mb of system.measures()) {
+            if (!mb.isMeasure()) {
+                continue
+            }
+            for (let seg = (mb as Measure).first(); seg; seg = seg.next()) {
+                for (const item of seg.elist()) {
+                    if (item && item.isMMRest() && SystemLayout.mmRestShouldBeCenteredBetweenStaves(item as MMRest, system)) {
+                        SystemLayout.centerMMRestBetweenStaves(item as MMRest, system)
+                    }
+                }
+                for (const item of seg.annotations()) {
+                    if ((item.isDynamic() || item.isExpression()) && SystemLayout.elementShouldBeCenteredBetweenStaves(item, system)) {
+                        SystemLayout.centerElementBetweenStaves(item, system)
+                        centeredItems.push(item)
+                    }
+                }
+            }
+        }
+
+        AlignmentLayout.alignStaffCenteredItems(centeredItems, system)
+    }
+
+    private static elementShouldBeCenteredBetweenStaves(item: EngravingItem, system: System): boolean {
+        if (item.offset().y() !== (item.propertyDefault(Pid.OFFSET) as PointF).y()) {
+            // NOTE: because of current limitations of the offset system, we can't center an element that's been manually moved.
+            return false
+        }
+
+        const itemPart = item.part()
+        if (!itemPart) {
+            return false
+        }
+
+        const centerStyle = item.style().styleB(Sid.dynamicsHairpinsAutoCenterOnGrandStaff)
+        const centerProperty = item.getProperty(Pid.CENTER_BETWEEN_STAVES) as AutoOnOff
+        if (itemPart.nstaves() <= 1 || centerProperty === AutoOnOff.OFF || (!centerStyle && centerProperty !== AutoOnOff.ON)) {
+            return false
+        }
+
+        if (centerProperty !== AutoOnOff.ON && !itemPart.instrument().isNormallyMultiStaveInstrument()) {
+            return false
+        }
+
+        const thisStaff = item.staff()!
+        const partStaves = itemPart.staves()
+        if (partStaves.length === 0) {
+            return false
+        }
+
+        if ((thisStaff === partStaves[0] && item.placeAbove()) || (thisStaff === partStaves[partStaves.length - 1] && item.placeBelow())) {
+            return false
+        }
+
+        const thisIdx = thisStaff.idx()
+        if (item.placeAbove() && thisIdx === 0) {
+            return false
+        }
+
+        const nextIdx = item.placeAbove() ? system.prevVisibleStaff(thisIdx) : system.nextVisibleStaff(thisIdx)
+        if (nextIdx === nidx || !partStaves.includes(item.score().staff(nextIdx)!)) {
+            return false
+        }
+
+        return centerProperty === AutoOnOff.ON || item.appliesToAllVoicesInInstrument()
+    }
+
+    private static centerElementBetweenStaves(element: EngravingItem, system: System): void {
+        const isAbove = element.placeAbove()
+        const thisIdx = element.staffIdx()
+        if (isAbove && thisIdx === 0) {
+            return
+        }
+        const nextIdx = isAbove ? system.prevVisibleStaff(thisIdx) : system.nextVisibleStaff(thisIdx)
+        if (nextIdx === nidx) {
+            return
+        }
+
+        const thisStaff = system.staff(thisIdx)
+        const nextStaff = system.staff(nextIdx)
+        if (!thisStaff || !nextStaff) {
+            return
+        }
+
+        const elementXinSystemCoord = element.pageX() - system.pageX()
+        const minHorizontalClearance = system.style().styleMM(Sid.skylineMinHorizontalClearance)
+
+        const elementShape = element.ldata().shape()
+            .translated(new PointF(elementXinSystemCoord, element.y()))
+            .adjust(-minHorizontalClearance, 0.0, minHorizontalClearance, 0.0)
+        elementShape.remove_if((shEl) => shEl.ignoreForLayout())
+
+        const skylineOfThisStaff = isAbove ? thisStaff.skyline().north() : thisStaff.skyline().south()
+
+        if (SystemLayout.elementHasAnotherStackedOutside(element, elementShape, skylineOfThisStaff)) {
+            return
+        }
+
+        const thisSkyline = skylineOfThisStaff.getFilteredCopy((shEl) => {
+            const shapeItem = shEl.item()
+            if (!shapeItem) {
+                return false
+            }
+            return shapeItem.isAccidental() || Autoplace.itemsShouldIgnoreEachOther(element, shapeItem)
+        })
+
+        const yStaffDiff = nextStaff.y() - thisStaff.y()
+        const nextSkyline = (isAbove ? nextStaff.skyline().south() : nextStaff.skyline().north()).clone()
+        nextSkyline.translateY(yStaffDiff)
+
+        const elementMinDist = element.minDistance().toAbsolute(element.spatium())
+        let availSpaceAbove = (isAbove ? nextSkyline.verticalClaranceBelow(elementShape) : thisSkyline.verticalClaranceBelow(elementShape))
+                              - elementMinDist
+        let availSpaceBelow = (isAbove ? thisSkyline.verticalClearanceAbove(elementShape) : nextSkyline.verticalClearanceAbove(elementShape))
+                              - elementMinDist
+
+        const yMove = 0.5 * (availSpaceBelow - availSpaceAbove)
+
+        element.mutldata().moveY(yMove)
+
+        availSpaceAbove += yMove
+        availSpaceBelow -= yMove
+        element.mutldata().setStaffCenteringInfo(Math.max(availSpaceAbove, 0.0), Math.max(availSpaceBelow, 0.0))
+
+        SystemLayout.updateSkylineForElement(element, system, yMove)
+    }
+
+    private static elementHasAnotherStackedOutside(element: EngravingItem, elementShape: Shape, skylineLine: SkylineLine): boolean {
+        const elemShapeLeft = -elementShape.left()
+        const elemShapeRight = elementShape.right()
+        const elemShapeTop = elementShape.top()
+        const elemShapeBottom = elementShape.bottom()
+
+        for (const skylineElement of skylineLine.elements()) {
+            const skylineItem = skylineElement.item()
+            if (!skylineItem || skylineItem === element || skylineItem.parent() === element
+                || Autoplace.itemsShouldIgnoreEachOther(element, skylineItem)) {
+                continue
+            }
+            const intersectHorizontally = elemShapeRight > skylineElement.left() && elemShapeLeft < skylineElement.right()
+            if (!intersectHorizontally) {
+                continue
+            }
+            const skylineElementIsStackedOnIt = skylineLine.isNorth() ? skylineElement.top() < elemShapeTop
+                : skylineElement.bottom() > elemShapeBottom
+            if (skylineElementIsStackedOnIt) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private static mmRestShouldBeCenteredBetweenStaves(mmRest: MMRest, system: System): boolean {
+        if (!mmRest.style().styleB(Sid.mmRestBetweenStaves)) {
+            return false
+        }
+
+        const itemPart = mmRest.part()!
+        if (itemPart.nstaves() <= 1) {
+            return false
+        }
+
+        const thisStaffIdx = mmRest.staffIdx()
+        const prevStaffIdx = system.prevVisibleStaff(thisStaffIdx)
+
+        return prevStaffIdx !== nidx && mmRest.score().staff(prevStaffIdx)!.part() === itemPart
+    }
+
+    private static centerMMRestBetweenStaves(mmRest: MMRest, system: System): void {
+        const thisIdx = mmRest.staffIdx()
+        if (thisIdx === 0) {
+            return
+        }
+
+        const prevIdx = system.prevVisibleStaff(thisIdx)
+        if (prevIdx === nidx) {
+            return
+        }
+
+        const thisStaff = system.staff(thisIdx)!
+        const prevStaff = system.staff(prevIdx)!
+        const prevStaffHeight = system.score().staff(prevIdx)!.staffHeight(mmRest.tick())
+        const yStaffDiff = prevStaff.y() + prevStaffHeight - thisStaff.y()
+
+        const mmRestDefaultNumberPosition = mmRest.numberPos().minus(new PointF(0.0, mmRest.numberOffset().toAbsolute(mmRest.spatium())))
+        const numberBbox = mmRest.numberRect().translated(mmRestDefaultNumberPosition.plus(mmRest.pos()))
+        const yBaseLine = 0.5 * (yStaffDiff - numberBbox.height())
+        const yDiff = yBaseLine - numberBbox.top()
+
+        mmRest.mutldata().yNumberPos += yDiff
     }
 
     static centerBigTimeSigsAcrossStaves(_system: System): void {

@@ -12,6 +12,7 @@ import { ClefType } from '../types/types'
 import { ClefTypeList } from './clefinfo'
 import { Interval } from './interval'
 import { type Drumset, smDrumset } from './drumset'
+import { INSTRUMENT_FAMILIES } from './instrumentfamilies'
 
 export class StaffName {
     constructor(private m_name = '', private m_pos = 0) {} // html string; even number -> between staves
@@ -27,12 +28,6 @@ export class StaffName {
 }
 
 export type StaffNameList = StaffName[]
-
-const VOCAL_INSTRUMENT_IDS = new Set([
-    'soprano', 'mezzo-soprano', 'alto', 'contralto', 'countertenor', 'tenor', 'baritone', 'bass', 'voice', 'boy-soprano',
-    'women', 'men', 'soprano-c-clef', 'mezzo-soprano-c-clef', 'alto-c-clef', 'tenor-c-clef', 'baritone-c-clef', 'baritone-bass-clef',
-    'bass-voice', 'contralto-voice', 'vocals', 'treble-voice', 'choir', 'satb', 'sa', 'tb',
-])
 
 export class Instrument {
     private m_longNames: StaffNameList = []
@@ -101,12 +96,23 @@ export class Instrument {
 
     drumset(): Drumset | null { return this.m_drumset }
 
-    /**
-     * C++ checks the instrument family of the instrument template (instruments.xml).
-     * TODO(port): instrument templates; the vocal instrument ids of instruments.xml are used instead.
-     */
+    /** C++ uses the family of the instrument template (instruments.xml) */
+    family(): string {
+        return INSTRUMENT_FAMILIES.get(this.m_id) ?? ''
+    }
+
     isVocalInstrument(): boolean {
-        return VOCAL_INSTRUMENT_IDS.has(this.m_instrumentId)
+        const instrumentFamily = this.family()
+        return instrumentFamily === 'voices' || instrumentFamily === 'voice-groups'
+    }
+
+    isNormallyMultiStaveInstrument(): boolean {
+        const instrumentFamily = this.family()
+        return instrumentFamily === 'keyboards'
+               || instrumentFamily === 'organs'
+               || instrumentFamily === 'keyboard-percussion'
+               || instrumentFamily === 'harps'
+               || instrumentFamily === 'accordions'
     }
 
     setDrumset(ds: Drumset | null): void {

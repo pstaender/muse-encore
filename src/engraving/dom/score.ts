@@ -81,6 +81,9 @@ export class SpannerMap {
     clear(): void { this.m_spanners = [] }
 }
 
+/** set by compat/dummyelement.ts (C++ Score::dummy()->system(); avoids a circular import) */
+export const scoreDummyHooks: { system?: (score: Score) => System } = {}
+
 export class Score extends EngravingObject {
     protected m_style: MStyle
     private m_systemLocks = new SystemLocks()
@@ -248,6 +251,14 @@ export class Score extends EngravingObject {
             return m.mmRest()
         }
         return m
+    }
+
+    /** C++ dummy()->system(): parent for newly created elements */
+    dummySystem(): System { return scoreDummyHooks.system!(this) }
+
+    lastSegment(): Segment | null {
+        const m = this.lastMeasure()
+        return m ? m.last() : null
     }
 
     lastMeasure(): Measure | null {
@@ -539,6 +550,61 @@ export class Score extends EngravingObject {
     removeUnmanagedSpanner(s: Spanner): void { this.m_unmanagedSpanners.delete(s) }
 
     // other
+
+    /** find last chord/rest on staff that ends before tick */
+    findChordRestEndingBeforeTickInStaff(tick: Fraction, staffIdx: staff_idx_t): ChordRest | null {
+        return this.findChordRestEndingBeforeTickInStaffAndVoice(tick, staffIdx, false, 0)
+    }
+
+    findChordRestEndingBeforeTickInTrack(tick: Fraction, trackIdx: track_idx_t): ChordRest | null {
+        const m = this.tick2measureMM(tick.minus(Fraction.eps()))
+        if (!m) {
+            return null
+        }
+        for (let s = m.last(SegmentType.ChordRest); s; s = s.prev(SegmentType.ChordRest)) {
+            const cr = s.element(trackIdx) as ChordRest | null
+            if (cr && cr.endTick().le(tick)) {
+                return cr
+            }
+        }
+        return null
+    }
+
+    /** find last chord/rest on staff and voice that ends before tick (optionally in any voice) */
+    findChordRestEndingBeforeTickInStaffAndVoice(tick: Fraction, staffIdx: staff_idx_t, forceVoice: boolean, voice: number): ChordRest | null {
+        let ptick = tick.minus(Fraction.eps())
+        const m = this.tick2measureMM(ptick)
+        if (!m) {
+            return null
+        }
+        // attach to first rest all spanner when mmRest
+        if (m.isMMRest()) {
+            ptick = m.tick()
+        }
+        let s = m.first(SegmentType.ChordRest)
+        const strack = forceVoice ? staffIdx * VOICES + voice : staffIdx * VOICES
+        const etrack = forceVoice ? strack + 1 : strack + VOICES
+        let actualTrack = strack
+        let lastTick = new Fraction(-1, 1)
+        for (let ns = s; ; ns = ns.next(SegmentType.ChordRest)) {
+            if (!ns || ns.tick().gt(ptick)) {
+                break
+            }
+            // found a segment; now find longest cr on this staff that does not overlap tick
+            for (let t = strack; t < etrack; ++t) {
+                const cr = ns.element(t) as ChordRest | null
+                if (cr && (!forceVoice || voice === cr.voice())) {
+                    const endTick = cr.endTick()
+                    if (endTick.ge(lastTick) && endTick.le(tick)) {
+                        s = ns
+                        actualTrack = t
+                        lastTick = endTick
+                    }
+                }
+            }
+        }
+        return s ? s.element(actualTrack) as ChordRest | null : null
+    }
 
     systemLocks(): SystemLocks { return this.m_systemLocks }
     addSystemLock(lock: SystemLock): void { this.m_systemLocks.add(lock) }

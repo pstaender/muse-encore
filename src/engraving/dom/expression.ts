@@ -56,6 +56,8 @@ export class Expression extends TextBase {
         return distance
     }
 
+    override hasVoiceAssignmentProperties(): boolean { return true }
+
     override getProperty(propertyId: Pid): PropertyValue {
         switch (propertyId) {
         case Pid.SNAP_TO_DYNAMICS:

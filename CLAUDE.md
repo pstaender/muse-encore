@@ -62,7 +62,8 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
   (red = only MuseScore, blue = only port). For exact numbers compare with MuseScore's SVG export, which uses
   the same 1200 DPI coordinates as the layout.
 - `npx tsx tools/gen/<gen-*.ts> <extracted v4.7.5 tree>` - regenerate tables (symids, styledef, property,
-  typesconv, noteheads, accidentals, textstyle, drumset)
+  typesconv, noteheads, accidentals, textstyle, drumset, instrumentfamilies; the latter needs `share/instruments`
+  in the extracted tree)
 
 ## Progress tracking
 

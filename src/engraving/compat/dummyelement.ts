@@ -16,7 +16,7 @@ import { Measure } from '../dom/measure'
 import { Segment, SegmentType } from '../dom/segment'
 import { Chord } from '../dom/chord'
 import { Note } from '../dom/note'
-import type { Score } from '../dom/score'
+import { scoreDummyHooks, type Score } from '../dom/score'
 
 export class DummyElement extends EngravingItem {
     private m_page: Page
@@ -55,3 +55,5 @@ export function scoreDummy(score: Score): DummyElement {
     }
     return d
 }
+
+scoreDummyHooks.system = (score: Score): System => scoreDummy(score).system()

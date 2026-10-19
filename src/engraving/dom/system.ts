@@ -89,6 +89,20 @@ export class System extends EngravingItem {
 
     page(): Page | null { return this.explicitParent() as unknown as Page | null }
 
+    /** C++ ~System(): detaches the spanner segments and measures that still point to this system */
+    destroy(): void {
+        for (const ss of this.m_spannerSegments) {
+            if (ss.system() === this) {
+                ss.resetExplicitParent()
+            }
+        }
+        for (const mb of this.m_ml) {
+            if (mb.system() === this) {
+                mb.resetExplicitParent()
+            }
+        }
+    }
+
     clear(): void {
         for (const mb of this.m_ml) {
             if (mb.system() === this) {

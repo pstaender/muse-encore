@@ -642,6 +642,13 @@ export abstract class EngravingItem extends EngravingObject {
         }
     }
 
+    hasVoiceAssignmentProperties(): boolean { return false }
+
+    appliesToAllVoicesInInstrument(): boolean {
+        return this.hasVoiceAssignmentProperties()
+               && (this.getProperty(Pid.VOICE_ASSIGNMENT) as VoiceAssignment) === VoiceAssignment.ALL_VOICE_IN_INSTRUMENT
+    }
+
     setPlacementBasedOnVoiceAssignment(styledDirection: DirectionV): void {
         const oldPlacement = this.placement()
         const offsetIsStyled = this.isStyled(Pid.OFFSET)

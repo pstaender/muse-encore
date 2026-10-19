@@ -36,6 +36,14 @@ export class Text extends TextBase {
         this.initElementStyle(defaultStyle)
     }
 
+    override hasVoiceAssignmentProperties(): boolean {
+        const parent = this.parentItem()
+        if (parent && parent.isTextLineBaseSegment()) {
+            return parent.hasVoiceAssignmentProperties()
+        }
+        return false
+    }
+
     override propertyDelegate(id: Pid): EngravingObject | null {
         const p = this.parent()
         if (id === Pid.TEXT_STYLE && p && p.isTextLineBaseSegment()) {

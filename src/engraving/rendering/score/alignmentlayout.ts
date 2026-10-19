@@ -16,6 +16,8 @@ import type { EngravingItem } from '../../dom/engravingitem'
 import type { System } from '../../dom/system'
 import type { TextBase } from '../../dom/textbase'
 import { SystemLayout } from './systemlayout'
+import type { HairpinSegment } from '../../dom/hairpin'
+import type { Text } from '../../dom/text'
 
 export class AlignmentLayout {
     static alignItemsGroup(elements: readonly EngravingItem[], system: System): void {
@@ -150,8 +152,23 @@ export class AlignmentLayout {
             }
             break
         }
+        case ElementType.HAIRPIN_SEGMENT: {
+            const hairpinSeg = item as HairpinSegment
+            if (hairpinSeg.hairpin().isLineType()) {
+                let text: Text | null = hairpinSeg.text()
+                if (!text) {
+                    text = hairpinSeg.endText()
+                }
+                if (text) {
+                    curY -= 0.5 * text.fontMetrics().xHeight()
+                } else {
+                    curY -= 0.5 * item.spatium()
+                }
+            }
+            break
+        }
         default:
-            // TODO(port): HAIRPIN_SEGMENT, FRET_DIAGRAM, HARMONY
+            // TODO(port): FRET_DIAGRAM, HARMONY
             break
         }
         return curY

@@ -197,6 +197,8 @@ export class Dynamic extends TextBase {
         return shape
     }
 
+    override hasVoiceAssignmentProperties(): boolean { return true }
+
     override getProperty(propertyId: Pid): PropertyValue {
         switch (propertyId) {
         case Pid.DYNAMIC_TYPE: return this.m_dynamicType

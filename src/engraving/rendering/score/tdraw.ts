@@ -17,7 +17,7 @@ import { FillRule } from '../../../framework/draw/types/painterpath'
 import type { Painter } from '../../../framework/draw/painter'
 import { RealIsNull } from '../../../framework/global/realfn'
 import { SymId } from '../../types/symid'
-import { ArticulationTextType, BarLineType, BracketType, ElementType, SlurStyleType, VOICES } from '../../types/types'
+import { ArticulationTextType, BarLineType, BracketType, ElementType, HookType, LineType, SlurStyleType, VOICES } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { DefaultStyle } from '../../style/defaultstyle'
 import { CrossMeasure } from '../../dom/chordrest'
@@ -50,6 +50,10 @@ import type { TieSegment } from '../../dom/tie'
 import type { TimeSig } from '../../dom/timesig'
 import type { Tuplet } from '../../dom/tuplet'
 import type { PaintOptions } from '../paintoptions'
+import type { HairpinSegment } from '../../dom/hairpin'
+import type { SLine } from '../../dom/line'
+import type { LyricsLineSegment } from '../../dom/lyricsline'
+import type { TextLineBaseSegment } from '../../dom/textlinebase'
 
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
@@ -89,6 +93,16 @@ export class TDraw {
         case ElementType.REST: TDraw.drawRest(item as Rest, painter, opt)
             break
         case ElementType.MMREST: TDraw.drawMMRest(item as MMRest, painter, opt)
+            break
+        case ElementType.HAIRPIN_SEGMENT: TDraw.drawHairpinSegment(item as HairpinSegment, painter, opt)
+            break
+        case ElementType.TEXTLINE_SEGMENT:
+        case ElementType.VOLTA_SEGMENT:
+        case ElementType.OTTAVA_SEGMENT:
+        case ElementType.PEDAL_SEGMENT:
+            TDraw.drawTextLineBaseSegment(item as TextLineBaseSegment, painter, opt)
+            break
+        case ElementType.LYRICSLINE_SEGMENT: TDraw.drawLyricsLineSegment(item as LyricsLineSegment, painter, opt)
             break
         case ElementType.SLUR_SEGMENT: TDraw.drawSlurSegment(item as SlurSegment, painter, opt)
             break
@@ -600,6 +614,144 @@ export class TDraw {
                 painter.drawLine(new LineF(0.0, -halfVStrokeHeight, 0.0, halfVStrokeHeight))
                 painter.drawLine(new LineF(ldata.restWidth, -halfVStrokeHeight, ldata.restWidth, halfVStrokeHeight))
             }
+        }
+    }
+
+    private static setDashAndGapLen(line: SLine, pen: Pen): { dash: number; gap: number } {
+        const DOTTED_DASH_LEN = 0.01
+        const DOTTED_GAP_LEN = 1.99
+        switch (line.lineStyle()) {
+        case LineType.DASHED:
+            return { dash: line.dashLineLen(), gap: line.dashGapLen() }
+        case LineType.DOTTED:
+            pen.setCapStyle(PenCapStyle.RoundCap) // round dots
+            return { dash: DOTTED_DASH_LEN, gap: DOTTED_GAP_LEN }
+        default:
+            return { dash: 0, gap: 0 }
+        }
+    }
+
+    private static distributedDashPattern(dash: number, gap: number, lineLength: number): number[] {
+        const numPairs = Math.trunc(Math.max(1.0, lineLength / (dash + gap)))
+        const newGap = (lineLength - dash * (numPairs + 1)) / numPairs
+        return [dash, newGap]
+    }
+
+    static drawTextLineBaseSegment(item: TextLineBaseSegment, painter: Painter, opt: PaintOptions): void {
+        const tl = item.textLineBase()
+        const ldata = item.ldata()
+
+        if (!item.text().empty()) {
+            const pos = item.text().pos()
+            painter.translate(pos)
+            item.text().setVisible(tl.visible())
+            TDraw.drawTextBase(item.text(), painter, opt)
+            painter.translate(pos.times(-1))
+        }
+
+        if (!item.endText().empty()) {
+            const pos = item.endText().pos()
+            painter.translate(pos)
+            item.endText().setVisible(tl.visible())
+            TDraw.drawTextBase(item.endText(), painter, opt)
+            painter.translate(pos.times(-1))
+        }
+
+        if (ldata.npoints === 0 || ((opt.isPrinting || !item.score().isShowInvisible()) && !tl.lineVisible())) {
+            return
+        }
+
+        // color for line (text color comes from the text properties)
+        const color = item.curColorWith(tl.visible() && tl.lineVisible(), tl.lineColor(), opt)
+        const lineWidth = tl.absoluteFromSpatium(tl.lineWidth())
+
+        const solidPen = new Pen(color, lineWidth, PenStyle.SolidLine, PenCapStyle.FlatCap, PenJoinStyle.MiterJoin)
+        const pen = solidPen.clone()
+        const { dash, gap } = TDraw.setDashAndGapLen(tl, pen)
+        const isNonSolid = tl.lineStyle() !== LineType.SOLID
+
+        // Draw lines
+        if (item.twoLines()) { // hairpins
+            if (isNonSolid) {
+                pen.setDashPattern([dash, gap])
+            }
+            pen.setJoinStyle(PenJoinStyle.BevelJoin)
+            painter.setPen(pen)
+            if (ldata.joinedHairpin.length && !isNonSolid) {
+                painter.drawPolyline(ldata.joinedHairpin)
+            } else {
+                painter.drawLines([new LineF(ldata.points[0], ldata.points[1]), new LineF(ldata.points[2], ldata.points[3])])
+            }
+            return
+        }
+
+        let start = 0
+        let end = ldata.npoints
+
+        const drawHook = (hookType: HookType, arrow: PointF[], fromStart: boolean): void => {
+            if (hookType === HookType.ARROW_FILLED) {
+                painter.setBrush(new Brush(color, BrushStyle.SolidPattern))
+                painter.setNoPen()
+                painter.drawPolygon(arrow)
+            } else if (hookType === HookType.ARROW) {
+                pen.setJoinStyle(PenJoinStyle.MiterJoin)
+                painter.setPen(pen)
+                painter.drawPolyline(arrow)
+            } else {
+                const isTHook = hookType === HookType.HOOK_90T
+                if (isNonSolid || isTHook) {
+                    const p1 = fromStart ? ldata.points[start++] : ldata.points[--end]
+                    const p2 = fromStart ? ldata.points[start++] : ldata.points[--end]
+                    if (isTHook) {
+                        painter.setPen(solidPen)
+                    } else {
+                        const hookLength = Math.sqrt(PointF.dotProduct(p2.minus(p1), p2.minus(p1)))
+                        pen.setDashPattern(TDraw.distributedDashPattern(dash, gap, hookLength / lineWidth))
+                        painter.setPen(pen)
+                    }
+                    painter.drawLine(p1, p2)
+                }
+            }
+        }
+
+        // Draw begin hook, if it needs to be drawn separately
+        if (item.isSingleBeginType() && tl.beginHookType() !== HookType.NONE) {
+            drawHook(tl.beginHookType(), ldata.beginArrow, true)
+        }
+        // Draw end hook, if it needs to be drawn separately
+        if (item.isSingleEndType() && tl.endHookType() !== HookType.NONE) {
+            drawHook(tl.endHookType(), ldata.endArrow, false)
+        }
+
+        // Draw the rest
+        if (isNonSolid) {
+            pen.setDashPattern(TDraw.distributedDashPattern(dash, gap, ldata.lineLength / lineWidth))
+        }
+        painter.setPen(pen)
+        painter.drawPolyline(ldata.points.slice(start, end))
+    }
+
+    static drawHairpinSegment(item: HairpinSegment, painter: Painter, opt: PaintOptions): void {
+        TDraw.drawTextLineBaseSegment(item, painter, opt)
+        if (item.drawCircledTip()) {
+            const color = item.curColorWith(item.hairpin().visible(), item.hairpin().lineColor(), opt)
+            let w = item.absoluteFromSpatium(item.lineWidth())
+            if (item.staff()) {
+                w *= item.staff()!.staffMag(item.hairpin().tick())
+            }
+            painter.setPen(new Pen(color, w))
+            painter.setBrush(BrushStyle.NoBrush)
+            painter.drawEllipse(item.circledTip(), item.circledTipRadius(), item.circledTipRadius())
+        }
+    }
+
+    static drawLyricsLineSegment(item: LyricsLineSegment, painter: Painter, opt: PaintOptions): void {
+        const pen = new Pen(item.curColor(opt))
+        pen.setWidthF(item.absoluteFromSpatium(item.lineWidth()))
+        pen.setCapStyle(PenCapStyle.FlatCap)
+        painter.setPen(pen)
+        for (const dash of item.ldata().dashes()) {
+            painter.drawLine(dash)
         }
     }
 

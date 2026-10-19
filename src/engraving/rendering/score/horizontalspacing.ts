@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/horizontalspacing.h/.cpp
  *
- * TODO(port): parentheses, glissandi, guitar bends, note lines, lyrics lines (melisma/dash spacing)
+ * TODO(port): parentheses, glissandi, guitar bends, note lines
  */
 
 import { RectF } from '../../../framework/draw/types/geometry'
@@ -31,6 +31,7 @@ import type { StemSlash } from '../../dom/stemslash'
 import type { System } from '../../dom/system'
 import type { TimeSig } from '../../dom/timesig'
 import { paddingTable } from '../paddingtable'
+import type { LyricsLine } from '../../dom/lyricsline'
 
 interface HorizontalSpacingContext {
     system: System
@@ -533,8 +534,8 @@ export class HorizontalSpacing {
                     const item = shapeEl.item()
                     if (item && item.isLyrics()) {
                         const lyrics = item as Lyrics
-                        // TODO(port): lyrics->separator()->isEndMelisma()
-                        const hasMelisma = lyrics.ticks().isNotZero()
+                        const separator = lyrics.separator() as LyricsLine | null
+                        const hasMelisma = !!separator && separator.isEndMelisma()
                         const hasDash = lyrics.syllabic() === LyricsSyllabic.BEGIN || lyrics.syllabic() === LyricsSyllabic.MIDDLE
                         let rightEdge = x + shapeEl.right()
                         if (hasDash) {
@@ -1528,8 +1529,8 @@ export class HorizontalSpacing {
     private static computeLyricsPadding(lyrics1: Lyrics, item2: EngravingItem, padding: number): number {
         const style = lyrics1.style()
 
-        // TODO(port): lyrics1->separator()->isEndMelisma()
-        const leaveSpaceForMelisma = lyrics1.ticks().isNotZero() && style.styleB(Sid.lyricsMelismaForce)
+        const separator = lyrics1.separator() as LyricsLine | null
+        const leaveSpaceForMelisma = !!separator && separator.isEndMelisma() && style.styleB(Sid.lyricsMelismaForce)
         if (leaveSpaceForMelisma) {
             const spaceForMelisma = style.styleMM(Sid.lyricsMelismaMinLength) + 2 * style.styleMM(Sid.lyricsMelismaPad)
             return Math.max(padding, spaceForMelisma)
@@ -1716,7 +1717,12 @@ export class HorizontalSpacing {
             }
         }
 
-        // TODO(port): melisma lines (lyrics1->separator())
+        if ((item2.isNote() || item2.isRest()) && lyrics1.style().styleB(Sid.lyricsMelismaForce)) {
+            const melismaLine = lyrics1.separator() as LyricsLine | null
+            if (melismaLine && melismaLine.isEndMelisma() && item2.tick().ge(melismaLine.tick2())) {
+                return KerningType.NON_KERNING
+            }
+        }
 
         return KerningType.ALLOW_COLLISION
     }

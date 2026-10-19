@@ -362,7 +362,8 @@ export abstract class EngravingObject {
         case P_TYPE.MILLIMETRE:
             return this.style().styleMM(sid)
         case P_TYPE.POINT: {
-            let val = (this.style().styleV(sid) as PointF).clone()
+            const v = this.style().styleV(sid) as PointF | undefined // undefined for Sid::NOSTYLE (C++: empty value)
+            let val = v ? v.clone() : new PointF()
             if (this.offsetIsSpatiumDependent()) {
                 val = val.times(this.style().spatium())
                 if (this.isEngravingItem()) {

@@ -78,9 +78,34 @@
   export within 0.05 units (1200 DPI).
 
 ### Known differences / missing
-- Not ported (not drawn): staff/system/tempo texts, dynamics, rehearsal marks, fermatas, breaths, harmony,
-  fingering, all lines (hairpins, voltas, ottavas, pedal, trills, lyrics lines), tremolos, MM rests,
-  measure repeats, ornaments, arpeggios drawing, images, tablature, laissez vibrer/partial ties, excerpts.
 - 3.x and older files (read302/206/114) are rejected.
 - Headers/footers use placeholder file info macros.
 - Demo not yet verified in a real browser (node rendering path verified).
+
+## 2026-10-19 — Session 1 (continued): annotations, MM rests, system locks, lines
+
+### Done
+- Annotations: staff/system texts, tempo texts, rehearsal marks, expressions, dynamics, fermatas, breaths
+  (reading, layout incl. DynamicsLayout/AlignmentLayout, drawing).
+- Multi-measure rests (creation in MeasureLayout, MMRest layout/drawing), generic `clone()` and links.
+- System locks (with the EID register), C++ order of the annotation layout in SystemLayout.
+- Lines: SLine/LineSegment, TextLineBase (+segments), TextLine, Hairpin (incl. snapping, circled tips), Volta
+  (+ alignment of consecutive voltas), Ottava, Pedal, LyricsLine (dashes and melismas, createOrRemoveLyricsLine,
+  lyrics lines in the verse skylines). Drawing of all of these (dash patterns as in TDraw).
+- Lyrics melisma/dash spacing in HorizontalSpacing; centering of dynamics, expressions, hairpins and MM rest
+  numbers between the staves of grand staff instruments (`centerElementsBetweenStaves`).
+- Instrument families generated from instruments.xml (`tools/gen/gen-instrumentfamilies.ts`), used by
+  `isVocalInstrument` / `isNormallyMultiStaveInstrument`.
+- `layoutScore` lays out twice like MuseScore does on load (EngravingProject::loadMscz + NotationProject::doLoad):
+  some results depend on the previous pass (chord shapes contain the lyrics bboxes of the previous layout).
+  `System.destroy()` emulates ~System (detaches spanner segments, otherwise read segments are not reused).
+- Sample results (`npm run compare`, ink diff): lyrics-24 21% -> 3.2%, hairpins-3 9.9% -> 2.2%,
+  hairpins-4 14% -> 1.5%, volta-1 9% -> 3.8%, ottava-3 0.3%.
+
+### Known differences / missing
+- Not ported (not drawn): harmony, fingering, trills/ornaments, vibrato, let ring, palm mute, gradual tempo
+  changes, partial lyrics lines, tremolos, measure repeats, arpeggio drawing, images, tablature, laissez
+  vibrer/partial ties, MMRestRange, excerpts.
+- Repeat structure (repeat list) is not ported: lyrics dashes across repeats/jumps are approximated.
+- Cross-staff spacing (e.g. cross-10) differs.
+- 3.x and older files (read302/206/114) are rejected.

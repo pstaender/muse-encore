@@ -28,6 +28,7 @@ import type { Staff } from '../../dom/staff'
 import type { System } from '../../dom/system'
 import { paddingTable, type PaddingTable } from '../paddingtable'
 import type { SystemLocks } from '../../dom/systemlock'
+import type { Segment } from '../../dom/segment'
 
 export class LayoutConfiguration {
     constructor(private m_score: Score) {}
@@ -118,6 +119,7 @@ export class DomAccessor {
     addElement(item: EngravingItem): void { this.m_score.addElement(item) }
     removeElement(item: EngravingItem): void { this.m_score.removeElement(item) }
     addUnmanagedSpanner(s: Spanner): void { this.m_score.addUnmanagedSpanner(s) }
+    lastSegment(): Segment | null { return this.m_score.lastSegment() }
     unmanagedSpanners(): Set<Spanner> { return this.m_score.unmanagedSpanners() }
 }
 

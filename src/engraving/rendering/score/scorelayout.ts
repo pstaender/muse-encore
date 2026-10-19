@@ -131,6 +131,9 @@ export class ScorePageViewLayout {
                     (mb as Measure).mmRest()!.moveToDummy()
                 }
             }
+            for (const s of score.systems()) {
+                s.destroy() // C++ muse::DeleteAll(score->systems())
+            }
             score.setSystems([])
             score.setPages([])
         }

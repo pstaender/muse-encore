@@ -330,6 +330,15 @@ export abstract class Spanner extends EngravingItem {
     nsegments(): number { return this.m_segments.length }
     segmentsEmpty(): boolean { return this.m_segments.length === 0 }
 
+    removeUnmanaged(): void {
+        for (const ss of this.spannerSegments()) {
+            if (ss.system()) {
+                ss.setSystem(null)
+            }
+        }
+        this.score().removeUnmanagedSpanner(this)
+    }
+
     eraseSpannerSegments(): void {
         for (const seg of this.m_segments) {
             seg.system()?.remove(seg)
@@ -684,8 +693,7 @@ export abstract class Spanner extends EngravingItem {
         if (diff > 0) {
             const ncreate = this.reuseSegments(diff)
             for (let i = 0; i < ncreate; ++i) {
-                // C++ creates the segment with score()->dummy()->system() as parent
-                const seg = createSegment(null)
+                const seg = createSegment(this.score().dummySystem())
                 seg.setScore(this.score())
                 this.add(seg)
             }

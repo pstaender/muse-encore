@@ -10,14 +10,15 @@
  * fermatas, breath marks, images, tremolos, glissandi, ...)
  */
 
-import { LineF, PointF, RectF, SizeF } from '../../../framework/draw/types/geometry'
+import { LineF, PointF, PolygonF, RectF, SizeF } from '../../../framework/draw/types/geometry'
 import { PainterPath } from '../../../framework/draw/types/painterpath'
 import type { Color } from '../../../framework/draw/types/color'
 import { FontMetrics } from '../../../framework/draw/fontmetrics'
 import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
-    StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff } from '../../types/types'
+    StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff, SpannerSegmentType, LineType, PlacementV,
+    HookType, TextPlace, Align } from '../../types/types'
 import { SymNames } from '../../types/symnames'
 import { RealIsEqualOrLess, RealIsEqualOrMore } from '../../../framework/global/realfn'
 import { Pid } from '../../dom/property'
@@ -86,6 +87,18 @@ import type { StaffText, SystemText } from '../../dom/stafftextbase'
 import type { TempoText } from '../../dom/tempotext'
 import { DynamicsLayout } from './dynamicslayout'
 import type { MMRest } from '../../dom/mmrest'
+import { Hairpin, HairpinSegment, HairpinType } from '../../dom/hairpin'
+import { SLine, type LineSegment } from '../../dom/line'
+import type { LyricsLine, LyricsLineSegment } from '../../dom/lyricsline'
+import type { OttavaSegment } from '../../dom/ottava'
+import type { Pedal, PedalSegment } from '../../dom/pedal'
+import { TextLineBaseSegment, type TextLineBase } from '../../dom/textlinebase'
+import type { TextLineSegment } from '../../dom/textline'
+import type { Volta, VoltaSegment } from '../../dom/volta'
+import { Transform } from '../../../framework/draw/types/transform'
+import { Grip } from '../../editing/editdata'
+import { Spatium } from '../../types/dimension'
+import { OffsetChange } from '../../dom/engravingitem'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -179,6 +192,20 @@ export class TLayout {
         case ElementType.NOTEDOT: TLayout.layoutNoteDot(item as NoteDot); break
         case ElementType.REST: TLayout.layoutRest(item as Rest, ctx); break
         case ElementType.MMREST: TLayout.layoutMMRest(item as MMRest, ctx); break
+        case ElementType.HAIRPIN: TLayout.layoutHairpin(item as Hairpin, ctx); break
+        case ElementType.HAIRPIN_SEGMENT: TLayout.layoutHairpinSegment(item as HairpinSegment, ctx); break
+        case ElementType.TEXTLINE:
+        case ElementType.OTTAVA:
+        case ElementType.PEDAL:
+        case ElementType.VOLTA:
+            TLayout.layoutLine(item as SLine, ctx)
+            break
+        case ElementType.TEXTLINE_SEGMENT: TLayout.layoutTextLineSegment(item as TextLineSegment, ctx); break
+        case ElementType.OTTAVA_SEGMENT: TLayout.layoutOttavaSegment(item as OttavaSegment, ctx); break
+        case ElementType.PEDAL_SEGMENT: TLayout.layoutPedalSegment(item as PedalSegment, ctx); break
+        case ElementType.VOLTA_SEGMENT: TLayout.layoutVoltaSegment(item as VoltaSegment, ctx); break
+        case ElementType.LYRICSLINE: LyricsLayout.layoutLyricsLine(item as LyricsLine); break
+        case ElementType.LYRICSLINE_SEGMENT: LyricsLayout.layoutLyricsLineSegment(item as LyricsLineSegment, ctx); break
         case ElementType.SLUR: TLayout.layoutSlur(item as Slur, ctx); break
         case ElementType.SPACER: TLayout.layoutSpacer(item as Spacer, ctx); break
         case ElementType.STEM: TLayout.layoutStem(item as Stem, ctx); break
@@ -256,6 +283,850 @@ export class TLayout {
         ldata.setPos(0, midline * staffType.lineDistance().val() * item.spatium())
 
         ChordLayout.fillShape(item, ctx)
+    }
+
+    // ---------------------------------------------------------
+    //   lines
+    // ---------------------------------------------------------
+
+    static layoutLine(item: SLine, ctx: LayoutContext): void {
+        item.computeStartElement()
+        item.computeEndElement()
+
+        const { pos: p1, system: s1 } = item.linePos(Grip.START)
+        const { pos: p2, system: s2 } = item.linePos(Grip.END)
+
+        const systems = ctx.dom().systems()
+        const sysIdx1 = s1 ? systems.indexOf(s1) : -1
+        const sysIdx2 = s2 ? systems.indexOf(s2) : -1
+        if (sysIdx1 === -1 || sysIdx2 === -1) {
+            return
+        }
+
+        let segmentsNeeded = 0
+        for (let i = sysIdx1; i <= sysIdx2; ++i) {
+            if (!systems[i].vbox()) {
+                ++segmentsNeeded
+            }
+        }
+
+        const segCount = item.spannerSegments().length
+        if (segmentsNeeded !== segCount) {
+            item.fixupSegments(segmentsNeeded, (parent) => item.createLineSegment(parent))
+            if (segmentsNeeded > segCount) {
+                for (let i = segCount; i < segmentsNeeded; ++i) {
+                    const lineSegm = item.segmentAt(i)
+                    // set user offset to previous segment's offset
+                    if (segCount > 0) {
+                        lineSegm.setOffset(new PointF(0, item.segmentAt(i - 1).offset().y()))
+                    } else {
+                        lineSegm.setOffset(new PointF(0, item.offset().y()))
+                    }
+                }
+            }
+        }
+
+        let segIdx = 0
+        for (let i = sysIdx1; i <= sysIdx2; ++i) {
+            const system = systems[i]
+            if (system.vbox()) {
+                continue
+            }
+            const lineSegm = item.segmentAt(segIdx++)
+            lineSegm.setTrack(item.track())
+            lineSegm.setSystem(system)
+
+            if (sysIdx1 === sysIdx2) {
+                // single segment
+                lineSegm.setSpannerSegmentType(SpannerSegmentType.SINGLE)
+                const len = p2.x() - p1.x()
+                lineSegm.setPos(p1)
+                lineSegm.setPos2(new PointF(len, p2.y() - p1.y()))
+            } else if (i === sysIdx1) {
+                // start segment
+                lineSegm.setSpannerSegmentType(SpannerSegmentType.BEGIN)
+                lineSegm.setPos(p1)
+                const x2 = system.endingXForOpenEndedLines()
+                lineSegm.setPos2(new PointF(x2 - p1.x(), 0.0))
+            } else if (i > 0 && i !== sysIdx2) {
+                // middle segment
+                lineSegm.setSpannerSegmentType(SpannerSegmentType.MIDDLE)
+                const x1 = system.firstNoteRestSegmentX(true)
+                const x2 = system.endingXForOpenEndedLines()
+                lineSegm.setPos(new PointF(x1, p1.y()))
+                lineSegm.setPos2(new PointF(x2 - x1, 0.0))
+            } else if (i === sysIdx2) {
+                // end segment
+                const minLen = 0.0
+                const x1 = system.firstNoteRestSegmentX(true)
+                const len = Math.max(minLen, p2.x() - x1)
+                lineSegm.setSpannerSegmentType(SpannerSegmentType.END)
+                lineSegm.setPos(new PointF(p2.x() - len, p2.y()))
+                lineSegm.setPos2(new PointF(len, 0.0))
+            }
+            TLayout.layoutItem(lineSegm, ctx)
+        }
+    }
+
+    /** layout spannersegment for system */
+    static layoutSystemSLine(line: SLine, system: System, ctx: LayoutContext): SpannerSegment {
+        const stick = system.firstMeasure()!.tick()
+        const etick = system.lastMeasure()!.endTick()
+
+        const lineSegm = TLayout.getNextLayoutSystemSegment(line, system, (parent) => line.createLineSegment(parent)) as LineSegment
+
+        let sst: SpannerSegmentType
+        const connect45 = (): boolean => line.isPedal() && (line as Pedal).connect45HookToNext()
+        if (line.tick().ge(stick)) {
+            //
+            // this is the first call to layoutSystem,
+            // processing the first line segment
+            //
+            line.computeStartElement()
+            line.computeEndElement()
+            if (line.tick2().lt(etick)) {
+                sst = SpannerSegmentType.SINGLE
+            } else if (line.tick2().eq(etick)) {
+                sst = connect45() ? SpannerSegmentType.BEGIN : SpannerSegmentType.SINGLE
+            } else {
+                sst = SpannerSegmentType.BEGIN
+            }
+            if (line.hasVoiceAssignmentProperties()) {
+                line.setPlacementBasedOnVoiceAssignment(ctx.conf().styleV(Sid.dynamicsHairpinVoiceBasedPlacement) as DirectionV)
+            }
+        } else if (line.tick().lt(stick) && (line.tick2().gt(etick) || (line.tick2().eq(etick) && connect45()))) {
+            sst = SpannerSegmentType.MIDDLE
+        } else {
+            //
+            // this is the last call to layoutSystem
+            // processing the last line segment
+            //
+            sst = SpannerSegmentType.END
+        }
+        lineSegm.setSpannerSegmentType(sst)
+        lineSegm.setPlacement(line.placement())
+
+        switch (sst) {
+        case SpannerSegmentType.SINGLE: {
+            const p1 = line.linePos(Grip.START).pos
+            const p2 = line.linePos(Grip.END).pos
+            const len = p2.x() - p1.x()
+            lineSegm.setPos(p1)
+            lineSegm.setPos2(new PointF(len, p2.y() - p1.y()))
+        }
+            break
+        case SpannerSegmentType.BEGIN: {
+            const p1 = line.linePos(Grip.START).pos
+            lineSegm.setPos(p1)
+            const x2 = system.endingXForOpenEndedLines()
+            lineSegm.setPos2(new PointF(x2 - p1.x(), 0.0))
+        }
+            break
+        case SpannerSegmentType.MIDDLE: {
+            const x1 = line.isVolta() ? TLayout.voltaMidEndSegmentStartX(line as Volta, system, ctx) : system.firstNoteRestSegmentX(true)
+            const x2 = system.endingXForOpenEndedLines()
+            const p1 = line.linePos(Grip.START).pos
+            lineSegm.setPos(new PointF(x1, p1.y()))
+            lineSegm.setPos2(new PointF(x2 - x1, 0.0))
+        }
+            break
+        case SpannerSegmentType.END: {
+            const p2 = line.linePos(Grip.END).pos
+            const x1 = line.isVolta() ? TLayout.voltaMidEndSegmentStartX(line as Volta, system, ctx) : system.firstNoteRestSegmentX(true)
+            const len = p2.x() - x1
+            lineSegm.setPos(new PointF(p2.x() - len, p2.y()))
+            lineSegm.setPos2(new PointF(len, 0.0))
+        }
+            break
+        }
+
+        TLayout.layoutItem(lineSegm, ctx)
+        return lineSegm
+    }
+
+    private static voltaMidEndSegmentStartX(volta: Volta, system: System, ctx: LayoutContext): number {
+        const firstMeasure = system.firstMeasure()
+        if (!firstMeasure) {
+            return 0.0
+        }
+        const refSeg = firstMeasure.repeatStart()
+            ? firstMeasure.first(SegmentType.StartRepeatBarLine)
+            : ctx.conf().styleB(Sid.voltaAlignStartBeforeKeySig) ? firstMeasure.first(SegmentType.KeySig) : null
+        if (!refSeg) {
+            return system.firstNoteRestSegmentX(true)
+        }
+        if (refSeg.isStartRepeatBarLineType()) {
+            return refSeg.x() + firstMeasure.x()
+        }
+        const keySig = refSeg.element(volta.track()) as KeySig | null
+        if (!keySig || keySig.ldata().keySymbols.length === 0) {
+            return 0.0
+        }
+        const keySym = keySig.ldata().keySymbols[0]
+        const xCutout = ctx.engravingFont().smuflAnchor(keySym.sym, SmuflAnchorId.cutOutNW, 1.0).x()
+        return keySig.x() + keySym.xPos + xCutout + refSeg.x() + firstMeasure.x()
+    }
+
+    private static layoutSystemLyricsLine(line: LyricsLine, system: System, ctx: LayoutContext): SpannerSegment | null {
+        if (!line.lyrics()) {
+            return null
+        }
+        const stick = system.firstMeasure()!.tick()
+        const etick = system.lastMeasure()!.endTick()
+
+        const lineSegm = TLayout.getNextLayoutSystemSegment(line, system, (parent) => line.createLineSegment(parent)) as LyricsLineSegment
+
+        let sst: SpannerSegmentType
+        if (line.tick().ge(stick)) {
+            LyricsLayout.layoutLyricsLine(line)
+            if (line.ticks().isZero() && line.isEndMelisma()) {
+                return null
+            }
+            line.computeStartElement()
+            line.computeEndElement()
+            sst = line.tick2().le(etick) ? SpannerSegmentType.SINGLE : SpannerSegmentType.BEGIN
+        } else if (line.tick().lt(stick) && line.tick2().gt(etick)) {
+            sst = SpannerSegmentType.MIDDLE
+        } else {
+            sst = SpannerSegmentType.END
+        }
+        lineSegm.setSpannerSegmentType(sst)
+
+        LyricsLayout.layoutLyricsLineSegment(lineSegm, ctx)
+        if (!line.lyrics()) {
+            // this line could have been removed in the process of laying out surrounding lyrics
+            return null
+        }
+        return lineSegm
+    }
+
+    // Extends lines to fill the corner between them.
+    // Assumes that l1p2 == l2p1 is the intersection between the lines.
+    // If checkAngle is false, assumes that the lines are perpendicular,
+    // and some calculations are saved.
+    // l1p2 and l2p1 are modified in place.
+    private static extendLines(l1p1: PointF, l1p2: PointF, l2p1: PointF, l2p2: PointF, lineWidth: number, checkAngle: boolean): void {
+        const l1UnitVector = l1p2.minus(l1p1).normalized()
+        const l2UnitVector = l2p1.minus(l2p2).normalized()
+        let addedLength = lineWidth * 0.5
+        if (checkAngle) {
+            const angle = Math.PI - Math.acos(PointF.dotProduct(l1UnitVector, l2UnitVector))
+            if (angle <= Math.PI / 2) {
+                addedLength *= Math.tan(0.5 * angle)
+            }
+        }
+        const a = l1p2.plus(l1UnitVector.times(addedLength))
+        l1p2.setX(a.x()); l1p2.setY(a.y())
+        const b = l2p1.plus(l2UnitVector.times(addedLength))
+        l2p1.setX(b.x()); l2p1.setY(b.y())
+    }
+
+    /** startPoint or endPoint is modified in place */
+    private static createArrow(start: boolean, filled: boolean, startPoint: PointF, endPoint: PointF, tl: TextLineBase): PolygonF {
+        let arrowWidth: number
+        let arrowHeight: number
+        if (filled) {
+            arrowWidth = tl.absoluteFromSpatium(start ? tl.beginFilledArrowWidth() : tl.endFilledArrowWidth())
+            arrowHeight = tl.absoluteFromSpatium(start ? tl.beginFilledArrowHeight() : tl.endFilledArrowHeight())
+        } else {
+            arrowWidth = tl.absoluteFromSpatium(start ? tl.beginLineArrowWidth() : tl.endLineArrowWidth())
+            arrowHeight = tl.absoluteFromSpatium(start ? tl.beginLineArrowHeight() : tl.endLineArrowHeight())
+        }
+
+        let pts: PointF[]
+        if (start) {
+            pts = [new PointF(0.0, -arrowHeight / 2), new PointF(-arrowWidth, 0.0), new PointF(0.0, arrowHeight / 2)] // left
+        } else {
+            pts = [new PointF(0.0, -arrowHeight / 2), new PointF(arrowWidth, 0.0), new PointF(0.0, arrowHeight / 2)] // right
+        }
+        const arrowAdjust = new PointF(arrowWidth, 0.0).times(start ? 1.0 : -1.0)
+        pts = pts.map(p => p.plus(arrowAdjust))
+
+        const yDiff = endPoint.y() - startPoint.y()
+        const xDiff = endPoint.x() - startPoint.x()
+        const rotate = Math.atan(yDiff / xDiff) + (endPoint.x() < startPoint.x() ? Math.PI : 0.0)
+        const t = new Transform()
+        t.rotateRadians(rotate)
+        pts = pts.map(p => t.map(p).plus(start ? startPoint : endPoint))
+
+        const unitVector = endPoint.minus(startPoint).normalized()
+        const reduction = filled ? arrowWidth : tl.absoluteFromSpatium(tl.lineWidth()) / 2
+        if (start) {
+            const n = startPoint.plus(unitVector.times(reduction))
+            startPoint.setX(n.x()); startPoint.setY(n.y())
+        } else {
+            const n = endPoint.minus(unitVector.times(reduction))
+            endPoint.setX(n.x()); endPoint.setY(n.y())
+        }
+        return new PolygonF(...pts)
+    }
+
+    static layoutTextLineBaseSegment(item: TextLineBaseSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        ldata.npoints = 0
+        const tl = item.textLineBase()
+        const spatium = tl.spatium()
+        const isSingleOrBegin = item.isSingleBeginType()
+        const isSingleOrEnd = item.isSingleEndType()
+        const isDottedLine = tl.lineStyle() === LineType.DOTTED
+        const lineWidth = tl.absoluteFromSpatium(tl.lineWidth())
+
+        if (item.spanner().placeBelow()) {
+            ldata.setPosY(item.staff() ? item.staff()!.staffHeight(item.tick()) : 0.0)
+        }
+
+        // adjust Y pos to staffType offset
+        ldata.moveY(item.staffOffsetY())
+
+        if (!tl.diagonal()) {
+            item.setUserYoffset2(0)
+        }
+
+        const alignBaseLine = (text: Text, pp1: PointF, pp2: PointF): void => {
+            const widthCorrection = new PointF(0.0, lineWidth / 2)
+            const move = (p: PointF, d: PointF): void => { p.setX(p.x() + d.x()); p.setY(p.y() + d.y()) }
+            switch (text.align().vertical) {
+            case AlignV.TOP:
+                move(pp1, widthCorrection)
+                move(pp2, widthCorrection)
+                break
+            case AlignV.VCENTER:
+                break
+            case AlignV.BOTTOM:
+            case AlignV.BASELINE:
+                move(pp1, widthCorrection.times(-1))
+                move(pp2, widthCorrection.times(-1))
+                break
+            }
+        }
+
+        const text = item.text()
+        const endText = item.endText()
+        if (isSingleOrBegin) {
+            text.setXmlText(tl.beginText())
+            text.setFamily(tl.beginFontFamily())
+            text.setSize(tl.beginFontSize())
+            text.setSymbolScale(tl.beginTextMusicalSymbolsScale())
+            text.setSymbolSize(tl.beginTextMusicSymbolsSize())
+            text.setOffset(tl.beginTextOffset().times(item.mag()))
+            text.setAlign(tl.beginTextAlign())
+            text.setPosition(tl.beginTextPosition())
+            text.setFontStyle(tl.beginFontStyle())
+        } else {
+            text.setXmlText(tl.continueText())
+            text.setFamily(tl.continueFontFamily())
+            text.setSize(tl.continueFontSize())
+            text.setSymbolScale(tl.continueTextMusicalSymbolsScale())
+            text.setSymbolSize(tl.continueTextMusicSymbolsSize())
+            text.setOffset(tl.continueTextOffset().times(item.mag()))
+            text.setAlign(tl.continueTextAlign())
+            text.setPosition(tl.continueTextPosition())
+            text.setFontStyle(tl.continueFontStyle())
+        }
+        text.setPlacement(PlacementV.ABOVE)
+        text.setTrack(item.track())
+        text.setColor(tl.lineColor())
+        TLayout.layoutText(text, ctx)
+
+        if (isSingleOrEnd) {
+            endText.setXmlText(tl.endText())
+            endText.setFamily(tl.endFontFamily())
+            endText.setSize(tl.endFontSize())
+            endText.setSymbolScale(tl.endTextMusicalSymbolsScale())
+            endText.setSymbolSize(tl.endTextMusicSymbolsSize())
+            endText.setOffset(tl.endTextOffset().times(item.mag()))
+            endText.setAlign(tl.endTextAlign())
+            endText.setPosition(tl.endTextPosition())
+            endText.setFontStyle(tl.endFontStyle())
+            endText.setPlacement(PlacementV.ABOVE)
+            endText.setTrack(item.track())
+            endText.setColor(tl.lineColor())
+            TLayout.layoutText(endText, ctx)
+        } else {
+            endText.setXmlText('')
+        }
+
+        if (!item.textLineBase().textSizeSpatiumDependent()) {
+            text.setSize(text.size() * item.defaultSpatium() / item.spatium())
+            endText.setSize(endText.size() * item.defaultSpatium() / item.spatium())
+        }
+
+        const pp1 = new PointF()
+        const pp2 = item.pos2()
+
+        // line with no text or hooks - just use the basic rectangle for line
+        if (text.empty() && endText.empty()
+            && (!isSingleOrBegin || tl.beginHookType() === HookType.NONE)
+            && (!isSingleOrEnd || tl.endHookType() === HookType.NONE)) {
+            ldata.npoints = 2
+            ldata.points[0] = pp1.clone()
+            ldata.points[1] = pp2.clone()
+            ldata.lineLength = Math.sqrt(PointF.dotProduct(pp2.minus(pp1), pp2.minus(pp1)))
+            ldata.setBbox(TextLineBaseSegment.boundingBoxOfLine(pp1, pp2, lineWidth / 2, isDottedLine))
+            return
+        }
+
+        let l1 = 0.0
+        let l2 = 0.0
+        const gapBetweenTextAndLine = spatium * tl.gapBetweenTextAndLine().val()
+
+        const alignBeginText = tl.beginTextPlace() === TextPlace.LEFT || tl.beginTextPlace() === TextPlace.AUTO
+        const alignContinueText = tl.continueTextPlace() === TextPlace.LEFT || tl.continueTextPlace() === TextPlace.AUTO
+        const alignEndText = tl.endTextPlace() === TextPlace.LEFT || tl.endTextPlace() === TextPlace.AUTO
+        const hasBeginText = !text.empty() && isSingleOrBegin
+        const hasContinueText = !text.empty() && !isSingleOrBegin
+        const hasEndText = !endText.empty() && isSingleOrEnd
+
+        const shape = new Shape()
+
+        if (!text.empty()) {
+            if ((isSingleOrBegin && alignBeginText) || (!isSingleOrBegin && alignContinueText)) {
+                l1 = gapBetweenTextAndLine
+                switch (text.position()) {
+                case AlignH.LEFT:
+                    l1 += text.ldata().bbox().width()
+                    break
+                case AlignH.HCENTER:
+                    l1 += text.ldata().bbox().width() / 2
+                    break
+                default:
+                    break
+                }
+            }
+            shape.add(text.ldata().bbox().translated(text.pos()), item)
+        }
+        // set end text position and extend bbox
+        if (!endText.empty()) {
+            if (alignEndText) {
+                l2 = gapBetweenTextAndLine
+                switch (endText.position()) {
+                case AlignH.RIGHT:
+                    l2 += endText.ldata().bbox().width()
+                    break
+                case AlignH.HCENTER:
+                    l2 += endText.ldata().bbox().width() / 2
+                    break
+                default:
+                    break
+                }
+            }
+            const endTextX = Math.max(pp2.x(), shape.bbox().right() + l2) // prevent end text from overlapping begin text
+            endText.mutldata().setPosX(endTextX)
+            shape.add(endText.ldata().bbox().translated(endText.pos()), item)
+        }
+
+        let beginHookDrawnSeparately = false
+        let endHookDrawnSeparately = false
+
+        if (tl.lineVisible() || !ctx.conf().isPrintingMode()) {
+            pp1.setX(pp1.x() + l1)
+            pp2.setX(pp2.x() - l2)
+
+            // Make sure baseline of text and line are properly aligned (accounting for line thickness)
+            if ((hasBeginText && alignBeginText) || (hasContinueText && alignContinueText)) {
+                alignBaseLine(text, pp1, pp2)
+            } else if (hasEndText && alignEndText) {
+                alignBaseLine(endText, pp1, pp2)
+            }
+
+            const beginHookHeight = (tl.placeBelow() ? -1.0 : 1.0) * tl.beginHookHeight().val() * spatium
+            const endHookHeight = (tl.placeBelow() ? -1.0 : 1.0) * tl.endHookHeight().val() * spatium
+
+            let beginHookWidth = 0.0
+            let endHookWidth = 0.0
+
+            if (tl.beginHookType() === HookType.HOOK_45) {
+                beginHookWidth = Math.abs(beginHookHeight * 0.4)
+                pp1.setX(pp1.x() + beginHookWidth)
+            }
+            if (tl.endHookType() === HookType.HOOK_45) {
+                endHookWidth = Math.abs(endHookHeight * 0.4)
+                pp2.setX(pp2.x() - endHookWidth)
+            }
+
+            // don't draw backwards lines (or hooks) if text is longer than nominal line length
+            if (!text.empty() && pp1.x() > pp2.x() && !tl.diagonal()) {
+                ldata.setShape(shape)
+                return
+            }
+
+            const beginArrow = isSingleOrBegin && (tl.beginHookType() === HookType.ARROW_FILLED || tl.beginHookType() === HookType.ARROW)
+            const endArrow = isSingleOrEnd && (tl.endHookType() === HookType.ARROW_FILLED || tl.endHookType() === HookType.ARROW)
+
+            if (beginArrow) {
+                const filled = tl.beginHookType() === HookType.ARROW_FILLED
+                ldata.beginArrow = TLayout.createArrow(true, filled, pp1, pp2, tl)
+                shape.add(ldata.beginArrow.boundingRect(), item)
+            }
+            if (endArrow) {
+                const filled = tl.endHookType() === HookType.ARROW_FILLED
+                ldata.endArrow = TLayout.createArrow(false, filled, pp1, pp2, tl)
+                shape.add(ldata.endArrow.boundingRect(), item)
+            }
+
+            const hasHook = (type: HookType): boolean =>
+                type === HookType.HOOK_45 || type === HookType.HOOK_90 || type === HookType.HOOK_90T
+
+            const beginHook = isSingleOrBegin && hasHook(tl.beginHookType())
+            const endHook = isSingleOrEnd && hasHook(tl.endHookType())
+
+            if (beginHook) {
+                // We use the term "endpoint" for the point that does not touch the main line.
+                const beginHookEndpoint = ldata.points[ldata.npoints++] = new PointF(pp1.x() - beginHookWidth, pp1.y() + beginHookHeight)
+                if (tl.beginHookType() === HookType.HOOK_90T) {
+                    // A T-hook needs to be drawn separately, so we add an extra point
+                    beginHookDrawnSeparately = true
+                    ldata.points[ldata.npoints++] = new PointF(pp1.x() - beginHookWidth, pp1.y() - beginHookHeight)
+                } else if (tl.lineStyle() !== LineType.SOLID) {
+                    // For non-solid lines, we also draw the hook separately,
+                    // so that we can distribute the dashes/dots for each linepiece individually
+                    beginHookDrawnSeparately = true
+                    const beginHookStartpoint = ldata.points[ldata.npoints++] = pp1.clone()
+                    if (tl.lineStyle() === LineType.DASHED) {
+                        // For dashes lines, we extend the lines somewhat,
+                        // so that the corner between them gets filled
+                        const checkAngle = tl.beginHookType() === HookType.HOOK_45 || tl.diagonal()
+                        TLayout.extendLines(beginHookEndpoint, beginHookStartpoint, pp1, pp2, lineWidth, checkAngle)
+                    }
+                }
+            }
+
+            const pp1Idx = ldata.npoints
+            ldata.points[ldata.npoints++] = pp1
+            const pp22 = ldata.points[ldata.npoints++] = pp2 // Keep a reference so that we can modify later
+
+            if (endHook) {
+                const endHookEndpoint = new PointF(pp2.x() + endHookWidth, pp2.y() + endHookHeight)
+                if (tl.endHookType() === HookType.HOOK_90T) {
+                    // A T-hook needs to be drawn separately, so we add an extra point
+                    endHookDrawnSeparately = true
+                    ldata.points[ldata.npoints++] = new PointF(pp2.x() + endHookWidth, pp2.y() - endHookHeight)
+                } else if (tl.lineStyle() !== LineType.SOLID) {
+                    // For non-solid lines, we also draw the hook separately,
+                    // so that we can distribute the dashes/dots for each linepiece individually
+                    endHookDrawnSeparately = true
+                    const endHookStartpoint = ldata.points[ldata.npoints++] = pp2.clone()
+                    if (tl.lineStyle() === LineType.DASHED) {
+                        // For dashes lines, we extend the lines somewhat,
+                        // so that the corner between them gets filled
+                        const checkAngle = tl.endHookType() === HookType.HOOK_45 || tl.diagonal()
+                        TLayout.extendLines(ldata.points[pp1Idx], pp22, endHookStartpoint, endHookEndpoint, lineWidth, checkAngle)
+                    }
+                }
+                ldata.points[ldata.npoints++] = endHookEndpoint
+            }
+
+            ldata.lineLength = Math.sqrt(PointF.dotProduct(pp22.minus(pp1), pp22.minus(pp1)))
+        }
+
+        // Calculate shape of line
+        let start = 0
+        if (beginHookDrawnSeparately) {
+            const p1 = ldata.points[start++]
+            const p2 = ldata.points[start++]
+            shape.add(TextLineBaseSegment.boundingBoxOfLine(p1, p2, lineWidth / 2, isDottedLine), item)
+        }
+        let end = ldata.npoints
+        if (endHookDrawnSeparately) {
+            const p1 = ldata.points[--end]
+            const p2 = ldata.points[--end]
+            shape.add(TextLineBaseSegment.boundingBoxOfLine(p1, p2, lineWidth / 2, isDottedLine), item)
+        }
+        for (let i = start; i < end - 1; ++i) {
+            shape.add(TextLineBaseSegment.boundingBoxOfLine(ldata.points[i], ldata.points[i + 1], lineWidth / 2, isDottedLine), item,
+                      !tl.lineVisible())
+        }
+
+        ldata.setShape(shape)
+    }
+
+    static recalculateTextLineBaseSegmentShape(item: TextLineBaseSegment): Shape {
+        const ldata = item.ldata()
+        const shape = new Shape()
+        if (!item.text().empty()) {
+            shape.add(item.text().ldata().bbox().translated(item.text().pos()), item.text())
+        }
+        if (!item.endText().empty()) {
+            shape.add(item.endText().ldata().bbox().translated(item.endText().pos()), item.endText())
+        }
+        const lw2 = 0.5 * item.absoluteFromSpatium(item.lineWidth())
+        const isDottedLine = item.textLineBase().lineStyle() === LineType.DOTTED
+        if (item.twoLines()) { // hairpins
+            shape.add(TextLineBaseSegment.boundingBoxOfLine(ldata.points[0], ldata.points[1], lw2, isDottedLine), item)
+            shape.add(TextLineBaseSegment.boundingBoxOfLine(ldata.points[2], ldata.points[3], lw2, isDottedLine), item)
+        } else {
+            for (let i = 0; i < ldata.npoints - 1; ++i) {
+                shape.add(TextLineBaseSegment.boundingBoxOfLine(ldata.points[i], ldata.points[i + 1], lw2, isDottedLine), item,
+                          !item.textLineBase().lineVisible())
+            }
+        }
+        return shape
+    }
+
+    static layoutTextLineSegment(item: TextLineSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        TLayout.layoutTextLineBaseSegment(item, ctx)
+        if (item.isStyled(Pid.OFFSET)) {
+            item.setOffset(item.textLine().propertyDefault(Pid.OFFSET) as PointF)
+        }
+        Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    static layoutOttavaSegment(item: OttavaSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        TLayout.layoutTextLineBaseSegment(item, ctx)
+        Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    static layoutPedalSegment(item: PedalSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        TLayout.layoutTextLineBaseSegment(item, ctx)
+        if (item.isStyled(Pid.OFFSET)) {
+            item.setOffset(item.pedal().propertyDefault(Pid.OFFSET) as PointF)
+        }
+
+        const endText = item.endText()
+        if (endText && !endText.empty() && ldata.npoints > 0) { // Rosette
+            const endPoint = item.pos2()
+            const endTextWidth = endText.ldata().bbox().width()
+            let xEndText = endPoint.x() - endTextWidth
+            const startText = item.text()
+            if (startText) {
+                xEndText = Math.max(xEndText, startText.ldata().bbox().width())
+            }
+            endText.mutldata().setPosX(xEndText)
+
+            const lineTextGap = (item.getProperty(Pid.GAP_BETWEEN_TEXT_AND_LINE) as Spatium).val() * item.spatium()
+            ldata.points[ldata.npoints - 1].setX(xEndText - lineTextGap)
+
+            // Recalculate shape after moving end text
+            ldata.setShape(TLayout.recalculateTextLineBaseSegmentShape(item))
+        }
+
+        Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    static layoutVoltaSegment(item: VoltaSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        TLayout.layoutTextLineBaseSegment(item, ctx)
+        if (item.placeBelow()) {
+            for (const t of [item.text(), item.endText()]) {
+                if (t) {
+                    const offset = t.offset()
+                    offset.setY(-offset.y() + t.ldata().bbox().height())
+                    t.setOffset(offset)
+                }
+            }
+            // recalculate shape after moving texts
+            ldata.setShape(TLayout.recalculateTextLineBaseSegmentShape(item))
+        }
+        Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    static layoutHairpin(item: Hairpin, ctx: LayoutContext): void {
+        item.setPos(0.0, 0.0)
+        TLayout.layoutLine(item, ctx)
+    }
+
+    static layoutHairpinSegment(item: HairpinSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+
+        const stType = item.staffType()
+        if (stType && stType.isHiddenElementOnTab(Sid.hairpinShowTabCommon, Sid.hairpinShowTabSimple)) {
+            ldata.setIsSkipDraw(true)
+            return
+        }
+        ldata.setIsSkipDraw(false)
+
+        const _spatium = item.spatium()
+
+        ldata.disconnectSnappedItems()
+
+        TLayout.manageHairpinSnapping(item, ctx)
+
+        const hairpin = item.hairpin()
+        const type = hairpin.hairpinType()
+        if (hairpin.isLineType()) {
+            item.setTwoLines(false)
+            TLayout.layoutTextLineBaseSegment(item, ctx)
+            item.setDrawCircledTip(false)
+            item.setCircledTipRadius(0.0)
+        } else {
+            item.setTwoLines(true)
+
+            hairpin.setBeginTextAlign(new Align(AlignH.LEFT, AlignV.VCENTER))
+            hairpin.setEndTextAlign(new Align(AlignH.RIGHT, AlignV.VCENTER))
+            hairpin.setBeginTextPosition(AlignH.LEFT)
+            hairpin.setEndTextPosition(AlignH.RIGHT)
+
+            let x1 = 0.0
+            TLayout.layoutTextLineBaseSegment(item, ctx)
+            if (!item.text().empty()) {
+                x1 = item.text().width() + _spatium * 0.5
+            }
+
+            const t = new Transform()
+            const h1 = hairpin.hairpinHeight().val() * _spatium * 0.5
+            const h2 = hairpin.hairpinContHeight().val() * _spatium * 0.5
+
+            let x = item.pos2().x()
+            if (!item.endText().empty()) {
+                x -= (item.endText().width() + _spatium * 0.5) // 0.5 spatium distance
+            }
+            if (x < _spatium) { // minimum size of hairpin
+                x = _spatium
+            }
+            const y = item.pos2().y()
+            const len = Math.sqrt(x * x + y * y)
+            t.rotateRadians(Math.asin(y / len))
+
+            item.setDrawCircledTip(hairpin.hairpinCircledTip())
+            item.setCircledTipRadius(item.drawCircledTip() ? 0.6 * _spatium * 0.5 : 0.0)
+
+            let l1 = new LineF()
+            let l2 = new LineF()
+            const sst = item.spannerSegmentType()
+
+            if (type === HairpinType.CRESC_HAIRPIN) {
+                if (sst === SpannerSegmentType.SINGLE || sst === SpannerSegmentType.BEGIN) {
+                    l1 = new LineF(x1 + item.circledTipRadius() * 2.0, 0.0, len, h1)
+                    l2 = new LineF(x1 + item.circledTipRadius() * 2.0, 0.0, len, -h1)
+                    item.setCircledTip(new PointF(x1 + item.circledTipRadius(), 0.0))
+                } else {
+                    item.setDrawCircledTip(false)
+                    l1 = new LineF(x1, h2, len, h1)
+                    l2 = new LineF(x1, -h2, len, -h1)
+                }
+            } else if (type === HairpinType.DIM_HAIRPIN) {
+                if (sst === SpannerSegmentType.SINGLE || sst === SpannerSegmentType.END) {
+                    l1 = new LineF(x1, h1, len - item.circledTipRadius() * 2, 0.0)
+                    l2 = new LineF(x1, -h1, len - item.circledTipRadius() * 2, 0.0)
+                    item.setCircledTip(new PointF(len - item.circledTipRadius(), 0.0))
+                } else {
+                    item.setDrawCircledTip(false)
+                    l1 = new LineF(x1, h1, len, +h2)
+                    l2 = new LineF(x1, -h1, len, -h2)
+                }
+            }
+
+            // Do Coord rotation
+            l1 = t.mapLine(l1)
+            l2 = t.mapLine(l2)
+            if (item.drawCircledTip()) {
+                item.setCircledTip(t.map(item.circledTip()))
+            }
+
+            ldata.points[0] = l1.p1()
+            ldata.points[1] = l1.p2()
+            ldata.points[2] = l2.p1()
+            ldata.points[3] = l2.p2()
+            ldata.npoints = 4
+
+            let joined: PointF[] = []
+            if (sst !== SpannerSegmentType.MIDDLE) {
+                if (type === HairpinType.DIM_HAIRPIN && sst !== SpannerSegmentType.BEGIN) {
+                    joined = [ldata.points[0], ldata.points[1], ldata.points[2]] // [top-left, joint, bottom-left]
+                } else if (type === HairpinType.CRESC_HAIRPIN && sst !== SpannerSegmentType.END) {
+                    joined = [ldata.points[1], ldata.points[0], ldata.points[3]] // [top-right, joint, bottom-right]
+                }
+            }
+            ldata.joinedHairpin = new PolygonF(...joined.map(p => p.clone()))
+
+            let r = RectF.fromPoints(l1.p1(), l1.p2()).normalized().united(RectF.fromPoints(l2.p1(), l2.p2()).normalized())
+            if (!item.text().empty()) {
+                r = r.united(item.text().ldata().bbox())
+            }
+            if (!item.endText().empty()) {
+                r = r.united(item.endText().ldata().bbox().translated(x + item.endText().ldata().bbox().width(), 0.0))
+            }
+            const w = item.absoluteFromSpatium(ctx.conf().styleS(Sid.hairpinLineWidth))
+            ldata.setBbox(r.adjusted(-w * 0.5, -w * 0.5, w, w))
+        }
+
+        if (!item.explicitParent()) {
+            item.setPos(new PointF())
+            item.setOffset(new PointF())
+            return
+        }
+
+        if (item.isStyled(Pid.OFFSET)) {
+            item.setOffset(hairpin.propertyDefault(Pid.OFFSET) as PointF)
+        }
+
+        // rebase vertical offset on drag
+        if (ldata.autoplace.offsetChanged !== OffsetChange.NONE) {
+            Autoplace.rebaseOffset(item, ldata)
+        }
+
+        if (item.autoplace()) {
+            Autoplace.autoplaceSpannerSegment(item, ldata, item.spatium())
+        }
+
+        Autoplace.setOffsetChanged(item, ldata, false)
+    }
+
+    private static manageHairpinSnapping(item: HairpinSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        const hairpin = item.hairpin()
+
+        let possibleSnapBeforeElement: EngravingItem | null = null
+        let possibleSnapAfterElement: EngravingItem | null = null
+        if (item.isSingleBeginType()) {
+            possibleSnapBeforeElement = item.findElementToSnapBefore()
+        }
+        if (item.isSingleEndType() && hairpin.ticks().isNotZero()) {
+            possibleSnapAfterElement = item.findElementToSnapAfter()
+        }
+
+        let doSnapBefore = !!possibleSnapBeforeElement && hairpin.snapToItemBefore()
+        if (doSnapBefore && possibleSnapBeforeElement!.isHairpinSegment()) {
+            doSnapBefore = (possibleSnapBeforeElement as HairpinSegment).hairpin().snapToItemAfter()
+                           && possibleSnapBeforeElement!.ldata().itemSnappedBefore() !== item
+        }
+        if (doSnapBefore) {
+            ldata.connectItemSnappedBefore(possibleSnapBeforeElement!)
+        }
+
+        let doSnapAfter = !!possibleSnapAfterElement && hairpin.snapToItemAfter()
+        if (doSnapAfter && possibleSnapAfterElement!.isHairpinSegment()) {
+            doSnapAfter = (possibleSnapAfterElement as HairpinSegment).hairpin().snapToItemBefore()
+                          && possibleSnapAfterElement!.ldata().itemSnappedAfter() !== item
+        }
+        if (doSnapAfter) {
+            ldata.connectItemSnappedAfter(possibleSnapAfterElement!)
+        }
+
+        // In case of dynamics/expressions before or after, make space for them horizontally
+        const mag = item.staff()!.staffMag(item)
+        const hairpinDistToDynOrExpr = ctx.conf().styleMM(Sid.autoplaceHairpinDynamicsDistance) * mag
+
+        const makeSpaceBefore = (doSnapBefore && possibleSnapBeforeElement!.isTextBase())
+                                || (!!possibleSnapBeforeElement && possibleSnapBeforeElement.isDynamic())
+        if (makeSpaceBefore && possibleSnapBeforeElement!.findAncestor(ElementType.SYSTEM) === item.system()) {
+            const xItemPos = possibleSnapBeforeElement!.pageX() - item.system()!.pageX()
+            const itemRightEdge = xItemPos + possibleSnapBeforeElement!.ldata().bbox().right()
+            const xMinHairpinStart = itemRightEdge + hairpinDistToDynOrExpr
+            const xStartDiff = ldata.pos().x() - xMinHairpinStart
+            if (xStartDiff < 0) {
+                ldata.setPosX(xMinHairpinStart)
+                item.rpos2().setX(item.rpos2().x() + xStartDiff)
+            }
+        }
+
+        const makeSpaceAfter = (doSnapAfter && possibleSnapAfterElement!.isTextBase())
+                               || (!!possibleSnapAfterElement && possibleSnapAfterElement.isDynamic())
+        if (makeSpaceAfter && possibleSnapAfterElement!.findAncestor(ElementType.SYSTEM) === item.system()) {
+            const xItemPos = possibleSnapAfterElement!.pageX() - item.system()!.pageX()
+            const itemLeftEdge = xItemPos + possibleSnapAfterElement!.ldata().bbox().left()
+            const xMaxHairpinEnd = itemLeftEdge - hairpinDistToDynOrExpr
+            const xEndDiff = xMaxHairpinEnd - (item.pos().x() + item.pos2().x())
+            const EXTEND_THRESHOLD = 3.0 * item.spatium()
+            if (xEndDiff < 0) {
+                item.rpos2().setX(item.rpos2().x() + xEndDiff)
+            } else if (hairpin.snapToItemAfter() && xEndDiff > EXTEND_THRESHOLD) {
+                item.rpos2().setX(item.rpos2().x() + xEndDiff)
+            }
+        }
     }
 
     static layoutBreath(item: Breath, ctx: LayoutContext): void {
@@ -1878,7 +2749,17 @@ export class TLayout {
         if (item.isSlur()) {
             return SlurTieLayout.layoutSystem(item as Slur, system, ctx)
         }
-        // TODO(port): SLine (hairpins, ottavas, voltas, pedals, ...) and lyrics lines
+        if (item.isLyricsLine()) {
+            return TLayout.layoutSystemLyricsLine(item as LyricsLine, system, ctx)
+        }
+        if (item.isVolta()) {
+            // TODO(port): Volta::setTempo (playback)
+            return TLayout.layoutSystemSLine(item as SLine, system, ctx)
+        }
+        if (item instanceof SLine) {
+            return TLayout.layoutSystemSLine(item, system, ctx)
+        }
+        // TODO(port): hammer-on/pull-off, tapping half slurs
         return null
     }
 

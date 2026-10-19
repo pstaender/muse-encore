@@ -57,6 +57,12 @@ import { Dynamic } from './dynamic'
 import { Fermata } from './fermata'
 import { Breath } from './breath'
 import { MMRest } from './mmrest'
+import { Hairpin, HairpinSegment } from './hairpin'
+import { TextLine, TextLineSegment } from './textline'
+import { Volta, VoltaSegment } from './volta'
+import { Ottava, OttavaSegment } from './ottava'
+import { Pedal, PedalSegment } from './pedal'
+import { LyricsLine } from './lyricsline'
 
 type Parent = EngravingObject | null
 
@@ -103,6 +109,17 @@ export class Factory {
         case ElementType.CHORD: return new Chord(segmentOrDummy())
         case ElementType.REST: return new Rest(segmentOrDummy())
         case ElementType.MMREST: return new MMRest(segmentOrDummy())
+        case ElementType.HAIRPIN: return new Hairpin(itemOrDummy())
+        case ElementType.HAIRPIN_SEGMENT: return new HairpinSegment(null, dummy().system())
+        case ElementType.TEXTLINE: return new TextLine(itemOrDummy())
+        case ElementType.TEXTLINE_SEGMENT: return new TextLineSegment(null, dummy().system())
+        case ElementType.VOLTA: return new Volta(itemOrDummy())
+        case ElementType.VOLTA_SEGMENT: return new VoltaSegment(null, dummy().system())
+        case ElementType.OTTAVA: return new Ottava(itemOrDummy())
+        case ElementType.OTTAVA_SEGMENT: return new OttavaSegment(null, dummy().system())
+        case ElementType.PEDAL: return new Pedal(itemOrDummy())
+        case ElementType.PEDAL_SEGMENT: return new PedalSegment(null, dummy().system())
+        case ElementType.LYRICSLINE: return new LyricsLine(itemOrDummy())
         case ElementType.BEAM: return new Beam(dummy().system())
         case ElementType.HOOK: return new Hook(chordOrDummy())
         case ElementType.STEM: return new Stem(chordOrDummy())

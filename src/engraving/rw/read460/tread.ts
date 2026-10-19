@@ -24,7 +24,7 @@ import {
     PlacementH, PlacementV, PreferSharpFlat, SlurStyleType, StaffGroup, TextPlace, TextStyleType, TiePlacement,
     VeloType, VoiceAssignment, AccidentalRole, DynamicType, AutoCustomHide, MarkerType, GlissandoType,
     ElementType, type track_idx_t,
-    DynamicSpeed, VOICES,
+    ChangeMethod, DynamicSpeed, SpannerSegmentType, VOICES,
 } from '../../types/types'
 import { Constants } from '../../types/constants'
 import { lrint } from '../../../framework/global/realfn'
@@ -89,6 +89,14 @@ import type { Dynamic } from '../../dom/dynamic'
 import type { Fermata } from '../../dom/fermata'
 import type { Breath } from '../../dom/breath'
 import { SystemLock } from '../../dom/systemlock'
+import { type Hairpin, type HairpinType } from '../../dom/hairpin'
+import type { TextLine } from '../../dom/textline'
+import { TextLineBase } from '../../dom/textlinebase'
+import type { Volta } from '../../dom/volta'
+import { type Ottava, OttavaType, ottavaDefault } from '../../dom/ottava'
+import type { Pedal } from '../../dom/pedal'
+import type { LyricsLine } from '../../dom/lyricsline'
+import type { LineSegment, SLine } from '../../dom/line'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -161,6 +169,12 @@ export class TRead {
         case ElementType.DYNAMIC: TRead.readDynamic(item as Dynamic, xml, ctx); break
         case ElementType.FERMATA: TRead.readFermata(item as Fermata, xml, ctx); break
         case ElementType.BREATH: TRead.readBreath(item as Breath, xml, ctx); break
+        case ElementType.HAIRPIN: TRead.readHairpin(item as Hairpin, xml, ctx); break
+        case ElementType.TEXTLINE: TRead.readTextLine(item as TextLine, xml, ctx); break
+        case ElementType.VOLTA: TRead.readVolta(item as Volta, xml, ctx); break
+        case ElementType.OTTAVA: TRead.readOttava(item as Ottava, xml, ctx); break
+        case ElementType.PEDAL: TRead.readPedal(item as Pedal, xml, ctx); break
+        case ElementType.LYRICSLINE: TRead.readLyricsLine(item as LyricsLine, xml, ctx); break
         default:
             // TODO(port): element type not ported yet
             xml.skipCurrentElement()
@@ -561,6 +575,170 @@ export class TRead {
             } else if (tag === 'pause') {
                 b.setPause(e.readDouble())
             } else if (!TRead.readItemProperties(b, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readHairpin(h: Hairpin, e: XmlReader, ctx: ReadContext): void {
+        h.eraseSpannerSegments()
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'subtype') {
+                h.setHairpinType(e.readInt() as HairpinType)
+            } else if (TRead.readStyledProperty(h, tag, e, ctx)) {
+            } else if (tag === 'hairpinCircledTip') {
+                h.setHairpinCircledTip(e.readInt() !== 0)
+            } else if (tag === 'veloChange') {
+                h.setVeloChange(e.readInt())
+            } else if (tag === 'singleNoteDynamics') {
+                h.setSingleNoteDynamics(e.readInt() !== 0)
+            } else if (tag === 'veloChangeMethod') {
+                h.setVeloChangeMethod(TConv.fromXmlChangeMethod(e.readAsciiText(), ChangeMethod.NORMAL))
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.VOICE_ASSIGNMENT)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.DIRECTION)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.CENTER_BETWEEN_STAVES)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.SNAP_BEFORE)) {
+            } else if (TRead.readPropertyIfTag(h, tag, e, ctx, Pid.SNAP_AFTER)) {
+            } else if (!TRead.readTextLineBaseProperties(h, e, ctx)) {
+                e.unknown()
+            }
+        }
+        // TODO(port): CompatUtils::setTextLineTextPositionFromAlign for files < 4.7
+        h.styleChanged()
+    }
+
+    static readTextLine(l: TextLine, e: XmlReader, ctx: ReadContext): void {
+        const system = e.intAttribute('system', 0) === 1
+        l.setSystemFlag(system)
+        l.initStyle()
+        TRead.readTextLineBase(l, e, ctx)
+    }
+
+    static readTextLineBase(b: TextLineBase, e: XmlReader, ctx: ReadContext): void {
+        b.eraseSpannerSegments()
+        while (e.readNextStartElement()) {
+            if (!TRead.readTextLineBaseProperties(b, e, ctx)) {
+                e.unknown()
+            }
+        }
+        // TODO(port): CompatUtils::setTextLineTextPositionFromAlign for files < 4.7
+    }
+
+    static readVolta(v: Volta, e: XmlReader, ctx: ReadContext): void {
+        v.eraseSpannerSegments()
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'endings') {
+                v.setEndings(e.readText().split(',').map(x => parseInt(x.trim(), 10)).filter(x => !Number.isNaN(x)))
+            } else if (TRead.readStyledProperty(v, tag, e, ctx)) {
+            } else if (!TRead.readTextLineBaseProperties(v, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readOttava(o: Ottava, e: XmlReader, ctx: ReadContext): void {
+        o.eraseSpannerSegments()
+        while (e.readNextStartElement()) {
+            TRead.readOttavaProperties(o, e, ctx)
+        }
+        if (o.ottavaType() !== OttavaType.OTTAVA_8VA || o.numbersOnly() !== (o.propertyDefault(Pid.NUMBERS_ONLY) as boolean)) {
+            o.styleChanged()
+        }
+    }
+
+    static readOttavaProperties(o: Ottava, e: XmlReader, ctx: ReadContext): boolean {
+        const tag = e.name()
+        if (tag === 'subtype') {
+            const s = e.readText()
+            const idx = parseInt(s, 10)
+            if (Number.isNaN(idx) || String(idx) !== s.trim()) {
+                o.setOttavaType(OttavaType.OTTAVA_8VA)
+                const d = ottavaDefault.find(od => od.name === s)
+                if (d) {
+                    o.setOttavaType(d.type)
+                }
+            } else {
+                o.setOttavaType(idx as OttavaType)
+            }
+        } else if (TRead.readStyledProperty(o, tag, e, ctx)) {
+            return true
+        } else if (!TRead.readTextLineBaseProperties(o, e, ctx)) {
+            e.unknown()
+            return false
+        }
+        return true
+    }
+
+    static readPedal(p: Pedal, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (TRead.readStyledProperty(p, tag, e, ctx)) {
+            } else if (TRead.readPropertyIfTag(p, tag, e, ctx, Pid.LINE_VISIBLE)) {
+                p.resetProperty(Pid.END_TEXT)
+            } else if (TRead.readPropertyIfTag(p, tag, e, ctx, Pid.BEGIN_HOOK_TYPE)) {
+                if (p.beginHookType() !== HookType.NONE) {
+                    p.setBeginText('')
+                    p.setContinueText('')
+                }
+            } else if (!TRead.readTextLineBaseProperties(p, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readLyricsLine(l: LyricsLine, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            if (!TRead.readSLineProperties(l, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readTextLineBaseProperties(b: TextLineBase, e: XmlReader, ctx: ReadContext): boolean {
+        const tag = e.name()
+        for (const i of TextLineBase.textLineBasePropertyIds()) {
+            if (TRead.readPropertyIfTag(b, tag, e, ctx, i)) {
+                b.setPropertyFlags(i, PropertyFlags.UNSTYLED)
+                return true
+            }
+        }
+        return TRead.readSLineProperties(b, e, ctx)
+    }
+
+    static readSLineProperties(l: SLine, e: XmlReader, ctx: ReadContext): boolean {
+        const tag = e.name()
+        if (tag === 'ticks') {
+            l.setTicks(Fraction.fromTicks(e.readInt()))
+        } else if (tag === 'Segment') {
+            const ls = l.createLineSegment(scoreDummy(l.score()).system())
+            ls.setTrack(l.track()) // needed in read to get the right staff mag
+            TRead.readLineSegment(ls, e, ctx)
+            l.add(ls)
+            ls.setVisible(l.visible())
+        } else if (TRead.readPropertyIfTag(l, tag, e, ctx, Pid.DIAGONAL)) {
+        } else if (TRead.readPropertyIfTag(l, tag, e, ctx, Pid.ANCHOR)) {
+        } else if (TRead.readPropertyIfTag(l, tag, e, ctx, Pid.LINE_WIDTH)) {
+        } else if (TRead.readPropertyIfTag(l, tag, e, ctx, Pid.LINE_STYLE)) {
+        } else if (TRead.readPropertyIfTag(l, tag, e, ctx, Pid.DASH_LINE_LEN)) {
+        } else if (TRead.readPropertyIfTag(l, tag, e, ctx, Pid.DASH_GAP_LEN)) {
+        } else if (tag === 'lineColor' || tag === 'color') {
+            l.setLineColor(e.readColor())
+        } else if (!TRead.readSpannerProperties(l, e, ctx)) {
+            return false
+        }
+        return true
+    }
+
+    static readLineSegment(l: LineSegment, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'subtype') {
+                l.setSpannerSegmentType(e.readInt() as SpannerSegmentType)
+            } else if (tag === 'off2') {
+                l.setUserOff2(e.readPoint().times(l.style().spatium()))
+            } else if (!TRead.readItemProperties(l, e, ctx)) {
                 e.unknown()
             }
         }

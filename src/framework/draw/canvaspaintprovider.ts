@@ -90,8 +90,9 @@ export class CanvasPaintProvider implements IPaintProvider {
         ctx.lineCap = pen.capStyle() === PenCapStyle.FlatCap ? 'butt' : pen.capStyle() === PenCapStyle.RoundCap ? 'round' : 'square'
         ctx.lineJoin = pen.joinStyle() === PenJoinStyle.MiterJoin ? 'miter' : pen.joinStyle() === PenJoinStyle.RoundJoin ? 'round' : 'bevel'
         const dash = pen.dashPattern()
-        // Qt dash patterns are in units of the pen width
-        ctx.setLineDash(dash.length ? dash.map(d => d * w) : [])
+        // Qt dash patterns are in units of the pen width; Qt accepts negative values (e.g. the gap of
+        // distributedDashPattern for short hooks, drawn as a solid line), canvas rejects them
+        ctx.setLineDash(dash.length ? dash.map(d => Math.max(0, d * w)) : [])
         return true
     }
 
