@@ -299,11 +299,15 @@ export class Chord extends ChordRest {
     }
 
     noteDistances(): number[] {
-        const dl: number[] = []
-        for (const n of this.m_notes) {
-            dl.push(n.line() + (this.staff()?.staffType(this.tick()).stepOffset() ?? 0))
+        const staffType = this.staffType()!
+        const isTabStaff = staffType.isTabStaff()
+        const staffMiddleLine = staffType.middleLine()
+        const distances: number[] = []
+        for (const note of this.m_notes) {
+            const noteLine = isTabStaff ? note.string() : note.line()
+            distances.push(noteLine - staffMiddleLine)
         }
-        return dl
+        return distances
     }
 
     maxHeadWidth(): number {

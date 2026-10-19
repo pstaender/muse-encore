@@ -59,7 +59,14 @@ export async function compareScore(file: string, outDir: string, dpi = 100): Pro
     mkdirSync(outDir, { recursive: true })
     const name = basename(file).replace(/\.msc[zx]$/, '')
     // MuseScore writes <prefix>-<page>.png
-    execFileSync(MSCORE, ['-r', String(dpi), '-o', join(outDir, `${name}-ref.png`), file], { stdio: 'ignore' })
+    try {
+        execFileSync(MSCORE, ['-r', String(dpi), '-o', join(outDir, `${name}-ref.png`), file], { stdio: 'ignore' })
+    } catch (e) {
+        // mscore sometimes exits with an error code although the export succeeded
+        if (!existsSync(join(outDir, `${name}-ref-1.png`))) {
+            throw e
+        }
+    }
     const webFiles = await renderScore(file, join(outDir, `${name}-web`), dpi)
     const res: PageDiff[] = []
     for (let i = 0; i < webFiles.length; ++i) {
