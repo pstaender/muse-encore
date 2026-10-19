@@ -61,3 +61,14 @@ export const nidx = -1
 export function clamp(v: number, lo: number, hi: number): number {
     return Math.max(lo, Math.min(v, hi))
 }
+
+/** C/C++ std::round(): rounds half away from zero (Math.round rounds half up) */
+export function stdRound(v: number): number {
+    return v < 0 ? -Math.round(-v) : Math.round(v)
+}
+
+/** C/C++ lrint() with the default rounding mode: rounds half to even */
+export function lrint(v: number): number {
+    const r = Math.round(v)
+    return (Math.abs(v % 1) === 0.5 && r % 2 !== 0) ? r - 1 : r
+}

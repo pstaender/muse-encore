@@ -9,7 +9,7 @@
  */
 
 import { PointF } from '../../../framework/draw/types/geometry'
-import { RealIsNull } from '../../../framework/global/realfn'
+import { RealIsNull, lrint } from '../../../framework/global/realfn'
 import { Fraction } from '../../types/fraction'
 import { SymId } from '../../types/symid'
 import { BeamMode, DurationType, ElementType, VOICES, staff2track, type staff_idx_t } from '../../types/types'
@@ -72,7 +72,7 @@ export class RestLayout {
         const stf = item.staff()
         const st = stf ? stf.staffTypeForElement(item) : null
         const lineDist = st ? st.lineDistance().val() : 1.0
-        const userLine = RealIsNull(yOff) ? 0 : Math.round(yOff / (lineDist * spatium))
+        const userLine = RealIsNull(yOff) ? 0 : lrint(yOff / (lineDist * spatium))
         const lines = st ? st.lines() : 5
 
         const naturalLine = RestLayout.computeNaturalLine(lines) // Measured in 1sp steps

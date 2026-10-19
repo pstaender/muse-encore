@@ -107,3 +107,25 @@ export type PropertyValue =
     | object
     | null
     | undefined
+
+/** PropertyValue::operator== */
+export function propertyValueEquals(a: PropertyValue | undefined, b: PropertyValue | undefined): boolean {
+    if (a === b) {
+        return true
+    }
+    if (a === undefined || b === undefined || a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
+        return false
+    }
+    if (Array.isArray(a) && Array.isArray(b)) {
+        return a.length === b.length && a.every((v, i) => propertyValueEquals(v as PropertyValue, b[i] as PropertyValue))
+    }
+    const eq = (a as { equals?: (o: unknown) => boolean }).equals
+    if (typeof eq === 'function') {
+        return eq.call(a, b)
+    }
+    const aeq = (a as { eq?: (o: unknown) => boolean }).eq
+    if (typeof aeq === 'function') {
+        return aeq.call(a, b)
+    }
+    return false
+}

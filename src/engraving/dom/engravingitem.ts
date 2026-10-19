@@ -440,6 +440,16 @@ export abstract class EngravingItem extends EngravingObject {
     setGenerated(val: boolean): void { this.setFlag(ElementFlag.GENERATED, val) }
 
     minDistance(): Spatium { return this.m_minDistance }
+
+    setOffsetChanged(v: boolean, absolute = true, diff: PointF = new PointF()): void {
+        const ldata = this.mutldata()
+        if (v) {
+            ldata.autoplace.offsetChanged = absolute ? OffsetChange.ABSOLUTE_OFFSET : OffsetChange.RELATIVE_OFFSET
+        } else {
+            ldata.autoplace.offsetChanged = OffsetChange.NONE
+        }
+        ldata.autoplace.changedPos = this.pos().plus(diff)
+    }
     setMinDistance(v: Spatium): void { this.m_minDistance = v }
 
     systemFlag(): boolean { return this.flag(ElementFlag.SYSTEM) }
@@ -483,7 +493,7 @@ export abstract class EngravingItem extends EngravingObject {
 
     // offset
 
-    offset(): PointF { return this.m_offset }
+    offset(): PointF { return this.m_offset.clone() }
     setOffset(x: number | PointF, y?: number): void {
         if (x instanceof PointF) {
             this.m_offset = x.clone()

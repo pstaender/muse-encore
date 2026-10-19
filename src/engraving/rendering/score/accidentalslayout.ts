@@ -7,7 +7,7 @@
  */
 
 import { PointF, RectF } from '../../../framework/draw/types/geometry'
-import { RealIsEqual, RealIsNull } from '../../../framework/global/realfn'
+import { RealIsEqual, RealIsNull, stdRound } from '../../../framework/global/realfn'
 import { ElementType } from '../../types/types'
 import { SymId } from '../../types/symid'
 import { Shape, intersects, type ShapeElement } from '../../infrastructure/shape'
@@ -146,8 +146,8 @@ function sortedEntries(m: Map<number, Accidental[]>): [number, Accidental[]][] {
     return [...m.entries()].sort((a, b) => a[0] - b[0])
 }
 
-// std::round rounds half away from zero
-const stdRound = (x: number): number => (x < 0 ? -Math.round(-x) : Math.round(x))
+
+
 
 export class AccidentalsLayout {
     static layoutAccidentals(chords: readonly Chord[], ctx: LayoutContext): void {

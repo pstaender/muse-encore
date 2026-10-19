@@ -25,6 +25,7 @@ import type { EngravingObject } from './engravingobject'
 import type { Measure } from './measure'
 import type { Note } from './note'
 import type { Stem } from './stem'
+import type { StemSlash } from './stemslash'
 import type { Hook } from './hook'
 import type { LedgerLine } from './ledgerline'
 import type { Articulation } from './articulation'
@@ -139,7 +140,7 @@ export class Chord extends ChordRest {
     private m_ledgerLines: LedgerLine[] = []
     private m_stem: Stem | null = null
     private m_hook: Hook | null = null
-    private m_stemSlash: EngravingItem | null = null // for grace notes
+    private m_stemSlash: StemSlash | null = null // for grace notes
     private m_showStemSlash = false
     private m_arpeggio: EngravingItem | null = null
     private m_spanArpeggio: EngravingItem | null = null
@@ -335,7 +336,7 @@ export class Chord extends ChordRest {
     spanArpeggio(): EngravingItem | null { return this.m_spanArpeggio }
     setSpanArpeggio(a: EngravingItem | null): void { this.m_spanArpeggio = a }
     setArpeggio(a: EngravingItem | null): void { this.m_arpeggio = a }
-    stemSlash(): EngravingItem | null { return this.m_stemSlash }
+    stemSlash(): StemSlash | null { return this.m_stemSlash }
     showStemSlash(): boolean { return this.m_showStemSlash }
     setShowStemSlash(show: boolean): void { this.m_showStemSlash = show }
 
@@ -462,7 +463,7 @@ export class Chord extends ChordRest {
             this.m_hook = e as Hook
             break
         case ElementType.STEM_SLASH:
-            this.m_stemSlash = e
+            this.m_stemSlash = e as StemSlash
             break
         case ElementType.CHORD: {
             const gc = e as Chord

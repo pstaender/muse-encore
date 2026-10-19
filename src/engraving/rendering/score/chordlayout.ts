@@ -10,7 +10,7 @@
  */
 
 import { PointF } from '../../../framework/draw/types/geometry'
-import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull } from '../../../framework/global/realfn'
+import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull, stdRound } from '../../../framework/global/realfn'
 import { DirectionH, DirectionV, ElementType, NoteHeadType, VOICES, staff2track,
     type staff_idx_t, type track_idx_t } from '../../types/types'
 import { Shape, ShapeType } from '../../infrastructure/shape'
@@ -361,7 +361,7 @@ export class ChordLayout {
                     } else {
                         y = stem.ldata().bbox().translated(stem.pos()).bottom()
                     }
-                    let line = Math.round((y + _lineDist) / _lineDist)
+                    let line = stdRound((y + _lineDist) / _lineDist)
                     const lines = 2 * (staffType.lines() - 1)
                     if (line < lines && !(line % 2)) {
                         line += 1
@@ -420,7 +420,7 @@ export class ChordLayout {
                     } else {
                         y = stem.ldata().bbox().translated(stem.pos()).top()
                     }
-                    let line = Math.round((y - _lineDist) / _lineDist)
+                    let line = stdRound((y - _lineDist) / _lineDist)
                     if (line > 0 && !(line % 2)) {
                         line -= 1
                     }
@@ -1356,7 +1356,7 @@ export class ChordLayout {
             let topDownStemLen = 0
             const topDownChordStem = topDownNote.chord().stem()
             if (!conflictUnison && topDownChordStem) {
-                topDownStemLen = Math.round(topDownChordStem.ldata().bbox().height() / sp * 2)
+                topDownStemLen = stdRound(topDownChordStem.ldata().bbox().height() / sp * 2)
                 if (bottomUpNote.stringOrLine() > firstLedgerBelow - 1 && topDownNote.stringOrLine() < bottomUpNote.stringOrLine()
                     && topDownNote.stringOrLine() + topDownStemLen >= firstLedgerBelow) {
                     ledgerOverlapBelow = true
@@ -1366,7 +1366,7 @@ export class ChordLayout {
             let bottomUpStemLen = 0
             const bottomUpChordStem = bottomUpNote.chord().stem()
             if (!conflictUnison && bottomUpChordStem) {
-                bottomUpStemLen = Math.round(bottomUpChordStem.ldata().bbox().height() / sp * 2)
+                bottomUpStemLen = stdRound(bottomUpChordStem.ldata().bbox().height() / sp * 2)
                 if (topDownNote.stringOrLine() < -1 && topDownNote.stringOrLine() < bottomUpNote.stringOrLine()
                     && bottomUpNote.stringOrLine() - bottomUpStemLen <= firstLedgerAbove) {
                     ledgerOverlapAbove = true

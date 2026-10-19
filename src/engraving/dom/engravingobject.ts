@@ -10,7 +10,7 @@
 
 import { PointF } from '../../framework/draw/types/geometry'
 import { DPMM, ElementType } from '../types/types'
-import { P_TYPE, type PropertyValue } from '../types/propertyvalue'
+import { P_TYPE, propertyValueEquals, type PropertyValue } from '../types/propertyvalue'
 import { TConv } from '../types/typesconv'
 import { Sid } from '../style/styledef'
 import type { MStyle } from '../style/style'
@@ -180,6 +180,34 @@ export abstract class EngravingObject {
         }
     }
 
+    /**
+     * Undo is not ported: the property is changed directly.
+     * TODO(port): linked elements, Pid::TEXT_STYLE property lists
+     */
+    undoChangeProperty(id: Pid, v: PropertyValue, ps: PropertyFlags = this.propertyFlags(id)): void {
+        if (this.propertyFlags(id) === ps && propertyValueEquals(this.getProperty(id), v)) {
+            return
+        }
+        this.setProperty(id, v)
+        this.setPropertyFlags(id, ps)
+        if ((id === Pid.PLACEMENT || id === Pid.HAIRPIN_TYPE) && this.isStyled(Pid.OFFSET)) {
+            const sp = this.isEngravingItem() ? (this as unknown as { spatium(): number }).spatium() : this.style().spatium()
+            this.setProperty(Pid.OFFSET, (this.style().styleV(this.getPropertyStyle(Pid.OFFSET)) as PointF).times(sp))
+            ;(this as unknown as { setOffsetChanged(v: boolean): void }).setOffsetChanged(false)
+        }
+    }
+
+    undoResetProperty(id: Pid): void {
+        let f = this.propertyFlags(id)
+        if (f === PropertyFlags.UNSTYLED) {
+            f = PropertyFlags.STYLED
+        }
+        const v = this.propertyDefault(id)
+        if (v !== undefined) {
+            this.undoChangeProperty(id, v, f)
+        }
+    }
+
     sizeIsSpatiumDependent(): boolean { return true }
     offsetIsSpatiumDependent(): boolean { return true }
 
@@ -265,20 +293,6 @@ export abstract class EngravingObject {
         default:
             return this.style().styleV(sid)
         }
-    }
-
-    /** undo is not supported in the port: changes are applied directly */
-    undoChangeProperty(id: Pid, v: PropertyValue, ps: PropertyFlags = PropertyFlags.NOSTYLE): void {
-        this.setProperty(id, v)
-        if (ps !== PropertyFlags.NOSTYLE) {
-            this.setPropertyFlags(id, ps)
-        } else if (this.propertyFlags(id) === PropertyFlags.STYLED) {
-            this.setPropertyFlags(id, PropertyFlags.UNSTYLED)
-        }
-    }
-
-    undoResetProperty(id: Pid): void {
-        this.resetProperty(id)
     }
 
     // ---------------------------------------------------------------------------------

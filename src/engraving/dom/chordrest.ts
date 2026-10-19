@@ -18,6 +18,13 @@ import type { EngravingObject } from './engravingobject'
 import type { Segment, SegmentType } from './segment'
 import type { Beam } from './beam'
 import type { Lyrics } from './lyrics'
+import type { Chord } from './chord'
+
+/** C++ renderer() calls from the DOM; set by the layout module */
+export const chordRestRenderer: {
+    layoutBeam1?: (b: Beam) => void
+    layoutStem?: (c: Chord) => void
+} = {}
 
 export enum CrossMeasure {
     UNKNOWN = -1,
@@ -77,6 +84,38 @@ export abstract class ChordRest extends DurationElement {
     setBeam(b: Beam | null): void { this.m_beam = b }
     setBeamlet(b: unknown): void { this.m_beamlet = b }
     beamlet(): unknown { return this.m_beamlet }
+
+    removeDeleteBeam(beamed: boolean): void {
+        this.setBeamlet(null)
+        if (this.m_beam) {
+            const b = this.m_beam
+            this.m_beam.remove(this)
+            if (b.empty()) {
+                this.score().removeElement(b)
+            } else {
+                chordRestRenderer.layoutBeam1!(b)
+            }
+        }
+        if (!beamed && this.isChord()) {
+            const c = this as unknown as Chord
+            if (c.shouldHaveHook()) {
+                if (!c.hook()) {
+                    c.createHook()
+                }
+            } else if (c.hook()) {
+                this.score().removeElement(c.hook()!)
+            }
+            chordRestRenderer.layoutStem!(c)
+        }
+    }
+
+    replaceBeam(newBeam: Beam): void {
+        if (this.m_beam === newBeam) {
+            return
+        }
+        this.removeDeleteBeam(true)
+        newBeam.add(this)
+    }
 
     override beam(): Beam | null {
         const m = this.explicitParent() ? this.measure() : null

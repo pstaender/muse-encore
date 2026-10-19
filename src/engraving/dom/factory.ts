@@ -103,6 +103,12 @@ export class Factory {
         }
     }
 
+    static createBeam(parent: EngravingItem): Beam {
+        const b = new Beam(parent)
+        b.setScore(parent.score())
+        return b
+    }
+
     static createStemSlash(parent: Chord): StemSlash {
         const s = new StemSlash(parent)
         s.setScore(parent.score())

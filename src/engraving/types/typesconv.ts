@@ -33,6 +33,17 @@ function findUserNameByType<T>(cont: readonly Item<T>[], v: T): string {
     return it ? it.userName : ''
 }
 
+const ARTICULATION_TEXTS: Partial<Record<ArticulationTextType, string>> = {
+    [ArticulationTextType.SLAP]: 'S',
+    [ArticulationTextType.POP]: 'P',
+    [ArticulationTextType.TD]: 'TD',
+    [ArticulationTextType.BD]: 'BD',
+    [ArticulationTextType.RT]: 'RT',
+    [ArticulationTextType.PL]: 'Pl',
+    [ArticulationTextType.SB]: 'SB',
+    [ArticulationTextType.VIB]: 'vib.',
+}
+
 function findTypeByXmlTag<T>(cont: readonly Item<T>[], tag: string, def: T): T {
     const it = cont.find(i => i.xml === tag)
     return it ? it.type : def
@@ -252,6 +263,8 @@ export const TConv = {
         return def
     },
     fromXmlVibratoType: (tag: string, def: VibratoType): VibratoType => findTypeByXmlTag(D.VIBRATO_TYPES, tag, def),
+    /** TConv::text(ArticulationTextType) */
+    articulationText: (v: ArticulationTextType): string => ARTICULATION_TEXTS[v] ?? '',
     fromXmlArticulationTextType: (tag: string, def: ArticulationTextType): ArticulationTextType =>
         findTypeByXmlTag(D.ARTICULATIONTEXT_TYPES, tag, def),
     fromXmlLyricsSyllabic: (tag: string, def: LyricsSyllabic): LyricsSyllabic => findTypeByXmlTag(D.LYRICSSYLLABIC_TYPES, tag, def),
