@@ -307,6 +307,16 @@ export class MeasureRead {
                 if (el.chords().length) { // else: invalid harmony
                     segment.add(el)
                 }
+            } else if (tag === 'FretDiagram') {
+                segment = measure.getSegment(SegmentType.ChordRest, ctx.tick())
+                const el = Factory.createItem(ElementType.FRET_DIAGRAM, segment)!
+
+                el.setTrack(ctx.track())
+                TRead.readItem(el, e, ctx)
+                if (el.systemFlag() && el.isTopSystemObject()) {
+                    el.setTrack(0) // original system object always goes on top
+                }
+                segment.add(el)
             } else if (tag === 'SystemText' || tag === 'RehearsalMark') {
                 // TODO(port): Sticking, PlayTechAnnotation, Capo, StringTunings, InstrumentChange, StaffState,
                 // FiguredBass, HarpPedalDiagram
@@ -414,7 +424,7 @@ export class MeasureRead {
             } else if (tag === 'Segment' && segment) {
                 TRead.readSegment(segment, e, ctx)
             } else {
-                // TODO(port): MeasureRepeat, FretDiagram, TremoloBar, Sticking, InstrumentChange, Image,
+                // TODO(port): MeasureRepeat, TremoloBar, Sticking, InstrumentChange, Image,
                 // PlayCountText, Ambitus, ...
                 e.skipCurrentElement()
             }

@@ -24,6 +24,7 @@ import { Pid } from './property'
 import type { Score } from './score'
 import type { Segment } from './segment'
 import { TextBase, TextBaseLayoutData } from './textbase'
+import type { FretDiagram } from './fret'
 
 const FALLBACK_SYMBOLTEXT_FONT = 'Bravura Text'
 
@@ -358,6 +359,14 @@ export class Harmony extends TextBase {
             return (p as unknown as { segment(): Segment | null }).segment()
         }
         return p as unknown as Segment | null
+    }
+
+    getParentFretDiagram(): FretDiagram | null {
+        const p = this.explicitParent()
+        if (p && p.isFretDiagram()) {
+            return p as unknown as FretDiagram
+        }
+        return null
     }
 
     isInFretBox(): boolean {

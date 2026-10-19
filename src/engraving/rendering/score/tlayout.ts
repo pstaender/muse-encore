@@ -18,9 +18,9 @@ import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
     StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff, SpannerSegmentType, LineType, PlacementV,
-    HookType, TextPlace, Align, BeamMode } from '../../types/types'
+    HookType, TextPlace, Align, BeamMode, Orientation } from '../../types/types'
 import { SymNames } from '../../types/symnames'
-import { RealIsEqualOrLess, RealIsEqualOrMore } from '../../../framework/global/realfn'
+import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull } from '../../../framework/global/realfn'
 import { Pid } from '../../dom/property'
 import { Autoplace } from './autoplace'
 import { Shape, ShapeType } from '../../infrastructure/shape'
@@ -108,6 +108,7 @@ import type { Harmony } from '../../dom/harmony'
 import type { Parenthesis } from '../../dom/parenthesis'
 import { HarmonyLayout } from './harmonylayout'
 import { ParenthesisLayout } from './parenthesislayout'
+import { FingeringItem, type FretDiagram } from '../../dom/fret'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -239,6 +240,7 @@ export class TLayout {
         case ElementType.REHEARSAL_MARK: TLayout.layoutRehearsalMark(item as RehearsalMark, ctx); break
         case ElementType.MARKER: MarkerLayout.layoutMarker(item as Marker, ctx); break
         case ElementType.HARMONY: HarmonyLayout.layoutHarmony(item as Harmony, ctx); break
+        case ElementType.FRET_DIAGRAM: TLayout.layoutFretDiagram(item as FretDiagram, ctx); break
         case ElementType.PARENTHESIS: ParenthesisLayout.layoutParenthesis(item as Parenthesis, ctx); break
         case ElementType.JUMP: TLayout.layoutJump(item as Jump, ctx); break
         case ElementType.STAFF_TEXT: TLayout.layoutStaffText(item as StaffText, ctx); break
@@ -2300,6 +2302,169 @@ export class TLayout {
             } else {
                 TLayout.layoutItem(e, ctx)
             }
+        }
+    }
+
+    static layoutFretDiagram(item: FretDiagram, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        const spatium = item.spatium() * item.userMag()
+        ldata.stringLineWidth = spatium * 0.08
+        ldata.nutLineWidth = ((item.fretOffset() || !item.showNut()) ? ldata.stringLineWidth
+            : ctx.conf().styleMM(Sid.fretNutThickness) * item.userMag())
+        ldata.nutY = -0.5 * (ldata.nutLineWidth - ldata.stringLineWidth)
+        ldata.stringDist = ctx.conf().styleMM(Sid.fretStringSpacing) * item.userMag()
+        ldata.fretDist = ctx.conf().styleMM(Sid.fretFretSpacing) * item.userMag()
+        ldata.markerSize = ldata.stringDist * 0.8
+        ldata.markerY = ldata.nutY - 0.5 * ldata.nutLineWidth - ldata.markerSize - 0.20 * spatium
+        const extendedStyle = item.style().styleB(Sid.fretStyleExtended)
+        ldata.stringExtendTop = item.fretOffset() && extendedStyle ? -spatium * 0.2 : 0.0
+        ldata.stringExtendBottom = extendedStyle ? 0.5 * ldata.fretDist : 0.0
+        ldata.dotDiameter = ctx.conf().styleMM(Sid.fretDotSpatiumSize) * item.userMag()
+        ldata.gridHeight = 0.0
+
+        const shapeMarginAboveDiagram = ldata.fretDist * 1.5
+        let w = ldata.stringDist * (item.strings() - 1) + ldata.markerSize
+        let h = item.frets() * ldata.fretDist + ldata.stringExtendBottom + 0.5 * ldata.stringLineWidth + shapeMarginAboveDiagram
+        let y = -shapeMarginAboveDiagram
+        let x = -(ldata.markerSize * 0.5)
+
+        const isVertical = item.orientation() === Orientation.VERTICAL
+
+        // Allocate space for fret offset number
+        if (item.fretOffset() > 0) {
+            let padding = 0.4 * ldata.stringDist
+            for (const [, barre] of item.barres()) {
+                if (!barre.exists()) {
+                    continue
+                }
+                if ((barre.startString === 0 && item.numPos() === 0)
+                    || ((barre.endString === -1 || barre.endString === item.strings() - 1) && item.numPos() === 1)) {
+                    padding += 0.20 * ldata.dotDiameter * ctx.conf().styleD(Sid.barreLineWidth)
+                    break
+                }
+            }
+            const fm2 = new FontMetrics(item.fretNumFont())
+            let fretText = String(item.fretOffset() + 1)
+            if (ctx.conf().styleB(Sid.fretUseCustomSuffix)) {
+                fretText += ctx.conf().styleSt(Sid.fretCustomSuffix)
+            }
+            ldata.fretText = fretText
+            const numw = isVertical ? fm2.width(fretText) : fm2.tightBoundingRect(fretText).height()
+            const xdiff = numw + padding
+            w += xdiff
+            x += (item.numPos() === 0) === isVertical ? -xdiff : 0
+            ldata.fretNumPadding = padding
+        }
+
+        if (!isVertical) {
+            const tempW = w
+            const tempX = x
+            w = h
+            h = tempW
+            x = y
+            y = tempX
+        }
+
+        // When changing how bbox is calculated, don't forget to update the centerX and rightX methods too.
+        const shape = new Shape()
+        shape.add(new RectF(x, y, w, h), item)
+
+        ldata.gridHeight = h
+
+        ldata.fingeringItems = []
+        if (item.showFingering()) {
+            const padding = 0.2 * spatium
+            const fontMetrics = new FontMetrics(item.fingeringFont())
+            const fontHeight = fontMetrics.capHeight()
+            for (let i = 0; i < item.fingering().length; ++i) {
+                const finger = item.fingering()[i]
+                if (finger === 0) {
+                    continue
+                }
+                const fingerS = String(finger)
+                const width = fontMetrics.width(fingerS)
+                const digitHeight = fontMetrics.tightBoundingRect(fingerS).height()
+                const xOff = -0.5 * width
+                const fingerX = isVertical ? (item.strings() - i - 1) * ldata.stringDist + xOff : x + w + padding
+                const fingerY = isVertical ? y + h + fontHeight + padding : i * ldata.stringDist + 0.5 * digitHeight
+                ldata.fingeringItems.push(new FingeringItem(fingerS, new PointF(fingerX, fingerY)))
+                shape.add(fontMetrics.tightBoundingRect(fingerS).translated(new PointF(fingerX, fingerY)), item)
+            }
+        }
+
+        ldata.setShape(shape)
+
+        if (item.explicitParent()!.isSegment()) {
+            // We need to get the width of the notehead/rest in order to position the fret diagram correctly
+            const pSeg = item.segment()!
+            let noteheadWidth = 0.0
+            if (pSeg.isChordRestType()) {
+                const idx = item.staff()!.idx()
+                for (let e = pSeg.firstElementOfSegment(idx); e; e = pSeg.nextElementOfSegment(e, idx)) {
+                    if (e.isRest()) {
+                        noteheadWidth = item.symWidth((e as Rest).ldata().sym)
+                        break
+                    } else if (e.isNote()) {
+                        noteheadWidth = (e as Note).headWidth()
+                        break
+                    }
+                }
+            }
+            if (RealIsNull(noteheadWidth)) {
+                // If note or rest not found, use standard notehead width
+                noteheadWidth = item.symWidth(SymId.noteheadBlack)
+            }
+
+            ldata.setPos((noteheadWidth - item.mainWidth()) / 2, -(ldata.shape().bottom() + item.styleP(Sid.fretY)))
+        }
+
+        const harmony = item.harmony()
+        if (harmony) {
+            HarmonyLayout.layoutHarmony(harmony, ctx)
+            if (item.visible() && harmony.autoplace()) {
+                const vertDist = ldata.bbox().top() - harmony.ldata().bbox().translated(harmony.pos()).bottom()
+                const diff = vertDist - harmony.minDistance().val() * item.spatium()
+                if (diff < 0) {
+                    harmony.mutldata().moveY(diff)
+                }
+            }
+        }
+
+        ldata.slurPaths = []
+        for (const [fret, barre] of item.barres()) {
+            if (!barre.exists()) {
+                continue
+            }
+            const startString = barre.startString
+            const endString = barre.endString !== -1 ? barre.endString : item.strings() - 1
+            const slurStyleBarre = ctx.conf().styleB(Sid.barreAppearanceSlur)
+            for (let string = startString; string <= endString; ++string) {
+                if (slurStyleBarre) {
+                    item.addDotForDotStyleBarre(string, fret)
+                } else {
+                    item.removeDotForDotStyleBarre(string, fret)
+                }
+            }
+            const length = endString - startString
+            const insetX = (length < 2 ? 1.25 : 2) * ldata.stringLineWidth
+            const insetY = fret === 1 ? ldata.nutLineWidth + ldata.stringLineWidth : length < 2 ? 2 * ldata.stringLineWidth : insetX
+            const startX = startString * ldata.stringDist + insetX
+            const endX = endString * ldata.stringDist - insetX
+            const shoulderXoffset = 0.2 * (endX - startX)
+            const startEndY = (fret - 1) * ldata.fretDist - insetY
+            const shoulderY = startEndY - (length < 2 ? 0.3 : length < 3 ? 0.4 : 0.5) * ldata.fretDist
+            const slurThickness = (length < 2 ? 0.08 : 0.1) * item.spatium() * item.userMag()
+            const shoulderYfor = shoulderY - slurThickness
+            const shoulderYback = shoulderY + slurThickness
+            const bezier1for = new PointF(startX + shoulderXoffset, shoulderYfor)
+            const bezier2for = new PointF(endX - shoulderXoffset, shoulderYfor)
+            const bezier1back = new PointF(startX + shoulderXoffset, shoulderYback)
+            const bezier2back = new PointF(endX - shoulderXoffset, shoulderYback)
+            const slurPath = new PainterPath()
+            slurPath.moveTo(new PointF(startX, startEndY))
+            slurPath.cubicTo(bezier1for, bezier2for, new PointF(endX, startEndY))
+            slurPath.cubicTo(bezier2back, bezier1back, new PointF(startX, startEndY))
+            ldata.slurPaths.push(slurPath)
         }
     }
 

@@ -105,6 +105,7 @@ import { HarmonyInfo, type Harmony } from '../../dom/harmony'
 import { HDegree, HDegreeType } from '../../dom/chordlist'
 import type { Parenthesis } from '../../dom/parenthesis'
 import type { NoteCaseType } from '../../dom/pitchspelling'
+import { FretItem, FretMarkerType, type FretDiagram } from '../../dom/fret'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -175,6 +176,7 @@ export class TRead {
         case ElementType.REHEARSAL_MARK: TRead.readTextBase(item as TextBase, xml, ctx); break
         case ElementType.MARKER: TRead.readMarker(item as Marker, xml, ctx); break
         case ElementType.HARMONY: TRead.readHarmony(item as Harmony, xml, ctx); break
+        case ElementType.FRET_DIAGRAM: TRead.readFretDiagram(item as FretDiagram, xml, ctx); break
         case ElementType.PARENTHESIS: TRead.readParenthesis(item as Parenthesis, xml, ctx); break
         case ElementType.JUMP: TRead.readJump(item as Jump, xml, ctx); break
         case ElementType.EXPRESSION: TRead.readExpression(item as Expression, xml, ctx); break
@@ -719,6 +721,109 @@ export class TRead {
                 h.addDegree(new HDegree(degreeValue, degreeAlter, HDegreeType.ALTER))
             } else if (degreeType === 'subtract') {
                 h.addDegree(new HDegree(degreeValue, degreeAlter, HDegreeType.SUBTRACT))
+            }
+        }
+    }
+
+    static readFretDiagram(d: FretDiagram, e: XmlReader, ctx: ReadContext): void {
+        // read410: read the old format first (TODO(port): applies to all files < 4.6 here)
+        const oldFormat = ctx.mscVersion() < 460
+        let hasBarre = false
+        let haveReadNew = false
+
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+
+            // Check for new format fret diagram
+            if (haveReadNew) {
+                e.skipCurrentElement()
+                continue
+            }
+            if (tag === 'fretDiagram') {
+                // Read new
+                while (e.readNextStartElement()) {
+                    const tag2 = e.name()
+
+                    if (tag2 === 'string') {
+                        const no = e.intAttribute('no')
+                        while (e.readNextStartElement()) {
+                            const t = e.name()
+                            if (t === 'dot') {
+                                const fret = e.intAttribute('fret', 0)
+                                const dtype = FretItem.nameToDotType(e.readText())
+                                d.setDot(no, fret, true, dtype)
+                            } else if (t === 'marker') {
+                                const mtype = FretItem.nameToMarkerType(e.readText())
+                                d.setMarker(no, mtype)
+                            } else if (t === 'fingering') {
+                                e.readText()
+                                /*setFingering(no, e.readInt()); NOTE:JT todo */
+                            } else {
+                                e.unknown()
+                            }
+                        }
+                    } else if (tag2 === 'barre') {
+                        const start = e.intAttribute('start', -1)
+                        const end = e.intAttribute('end', -1)
+                        const fret = e.readInt()
+
+                        d.setBarre(start, end, fret)
+                    } else if (!TRead.readItemProperties(d, e, ctx)) {
+                        e.unknown()
+                    }
+                }
+                if (oldFormat) {
+                    haveReadNew = true
+                }
+            } else if (tag === 'showNut') {
+                TRead.readProperty(d, e, ctx, Pid.FRET_NUT)
+            } else if (tag === 'orientation') {
+                TRead.readProperty(d, e, ctx, Pid.ORIENTATION)
+            } else if (tag === 'strings') {
+                TRead.readProperty(d, e, ctx, Pid.FRET_STRINGS)
+            } else if (tag === 'frets') {
+                TRead.readProperty(d, e, ctx, Pid.FRET_FRETS)
+            } else if (tag === 'fretOffset') {
+                TRead.readProperty(d, e, ctx, Pid.FRET_OFFSET)
+            } else if (oldFormat && tag === 'string') {
+                const no = e.intAttribute('no')
+                while (e.readNextStartElement()) {
+                    const t = e.name()
+                    if (t === 'dot') {
+                        d.setDot(no, e.readInt())
+                    } else if (t === 'marker') {
+                        d.setMarker(no, String.fromCharCode(e.readInt()) === 'X' ? FretMarkerType.CROSS : FretMarkerType.CIRCLE)
+                    } else {
+                        e.unknown()
+                    }
+                }
+            } else if (oldFormat && tag === 'barre') {
+                hasBarre = e.readBool()
+            } else if (tag === 'mag') {
+                TRead.readProperty(d, e, ctx, Pid.MAG)
+            } else if (tag === 'Harmony') {
+                const h = Factory.createItem(ElementType.HARMONY, d) as Harmony // C++: parent is dummy()->segment()
+                TRead.readHarmony(h, e, ctx)
+                if (h.chords().length) { // else: invalid harmony
+                    d.add(h)
+                }
+            } else if (TRead.readPropertyIfTag(d, tag, e, ctx, Pid.FRET_SHOW_FINGERINGS)) {
+            } else if (TRead.readPropertyIfTag(d, tag, e, ctx, Pid.FRET_FINGERING)) {
+            } else if (!oldFormat && TRead.readPropertyIfTag(d, tag, e, ctx, Pid.EXCLUDE_VERTICAL_ALIGN)) {
+            } else if (!TRead.readItemProperties(d, e, ctx)) {
+                e.unknown()
+            }
+        }
+
+        // Old handling of barres
+        if (hasBarre) {
+            for (let s = 0; s < d.strings(); ++s) {
+                for (const dot of d.dot(s)) {
+                    if (dot.exists()) {
+                        d.setBarre(s, -1, dot.fret)
+                        return
+                    }
+                }
             }
         }
     }

@@ -357,6 +357,14 @@ export class Chord extends ChordRest {
 
     graceNotes(): Chord[] { return this.m_graceNotes }
 
+    firstGraceOrNote(): Note {
+        const graceNotesBefore = this.graceNotesBefore().chords()
+        if (graceNotesBefore.length) {
+            return graceNotesBefore[0].notes()[0]
+        }
+        return this.notes()[this.notes().length - 1]
+    }
+
     graceNotesBefore(): GraceNotesGroup {
         this.m_graceNotesBefore.clear()
         for (const c of this.m_graceNotes) {

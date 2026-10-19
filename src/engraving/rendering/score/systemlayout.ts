@@ -60,6 +60,8 @@ import type { LyricsLine } from '../../dom/lyricsline'
 import type { MMRest } from '../../dom/mmrest'
 import type { Shape } from '../../infrastructure/shape'
 import type { SkylineLine } from '../../infrastructure/skyline'
+import type { FretDiagram } from '../../dom/fret'
+import type { Harmony } from '../../dom/harmony'
 
 class MeasureState {
     measure: Measure | null = null
@@ -751,8 +753,95 @@ export class SystemLayout {
     }
 
     private static autoplaceHarmony(harmony: EngravingItem): void {
-        // TODO(port): harmonies in invisible fret diagrams
+        const fdParent = harmony.parent()!.isFretDiagram() ? harmony.parent() as FretDiagram : null
+        if (fdParent && !fdParent.visible()) {
+            harmony.mutldata().moveY(-fdParent.pos().y())
+        }
         Autoplace.autoplaceSegmentElement(harmony, harmony.mutldata())
+    }
+
+    private static layoutFretDiagrams(elements: ElementsToLayout, system: System, ctx: LayoutContext): void {
+        const fretDiagrams = elements.fretDiagrams as FretDiagram[]
+        const harmonies = elements.harmonies as Harmony[]
+        if (!ctx.conf().styleB(Sid.verticallyAlignChordSymbols)) {
+            for (const fretDiag of fretDiagrams) {
+                Autoplace.autoplaceSegmentElement(fretDiag, fretDiag.mutldata())
+            }
+
+            for (const harmony of harmonies) {
+                SystemLayout.autoplaceHarmony(harmony)
+            }
+
+            for (const fretDiag of fretDiagrams) {
+                const harmony = fretDiag.harmony()
+                if (harmony) {
+                    const skl = system.staff(fretDiag.staffIdx())!.skyline().north()
+                    const s = fretDiag.segment()!
+                    const harmShape = harmony.ldata().shape().translated(harmony.pos().plus(fretDiag.pos()).plus(s.pos())
+                        .plus(s.measure().pos()))
+                    skl.add(harmShape)
+                }
+            }
+
+            return
+        }
+
+        // Only vertically align one fd per tick & staff
+        const key = (e: EngravingItem): string => `${e.tick().ticks()}:${e.staffIdx()}`
+        const fretHarmonyPositions = new Set<string>()
+        const fretItemsAlign: EngravingItem[] = []
+        const fretOrHarmonyItemsNoAlign: EngravingItem[] = []
+        let harmonyItemsAlign: Harmony[] = [...harmonies]
+
+        for (const fd of fretDiagrams) {
+            if (fretHarmonyPositions.has(key(fd))) {
+                fretOrHarmonyItemsNoAlign.push(fd)
+                const fdh = fd.harmony()
+                if (fdh) {
+                    harmonyItemsAlign = harmonyItemsAlign.filter(h => h !== fdh)
+                    fretOrHarmonyItemsNoAlign.push(fdh)
+                }
+                continue
+            }
+
+            TLayout.layoutFretDiagram(fd, ctx)
+            Autoplace.autoplaceSegmentElement(fd, fd.mutldata())
+            fretItemsAlign.push(fd)
+            fretHarmonyPositions.add(key(fd))
+        }
+
+        // Find harmony with no fret diagram at the same tick as a fret diagram
+        for (const h of harmonies) {
+            if (h.getParentFretDiagram()) {
+                continue
+            }
+            if (fretHarmonyPositions.has(key(h))) {
+                harmonyItemsAlign = harmonyItemsAlign.filter(x => x !== h)
+                fretOrHarmonyItemsNoAlign.push(h)
+                continue
+            }
+
+            Autoplace.autoplaceSegmentElement(h, h.mutldata())
+            fretHarmonyPositions.add(key(h))
+        }
+
+        // align 1 fret diagram per tick & staff
+        AlignmentLayout.alignItemsForSystem(fretItemsAlign, system)
+
+        SystemLayout.layoutHarmonies(harmonyItemsAlign, system, ctx)
+
+        // autoplace everything else
+        for (const item of fretOrHarmonyItemsNoAlign) {
+            if (item.isFretDiagram()) {
+                Autoplace.autoplaceSegmentElement(item, item.mutldata())
+                const harmony = (item as FretDiagram).harmony()
+                if (harmony) {
+                    SystemLayout.autoplaceHarmony(harmony)
+                }
+            } else if (item.isHarmony()) {
+                SystemLayout.autoplaceHarmony(item)
+            }
+        }
     }
 
     private static layoutHarmonies(harmonies: readonly EngravingItem[], system: System, ctx: LayoutContext): void {
@@ -1025,13 +1114,7 @@ export class SystemLayout {
         }
 
         if (hasFretDiagram) {
-            // TODO(port): layoutFretDiagrams
-            for (const item of elementsToLayout.fretDiagrams) {
-                TLayout.layoutItem(item, ctx)
-            }
-            for (const item of elementsToLayout.harmonies) {
-                TLayout.layoutItem(item, ctx)
-            }
+            SystemLayout.layoutFretDiagrams(elementsToLayout, system, ctx)
         }
 
         for (const item of elementsToLayout.systemText) {
@@ -1208,9 +1291,14 @@ export class SystemLayout {
                 case ElementType.HARP_DIAGRAM:
                     elements.harpDiagrams.push(item)
                     break
-                case ElementType.FRET_DIAGRAM:
+                case ElementType.FRET_DIAGRAM: {
                     elements.fretDiagrams.push(item)
+                    const h = (item as FretDiagram).harmony()
+                    if (h) {
+                        elements.harmonies.push(h)
+                    }
                     break
+                }
                 case ElementType.STAFF_TEXT:
                     elements.staffText.push(item)
                     break

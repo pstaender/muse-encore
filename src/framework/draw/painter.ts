@@ -11,7 +11,7 @@
  * renders exactly the same shapes.
  */
 
-import { Brush, BrushStyle, Pen, PenStyle, PolygonMode } from './types/drawtypes'
+import { AlignmentFlag, Brush, BrushStyle, Pen, PenStyle, PolygonMode } from './types/drawtypes'
 import { Color } from './types/color'
 import { Font, FontType } from './types/font'
 import { LineF, PointF, PolygonF, RectF } from './types/geometry'
@@ -252,6 +252,27 @@ export class Painter {
             }
             this.restore()
         }
+    }
+
+    /** QPainter::drawText(const QRectF&, int flags, const QString&) for single line text (alignment within the rect) */
+    drawTextInRect(rect: RectF, flags: number, text: string): void {
+        const f = this.st.font
+        const w = this.m_fontProvider.horizontalAdvance(f, text)
+        const ascent = this.m_fontProvider.ascent(f)
+        const height = this.m_fontProvider.height(f)
+        let x = rect.left()
+        if (flags & AlignmentFlag.AlignRight) {
+            x = rect.right() - w
+        } else if (flags & AlignmentFlag.AlignHCenter) {
+            x = rect.left() + (rect.width() - w) / 2
+        }
+        let y = rect.top() + ascent
+        if (flags & AlignmentFlag.AlignBottom) {
+            y = rect.bottom() - height + ascent
+        } else if (flags & AlignmentFlag.AlignVCenter) {
+            y = rect.top() + (rect.height() - height) / 2 + ascent
+        }
+        this.drawText(new PointF(x, y), text)
     }
 
     drawSymbol(point: PointF, ucs4Code: number): void {

@@ -69,6 +69,7 @@ import { Marker } from './marker'
 import { Jump } from './jump'
 import { Parenthesis } from './parenthesis'
 import { Harmony } from './harmony'
+import { FretDiagram } from './fret'
 
 type Parent = EngravingObject | null
 
@@ -107,6 +108,7 @@ export class Factory {
         case ElementType.SPACER: return new Spacer(measureOrDummy())
         case ElementType.PARENTHESIS: return new Parenthesis(itemOrDummy())
         case ElementType.HARMONY: return new Harmony(segmentOrDummy())
+        case ElementType.FRET_DIAGRAM: return new FretDiagram(segmentOrDummy())
         case ElementType.MARKER: return new Marker(measureOrDummy())
         case ElementType.JUMP: return new Jump(measureOrDummy())
         case ElementType.LAYOUT_BREAK: return new LayoutBreak(parent && parent.isMeasureBase() ? parent as MeasureBase : dummy().measure())

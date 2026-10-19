@@ -129,3 +129,16 @@ export class Brush {
     style(): BrushStyle { return this.m_style }
     setStyle(s: BrushStyle): void { this.m_style = s }
 }
+
+/** muse::draw::AlignmentFlag / TextFlag (Qt::AlignmentFlag) */
+export enum AlignmentFlag {
+    AlignLeft = 0x0001,
+    AlignRight = 0x0002,
+    AlignHCenter = 0x0004,
+    AlignJustify = 0x0008,
+    AlignTop = 0x0020,
+    AlignBottom = 0x0040,
+    AlignVCenter = 0x0080,
+    AlignCenter = AlignVCenter | AlignHCenter,
+    TextDontClip = 0x0200,
+}

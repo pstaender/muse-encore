@@ -23,6 +23,7 @@ import type { Measure } from './measure'
 import type { System } from './system'
 import type { ChordRest } from './chordrest'
 import type { Chord } from './chord'
+import type { DurationElement } from './durationelement'
 import type { Rest } from './rest'
 import type { Clef } from './clef'
 import type { KeySig } from './keysig'
@@ -360,6 +361,79 @@ export class Segment extends EngravingItem {
     }
 
     elist(): (EngravingItem | null)[] { return this.m_elist }
+
+    firstElementOfSegment(activeStaff: staff_idx_t): EngravingItem | null {
+        if (this.isTimeTickType()) {
+            return null
+        }
+
+        for (const i of this.m_elist) {
+            if (i && i.staffIdx() === activeStaff) {
+                if (i.isDurationElement()) {
+                    const tuplet = (i as unknown as DurationElement).tuplet()
+                    if (tuplet && i === tuplet.elements()[0]) {
+                        return tuplet
+                    }
+                }
+
+                if (i.isChord()) {
+                    return (i as unknown as Chord).firstGraceOrNote()
+                } else {
+                    return i
+                }
+            }
+        }
+        return null
+    }
+
+    nextElementOfSegment(e: EngravingItem, activeStaff: staff_idx_t): EngravingItem | null {
+        const ntracks = this.score().nstaves() * VOICES
+        for (let track = 0; track < ntracks - 1; ++track) {
+            if (!this.element(track)) {
+                continue
+            }
+            const el = this.element(track)!
+            if (el === e) {
+                let next = this.element(track + 1)
+                while (track < ntracks - 1 && (!next || next.staffIdx() !== activeStaff)) {
+                    next = this.element(++track)
+                }
+                if (!next || next.staffIdx() !== activeStaff) {
+                    return null
+                }
+                if (next.isChord()) {
+                    const notes = (next as unknown as Chord).notes()
+                    return notes[notes.length - 1]
+                } else {
+                    return next
+                }
+            }
+            if (el.isChord()) {
+                const notes = (el as unknown as Chord).notes()
+                const i = notes.indexOf(e as never)
+                if (i === -1) {
+                    continue
+                }
+                if (i !== 0) {
+                    return notes[i - 1]
+                } else {
+                    let nextEl = this.element(++track)
+                    while (track < ntracks - 1 && (!nextEl || nextEl.staffIdx() !== activeStaff)) {
+                        nextEl = this.element(++track)
+                    }
+                    if (!nextEl || nextEl.staffIdx() !== activeStaff) {
+                        return null
+                    }
+                    if (nextEl.isChord()) {
+                        const n = (nextEl as unknown as Chord).notes()
+                        return n[n.length - 1]
+                    }
+                    return nextEl
+                }
+            }
+        }
+        return null
+    }
 
     cr(track: track_idx_t): ChordRest | null { return this.m_elist[track] as ChordRest | null }
 
@@ -934,7 +1008,22 @@ export class Segment extends EngravingItem {
                     bbox.unite(rp.ldata().bbox().translated(rp.pos().plus(pos)))
                 }
                 s.addHorizontalSpacing(e, bbox.left(), bbox.right())
-                // TODO(port): harmony of fret diagrams
+                if (e.isFretDiagram()) {
+                    const harmony = (e as unknown as { harmony(): EngravingItem | null }).harmony()
+                    if (harmony) {
+                        const hpos = harmony.pos().plus(e.pos())
+                        const harmBbox = harmony.ldata().bbox().translated(hpos)
+                        const hlp = harmony.leftParen()
+                        if (hlp) {
+                            harmBbox.unite(hlp.ldata().bbox().translated(hlp.pos().plus(hpos)))
+                        }
+                        const hrp = harmony.rightParen()
+                        if (hrp) {
+                            harmBbox.unite(hrp.ldata().bbox().translated(hrp.pos().plus(hpos)))
+                        }
+                        s.addHorizontalSpacing(harmony, harmBbox.left(), harmBbox.right())
+                    }
+                }
             } else if (!e.isRehearsalMark()
                        && !e.isFretDiagram()
                        && !e.isHarmony()

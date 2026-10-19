@@ -12,12 +12,12 @@
 
 import { Brush, BrushStyle, Pen, PenCapStyle, PenJoinStyle, PenStyle } from '../../../framework/draw/types/drawtypes'
 import { Color } from '../../../framework/draw/types/color'
-import { LineF, PointF } from '../../../framework/draw/types/geometry'
+import { LineF, PointF, RectF } from '../../../framework/draw/types/geometry'
 import { FillRule } from '../../../framework/draw/types/painterpath'
 import type { Painter } from '../../../framework/draw/painter'
 import { RealIsNull } from '../../../framework/global/realfn'
 import { SymId } from '../../types/symid'
-import { ArticulationTextType, BarLineType, BracketType, ElementType, HookType, LineType, SlurStyleType, VOICES } from '../../types/types'
+import { ArticulationTextType, BarLineType, BracketType, ElementType, HookType, LineType, Orientation, SlurStyleType, VOICES } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { DefaultStyle } from '../../style/defaultstyle'
 import { CrossMeasure } from '../../dom/chordrest'
@@ -59,6 +59,8 @@ import { TabBeamGrid, type TabDurationSymbol } from '../../dom/tabdurationsymbol
 import { TablatureSymbolRepeat } from '../../dom/stafftype'
 import { ChordSymbolParen, TextSegment, type Harmony } from '../../dom/harmony'
 import type { Parenthesis } from '../../dom/parenthesis'
+import { FretDotType, FretMarkerType, type FretDiagram } from '../../dom/fret'
+import { AlignmentFlag } from '../../../framework/draw/types/drawtypes'
 
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
@@ -90,6 +92,8 @@ export class TDraw {
         case ElementType.SPACER:
             break
         case ElementType.LEDGER_LINE: TDraw.drawLedgerLine(item as LedgerLine, painter, opt)
+            break
+        case ElementType.FRET_DIAGRAM: TDraw.drawFretDiagram(item as FretDiagram, painter, opt)
             break
         case ElementType.HARMONY: TDraw.drawHarmony(item as Harmony, painter, opt)
             break
@@ -554,6 +558,192 @@ export class TDraw {
             painter.restore()
         }
         item.drawSymbol(ldata.cachedNoteheadSym, painter)
+    }
+
+    static drawFretDiagram(item: FretDiagram, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+        const translation = new PointF(ldata.stringDist * (item.strings() - 1), 0).times(-1)
+        if (item.orientation() === Orientation.HORIZONTAL) {
+            painter.save()
+            painter.rotate(-90)
+            painter.translate(translation)
+        }
+
+        // Init pen and other values
+        const pen = new Pen(item.curColor(opt))
+        pen.setCapStyle(PenCapStyle.FlatCap)
+        painter.setBrush(new Brush(painter.pen().color()))
+
+        // x2 is the x val of the rightmost string
+        const x2 = (item.strings() - 1) * ldata.stringDist
+
+        // Draw the nut
+        pen.setWidthF(ldata.nutLineWidth)
+        painter.setPen(pen)
+        const nutY = ldata.nutY
+        painter.drawLine(new LineF(-ldata.stringLineWidth * 0.5, nutY, x2 + ldata.stringLineWidth * 0.5, nutY))
+
+        // Draw strings and frets
+        pen.setWidthF(ldata.stringLineWidth)
+        painter.setPen(pen)
+
+        // y2 is the y val of the bottom fretline
+        const y1 = ldata.stringExtendTop
+        const y2 = ldata.fretDist * item.frets() + 0.5 * ldata.stringLineWidth + ldata.stringExtendBottom
+        for (let i = 0; i < item.strings(); ++i) {
+            const x = ldata.stringDist * i
+            painter.drawLine(new LineF(x, y1, x, y2))
+        }
+        for (let i = 1; i <= item.frets(); ++i) {
+            const y = ldata.fretDist * i
+            painter.drawLine(new LineF(0.0, y, x2, y))
+        }
+
+        // dotd is the diameter of a dot
+        const dotd = ldata.dotDiameter
+
+        // Draw dots, sym pen is used to draw them (and markers)
+        const symPen = pen.clone()
+        symPen.setCapStyle(PenCapStyle.FlatCap)
+        const symPenWidth = ldata.stringLineWidth * 1.2
+        symPen.setWidthF(symPenWidth)
+
+        for (const [string, dots] of item.dots()) {
+            for (const d of dots) {
+                if (!d.exists()) {
+                    continue
+                }
+
+                const fret = d.fret - 1
+
+                // Calculate coords of the top left corner of the dot
+                const x = ldata.stringDist * string - dotd * 0.5
+                const y = ldata.fretDist * fret + ldata.fretDist * 0.5 - dotd * 0.5
+
+                // Draw different symbols
+                painter.setPen(symPen)
+                switch (d.dtype) {
+                case FretDotType.CROSS:
+                    // Give the cross a slightly larger width
+                    symPen.setWidthF(symPenWidth * 1.5)
+                    painter.setPen(symPen)
+                    painter.drawLine(new LineF(x, y, x + dotd, y + dotd))
+                    painter.drawLine(new LineF(x + dotd, y, x, y + dotd))
+                    symPen.setWidthF(symPenWidth)
+                    break
+                case FretDotType.SQUARE:
+                    painter.setBrush(BrushStyle.NoBrush)
+                    painter.drawRect(new RectF(x, y, dotd, dotd))
+                    break
+                case FretDotType.TRIANGLE:
+                    painter.drawLine(new LineF(x, y + dotd, x + 0.5 * dotd, y))
+                    painter.drawLine(new LineF(x + 0.5 * dotd, y, x + dotd, y + dotd))
+                    painter.drawLine(new LineF(x + dotd, y + dotd, x, y + dotd))
+                    break
+                case FretDotType.NORMAL:
+                default:
+                    painter.setBrush(new Brush(symPen.color()))
+                    painter.setNoPen()
+                    painter.drawEllipse(new RectF(x, y, dotd, dotd))
+                    break
+                }
+            }
+        }
+
+        // Draw markers
+        symPen.setWidthF(ldata.stringLineWidth * 1.2)
+        painter.setBrush(BrushStyle.NoBrush)
+        painter.setPen(symPen)
+        for (const [string, marker] of item.markers()) {
+            if (!marker.exists()) {
+                continue
+            }
+
+            const x = ldata.stringDist * string - ldata.markerSize * 0.5
+            const y = ldata.markerY
+            if (marker.mtype === FretMarkerType.CIRCLE) {
+                painter.drawEllipse(new RectF(x, y, ldata.markerSize, ldata.markerSize))
+            } else if (marker.mtype === FretMarkerType.CROSS) {
+                painter.drawLine(new PointF(x, y), new PointF(x + ldata.markerSize, y + ldata.markerSize))
+                painter.drawLine(new PointF(x, y + ldata.markerSize), new PointF(x + ldata.markerSize, y))
+            }
+        }
+
+        // Draw barres
+        for (const [fret, barre] of item.barres()) {
+            const startString = barre.startString
+            const endString = barre.endString
+
+            const x1 = ldata.stringDist * startString
+            const newX2 = endString === -1 ? x2 : ldata.stringDist * endString
+            const y = ldata.fretDist * (fret - 1) + ldata.fretDist * 0.5
+            if (item.style().styleB(Sid.barreAppearanceSlur)) {
+                pen.setWidthF(0.25 * ldata.stringLineWidth)
+                pen.setCapStyle(PenCapStyle.RoundCap)
+                pen.setJoinStyle(PenJoinStyle.RoundJoin)
+                painter.setPen(pen)
+                painter.setBrush(new Brush(pen.color()))
+                for (const path of ldata.slurPaths) {
+                    painter.drawPath(path)
+                }
+            } else {
+                pen.setWidthF(dotd * item.style().styleD(Sid.barreLineWidth))
+                pen.setCapStyle(PenCapStyle.RoundCap)
+                painter.setPen(pen)
+                painter.drawLine(new LineF(x1, y, newX2, y))
+            }
+        }
+
+        // Draw fret offset number
+        if (item.fretOffset() > 0) {
+            const scaledFont = item.fretNumFont()
+            scaledFont.setPointSizeF(scaledFont.pointSizeF() * (item.spatium() / item.defaultSpatium()))
+            painter.setFont(scaledFont)
+            const text = ldata.fretText
+            const A = AlignmentFlag
+
+            if (item.orientation() === Orientation.VERTICAL) {
+                if (item.numPos() === 0) {
+                    painter.drawTextInRect(new RectF(-ldata.fretNumPadding, 0.0, 0.0, ldata.fretDist),
+                        A.AlignVCenter | A.AlignRight | A.TextDontClip, text)
+                } else {
+                    painter.drawTextInRect(new RectF(x2 + ldata.fretNumPadding, 0.0, 0.0, ldata.fretDist),
+                        A.AlignVCenter | A.AlignLeft | A.TextDontClip, text)
+                }
+            } else if (item.orientation() === Orientation.HORIZONTAL) {
+                painter.save()
+                painter.translate(translation.times(-1))
+                painter.rotate(90)
+                if (item.numPos() === 0) {
+                    painter.drawTextInRect(new RectF(0.0, ldata.stringDist * (item.strings() - 1), 0.0, 0.0),
+                        A.AlignLeft | A.TextDontClip, text)
+                } else {
+                    painter.drawTextInRect(new RectF(0.0, 0.0, 0.0, 0.0), A.AlignBottom | A.AlignLeft | A.TextDontClip, text)
+                }
+                painter.restore()
+            }
+            painter.setFont(item.fretNumFont())
+        }
+
+        for (const fingeringItem of ldata.fingeringItems) {
+            painter.save()
+
+            const scaledFont = item.fingeringFont()
+            scaledFont.setPointSizeF(scaledFont.pointSizeF() * (item.spatium() / item.defaultSpatium()))
+            painter.setFont(scaledFont)
+            if (item.orientation() === Orientation.HORIZONTAL) {
+                painter.translate(translation.times(-1))
+                painter.rotate(90)
+            }
+
+            painter.drawText(fingeringItem.pos, fingeringItem.fingerNumber)
+
+            painter.restore()
+        }
+
+        if (item.orientation() === Orientation.HORIZONTAL) {
+            painter.restore()
+        }
     }
 
     static drawHarmony(item: Harmony, painter: Painter, opt: PaintOptions): void {

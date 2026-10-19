@@ -4,7 +4,6 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/engraving/rendering/score/harmonylayout.h/.cpp
- * TODO(port): fret diagrams (alignment to the fret diagram)
  */
 
 import { FontMetrics } from '../../../framework/draw/fontmetrics'
@@ -123,7 +122,8 @@ export class HarmonyLayout {
 
     private static calculateBoundingRect(item: Harmony, ldata: HarmonyLayoutData, ctx: LayoutContext): PointF {
         const ypos = (item.placeBelow() && item.staff()) ? item.staff()!.staffHeight(item.tick()) : 0.0
-        // TODO(port): fret diagrams (alignToFretDiagram)
+        const fd = item.getParentFretDiagram()
+        const alignToFretDiagram = !!fd && fd.visible()
 
         const standardNoteWidth = item.symWidth(SymId.noteheadBlack)
 
@@ -132,7 +132,12 @@ export class HarmonyLayout {
 
         if (item.ldata().renderItemList.length === 0) {
             TextLayout.layoutBaseTextBase1(item, ldata)
-            newPosY = ypos - ((item.align().vertical === AlignV.BOTTOM) ? -ldata.bbox().height() : 0.0)
+
+            if (alignToFretDiagram) {
+                newPosY = ldata.pos().y()
+            } else {
+                newPosY = ypos - ((item.align().vertical === AlignV.BOTTOM) ? -ldata.bbox().height() : 0.0)
+            }
         } else {
             HarmonyLayout.layoutModifierParentheses(item, ctx)
 
@@ -148,7 +153,8 @@ export class HarmonyLayout {
             }
 
             let xx = 0.0
-            switch (item.position()) {
+            const hAlign = alignToFretDiagram ? ctx.conf().styleV(Sid.chordAlignmentToFretboard) as AlignH : item.position()
+            switch (hAlign) {
             case AlignH.LEFT:
             case AlignH.JUSTIFY:
                 xx = -hAlignBox.left()
@@ -170,7 +176,12 @@ export class HarmonyLayout {
                 yy = -bb.height() - bb.y()
             }
 
-            newPosY = ypos
+            if (alignToFretDiagram) {
+                const nutLineWidth = fd!.ldata().nutLineWidth
+                newPosY = yy - ctx.conf().styleMM(Sid.harmonyFretDist) - nutLineWidth
+            } else {
+                newPosY = ypos
+            }
 
             for (const renderItem of item.ldata().renderItemList) {
                 renderItem.setOffset(new PointF(xx, yy))
@@ -181,17 +192,37 @@ export class HarmonyLayout {
             ldata.harmonyHeight = ldata.bbox().height()
         }
 
-        switch (item.position()) {
-        case AlignH.LEFT:
-        case AlignH.JUSTIFY:
-            newPosX = 0.0
-            break
-        case AlignH.HCENTER:
-            newPosX = standardNoteWidth * 0.5
-            break
-        case AlignH.RIGHT:
-            newPosX = standardNoteWidth
-            break
+        if (alignToFretDiagram) {
+            switch (ctx.conf().styleV(Sid.chordAlignmentToFretboard) as AlignH) {
+            case AlignH.LEFT:
+            case AlignH.JUSTIFY:
+                newPosX = 0.0
+                break
+            case AlignH.HCENTER:
+                newPosX = 0.5 * fd!.mainWidth()
+                break
+            case AlignH.RIGHT:
+                newPosX = fd!.mainWidth()
+                break
+            }
+        } else {
+            switch (item.position()) {
+            case AlignH.LEFT:
+            case AlignH.JUSTIFY:
+                newPosX = 0.0
+                break
+            case AlignH.HCENTER:
+                newPosX = standardNoteWidth * 0.5
+                break
+            case AlignH.RIGHT:
+                newPosX = standardNoteWidth
+                break
+            }
+        }
+
+        if (fd && !fd.visible()) {
+            // Translate to base position around note
+            newPosX -= fd.pos().x()
         }
 
         return new PointF(newPosX, newPosY)
