@@ -1,0 +1,1052 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-only
+ * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
+ * Copyright (C) 2021-2026 MuseScore Limited and others
+ *
+ * Port of src/engraving/dom/chord.h/.cpp (and nextChordRest/prevChordRest of navigate.cpp)
+ *
+ * TODO(port): tremolos, arpeggios, chord lines, stem slashes, percussion/tab note updates
+ */
+
+import { PointF } from '../../framework/draw/types/geometry'
+import { Fraction } from '../types/fraction'
+import { Spatium } from '../types/dimension'
+import type { PropertyValue } from '../types/propertyvalue'
+import {
+    AccidentalRole, AutoOnOff, DirectionV, DurationType, ElementType, StaffGroup, TremoloChordType, TremoloType,
+    type staff_idx_t, type track_idx_t,
+} from '../types/types'
+import { Sid } from '../style/styledef'
+import { EngravingItem, ElementFlag } from './engravingitem'
+import { ChordRest, NoteType } from './chordrest'
+import { Pid } from './property'
+import { SegmentType, type Segment } from './segment'
+import type { EngravingObject } from './engravingobject'
+import type { Measure } from './measure'
+import type { Note } from './note'
+import type { Stem } from './stem'
+import type { Hook } from './hook'
+import type { LedgerLine } from './ledgerline'
+import type { Articulation } from './articulation'
+import type { AccidentalState } from './key'
+import type { Spanner } from './spanner'
+import type { Tie } from './tie'
+import type { TablatureMinimStyle } from './stafftype'
+
+/** factories registered by the corresponding modules (avoid runtime import cycles) */
+export const chordFactories: {
+    createStem?: (chord: Chord) => Stem
+    createHook?: (chord: Chord) => Hook
+    createLedgerLine?: (chord: Chord) => LedgerLine
+} = {}
+
+export enum PlayEventType {
+    Auto, ///< Play events for all notes are calculated by MuseScore.
+    User, ///< Some play events are modified by user. Those events are written into the mscx file.
+}
+
+export class GraceNotesGroup extends EngravingItem {
+    private m_chords: Chord[] = []
+    private m_chord: Chord
+    private m_appendedSegment: Segment | null = null // the graceNoteGroup is appended to this segment
+
+    constructor(c: Chord) {
+        super(ElementType.GRACE_NOTES_GROUP, null)
+        this.m_chord = c
+    }
+
+    chords(): Chord[] { return this.m_chords }
+    clear(): void { this.m_chords = [] }
+    push(c: Chord): void { this.m_chords.push(c) }
+    size(): number { return this.m_chords.length }
+    empty(): boolean { return this.m_chords.length === 0 }
+    at(i: number): Chord { return this.m_chords[i] }
+    front(): Chord { return this.m_chords[0] }
+    back(): Chord { return this.m_chords[this.m_chords.length - 1] }
+    [Symbol.iterator](): Iterator<Chord> { return this.m_chords[Symbol.iterator]() }
+
+    chordParent(): Chord { return this.m_chord }
+    appendedSegment(): Segment | null { return this.m_appendedSegment }
+    setAppendedSegment(s: Segment | null): void { this.m_appendedSegment = s }
+
+    override setPos(x: number | PointF, y?: number): void {
+        const p = x instanceof PointF ? x : new PointF(x, y)
+        super.setPos(p)
+        for (const chord of this.m_chords) {
+            chord.mutldata().move(p)
+        }
+    }
+
+    addToShape(): void {
+        for (const grace of this.m_chords) {
+            const yOffset = grace.staffOffset()
+            const staffIdx = grace.staffIdx()
+            const vStaffIdx = grace.vStaffIdx()
+            const s = this.m_appendedSegment!.staffShape(staffIdx)
+            s.add(grace.shape().translate(grace.pos().plus(yOffset)))
+            if (vStaffIdx !== staffIdx) {
+                const s2 = this.m_appendedSegment!.staffShape(vStaffIdx)
+                s2.add(grace.shape().translate(grace.pos().plus(yOffset)))
+            }
+        }
+    }
+}
+
+export interface StartEndSlurs {
+    startUp: boolean
+    startDown: boolean
+    endUp: boolean
+    endDown: boolean
+}
+
+export function noteIsBefore(n1: Note, n2: Note): boolean {
+    const l1 = n1.line()
+    const l2 = n2.line()
+    if (l1 !== l2) {
+        return l1 > l2
+    }
+    const p1 = n1.pitch()
+    const p2 = n2.pitch()
+    if (p1 !== p2) {
+        return p1 < p2
+    }
+    if (n1.tieBack()) {
+        const t1 = n1.tieBack()!
+        const t2 = n2.tieBack()
+        if (t2) {
+            const sn1 = t1.startNote()
+            const sn2 = t2.startNote()
+            if (sn1 && sn2) {
+                if (sn1.chord() === sn2.chord()) {
+                    return sn1.unisonIndex() < sn2.unisonIndex()
+                }
+                return sn1.chord().segment().lessThan(sn2.chord().segment())
+            }
+            return false
+        } else {
+            return true // place tied notes before
+        }
+    }
+    return false
+}
+
+function sortByNoteIsBefore(notes: Note[]): void {
+    notes.sort((a, b) => noteIsBefore(a, b) ? -1 : (noteIsBefore(b, a) ? 1 : 0))
+}
+
+export class Chord extends ChordRest {
+    private m_notes: Note[] = [] // sorted to decreasing line step
+    private m_ledgerLines: LedgerLine[] = []
+    private m_stem: Stem | null = null
+    private m_hook: Hook | null = null
+    private m_stemSlash: EngravingItem | null = null // for grace notes
+    private m_showStemSlash = false
+    private m_arpeggio: EngravingItem | null = null
+    private m_spanArpeggio: EngravingItem | null = null
+    private m_endsNoteAnchoredLine = false
+    private m_graceNotes: Chord[] = [] // storage for all grace notes
+    private m_graceNotesBefore = new GraceNotesGroup(this)
+    private m_graceNotesAfter = new GraceNotesGroup(this)
+    private m_graceIndex = 0 // if this is a grace note, index in parent list
+    private m_isTrillCueNote = false
+    private m_stemDirection: DirectionV = DirectionV.AUTO
+    private m_noteType: NoteType = NoteType.NORMAL // mark grace notes: acciaccatura and appoggiatura
+    private m_noStem = false
+    private m_playEventType = PlayEventType.Auto
+    private m_spaceLw = 0.0
+    private m_spaceRw = 0.0
+    private m_defaultStemLength = 0.0
+    private m_dotPosX = 0.0
+    private m_startEndSlurs: StartEndSlurs = { startUp: false, startDown: false, endUp: false, endDown: false }
+    private m_startingSpanners = new Set<Spanner>()
+    private m_endingSpanners = new Set<Spanner>()
+    private m_allowKerningAbove = true
+    private m_allowKerningBelow = true
+    private m_combineVoice: AutoOnOff = AutoOnOff.AUTO
+    private m_articulations: Articulation[] = []
+    private m_isChordPlayable = true
+
+    constructor(parent: EngravingObject | null) {
+        super(ElementType.CHORD, parent)
+    }
+
+    override intrinsicMag(): number {
+        let m = 1.0
+        if (this.isSmall()) {
+            m *= this.style().styleD(Sid.smallNoteMag)
+        }
+        if (this.m_noteType !== NoteType.NORMAL) {
+            // TODO(port): tab grace bend size exception
+            m *= this.style().styleD(Sid.graceNoteMag)
+        }
+        return m
+    }
+
+    override mag(): number {
+        const st = this.staff()
+        return (st ? st.staffMag(this) : 1.0) * this.intrinsicMag()
+    }
+
+    noteHeadWidth(): number {
+        return this.score().noteHeadWidth() * this.mag()
+    }
+
+    setStemDirection(d: DirectionV): void { this.m_stemDirection = d }
+    stemDirection(): DirectionV { return this.m_stemDirection }
+
+    prev(): Chord | null {
+        const p = prevChordRest(this)
+        return p && p.isChord() ? p as Chord : null
+    }
+
+    next(): Chord | null {
+        const n = nextChordRest(this)
+        return n && n.isChord() ? n as Chord : null
+    }
+
+    ledgerLines(): LedgerLine[] { return this.m_ledgerLines }
+
+    resizeLedgerLinesTo(newSize: number): void {
+        const diff = newSize - this.m_ledgerLines.length
+        if (diff > 0) {
+            for (let i = 0; i < diff; ++i) {
+                this.m_ledgerLines.push(chordFactories.createLedgerLine!(this))
+            }
+        } else {
+            this.m_ledgerLines.length = newSize
+        }
+    }
+
+    defaultStemLength(): number { return this.m_defaultStemLength }
+    setDefaultStemLength(l: number): void { this.m_defaultStemLength = l }
+
+    setBeamExtension(extension: number): void {
+        if (this.m_stem) {
+            const baseLength = this.m_stem.absoluteFromSpatium(this.m_stem.baseLength())
+            this.m_stem.setBaseLength(new Spatium(Math.max((baseLength + extension) / this.spatium(), 0.0)))
+            this.m_defaultStemLength = Math.max(this.m_defaultStemLength + extension,
+                this.m_stem.absoluteFromSpatium(this.m_stem.baseLength()))
+        }
+    }
+
+    notes(): Note[] { return this.m_notes }
+
+    upNote(): Note {
+        let result = this.m_notes[this.m_notes.length - 1]
+        const stf = this.staff()
+        if (!stf) {
+            return result
+        }
+        const st = stf.staffTypeForElement(this)
+        if (st.isDrumStaff()) {
+            for (const n of this.m_notes) {
+                if (n.line() < result.line()) {
+                    result = n
+                }
+            }
+        } else if (st.isTabStaff()) {
+            // TODO(port): tab staves (physStringToVisual)
+        }
+        return result
+    }
+
+    downNote(): Note {
+        let result = this.m_notes[0]
+        const stf = this.staff()
+        if (!stf) {
+            return result
+        }
+        const st = stf.staffTypeForElement(this)
+        if (st.isDrumStaff()) {
+            for (const n of this.m_notes) {
+                if (n.line() > result.line()) {
+                    result = n
+                }
+            }
+        }
+        return result
+    }
+
+    upLine(): number { return this.upNote().line() }
+    downLine(): number { return this.downNote().line() }
+
+    line(up?: boolean): number {
+        if (up === undefined) {
+            up = this.ldata().up
+        }
+        return up ? this.upLine() : this.downLine()
+    }
+
+    noteDistances(): number[] {
+        const dl: number[] = []
+        for (const n of this.m_notes) {
+            dl.push(n.line() + (this.staff()?.staffType(this.tick()).stepOffset() ?? 0))
+        }
+        return dl
+    }
+
+    maxHeadWidth(): number {
+        let hw = 0
+        for (const n of this.m_notes) {
+            const t = n.headWidth()
+            if (t > hw) {
+                hw = t
+            }
+        }
+        return hw
+    }
+
+    findNote(pitch: number, skip = 0): Note | null {
+        let ns = 0
+        for (const n of this.m_notes) {
+            if (n.pitch() === pitch) {
+                if (ns === skip) {
+                    return n
+                }
+                ++ns
+            }
+        }
+        return null
+    }
+
+    stem(): Stem | null { return this.m_stem }
+    hook(): Hook | null { return this.m_hook }
+    setHook(h: Hook | null): void { this.m_hook = h }
+    arpeggio(): EngravingItem | null { return this.m_arpeggio }
+    spanArpeggio(): EngravingItem | null { return this.m_spanArpeggio }
+    stemSlash(): EngravingItem | null { return this.m_stemSlash }
+    showStemSlash(): boolean { return this.m_showStemSlash }
+    setShowStemSlash(show: boolean): void { this.m_showStemSlash = show }
+
+    // TODO(port): tremolos
+    tremoloType(): TremoloType { return TremoloType.INVALID_TREMOLO }
+    tremoloTwoChord(): (EngravingItem & { chord1(): Chord | null; chord2(): Chord | null }) | null { return null }
+    tremoloSingleChord(): EngravingItem | null { return null }
+    tremoloChordType(): TremoloChordType { return TremoloChordType.TremoloNone }
+    chordLine(): EngravingItem | null { return null }
+
+    endsNoteAnchoredLine(): boolean { return this.m_endsNoteAnchoredLine }
+    setEndsNoteAnchoredLine(val: boolean): void { this.m_endsNoteAnchoredLine = val }
+
+    graceNotes(): Chord[] { return this.m_graceNotes }
+
+    graceNotesBefore(): GraceNotesGroup {
+        this.m_graceNotesBefore.clear()
+        for (const c of this.m_graceNotes) {
+            if (c.noteType() & (NoteType.ACCIACCATURA | NoteType.APPOGGIATURA | NoteType.GRACE4 | NoteType.GRACE16
+                                | NoteType.GRACE32)) {
+                this.m_graceNotesBefore.push(c)
+            }
+        }
+        return this.m_graceNotesBefore
+    }
+
+    graceNotesAfter(): GraceNotesGroup {
+        this.m_graceNotesAfter.clear()
+        for (let i = this.m_graceNotes.length - 1; i >= 0; i--) {
+            const c = this.m_graceNotes[i]
+            if (c.noteType() & (NoteType.GRACE8_AFTER | NoteType.GRACE16_AFTER | NoteType.GRACE32_AFTER)) {
+                this.m_graceNotesAfter.push(c)
+            }
+        }
+        return this.m_graceNotesAfter
+    }
+
+    graceIndex(): number { return this.m_graceIndex }
+    setGraceIndex(val: number): void { this.m_graceIndex = val }
+
+    override rightEdge(): number {
+        let right = 0.0
+        for (const n of this.m_notes) {
+            right = Math.max(right, this.x() + n.x() + n.bboxRightPos())
+        }
+        return right
+    }
+
+    underBeam(): boolean {
+        if (this.m_noteType === NoteType.NORMAL) {
+            return false
+        }
+        const cr = this.explicitParent() as unknown as Chord
+        const beam = cr.beam()
+        if (!beam || !beam.up()) {
+            return false
+        }
+        const s = beam.elements().length
+        if (this.isGraceBefore()) {
+            if (beam.elements()[0] !== cr) {
+                return true
+            }
+        }
+        if (this.isGraceAfter()) {
+            if (beam.elements()[s - 1] !== cr) {
+                return true
+            }
+        }
+        return false
+    }
+
+    override add(e: EngravingItem): void {
+        if (e.explicitParent() !== this) {
+            e.setParent(this)
+        }
+        e.setTrack(this.track())
+        switch (e.type()) {
+        case ElementType.NOTE: {
+            const note = e as Note
+            const tab = !!this.staff() && this.staff()!.isTabStaff(this.tick())
+            let found = false
+            for (let idx = 0; idx < this.m_notes.length; ++idx) {
+                if (tab) {
+                    if (note.string() > this.m_notes[idx].string()) {
+                        this.m_notes.splice(idx, 0, note)
+                        found = true
+                        break
+                    }
+                } else if (note.pitch() <= this.m_notes[idx].pitch()) {
+                    if (note.pitch() === this.m_notes[idx].pitch() && note.line() >= this.m_notes[idx].line()) {
+                        this.m_notes.splice(idx + 1, 0, note)
+                    } else {
+                        this.m_notes.splice(idx, 0, note)
+                    }
+                    found = true
+                    break
+                }
+            }
+            if (!found) {
+                this.m_notes.push(note)
+            }
+            if (this.voice() && this.explicitParent() && note.visible()) {
+                const m = this.measure()
+                if (m) {
+                    m.setHasVoices(this.staffIdx(), true)
+                }
+            }
+            break
+        }
+        case ElementType.ARPEGGIO:
+            this.m_arpeggio = e
+            break
+        case ElementType.CHORD_BRACKET:
+        case ElementType.CHORDLINE:
+            this.addEl(e)
+            break
+        case ElementType.GLISSANDO:
+            this.m_endsNoteAnchoredLine = true
+            break
+        case ElementType.STEM:
+            this.m_stem = e as Stem
+            break
+        case ElementType.HOOK:
+            this.m_hook = e as Hook
+            break
+        case ElementType.STEM_SLASH:
+            this.m_stemSlash = e
+            break
+        case ElementType.CHORD: {
+            const gc = e as Chord
+            const idx = gc.graceIndex()
+            gc.setFlag(ElementFlag.MOVABLE, true)
+            this.m_graceNotes.splice(idx, 0, gc)
+            break
+        }
+        case ElementType.ARTICULATION:
+        case ElementType.ORNAMENT:
+        case ElementType.TAPPING: {
+            const a = e as Articulation
+            if (a.layoutCloseToNote()) {
+                if (a.isStaccato()) {
+                    this.m_articulations.unshift(a)
+                } else {
+                    let i = 0
+                    while (i < this.m_articulations.length && this.m_articulations[i].layoutCloseToNote()) {
+                        i++
+                    }
+                    this.m_articulations.splice(i, 0, a)
+                }
+            } else {
+                this.m_articulations.push(a)
+            }
+            break
+        }
+        default:
+            super.add(e)
+            return
+        }
+    }
+
+    override remove(e: EngravingItem): void {
+        switch (e.type()) {
+        case ElementType.NOTE: {
+            const i = this.m_notes.indexOf(e as Note)
+            if (i >= 0) {
+                this.m_notes.splice(i, 1)
+            }
+            break
+        }
+        case ElementType.ARPEGGIO:
+            if (this.m_spanArpeggio === this.m_arpeggio) {
+                this.m_spanArpeggio = null
+            }
+            this.m_arpeggio = null
+            break
+        case ElementType.CHORD_BRACKET:
+        case ElementType.CHORDLINE:
+            this.removeEl(e)
+            break
+        case ElementType.STEM:
+            this.m_stem = null
+            break
+        case ElementType.HOOK:
+            this.m_hook = null
+            break
+        case ElementType.STEM_SLASH:
+            this.m_stemSlash = null
+            break
+        case ElementType.CHORD: {
+            const i = this.m_graceNotes.indexOf(e as Chord)
+            if (i >= 0) {
+                (e as Chord).setGraceIndex(i)
+                this.m_graceNotes.splice(i, 1)
+            }
+            break
+        }
+        case ElementType.ARTICULATION:
+        case ElementType.ORNAMENT:
+        case ElementType.TAPPING: {
+            const i = this.m_articulations.indexOf(e as Articulation)
+            if (i >= 0) {
+                this.m_articulations.splice(i, 1)
+            }
+            break
+        }
+        default:
+            super.remove(e)
+            return
+        }
+    }
+
+    override upPos(): number { return this.upNote().pos().y() }
+    override downPos(): number { return this.downNote().pos().y() }
+
+    override pagePos(): PointF {
+        if (!this.isGrace()) {
+            return super.pagePos()
+        }
+        const p = this.pos()
+        if (!this.explicitParent()) {
+            return p
+        }
+        p.setX(this.pageX())
+        const pc = this.explicitParent() as unknown as Chord
+        const system = pc.segment().system()
+        if (!system) {
+            return p
+        }
+        p.setY(p.y() + system.staffYpage(this.vStaffIdx()) + this.staffOffsetY())
+        return p
+    }
+
+    cmdUpdateNotes(as: AccidentalState, staffIdx: staff_idx_t): void {
+        const st = this.staff()!
+        let staffGroup = st.staffTypeForElement(this).group()
+        if (staffGroup === StaffGroup.TAB) {
+            // TODO(port): StringData::fretChords
+            return
+        } else {
+            staffGroup = st.part().instrument(this.tick()).useDrumset() ? StaffGroup.PERCUSSION : StaffGroup.STANDARD
+        }
+
+        if (staffGroup === StaffGroup.STANDARD) {
+            for (const ch of [...this.graceNotesBefore()]) {
+                if (ch.vStaffIdx() !== staffIdx) {
+                    continue
+                }
+                for (const note of [...ch.notes()]) {
+                    note.updateAccidental(as)
+                }
+                ch.sortNotes()
+            }
+            if (this.vStaffIdx() === staffIdx) {
+                for (const note of [...this.notes()]) {
+                    const tb = note.tieBack()
+                    if (tb && !note.incomingPartialTie() && tb.startNote() && note.tpc() === tb.startNote()!.tpc()) {
+                        // same pitch
+                        const acc = note.accidental()
+                        if (acc && acc.role() === AccidentalRole.AUTO) {
+                            note.remove(acc)
+                        }
+                    }
+                    note.updateAccidental(as)
+                }
+                // TODO(port): ornaments computeNotesAboveAndBelow
+                this.sortNotes()
+            }
+            for (const ch of [...this.graceNotesAfter()]) {
+                if (ch.vStaffIdx() !== staffIdx) {
+                    continue
+                }
+                for (const note of [...ch.notes()]) {
+                    note.updateAccidental(as)
+                }
+                ch.sortNotes()
+            }
+        } else if (staffGroup === StaffGroup.PERCUSSION) {
+            // TODO(port): updatePercussionNotes (drumset)
+            this.sortNotes()
+        }
+    }
+
+    noteType(): NoteType { return this.m_noteType }
+
+    setNoteType(t: NoteType): void {
+        this.m_noteType = t
+        this.m_showStemSlash = this.m_noteType === NoteType.ACCIACCATURA
+    }
+
+    override isGrace(): boolean { return this.m_noteType !== NoteType.NORMAL }
+
+    override isGraceBefore(): boolean {
+        return (this.m_noteType & (NoteType.ACCIACCATURA | NoteType.APPOGGIATURA | NoteType.GRACE4 | NoteType.GRACE16
+                                   | NoteType.GRACE32)) !== 0
+    }
+
+    override isGraceAfter(): boolean {
+        return (this.m_noteType & (NoteType.GRACE8_AFTER | NoteType.GRACE16_AFTER | NoteType.GRACE32_AFTER)) !== 0
+    }
+
+    isPreBendOrGraceBendStart(): boolean { return false }
+    isGraceBendEnd(): boolean { return false }
+    isTrillCueNote(): boolean { return this.m_isTrillCueNote }
+
+    override setTrack(val: track_idx_t): void {
+        super.setTrack(val)
+        const f = (e: EngravingItem): void => e.setTrack(val)
+        if (this.m_hook) {
+            f(this.m_hook)
+        }
+        if (this.m_stem) {
+            f(this.m_stem)
+        }
+        if (this.m_stemSlash) {
+            f(this.m_stemSlash)
+        }
+        if (this.m_arpeggio) {
+            f(this.m_arpeggio)
+        }
+        for (const ll of this.m_ledgerLines) {
+            f(ll)
+        }
+        for (const a of this.m_articulations) {
+            f(a)
+        }
+        for (const n of this.m_notes) {
+            f(n)
+        }
+        for (const c of this.m_graceNotes) {
+            f(c)
+        }
+    }
+
+    dotPosX(): number { return this.m_dotPosX }
+    setDotPosX(x: number): void { this.m_dotPosX = x }
+    noStem(): boolean { return this.m_noStem }
+    setNoStem(val: boolean): void { this.m_noStem = val }
+    spaceLw(): number { return this.m_spaceLw }
+    setSpaceLw(lw: number): void { this.m_spaceLw = lw }
+    spaceRw(): number { return this.m_spaceRw }
+    setSpaceRw(rw: number): void { this.m_spaceRw = rw }
+
+    combineVoice(): AutoOnOff { return this.m_combineVoice }
+    setCombineVoice(v: AutoOnOff): void { this.m_combineVoice = v }
+    shouldCombineVoice(): boolean {
+        return this.combineVoice() === AutoOnOff.ON
+               || (this.combineVoice() === AutoOnOff.AUTO && this.style().styleB(Sid.combineVoice))
+    }
+    static combineVoices(chord1: Chord, chord2: Chord): boolean {
+        return chord1.shouldCombineVoice() && chord2.shouldCombineVoice()
+    }
+
+    playEventType(): PlayEventType { return this.m_playEventType }
+    setPlayEventType(v: PlayEventType): void { this.m_playEventType = v }
+    isChordPlayable(): boolean { return this.m_isChordPlayable }
+    setIsChordPlayable(v: boolean): void { this.m_isChordPlayable = v }
+
+    articulations(): Articulation[] { return this.m_articulations }
+
+    override getProperty(propertyId: Pid): PropertyValue {
+        switch (propertyId) {
+        case Pid.NO_STEM: return this.noStem()
+        case Pid.SHOW_STEM_SLASH: return this.showStemSlash()
+        case Pid.STEM_DIRECTION: return this.stemDirection()
+        case Pid.PLAY: return this.isChordPlayable()
+        case Pid.COMBINE_VOICE: return this.combineVoice()
+        case Pid.VISIBLE: return true // Chord cannot be set invisible, only its elements can
+        default:
+            return super.getProperty(propertyId)
+        }
+    }
+
+    override propertyDefault(propertyId: Pid): PropertyValue {
+        switch (propertyId) {
+        case Pid.NO_STEM: return false
+        case Pid.SHOW_STEM_SLASH: return this.noteType() === NoteType.ACCIACCATURA
+        case Pid.STEM_DIRECTION: return DirectionV.AUTO
+        case Pid.PLAY: return true
+        case Pid.COMBINE_VOICE: return AutoOnOff.AUTO
+        default:
+            return super.propertyDefault(propertyId)
+        }
+    }
+
+    override setProperty(propertyId: Pid, v: PropertyValue): boolean {
+        switch (propertyId) {
+        case Pid.NO_STEM:
+            this.setNoStem(!!v)
+            break
+        case Pid.SHOW_STEM_SLASH:
+            this.setShowStemSlash(!!v)
+            break
+        case Pid.STEM_DIRECTION:
+            this.setStemDirection(v as DirectionV)
+            break
+        case Pid.PLAY:
+            this.setIsChordPlayable(!!v)
+            break
+        case Pid.COMBINE_VOICE:
+            this.setCombineVoice(v as AutoOnOff)
+            break
+        default:
+            return super.setProperty(propertyId, v)
+        }
+        return true
+    }
+
+    override segment(): Segment {
+        let e = this.parentItem()
+        for (; e && !e.isSegment(); e = e.parentItem()) {
+            // nothing
+        }
+        return e as unknown as Segment
+    }
+
+    override measure(): Measure {
+        let e = this.parentItem()
+        for (; e && !e.isMeasure(); e = e.parentItem()) {
+            // nothing
+        }
+        return e as unknown as Measure
+    }
+
+    sortNotes(): void { sortByNoteIsBefore(this.m_notes) }
+
+    nextTiedChord(backwards = false, sameSize = true): Chord | null {
+        const nextSeg = backwards ? this.segment().prev1(SegmentType.ChordRest) : this.segment().next1(SegmentType.ChordRest)
+        if (!nextSeg) {
+            return null
+        }
+        const nextCR = nextSeg.nextChordRest(this.track(), backwards)
+        if (!nextCR || !nextCR.isChord()) {
+            return null
+        }
+        const next = nextCR as Chord
+        if (sameSize && this.notes().length !== next.notes().length) {
+            return null // sizes don't match so some notes can't be tied
+        }
+        if (this.tuplet() !== next.tuplet()) {
+            return null // next chord belongs to a different tuplet
+        }
+        for (const n of this.m_notes) {
+            const tie: Tie | null = backwards ? n.tieBack() : n.tieFor()
+            if (!tie) {
+                return null // not tied
+            }
+            const nn = backwards ? tie.startNote() : tie.endNote()
+            if (!nn || nn.chord() !== next) {
+                return null // tied to note in wrong voice, or tied over rest
+            }
+        }
+        return next // all notes in this chord are tied to notes in next chord
+    }
+
+    endTickIncludingTied(): Fraction {
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        let lastTied: Chord = this
+        for (;;) {
+            const next = lastTied.nextTiedChord()
+            if (!next) {
+                break
+            }
+            lastTied = next
+        }
+        return lastTied.endTick()
+    }
+
+    allowKerningAbove(): boolean { return this.m_allowKerningAbove }
+    allowKerningBelow(): boolean { return this.m_allowKerningBelow }
+
+    computeKerningExceptions(): void {
+        this.m_allowKerningAbove = true
+        this.m_allowKerningBelow = true
+        for (const art of this.m_articulations) {
+            if (art.up()) {
+                this.m_allowKerningAbove = false
+            } else {
+                this.m_allowKerningBelow = false
+            }
+        }
+        if ((this.m_startEndSlurs.startUp || this.m_startEndSlurs.endUp) && !this.ldata().up) {
+            this.m_allowKerningAbove = false
+        }
+        if ((this.m_startEndSlurs.startDown || this.m_startEndSlurs.endDown) && this.ldata().up) {
+            this.m_allowKerningBelow = false
+        }
+    }
+
+    findOrnament(): EngravingItem | null {
+        for (const art of this.m_articulations) {
+            if (art.isOrnament()) {
+                return art
+            }
+        }
+        return null
+    }
+
+    startingSpanners(): Set<Spanner> { return this.m_startingSpanners }
+    endingSpanners(): Set<Spanner> { return this.m_endingSpanners }
+    addStartingSpanner(s: Spanner): void { this.m_startingSpanners.add(s) }
+    removeStartingSpanner(s: Spanner): void { this.m_startingSpanners.delete(s) }
+    addEndingSpanner(s: Spanner): void { this.m_endingSpanners.add(s) }
+    removeEndingSpanner(s: Spanner): void { this.m_endingSpanners.delete(s) }
+
+    shouldHaveStem(): boolean {
+        const staff = this.staff()
+        const staffType = staff ? staff.staffTypeForElement(this) : null
+        return !this.m_noStem
+               && this.durationType().hasStem()
+               && !(this.durationType().type() === DurationType.V_HALF && staffType && staffType.isTabStaff()
+                    && staffType.minimStyle() === (0 as TablatureMinimStyle /* NONE */))
+               && !(this.explicitParent() && this.measure() && this.measure().stemless(this.staffIdx()))
+               && !(staffType && staffType.isTabStaff() && staffType.stemless())
+    }
+
+    shouldHaveHook(): boolean {
+        return this.shouldHaveStem()
+               && this.durationType().hooks() > 0
+               && !this.beam()
+               && !this.tremoloTwoChord()
+    }
+
+    createStem(): void {
+        const stem = chordFactories.createStem!(this)
+        stem.setParent(this)
+        stem.setGenerated(true)
+        this.add(stem)
+    }
+
+    removeStem(): void {
+        if (this.m_stem) {
+            this.remove(this.m_stem)
+        }
+        if (this.m_hook) {
+            this.remove(this.m_hook)
+        }
+        if (this.m_stemSlash) {
+            this.remove(this.m_stemSlash)
+        }
+    }
+
+    createHook(): void {
+        const hook = chordFactories.createHook!(this)
+        hook.setParent(this)
+        hook.setGenerated(true)
+        this.add(hook)
+    }
+
+    startEndSlurs(): StartEndSlurs { return this.m_startEndSlurs }
+
+    allNotesTiedToNext(): boolean {
+        let tiedChord: Chord | null = null
+        for (const note of this.m_notes) {
+            const tf = note.tieFor()
+            if (!tf) {
+                return false
+            }
+            const endNote = tf.endNote()
+            const endChord = endNote ? endNote.chord() : null
+            if (!endChord) {
+                return false
+            }
+            if (!tiedChord) {
+                tiedChord = endChord
+                continue
+            }
+            if (endChord !== tiedChord) {
+                return false
+            }
+        }
+        return true
+    }
+
+    override scanElements(func: (item: EngravingItem) => void): void {
+        for (const a of this.m_articulations) {
+            a.scanElements(func)
+        }
+        if (this.m_hook) {
+            func(this.m_hook)
+        }
+        if (this.m_stem) {
+            func(this.m_stem)
+        }
+        if (this.m_stemSlash) {
+            func(this.m_stemSlash)
+        }
+        if (this.m_arpeggio) {
+            func(this.m_arpeggio)
+        }
+        const st = this.staff()
+        if ((st && st.showLedgerLines(this.tick())) || !st) { // also for palette
+            for (const ll of this.m_ledgerLines) {
+                func(ll)
+            }
+        }
+        for (const note of this.m_notes) {
+            note.scanElements(func)
+        }
+        for (const chord of this.m_graceNotes) {
+            chord.scanElements(func)
+        }
+        for (const e of this.el()) {
+            e.scanElements(func)
+        }
+        super.scanElements(func)
+    }
+}
+
+// ---------------------------------------------------------------------------------
+// navigate.cpp
+// ---------------------------------------------------------------------------------
+
+export function nextChordRest(cr: ChordRest | null, skipGrace = false): ChordRest | null {
+    if (!cr) {
+        return null
+    }
+    if (cr.isGrace()) {
+        const c = cr as Chord
+        const pc = cr.explicitParent() as unknown as Chord
+        if (skipGrace) {
+            cr = pc
+        } else if (cr.isGraceBefore()) {
+            const group = pc.graceNotesBefore().chords()
+            const i = group.indexOf(c)
+            if (i < 0) {
+                return null
+            }
+            if (i + 1 < group.length) {
+                return group[i + 1]
+            }
+            // if this was last grace note before, return parent
+            return pc
+        } else {
+            const group = pc.graceNotesAfter().chords()
+            const i = group.indexOf(c)
+            if (i < 0) {
+                return null
+            }
+            if (i + 1 < group.length) {
+                return group[i + 1]
+            }
+            // if this was last grace note after, fall through to find next main note
+            cr = pc
+        }
+    } else if (cr.isChord() && !skipGrace) {
+        const c = cr as Chord
+        if (c.graceNotes().length) {
+            const group = c.graceNotesAfter()
+            if (!group.empty()) {
+                return group.front()
+            }
+        }
+    }
+
+    const track = cr.track()
+    const st = SegmentType.ChordRest
+    for (let seg = cr.segment().next1MM(st); seg; seg = seg.next1MM(st)) {
+        const e = seg.element(track) as ChordRest | null
+        if (e) {
+            if (e.isRest() && e.measure().isMeasureRepeatGroup(Math.trunc(track / 4))) {
+                continue // these rests are not shown, skip them
+            }
+            if (e.isChord() && !skipGrace) {
+                const c = e as Chord
+                if (c.graceNotes().length) {
+                    const group = c.graceNotesBefore()
+                    if (!group.empty()) {
+                        return group.front()
+                    }
+                }
+            }
+            return e
+        }
+    }
+    return null
+}
+
+export function prevChordRest(cr: ChordRest | null, skipGrace = false): ChordRest | null {
+    if (!cr) {
+        return null
+    }
+    if (cr.isGrace()) {
+        const c = cr as Chord
+        const pc = cr.explicitParent() as unknown as Chord
+        if (skipGrace) {
+            cr = pc
+        } else if (cr.isGraceBefore()) {
+            const group = pc.graceNotesBefore().chords()
+            const i = group.indexOf(c)
+            if (i < 0) {
+                return null
+            }
+            if (i > 0) {
+                return group[i - 1]
+            }
+            // if this was first grace note before, fall through to find previous main note
+            cr = pc
+        } else {
+            const group = pc.graceNotesAfter().chords()
+            const i = group.indexOf(c)
+            if (i < 0) {
+                return null
+            }
+            if (i > 0) {
+                return group[i - 1]
+            }
+            // if this was first grace note after, return parent
+            return pc
+        }
+    } else if (cr.isChord() && !skipGrace) {
+        const group = (cr as Chord).graceNotesBefore()
+        if (!group.empty()) {
+            return group.back()
+        }
+    }
+
+    const track = cr.track()
+    const st = SegmentType.ChordRest
+    for (let seg = cr.segment().prev1MM(st); seg; seg = seg.prev1MM(st)) {
+        const e = seg.element(track) as ChordRest | null
+        if (e) {
+            if (e.isRest() && e.measure().isMeasureRepeatGroup(Math.trunc(track / 4))) {
+                continue
+            }
+            if (e.isChord() && !skipGrace) {
+                const group = (e as Chord).graceNotesAfter()
+                if (!group.empty()) {
+                    return group.back()
+                }
+            }
+            return e
+        }
+    }
+    return null
+}

@@ -1,0 +1,1252 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-only
+ * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
+ * Copyright (C) 2021-2026 MuseScore Limited and others
+ *
+ * Port of src/engraving/dom/note.h/.cpp
+ *
+ * TODO(port): tablature frets, drumsets, guitar bends, playback events, jump points, editing/dragging
+ */
+
+import { PointF } from '../../framework/draw/types/geometry'
+import { Fraction } from '../types/fraction'
+import type { PropertyValue } from '../types/propertyvalue'
+import { SmuflAnchorId, SymId } from '../types/symid'
+import {
+    AccidentalRole, AccidentalVal, DirectionH, DirectionV, ElementType, Key, NoteHeadGroup, NoteHeadScheme, NoteHeadType,
+    ParenthesesMode, VeloType, type track_idx_t,
+} from '../types/types'
+import { RealIsEqual, RealIsNull } from '../../framework/global/realfn'
+import { Sid } from '../style/styledef'
+import { Transpose } from '../editing/transpose'
+import { EngravingItem, ElementFlag, LayoutData } from './engravingitem'
+import { Pid } from './property'
+import { Interval } from './interval'
+import { NOTE_HEADS } from './noteheadsdata'
+import { Prefer, Tpc, pitch2tpc, tpc2alter, tpc2alterByKey, tpc2degree, tpc2pitch, tpc2stepName, tpcIsValid } from './pitchspelling'
+import { absStep, relStep } from './utils'
+import type { NoteType } from './chordrest'
+import type { Chord } from './chord'
+import type { NoteDot } from './notedot'
+import type { Accidental, AccidentalType } from './accidental'
+import type { AccidentalState } from './key'
+import type { Spanner } from './spanner'
+import type { Tie } from './tie'
+
+export const INVALID_LINE = -10000
+
+/** factories registered by the corresponding modules (avoid runtime import cycles) */
+export const noteFactories: {
+    createNoteDot?: (note: Note) => NoteDot
+    createAccidental?: (note: Note) => Accidental
+    accidental?: {
+        subtype2centOffset(t: AccidentalType): number
+        centOffset2Subtype(c: number): AccidentalType
+        value2subtype(v: AccidentalVal): AccidentalType
+        value2MicrotonalSubtype(v: AccidentalVal, quarterToneOffset: number): AccidentalType
+        subtype2value(t: AccidentalType): AccidentalVal
+        isMicrotonal(t: AccidentalType): boolean
+        NONE: AccidentalType
+        NATURAL: AccidentalType
+    }
+} = {}
+
+export enum SlideType {
+    Undefined = 0,
+    UpToNote,
+    DownToNote,
+    UpFromNote,
+    DownFromNote,
+}
+
+export enum DisplayFretOption {
+    Hide = -1,
+    NoHarmonic,
+    NaturalHarmonic,
+    ArtificialHarmonic,
+}
+
+export class NoteLayoutData extends LayoutData {
+    useTablature = false
+    cachedNoteheadSym: SymId = SymId.noSym // use in draw to avoid recomputing at every update
+    cachedSymNull: SymId = SymId.noSym // additional symbol for some transparent notehead
+    mirror = false // True if note is mirrored at stem.
+    hasGeneratedParens = false
+}
+
+export class Note extends EngravingItem {
+    private m_ghost = false
+    private m_deadNote = false
+    private m_isTrillCueNote = false
+    private m_hidden = false // marks this note as the hidden one if there are overlapping notes
+    private m_dotsHidden = false
+    private m_fretConflict = false
+    private m_isSmall = false
+    private m_play = true
+    private m_fixed = false // for slash notation
+    private m_hideGeneratedParens = false
+    private m_slideToType = SlideType.Undefined
+    private m_slideFromType = SlideType.Undefined
+
+    private m_userMirror: DirectionH = DirectionH.AUTO
+    private m_userDotPosition: DirectionV = DirectionV.AUTO
+    private m_dotPosition: DirectionV = DirectionV.AUTO // used as an intermediate step when resolving dot conflicts
+
+    private m_headScheme: NoteHeadScheme = NoteHeadScheme.HEAD_AUTO
+    private m_headGroup: NoteHeadGroup = NoteHeadGroup.HEAD_NORMAL
+    private m_headType: NoteHeadType = NoteHeadType.HEAD_AUTO
+    private m_veloType: VeloType = VeloType.USER_VAL
+
+    private m_offTimeType = 0
+    private m_onTimeType = 0
+    private m_subchannel = 0
+    private m_line = INVALID_LINE // y-Position; 0 - top line.
+    private m_fret = -1 // for tablature view
+    private m_harmonicFret = -1.0
+    private m_displayFret = DisplayFretOption.NoHarmonic
+    private m_string = -1
+    private m_tpc: [number, number] = [Tpc.TPC_INVALID, Tpc.TPC_INVALID] // tonal pitch class (concert/transposing)
+    private m_pitch = 0 // Note pitch as midi value (0 - 127).
+    private m_centOffset = 0.0
+    private m_userVelocity = 0
+    private m_fixedLine = 0
+    private m_tuning = 0.0
+
+    private m_accidental: Accidental | null = null
+    private m_tieFor: Tie | null = null
+    private m_tieBack: Tie | null = null
+    private m_harmonic = false
+    private m_hasParens = false
+
+    private m_el: EngravingItem[] = [] // fingering, other text, symbols or images
+    private m_dots: NoteDot[] = []
+    private m_spannerFor: Spanner[] = []
+    private m_spannerBack: Spanner[] = []
+    private m_fretString = ''
+
+    constructor(parent: Chord | null) {
+        super(ElementType.NOTE, parent, ElementFlag.MOVABLE)
+    }
+
+    protected override createLayoutData(): NoteLayoutData { return new NoteLayoutData(this) }
+    override ldata(): NoteLayoutData { return super.ldata() as NoteLayoutData }
+    override mutldata(): NoteLayoutData { return super.ldata() as NoteLayoutData }
+
+    chord(): Chord { return this.explicitParent() as unknown as Chord }
+
+    override mag(): number {
+        const ch = this.explicitParent() ? this.chord() : null
+        let m = ch ? ch.mag() : 1.0
+        if (this.m_isSmall) {
+            m *= this.style().styleD(Sid.smallNoteMag)
+        }
+        return m
+    }
+
+    override elementBase(): EngravingItem { return this.parentItem()! }
+
+    // ---------------------------------------------------------
+    //   noteHead
+    // ---------------------------------------------------------
+
+    static noteHeadSym(direction: number, group: NoteHeadGroup, t: NoteHeadType, tpc?: number, key: Key = Key.C,
+                       scheme: NoteHeadScheme = NoteHeadScheme.HEAD_NORMAL): SymId {
+        if (tpc === undefined || scheme === NoteHeadScheme.HEAD_NORMAL) {
+            return NOTE_HEADS[direction][group][t]
+        }
+        if (scheme === NoteHeadScheme.HEAD_PITCHNAME || scheme === NoteHeadScheme.HEAD_PITCHNAME_GERMAN
+            || scheme === NoteHeadScheme.HEAD_PITCHNAME_NO_ACCIDENTALS
+            || scheme === NoteHeadScheme.HEAD_PITCHNAME_GERMAN_NO_ACCIDENTALS) {
+            const noAcc = scheme === NoteHeadScheme.HEAD_PITCHNAME_NO_ACCIDENTALS
+                          || scheme === NoteHeadScheme.HEAD_PITCHNAME_GERMAN_NO_ACCIDENTALS
+            const german = scheme === NoteHeadScheme.HEAD_PITCHNAME_GERMAN
+                           || scheme === NoteHeadScheme.HEAD_PITCHNAME_GERMAN_NO_ACCIDENTALS
+            const G = NoteHeadGroup
+            const table: Partial<Record<number, NoteHeadGroup>> = {
+                [Tpc.TPC_A]: G.HEAD_A,
+                [Tpc.TPC_B]: german ? G.HEAD_H : G.HEAD_B,
+                [Tpc.TPC_C]: G.HEAD_C,
+                [Tpc.TPC_D]: G.HEAD_D,
+                [Tpc.TPC_E]: G.HEAD_E,
+                [Tpc.TPC_F]: G.HEAD_F,
+                [Tpc.TPC_G]: G.HEAD_G,
+                [Tpc.TPC_A_S]: noAcc ? G.HEAD_A : G.HEAD_A_SHARP,
+                [Tpc.TPC_B_S]: noAcc ? (german ? G.HEAD_H : G.HEAD_B) : (german ? G.HEAD_H_SHARP : G.HEAD_B_SHARP),
+                [Tpc.TPC_C_S]: noAcc ? G.HEAD_C : G.HEAD_C_SHARP,
+                [Tpc.TPC_D_S]: noAcc ? G.HEAD_D : G.HEAD_D_SHARP,
+                [Tpc.TPC_E_S]: noAcc ? G.HEAD_E : G.HEAD_E_SHARP,
+                [Tpc.TPC_F_S]: noAcc ? G.HEAD_F : G.HEAD_F_SHARP,
+                [Tpc.TPC_G_S]: noAcc ? G.HEAD_G : G.HEAD_G_SHARP,
+                [Tpc.TPC_A_B]: noAcc ? G.HEAD_A : G.HEAD_A_FLAT,
+                [Tpc.TPC_B_B]: noAcc ? G.HEAD_B : (german ? G.HEAD_B : G.HEAD_B_FLAT),
+                [Tpc.TPC_C_B]: noAcc ? G.HEAD_C : G.HEAD_C_FLAT,
+                [Tpc.TPC_D_B]: noAcc ? G.HEAD_D : G.HEAD_D_FLAT,
+                [Tpc.TPC_E_B]: noAcc ? G.HEAD_E : G.HEAD_E_FLAT,
+                [Tpc.TPC_F_B]: noAcc ? G.HEAD_F : G.HEAD_F_FLAT,
+                [Tpc.TPC_G_B]: noAcc ? G.HEAD_G : G.HEAD_G_FLAT,
+            }
+            group = table[tpc] ?? group
+        } else if (scheme === NoteHeadScheme.HEAD_SHAPE_NOTE_4) {
+            switch (tpc2degree(tpc, key)) {
+            case 0:
+            case 3:
+                group = NoteHeadGroup.HEAD_FA
+                break
+            case 1:
+            case 4:
+                group = NoteHeadGroup.HEAD_SOL
+                break
+            case 2:
+            case 5:
+                group = NoteHeadGroup.HEAD_LA
+                break
+            case 6:
+                group = NoteHeadGroup.HEAD_MI
+                break
+            }
+        } else if (scheme === NoteHeadScheme.HEAD_SHAPE_NOTE_7_AIKIN
+                   || scheme === NoteHeadScheme.HEAD_SHAPE_NOTE_7_FUNK
+                   || scheme === NoteHeadScheme.HEAD_SHAPE_NOTE_7_WALKER) {
+            const pick = (aikin: NoteHeadGroup, funk: NoteHeadGroup, walker: NoteHeadGroup): NoteHeadGroup =>
+                scheme === NoteHeadScheme.HEAD_SHAPE_NOTE_7_AIKIN ? aikin
+                : (scheme === NoteHeadScheme.HEAD_SHAPE_NOTE_7_FUNK ? funk : walker)
+            switch (tpc2degree(tpc, key)) {
+            case 0: group = pick(NoteHeadGroup.HEAD_DO, NoteHeadGroup.HEAD_DO_FUNK, NoteHeadGroup.HEAD_DO_WALKER); break
+            case 1: group = pick(NoteHeadGroup.HEAD_RE, NoteHeadGroup.HEAD_RE_FUNK, NoteHeadGroup.HEAD_RE_WALKER); break
+            case 2: group = NoteHeadGroup.HEAD_MI; break
+            case 3: group = NoteHeadGroup.HEAD_FA; break
+            case 4: group = NoteHeadGroup.HEAD_SOL; break
+            case 5: group = NoteHeadGroup.HEAD_LA; break
+            case 6: group = pick(NoteHeadGroup.HEAD_TI, NoteHeadGroup.HEAD_TI_FUNK, NoteHeadGroup.HEAD_TI_WALKER); break
+            }
+        } else if (scheme === NoteHeadScheme.HEAD_SOLFEGE) {
+            const degree = tpc2degree(tpc, key)
+            const alteration = tpc2alterByKey(tpc, key)
+            const G = NoteHeadGroup
+            const table: Record<string, NoteHeadGroup> = {
+                '0,0': G.HEAD_DO_NAME, '0,1': G.HEAD_DI_NAME,
+                '1,-1': G.HEAD_RA_NAME, '1,0': G.HEAD_RE_NAME, '1,1': G.HEAD_RI_NAME,
+                '2,-1': G.HEAD_ME_NAME, '2,0': G.HEAD_MI_NAME,
+                '3,0': G.HEAD_FA_NAME, '3,1': G.HEAD_FI_NAME,
+                '4,-1': G.HEAD_SE_NAME, '4,0': G.HEAD_SOL_NAME, '4,1': G.HEAD_SI_NAME,
+                '5,-1': G.HEAD_LE_NAME, '5,0': G.HEAD_LA_NAME, '5,1': G.HEAD_LI_NAME,
+                '6,-1': G.HEAD_TE_NAME, '6,0': G.HEAD_TI_NAME,
+            }
+            group = table[`${degree},${alteration}`] ?? group
+        } else if (scheme === NoteHeadScheme.HEAD_SOLFEGE_FIXED) {
+            const G = NoteHeadGroup
+            const table: Record<string, NoteHeadGroup> = {
+                C: G.HEAD_DO_NAME, D: G.HEAD_RE_NAME, E: G.HEAD_MI_NAME, F: G.HEAD_FA_NAME,
+                G: G.HEAD_SOL_NAME, A: G.HEAD_LA_NAME, B: G.HEAD_SI_NAME,
+            }
+            group = table[tpc2stepName(tpc)] ?? group
+        }
+        return NOTE_HEADS[direction][group][t]
+    }
+
+    noteHead(): SymId {
+        let up: number
+        let ht: NoteHeadType
+        const ch = this.explicitParent() ? this.chord() : null
+        if (ch) {
+            up = ch.up() ? 1 : 0
+            ht = ch.durationType().headType()
+        } else {
+            up = 1
+            ht = NoteHeadType.HEAD_QUARTER
+        }
+        if (this.m_headType !== NoteHeadType.HEAD_AUTO) {
+            ht = this.m_headType
+        }
+
+        const st = ch ? ch.staff() : null
+        let headGroup = this.m_headGroup
+        if (this.m_headGroup === NoteHeadGroup.HEAD_CUSTOM) {
+            if (st) {
+                if (st.staffTypeForElement(ch!).isDrumStaff()) {
+                    // TODO(port): drumset noteheads
+                    return Note.noteHeadSym(up, NoteHeadGroup.HEAD_NORMAL, ht)
+                }
+                headGroup = NoteHeadGroup.HEAD_NORMAL
+            } else {
+                return this.ldata().cachedNoteheadSym
+            }
+        }
+
+        let key = Key.C
+        let scheme = this.m_headScheme
+        if (st) {
+            const tick = ch!.tick()
+            if (tick.ge(new Fraction(0, 1))) {
+                key = st.key(tick)
+                if (scheme === NoteHeadScheme.HEAD_AUTO) {
+                    scheme = st.staffTypeForElement(ch!).noteHeadScheme()
+                }
+            }
+        }
+        if (scheme === NoteHeadScheme.HEAD_AUTO) {
+            scheme = NoteHeadScheme.HEAD_NORMAL
+        }
+        let t = Note.noteHeadSym(up, headGroup, ht, this.tpc(), key, scheme)
+        if (t === SymId.noSym) {
+            t = Note.noteHeadSym(up, NoteHeadGroup.HEAD_NORMAL, ht)
+        }
+        return t
+    }
+
+    headWidth(): number { return this.symWidth(this.noteHead()) }
+    headHeight(): number { return this.symHeight(this.noteHead()) }
+
+    tabHeadWidth(): number {
+        // TODO(port): fret font metrics
+        return this.headWidth()
+    }
+
+    tabHeadHeight(): number { return this.headHeight() }
+
+    stemDownNW(): PointF { return this.symSmuflAnchor(this.noteHead(), SmuflAnchorId.stemDownNW) }
+    stemUpSE(): PointF { return this.symSmuflAnchor(this.noteHead(), SmuflAnchorId.stemUpSE) }
+
+    bboxXShift(): number {
+        const bbox = this.score().engravingFont().bbox(this.noteHead(), this.magS())
+        return bbox.bottomLeft().x()
+    }
+
+    noteheadCenterX(): number {
+        return this.score().engravingFont().width(this.noteHead(), this.magS()) / 2 + this.bboxXShift()
+    }
+
+    bboxRightPos(): number {
+        const bbox = this.score().engravingFont().bbox(this.noteHead(), this.magS())
+        return bbox.right()
+    }
+
+    headBodyWidth(): number {
+        const st = this.staffType()
+        if (st && st.isTabStaff()) {
+            return this.tabHeadWidth()
+        }
+        return this.headWidth() + 2 * this.bboxXShift()
+    }
+
+    outsideTieAttachX(up: boolean): number {
+        let xo = 0
+        if (this.staffType()!.isTabStaff()) {
+            return this.x() + ((this.width() / 2) * this.mag())
+        }
+        if (this.m_headGroup === NoteHeadGroup.HEAD_SLASH) {
+            xo = up ? this.headWidth() * 0.75 : this.headWidth() * 0.25
+            if (this.chord().durationType().hasStem()) {
+                xo += this.spatium() * 0.13 * (this.chord().up() ? -this.mag() : this.mag())
+            }
+            return this.x() + xo
+        }
+        if (this.m_headGroup === NoteHeadGroup.HEAD_SLASHED1 || this.m_headGroup === NoteHeadGroup.HEAD_SLASHED2) {
+            return this.x() + ((this.headBodyWidth() / 2) * this.mag())
+        }
+        if (up) {
+            const xNE = this.symSmuflAnchor(this.noteHead(), SmuflAnchorId.cutOutNE).x()
+            const xNW = this.symSmuflAnchor(this.noteHead(), SmuflAnchorId.cutOutNW).x()
+            xo = (xNE + xNW) / 2
+            if (xNE < xNW) {
+                xo = 0
+            }
+        } else {
+            const xSE = this.symSmuflAnchor(this.noteHead(), SmuflAnchorId.cutOutSE).x()
+            const xSW = this.symSmuflAnchor(this.noteHead(), SmuflAnchorId.cutOutSW).x()
+            xo = (xSE + xSW) / 2
+            if (xSE < xSW) {
+                xo = 0
+            }
+        }
+        if (xo > 0) {
+            return this.x() + xo
+        }
+        return this.x() + (this.headWidth() / 2)
+    }
+
+    headScheme(): NoteHeadScheme { return this.m_headScheme }
+    headGroup(): NoteHeadGroup { return this.m_headGroup }
+    headType(): NoteHeadType { return this.m_headType }
+    setHeadScheme(val: NoteHeadScheme): void { this.m_headScheme = val }
+    setHeadGroup(val: NoteHeadGroup): void { this.m_headGroup = val }
+    setHeadType(t: NoteHeadType): void { this.m_headType = t }
+    override subtype(): number { return this.m_headGroup }
+
+    // ---------------------------------------------------------
+    //   pitch
+    // ---------------------------------------------------------
+
+    pitch(): number { return this.m_pitch }
+    setPitch(val: number, tpc1?: number, tpc2?: number): void {
+        if (tpc1 !== undefined && tpc2 !== undefined) {
+            this.m_tpc[0] = tpc1
+            this.m_tpc[1] = tpc2
+        }
+        this.m_pitch = val
+    }
+
+    centOffset(): number { return this.m_centOffset }
+    setCentOffset(v: number): void { this.m_centOffset = v }
+    quarterToneOffset(): number { return Math.round(this.m_centOffset / 50) }
+
+    ottaveCapoFret(): number {
+        // TODO(port): capo
+        return this.staff()!.pitchOffset(this.chord().segment().tick())
+    }
+
+    linkedOttavaPitchOffset(): number { return 0 } // links are not ported
+
+    /** playback pitch */
+    ppitch(): number {
+        return this.m_pitch + this.ottaveCapoFret() + this.linkedOttavaPitchOffset()
+    }
+
+    /** effective pitch */
+    epitch(): number {
+        return this.m_pitch - (this.concertPitch() ? 0 : this.transposition()) + this.linkedOttavaPitchOffset()
+    }
+
+    octave(): number {
+        return Math.trunc((this.epitch() + this.ottaveCapoFret() - tpc2alter(this.tpc())) / 12) - 1
+    }
+
+    tuning(): number { return this.m_tuning }
+    setTuning(v: number): void { this.m_tuning = v }
+
+    transposition(): number {
+        const tick = this.explicitParent() ? this.chord().tick() : new Fraction(-1, 1)
+        return this.staff() ? this.part()!.instrument(tick).transpose().chromatic : 0
+    }
+
+    fixed(): boolean { return this.m_fixed }
+    setFixed(v: boolean): void { this.m_fixed = v }
+    fixedLine(): number { return this.m_fixedLine }
+    setFixedLine(v: number): void { this.m_fixedLine = v }
+
+    private concertPitchIdx(): number { return this.concertPitch() ? 0 : 1 }
+
+    tpc(): number { return this.m_tpc[this.concertPitchIdx()] }
+    tpc1(): number { return this.m_tpc[0] } // non transposed tpc
+    tpc2(): number { return this.m_tpc[1] } // transposed tpc
+    setTpc(v: number): void {
+        if (tpcIsValid(v)) {
+            this.m_tpc[this.concertPitchIdx()] = v
+        }
+    }
+    setTpc1(v: number): void { this.m_tpc[0] = v }
+    setTpc2(v: number): void { this.m_tpc[1] = v }
+
+    setTpcFromPitch(prefer: Prefer = Prefer.NEAREST): void {
+        const ch = this.explicitParent() ? this.chord() : null
+        const tick = ch ? ch.tick() : new Fraction(-1, 1)
+        const v = this.staff() ? this.staff()!.transpose(tick) : new Interval()
+        const cKey = (this.staff() && ch) ? this.staff()!.concertKey(ch.tick()) : Key.C
+        this.m_tpc[0] = pitch2tpc(this.m_pitch, cKey, prefer)
+        if (v.isZero()) {
+            this.m_tpc[1] = this.m_tpc[0]
+        } else {
+            v.flip()
+            this.m_tpc[1] = Transpose.transposeTpc(this.m_tpc[0], v, true)
+        }
+    }
+
+    transposeTpc(tpc: number): number {
+        const tick = this.explicitParent() ? this.chord().tick() : new Fraction(-1, 1)
+        const v = this.staff()!.transpose(tick)
+        if (v.isZero()) {
+            return tpc
+        }
+        if (this.concertPitch()) {
+            v.flip()
+        }
+        return Transpose.transposeTpc(tpc, v, true)
+    }
+
+    accidental(): Accidental | null { return this.m_accidental }
+    setAccidental(a: Accidental | null): void { this.m_accidental = a }
+
+    line(): number { return this.fixed() ? this.m_fixedLine : this.m_line }
+    setLine(n: number): void { this.m_line = n }
+
+    fret(): number { return this.m_fret }
+    setFret(val: number): void { this.m_fret = val }
+    harmonicFret(): number { return this.m_harmonicFret }
+    setHarmonicFret(val: number): void { this.m_harmonicFret = val }
+    displayFret(): DisplayFretOption { return this.m_displayFret }
+    setDisplayFret(val: DisplayFretOption): void { this.m_displayFret = val }
+    fretString(): string { return this.m_fretString }
+    setFretString(s: string): void { this.m_fretString = s }
+    string(): number { return this.m_string }
+    setString(val: number): void { this.m_string = val }
+    shouldHideFret(): boolean { return false } // TODO(port): tablature
+    ghost(): boolean { return this.m_ghost }
+    setGhost(val: boolean): void { this.m_ghost = val }
+    deadNote(): boolean { return this.m_deadNote }
+    setDeadNote(v: boolean): void { this.m_deadNote = v }
+    fretConflict(): boolean { return this.m_fretConflict }
+    setFretConflict(val: boolean): void { this.m_fretConflict = val }
+    harmonic(): boolean { return this.m_harmonic }
+    setHarmonic(val: boolean): void { this.m_harmonic = val }
+
+    isSmall(): boolean { return this.m_isSmall }
+    setSmall(val: boolean): void { this.m_isSmall = val }
+    play(): boolean { return this.m_play }
+    setPlay(val: boolean): void { this.m_play = val }
+
+    // ---------------------------------------------------------
+    //   children
+    // ---------------------------------------------------------
+
+    override add(e: EngravingItem): void {
+        if (e.explicitParent() !== this) {
+            e.setParent(this)
+        }
+        e.setTrack(this.track())
+
+        switch (e.type()) {
+        case ElementType.NOTEDOT:
+            this.m_dots.push(e as NoteDot)
+            break
+        case ElementType.BEND:
+        case ElementType.FINGERING:
+        case ElementType.IMAGE:
+        case ElementType.TEXT:
+        case ElementType.SYMBOL:
+            this.m_el.push(e)
+            break
+        case ElementType.LAISSEZ_VIB: {
+            const lv = e as unknown as Tie
+            lv.setStartNote(this)
+            lv.setTick(this.tick())
+            this.setTieFor(lv)
+            break
+        }
+        case ElementType.PARTIAL_TIE: {
+            const pt = e as unknown as Tie
+            pt.setTick(this.tick())
+            if (pt.isOutgoing()) {
+                pt.setStartNote(this)
+                this.setTieFor(pt)
+            } else {
+                pt.setEndNote(this)
+                this.setTieBack(pt)
+            }
+            break
+        }
+        case ElementType.TIE: {
+            const tie = e as unknown as Tie
+            tie.setStartNote(this)
+            tie.setTick(this.tick())
+            this.setTieFor(tie)
+            if (tie.endNote()) {
+                tie.endNote()!.setTieBack(tie)
+            }
+            break
+        }
+        case ElementType.ACCIDENTAL: {
+            const a = e as Accidental
+            this.m_accidental = a
+            this.m_centOffset = noteFactories.accidental!.subtype2centOffset(a.accidentalType())
+            break
+        }
+        case ElementType.TEXTLINE:
+        case ElementType.NOTELINE:
+        case ElementType.GLISSANDO:
+        case ElementType.GUITAR_BEND:
+            this.addSpanner(e as unknown as Spanner)
+            break
+        default:
+            super.add(e)
+            break
+        }
+    }
+
+    override remove(e: EngravingItem): void {
+        switch (e.type()) {
+        case ElementType.NOTEDOT:
+            this.m_dots.pop()
+            break
+        case ElementType.BEND:
+        case ElementType.TEXT:
+        case ElementType.IMAGE:
+        case ElementType.FINGERING:
+        case ElementType.SYMBOL: {
+            const i = this.m_el.indexOf(e)
+            if (i >= 0) {
+                this.m_el.splice(i, 1)
+            }
+            break
+        }
+        case ElementType.PARTIAL_TIE: {
+            const pt = e as unknown as Tie
+            if (pt.isOutgoing()) {
+                this.setTieFor(null)
+            } else {
+                this.setTieBack(null)
+            }
+            break
+        }
+        case ElementType.LAISSEZ_VIB:
+        case ElementType.TIE: {
+            const tie = e as unknown as Tie
+            this.setTieFor(null)
+            if (tie.endNote()) {
+                tie.endNote()!.setTieBack(null)
+            }
+            break
+        }
+        case ElementType.ACCIDENTAL:
+            this.m_accidental = null
+            this.m_centOffset = 0
+            break
+        case ElementType.TEXTLINE:
+        case ElementType.NOTELINE:
+        case ElementType.GLISSANDO:
+        case ElementType.GUITAR_BEND:
+            this.removeSpanner(e as unknown as Spanner)
+            break
+        default:
+            super.remove(e)
+            break
+        }
+    }
+
+    private addSpanner(l: Spanner): void {
+        const e = l.endElement()
+        if (e && e.isNote()) {
+            (e as Note).addSpannerBack(l)
+        }
+        this.addSpannerFor(l)
+    }
+
+    private removeSpanner(l: Spanner): void {
+        const e = l.endElement()
+        if (e && e.isNote()) {
+            (e as Note).removeSpannerBack(l)
+        }
+        this.removeSpannerFor(l)
+    }
+
+    el(): EngravingItem[] { return this.m_el }
+
+    // ---------------------------------------------------------
+    //   ties
+    // ---------------------------------------------------------
+
+    tieFor(): Tie | null { return this.m_tieFor }
+    tieBack(): Tie | null { return this.m_tieBack }
+    tieForNonPartial(): Tie | null { return this.m_tieFor && this.m_tieFor.type() === ElementType.TIE ? this.m_tieFor : null }
+    tieBackNonPartial(): Tie | null { return this.m_tieBack && this.m_tieBack.type() === ElementType.TIE ? this.m_tieBack : null }
+    laissezVib(): Tie | null { return this.m_tieFor && this.m_tieFor.isLaissezVib() ? this.m_tieFor : null }
+    incomingPartialTie(): Tie | null { return this.m_tieBack && this.m_tieBack.isPartialTie() ? this.m_tieBack : null }
+    outgoingPartialTie(): Tie | null { return this.m_tieFor && this.m_tieFor.isPartialTie() ? this.m_tieFor : null }
+    setTieFor(t: Tie | null): void { this.m_tieFor = t }
+    setTieBack(t: Tie | null): void { this.m_tieBack = t }
+
+    lastTiedNote(): Note {
+        const notes: Note[] = []
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        let note: Note = this
+        notes.push(note)
+        while (note.tieFor()) {
+            const end = note.tieFor()!.endNote()
+            if (!end || notes.includes(end)) {
+                break
+            }
+            note = end
+            notes.push(note)
+        }
+        return note
+    }
+
+    firstTiedNote(): Note {
+        const notes: Note[] = []
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
+        let note: Note = this
+        notes.push(note)
+        while (note.tieBack()) {
+            const start = note.tieBack()!.startNote()
+            if (!start || notes.includes(start)) {
+                break
+            }
+            note = start
+            notes.push(note)
+        }
+        return note
+    }
+
+    tiedNotes(): Note[] {
+        let note: Note = this.firstTiedNote()
+        const notes: Note[] = [note]
+        while (note.tieFor()) {
+            const endNote = note.tieFor()!.endNote()
+            if (!endNote || notes.includes(endNote)) {
+                break
+            }
+            note = endNote
+            notes.push(note)
+        }
+        return notes
+    }
+
+    unisonIndex(): number {
+        let index = 0
+        for (const n of this.chord().notes()) {
+            if (n.pitch() === this.pitch()) {
+                if (n === this) {
+                    return index
+                }
+                ++index
+            }
+        }
+        return 0
+    }
+
+    disconnectTiedNotes(): void {
+        if (this.tieBack() && this.tieBack()!.startNote()) {
+            this.tieBack()!.startNote()!.remove(this.tieBack()!)
+        }
+        if (this.tieFor() && this.tieFor()!.endNote()) {
+            this.tieFor()!.endNote()!.setTieBack(null)
+        }
+    }
+
+    connectTiedNotes(): void {
+        if (this.tieBack() && !this.tieBack()!.isPartialTie()) {
+            this.tieBack()!.setEndNote(this)
+            if (this.tieBack()!.startNote()) {
+                this.tieBack()!.startNote()!.add(this.tieBack()!)
+            }
+        }
+        if (this.tieFor() && this.tieFor()!.endNote() && !this.tieFor()!.isPartialTie()) {
+            this.tieFor()!.endNote()!.setTieBack(this.tieFor())
+        }
+    }
+
+    // ---------------------------------------------------------
+    //   setupAfterRead
+    // ---------------------------------------------------------
+
+    setupAfterRead(ctxTick: Fraction, pasteMode: boolean): void {
+        this.m_pitch = Math.min(Math.max(this.m_pitch, 0), 127)
+        const ch = this.explicitParent() ? this.chord() : null
+
+        if (!tpcIsValid(this.m_tpc[0]) && !tpcIsValid(this.m_tpc[1])) {
+            const key = (this.staff() && ch) ? this.staff()!.key(ch.tick()) : Key.C
+            const tpc = pitch2tpc(this.m_pitch, key, Prefer.NEAREST)
+            if (this.concertPitch()) {
+                this.m_tpc[0] = tpc
+            } else {
+                this.m_tpc[1] = tpc
+            }
+        }
+        if (!(tpcIsValid(this.m_tpc[0]) && tpcIsValid(this.m_tpc[1]))) {
+            const tick = ch ? ch.tick() : new Fraction(-1, 1)
+            const v = this.staff() ? this.staff()!.transpose(tick) : new Interval()
+            if (tpcIsValid(this.m_tpc[0])) {
+                v.flip()
+                this.m_tpc[1] = v.isZero() ? this.m_tpc[0] : Transpose.transposeTpc(this.m_tpc[0], v, true)
+            } else {
+                this.m_tpc[0] = v.isZero() ? this.m_tpc[1] : Transpose.transposeTpc(this.m_tpc[1], v, true)
+            }
+        }
+
+        // check if note is correct
+        if (this.staff() && !this.staff()!.isDrumStaff(ctxTick) && !pasteMode) {
+            const tpc1Pitch = (tpc2pitch(this.m_tpc[0]) + 12) % 12
+            const tpc2Pitch = (tpc2pitch(this.m_tpc[1]) + 12) % 12
+            const soundingPitch = this.m_pitch % 12
+            if (tpc1Pitch !== soundingPitch) {
+                this.m_pitch += tpc1Pitch - soundingPitch
+            }
+            const v = this.staff()!.transpose(ctxTick)
+            const writtenPitch = (this.m_pitch - v.chromatic) % 12
+            if (tpc2Pitch !== writtenPitch) {
+                if (this.concertPitch()) {
+                    v.flip()
+                    this.m_tpc[1] = Transpose.transposeTpc(this.m_tpc[0], v, true)
+                } else {
+                    this.m_tpc[0] = Transpose.transposeTpc(this.m_tpc[1], v, true)
+                    this.m_pitch += tpc2Pitch - writtenPitch
+                }
+            }
+        }
+        // TODO(port): tab fret colors
+    }
+
+    hidden(): boolean { return this.m_hidden }
+    setHidden(val: boolean): void { this.m_hidden = val }
+    dotsHidden(): boolean { return this.m_dotsHidden }
+    setDotsHidden(val: boolean): void { this.m_dotsHidden = val }
+
+    noteType(): NoteType { return this.chord().noteType() }
+
+    subchannel(): number { return this.m_subchannel }
+    setSubchannel(val: number): void { this.m_subchannel = val }
+
+    userMirror(): DirectionH { return this.m_userMirror }
+    setUserMirror(d: DirectionH): void { this.m_userMirror = d }
+    userDotPosition(): DirectionV { return this.m_userDotPosition }
+    setUserDotPosition(d: DirectionV): void { this.m_userDotPosition = d }
+    dotPosition(): DirectionV { return this.m_dotPosition }
+    setDotPosition(d: DirectionV): void { this.m_dotPosition = d }
+
+    /** actual dot position */
+    dotIsUp(): boolean {
+        if (this.m_dots.length === 0) {
+            return true
+        }
+        if (this.m_userDotPosition === DirectionV.AUTO) {
+            return this.m_dots[0].y() < this.spatium() * 0.1
+        }
+        return this.m_userDotPosition === DirectionV.UP
+    }
+
+    userVelocity(): number { return this.m_userVelocity }
+    setUserVelocity(v: number): void { this.m_userVelocity = v }
+    veloType(): VeloType { return this.m_veloType }
+    setVeloType(v: VeloType): void { this.m_veloType = v }
+    setOffTimeType(v: number): void { this.m_offTimeType = v }
+    setOnTimeType(v: number): void { this.m_onTimeType = v }
+    offTimeType(): number { return this.m_offTimeType }
+    onTimeType(): number { return this.m_onTimeType }
+
+    dot(n: number): NoteDot { return this.m_dots[n] }
+    dots(): NoteDot[] { return this.m_dots }
+
+    /** sets the number of dots and their vertical position (layout helper) */
+    setDotRelativeLine(dotMove: number, layoutDot: (dot: NoteDot) => void): void {
+        let y = dotMove / 2.0
+        if (this.staff()!.isTabStaff(this.chord().tick())) {
+            // TODO(port): tablature dots
+            return
+        }
+        y *= this.spatium() * this.staff()!.lineDistance(this.tick())
+
+        const cdots = this.chord().dots()
+        const ndots = this.m_dots.length
+        const n = cdots - ndots
+        for (let i = 0; i < n; ++i) {
+            const dot = noteFactories.createNoteDot!(this)
+            dot.setParent(this)
+            dot.setTrack(this.track()) // needed to know the staff it belongs to (and detect tablature)
+            dot.setVisible(this.visible())
+            this.add(dot)
+        }
+        if (n < 0) {
+            for (let i = 0; i < -n; ++i) {
+                this.remove(this.m_dots[this.m_dots.length - 1])
+            }
+        }
+        for (const dot of this.m_dots) {
+            layoutDot(dot)
+            dot.mutldata().setPosY(y)
+        }
+    }
+
+    // ---------------------------------------------------------
+    //   updateAccidental
+    //    set _accidental and _line depending on tpc
+    // ---------------------------------------------------------
+
+    updateAccidental(as: AccidentalState): void {
+        const A = noteFactories.accidental!
+        const absLine = absStep(this.tpc(), this.epitch())
+
+        // don't touch accidentals that don't concern tpc such as
+        // quarter tones
+        if (RealIsNull(this.m_centOffset)) {
+            if (this.m_accidental && !RealIsNull(A.subtype2centOffset(this.m_accidental.accidentalType()))) {
+                this.remove(this.m_accidental)
+            }
+        } else if (this.m_accidental) {
+            const correct = RealIsEqual(A.subtype2centOffset(this.m_accidental.accidentalType()), this.m_centOffset)
+            if (!correct) {
+                this.m_accidental.setAccidentalType(A.centOffset2Subtype(this.m_centOffset))
+            }
+        } else {
+            const accType = A.value2MicrotonalSubtype(tpc2alter(this.tpc()), this.quarterToneOffset())
+            this.updateLine()
+            this.changeAccidental(accType)
+        }
+
+        if (!(this.m_accidental && A.isMicrotonal(this.m_accidental.accidentalType()))) {
+            // calculate accidental
+            let acci = A.NONE
+            const accVal = tpc2alter(this.tpc())
+            const eAbsLine = absStep(this.tpc(), this.epitch())
+            const [absLineAccVal, error] = as.accidentalValChecked(eAbsLine)
+            if (error) {
+                return
+            }
+            if ((accVal !== absLineAccVal) || this.hidden() || as.tieContext(eAbsLine) || as.forceRestateAccidental(eAbsLine)) {
+                as.setAccidentalVal(eAbsLine, accVal, this.m_tieBack !== null && this.m_accidental === null)
+                acci = A.value2subtype(accVal)
+                // if previous tied note has same tpc, don't show accidental
+                if (this.tieBackNonPartial() && this.m_tieBack!.startNote()!.tpc1() === this.tpc1()) {
+                    acci = A.NONE
+                } else if (acci === A.NONE) {
+                    acci = A.NATURAL
+                }
+            } else if (this.hasAlteredUnison()) {
+                if ((acci = A.value2subtype(accVal)) === A.NONE) {
+                    acci = A.NATURAL
+                }
+            }
+            if (acci !== A.NONE && !this.m_hidden) {
+                if (!this.m_accidental) {
+                    const a = noteFactories.createAccidental!(this)
+                    a.setParent(this)
+                    a.setAccidentalType(acci)
+                    a.setVisible(this.visible())
+                    this.add(a)
+                } else if (this.m_accidental.accidentalType() !== acci) {
+                    this.m_accidental.setAccidentalType(acci)
+                }
+            } else if (this.m_accidental) {
+                // remove this if it was AUTO:
+                if (this.m_accidental.role() === AccidentalRole.AUTO) {
+                    this.remove(this.m_accidental)
+                } else {
+                    // keep it, but update type if needed
+                    acci = A.value2subtype(accVal)
+                    if (acci === A.NONE) {
+                        acci = A.NATURAL
+                    }
+                    if (this.m_accidental.accidentalType() !== acci) {
+                        this.m_accidental.setAccidentalType(acci)
+                    }
+                }
+            }
+        } else {
+            // microtonal accidentals playback as naturals
+            // in 1.X, they were not taken into account as accidentals
+            const accVal = A.subtype2value(this.m_accidental.accidentalType())
+            as.setAccidentalVal(absLine, accVal, this.m_tieBack !== null && this.m_accidental === null)
+        }
+        as.setForceRestateAccidental(absLine, false)
+        this.updateRelLine(absLine, true)
+    }
+
+    private changeAccidental(accType: AccidentalType): void {
+        // simplified Score::changeAccidental (no undo, no linked staves)
+        if (accType === noteFactories.accidental!.NONE) {
+            if (this.m_accidental) {
+                this.remove(this.m_accidental)
+            }
+            return
+        }
+        const a = noteFactories.createAccidental!(this)
+        a.setParent(this)
+        a.setAccidentalType(accType)
+        a.setRole(AccidentalRole.USER)
+        if (this.m_accidental) {
+            this.remove(this.m_accidental)
+        }
+        this.add(a)
+    }
+
+    private hasAlteredUnison(): boolean {
+        const chordNotes = this.chord().notes()
+        const accVal = tpc2alter(this.tpc())
+        const absLine = absStep(this.tpc(), this.epitch())
+        return chordNotes.some(n => n !== this && !n.hidden() && absStep(n.tpc(), n.epitch()) === absLine
+                                    && tpc2alter(n.tpc()) !== accVal)
+    }
+
+    updateLine(): void {
+        const absLine = absStep(this.tpc(), this.epitch())
+        this.updateRelLine(absLine, false)
+    }
+
+    /** calculate the real note line depending on clef, absLine is the absolute line */
+    private updateRelLine(absLine: number, _undoable: boolean): void {
+        if (!this.staff()) {
+            return
+        }
+        // calculate actual relative line based on clef in effect for the staff
+        const idx = this.chord().vStaffIdx()
+        const staff = this.score().staff(idx)!
+        const st = staff.staffTypeForElement(this)
+        if (st.isTabStaff()) {
+            // tab staff is already correct, and the following relStep method doesn't apply whatsoever to tab staves
+            return
+        }
+        const clef = staff.clef(this.chord().tick())
+        const line = relStep(absLine, clef)
+        this.setLine(line)
+
+        const off = st.stepOffset()
+        const ld = st.lineDistance().val()
+        this.mutldata().setPosY((this.m_line + off * 2.0) * this.spatium() * 0.5 * ld)
+    }
+
+    spannerFor(): Spanner[] { return this.m_spannerFor }
+    spannerBack(): Spanner[] { return this.m_spannerBack }
+    addSpannerBack(e: Spanner): void {
+        if (!this.m_spannerBack.includes(e)) {
+            this.m_spannerBack.push(e)
+        }
+    }
+    removeSpannerBack(e: Spanner): boolean {
+        const i = this.m_spannerBack.indexOf(e)
+        if (i >= 0) {
+            this.m_spannerBack.splice(i, 1)
+            return true
+        }
+        return false
+    }
+    addSpannerFor(e: Spanner): void {
+        if (!this.m_spannerFor.includes(e)) {
+            this.m_spannerFor.push(e)
+        }
+    }
+    removeSpannerFor(e: Spanner): boolean {
+        const i = this.m_spannerFor.indexOf(e)
+        if (i >= 0) {
+            this.m_spannerFor.splice(i, 1)
+            return true
+        }
+        return false
+    }
+
+    slideToType(): SlideType { return this.m_slideToType }
+    slideFromType(): SlideType { return this.m_slideFromType }
+    attachSlide(t: SlideType): void {
+        if (t === SlideType.UpToNote || t === SlideType.DownToNote) {
+            this.m_slideToType = t
+        } else if (t === SlideType.UpFromNote || t === SlideType.DownFromNote) {
+            this.m_slideFromType = t
+        }
+    }
+    hasSlideToNote(): boolean { return this.m_slideToType !== SlideType.Undefined }
+    hasSlideFromNote(): boolean { return this.m_slideFromType !== SlideType.Undefined }
+
+    hasParens(): boolean { return this.m_hasParens }
+    hideGeneratedParens(): boolean { return this.m_hideGeneratedParens }
+    setHideGeneratedParens(v: boolean): void { this.m_hideGeneratedParens = v }
+
+    isGrace(): boolean { return this.noteType() !== 0 /* NoteType::NORMAL */ }
+    isTrillCueNote(): boolean { return this.m_isTrillCueNote }
+    setIsTrillCueNote(v: boolean): void { this.m_isTrillCueNote = v }
+
+    override setTrack(val: track_idx_t): void {
+        super.setTrack(val)
+        const tf = this.m_tieFor
+        if (tf) {
+            tf.setTrack(val)
+            for (const seg of tf.spannerSegments()) {
+                seg.setTrack(val)
+            }
+            if (!this.tieForNonPartial()) {
+                tf.setTrack2(val)
+            }
+        }
+        const tb = this.m_tieBack
+        if (tb) {
+            tb.setTrack2(val)
+            if (this.incomingPartialTie()) {
+                tb.setTrack(val)
+                for (const seg of tb.spannerSegments()) {
+                    seg.setTrack(val)
+                }
+            }
+        }
+        for (const s of this.m_spannerFor) {
+            s.setTrack(val)
+        }
+        for (const s of this.m_spannerBack) {
+            s.setTrack2(val)
+        }
+        for (const e of this.m_el) {
+            e.setTrack(val)
+        }
+        if (this.m_accidental) {
+            this.m_accidental.setTrack(val)
+        }
+        if (!this.explicitParent()) { // if note is dragged with shift+ctrl
+            return
+        }
+        for (const dot of this.m_dots) {
+            dot.setTrack(val)
+        }
+    }
+
+    override scanElements(func: (item: EngravingItem) => void): void {
+        func(this)
+        // tie segments are collected from System
+        for (const e of this.m_el) {
+            e.scanElements(func)
+        }
+        for (const sp of this.m_spannerFor) {
+            sp.scanElements(func)
+        }
+        if (this.m_accidental) {
+            func(this.m_accidental)
+        }
+        for (const dot of this.m_dots) {
+            func(dot)
+        }
+    }
+
+    // ---------------------------------------------------------
+    //   properties
+    // ---------------------------------------------------------
+
+    override getProperty(propertyId: Pid): PropertyValue {
+        switch (propertyId) {
+        case Pid.PITCH: return this.pitch()
+        case Pid.CENT_OFFSET: return this.centOffset()
+        case Pid.TPC1: return this.m_tpc[0]
+        case Pid.TPC2: return this.m_tpc[1]
+        case Pid.SMALL: return this.isSmall()
+        case Pid.MIRROR_HEAD: return this.userMirror()
+        case Pid.DOT_POSITION: return this.userDotPosition()
+        case Pid.HEAD_SCHEME: return this.headScheme()
+        case Pid.HEAD_GROUP: return this.headGroup()
+        case Pid.USER_VELOCITY: return this.userVelocity()
+        case Pid.TUNING: return this.tuning()
+        case Pid.FRET: return this.fret()
+        case Pid.STRING: return this.string()
+        case Pid.GHOST: return this.ghost()
+        case Pid.DEAD: return this.deadNote()
+        case Pid.HEAD_TYPE: return this.headType()
+        case Pid.VELO_TYPE: return this.m_veloType
+        case Pid.PLAY: return this.play()
+        case Pid.LINE: return this.m_line
+        case Pid.FIXED: return this.fixed()
+        case Pid.FIXED_LINE: return this.fixedLine()
+        case Pid.HAS_PARENTHESES: return this.m_hasParens ? ParenthesesMode.BOTH : ParenthesesMode.NONE
+        case Pid.HIDE_GENERATED_PARENTHESES: return this.m_hideGeneratedParens
+        default:
+            return super.getProperty(propertyId)
+        }
+    }
+
+    override setProperty(propertyId: Pid, v: PropertyValue): boolean {
+        switch (propertyId) {
+        case Pid.PITCH:
+            this.setPitch(v as number)
+            break
+        case Pid.CENT_OFFSET:
+            this.setCentOffset(v as number)
+            break
+        case Pid.TPC1:
+            this.m_tpc[0] = v as number
+            break
+        case Pid.TPC2:
+            this.m_tpc[1] = v as number
+            break
+        case Pid.LINE:
+            this.setLine(v as number)
+            break
+        case Pid.SMALL:
+            this.setSmall(!!v)
+            break
+        case Pid.MIRROR_HEAD:
+            this.setUserMirror(v as DirectionH)
+            break
+        case Pid.DOT_POSITION:
+            this.setUserDotPosition(v as DirectionV)
+            break
+        case Pid.HEAD_SCHEME:
+            this.setHeadScheme(v as NoteHeadScheme)
+            break
+        case Pid.HEAD_GROUP:
+            this.setHeadGroup(v as NoteHeadGroup)
+            this.setDeadNote(!!this.staff() && !this.staff()!.isDrumStaff(this.tick())
+                             && this.m_headGroup === NoteHeadGroup.HEAD_CROSS)
+            break
+        case Pid.USER_VELOCITY:
+            this.setUserVelocity(v as number)
+            break
+        case Pid.TUNING:
+            this.setTuning(v as number)
+            break
+        case Pid.FRET:
+            this.setFret(v as number)
+            break
+        case Pid.STRING:
+            this.setString(v as number)
+            break
+        case Pid.GHOST:
+            this.setGhost(!!v)
+            break
+        case Pid.DEAD:
+            this.setDeadNote(!!v)
+            if (!this.staff()!.isDrumStaff(this.tick())) {
+                this.setHeadGroup(this.m_deadNote && this.m_headGroup !== NoteHeadGroup.HEAD_CROSS
+                    ? NoteHeadGroup.HEAD_CROSS : NoteHeadGroup.HEAD_NORMAL)
+            }
+            break
+        case Pid.HEAD_TYPE:
+            this.setHeadType(v as NoteHeadType)
+            break
+        case Pid.VELO_TYPE:
+            this.m_veloType = v as VeloType
+            break
+        case Pid.VISIBLE:
+            this.setVisible(!!v)
+            if (this.explicitParent() && this.chord().explicitParent()) {
+                this.chord().measure().checkMultiVoices(this.chord().staffIdx())
+            }
+            break
+        case Pid.PLAY:
+            this.setPlay(!!v)
+            break
+        case Pid.FIXED:
+            this.setFixed(!!v)
+            break
+        case Pid.FIXED_LINE:
+            this.setFixedLine(v as number)
+            break
+        case Pid.HAS_PARENTHESES:
+            this.m_hasParens = v === ParenthesesMode.BOTH
+            break
+        case Pid.HIDE_GENERATED_PARENTHESES:
+            this.setHideGeneratedParens(!!v)
+            break
+        default:
+            return super.setProperty(propertyId, v)
+        }
+        return true
+    }
+
+    override propertyDefault(propertyId: Pid): PropertyValue {
+        switch (propertyId) {
+        case Pid.CENT_OFFSET: return 0.0
+        case Pid.GHOST:
+        case Pid.DEAD:
+        case Pid.SMALL:
+            return false
+        case Pid.MIRROR_HEAD: return DirectionH.AUTO
+        case Pid.DOT_POSITION: return DirectionV.AUTO
+        case Pid.HEAD_SCHEME: return NoteHeadScheme.HEAD_AUTO
+        case Pid.HEAD_GROUP: return NoteHeadGroup.HEAD_NORMAL
+        case Pid.USER_VELOCITY: return 0
+        case Pid.TUNING: return 0.0
+        case Pid.FRET:
+        case Pid.STRING:
+            return -1
+        case Pid.HEAD_TYPE: return NoteHeadType.HEAD_AUTO
+        case Pid.VELO_TYPE: return VeloType.USER_VAL
+        case Pid.PLAY: return true
+        case Pid.FIXED: return false
+        case Pid.FIXED_LINE: return 0
+        case Pid.TPC2: return this.getProperty(Pid.TPC1)
+        case Pid.PITCH:
+        case Pid.TPC1:
+            return undefined
+        case Pid.HIDE_GENERATED_PARENTHESES: return false
+        default:
+            return super.propertyDefault(propertyId)
+        }
+    }
+
+    posInStaffCoordinates(): PointF {
+        const x = this.pos().x() + this.chord().pos().x() + this.chord().segment().pos().x()
+                  + this.chord().measure().pos().x()
+        return new PointF(x, this.pos().y())
+    }
+}

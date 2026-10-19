@@ -8,9 +8,11 @@
  */
 
 import { FontProvider, FontsDatabase } from '../../framework/draw/internal/fontprovider'
+import { setFontMetricsProvider } from '../../framework/draw/fontmetrics'
 
 let s_fontsDatabase = new FontsDatabase()
 let s_fontProvider = new FontProvider(s_fontsDatabase)
+setFontMetricsProvider(s_fontProvider)
 
 export function fontsDatabase(): FontsDatabase { return s_fontsDatabase }
 
@@ -19,4 +21,5 @@ export function fontProvider(): FontProvider { return s_fontProvider }
 export function setFontsDatabase(db: FontsDatabase): void {
     s_fontsDatabase = db
     s_fontProvider = new FontProvider(db)
+    setFontMetricsProvider(s_fontProvider)
 }
