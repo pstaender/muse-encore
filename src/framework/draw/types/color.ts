@@ -44,6 +44,8 @@ export class Color {
 
     equals(o: Color): boolean { return this.r === o.r && this.g === o.g && this.b === o.b && this.a === o.a }
 
+    inverted(): Color { return new Color(255 - this.r, 255 - this.g, 255 - this.b, this.a) }
+
     /** "#rrggbb" */
     toString(): string {
         const h = (n: number): string => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0')

@@ -95,12 +95,39 @@ export class CanvasPaintProvider implements IPaintProvider {
         return true
     }
 
+    /** clips to background minus the mask rects: each clip() call removes one rect (clips intersect) */
+    private applyMask(state: PaintState): void {
+        const mask = state.mask
+        if (!mask) {
+            return
+        }
+        const ctx = this.ctx
+        this.applyTransform(mask.transform)
+        const b = mask.background
+        for (const r of mask.rects) {
+            ctx.beginPath()
+            ctx.moveTo(b.left(), b.top())
+            ctx.lineTo(b.right(), b.top())
+            ctx.lineTo(b.right(), b.bottom())
+            ctx.lineTo(b.left(), b.bottom())
+            ctx.closePath()
+            // opposite winding, so the rect has winding number 0
+            ctx.moveTo(r.left(), r.top())
+            ctx.lineTo(r.left(), r.bottom())
+            ctx.lineTo(r.right(), r.bottom())
+            ctx.lineTo(r.right(), r.top())
+            ctx.closePath()
+            ctx.clip('nonzero')
+        }
+    }
+
     drawPath(path: PainterPath, state: PaintState): void {
         if (path.isEmpty()) {
             return
         }
         const ctx = this.ctx
         ctx.save()
+        this.applyMask(state)
         this.applyTransform(state.transform)
         this.tracePath(path)
         if (state.brush.style() !== BrushStyle.NoBrush) {
@@ -119,6 +146,7 @@ export class CanvasPaintProvider implements IPaintProvider {
         }
         const ctx = this.ctx
         ctx.save()
+        this.applyMask(state)
         this.applyTransform(state.transform)
         ctx.beginPath()
         ctx.moveTo(points[0].x(), points[0].y())

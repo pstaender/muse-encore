@@ -31,6 +31,7 @@ import type { MeasureBase } from './measurebase'
 import type { Measure } from './measure'
 import type { System } from './system'
 import type { Page } from './page'
+import type { PaintOptions } from '../rendering/paintoptions'
 
 export enum ElementFlag {
     NOTHING = 0x00000000,
@@ -96,6 +97,10 @@ export interface StaffCenteringInfo {
  * by the layout code (in C++ the dom calls into the rendering module directly).
  */
 export const ldataShapeHooks: Partial<Record<ElementType, (item: EngravingItem, ld: LayoutData) => void>> = {}
+
+// EngravingConfiguration defaults
+const INVISIBLE_COLOR = new Color(0x80, 0x80, 0x80)
+const SCORE_INVERSION_COLOR = new Color(220, 220, 220)
 
 export class LayoutData {
     autoplace: Autoplace = { offsetChanged: OffsetChange.NONE, changedPos: new PointF() }
@@ -669,13 +674,35 @@ export abstract class EngravingItem extends EngravingObject {
     setColor(c: Color): void { this.m_color = c.clone() }
     color(): Color { return this.m_color }
 
-    /** color used for drawing (print mode: no selection etc.) */
-    curColor(isVisible: boolean = this.visible(), normalColor: Color = this.color()): Color {
+    curColor(opt: PaintOptions = {}): Color {
+        return this.curColorWith(this.getProperty(Pid.VISIBLE) as boolean, this.color(), opt)
+    }
+
+    /** C++ curColor(bool isVisible, Color normalColor, const PaintOptions&) (no selection/drop target states here) */
+    curColorWith(isVisible: boolean, normalColor: Color, opt: PaintOptions = {}): Color {
+        // the default element color is always interpreted as black in printing
+        if (opt.isPrinting) {
+            return normalColor.equals(Color.BLACK) ? Color.BLACK : normalColor
+        }
         if (!isVisible) {
-            return new Color(0x80, 0x80, 0x80)
+            return INVISIBLE_COLOR
+        }
+        if (opt.invertColors) {
+            if (normalColor.equals(Color.BLACK)) {
+                return SCORE_INVERSION_COLOR
+            }
+            return normalColor.inverted()
         }
         return normalColor
     }
+
+    isInteractionAvailable(): boolean {
+        if (!(this.getProperty(Pid.VISIBLE) as boolean) && (this.score().printing() || !this.score().isShowInvisible())) {
+            return false
+        }
+        return true
+    }
+
 
     // positions
 

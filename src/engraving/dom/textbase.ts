@@ -28,6 +28,7 @@ import { engravingFonts } from '../infrastructure/engravingfont'
 import { EngravingItem, ElementFlag, LayoutData } from './engravingitem'
 import type { ElementStyle, EngravingObject } from './engravingobject'
 import { Pid, PropertyFlags } from './property'
+import type { PaintOptions } from '../rendering/paintoptions'
 
 export const SUBSCRIPT_SIZE = 0.6
 export const SUBSCRIPT_OFFSET = 0.5 // of x-height
@@ -942,7 +943,7 @@ export abstract class TextBase extends EngravingItem {
     textStyleType(): TextStyleType { return this.m_textStyleType }
     setTextStyleType(id: TextStyleType): void { this.m_textStyleType = id }
 
-    textColor(): Color { return this.curColor() }
+    textColor(opt: PaintOptions = {}): Color { return this.curColor(opt) }
     frameType(): FrameType { return this.m_frameType }
     setFrameType(val: FrameType): void { this.m_frameType = val }
     textLineSpacing(): number { return this.m_textLineSpacing }

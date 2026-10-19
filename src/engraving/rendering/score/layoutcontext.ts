@@ -194,6 +194,9 @@ export class LayoutContext {
     constructor(private m_score: Score) {
         this.m_configuration = new LayoutConfiguration(m_score)
         this.m_dom = new DomAccessor(m_score)
+        if (m_score) {
+            this.m_state.setFirstSystemIndent(m_score.style().styleB(Sid.enableIndentationOnFirstSystem))
+        }
     }
 
     isValid(): boolean { return !!this.m_score }

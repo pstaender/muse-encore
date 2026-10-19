@@ -18,6 +18,7 @@ import { MeasureLayout } from './measurelayout'
 import { SystemLayout } from './systemlayout'
 import { PageLayout } from './pagelayout'
 import { HeaderFooterLayout } from './headerfooterlayout'
+import { TLayout } from './tlayout'
 
 export class ScoreLayout {
     static layoutRange(score: Score, st: Fraction, et: Fraction): void {
@@ -51,6 +52,11 @@ export class ScoreLayout {
             // TODO(port): ScoreHorizontalViewLayout / ScoreVerticalViewLayout
             ScorePageViewLayout.layoutPageView(score, ctx, stick, etick)
             break
+        }
+
+        // C++ ~LayoutContext()
+        for (const s of ctx.state().processedSpanners()) {
+            TLayout.layoutSystemsDone(s)
         }
     }
 

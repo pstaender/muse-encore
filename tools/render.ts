@@ -1,0 +1,42 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-only
+ * Renders all pages of a score to PNG files in node.
+ *
+ * usage: npm run render -- <file.mscz|mscx> <out-prefix> [dpi]
+ *   writes <out-prefix>-<page>.png (page numbers start at 1, like MuseScore's export)
+ */
+import { readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createCanvas } from '@napi-rs/canvas'
+import { drawPage, initEngravingFonts, layoutScore, loadScore, pageCount, pageSize } from '../src/index'
+
+const FONTS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'fonts')
+
+export async function renderScore(file: string, outPrefix: string, dpi = 100): Promise<string[]> {
+    await initEngravingFonts(async (p) => readFileSync(join(FONTS_DIR, p)))
+    const score = loadScore(readFileSync(file))
+    layoutScore(score)
+    const out: string[] = []
+    for (let i = 0; i < pageCount(score); ++i) {
+        const size = pageSize(score, i)
+        // same rounding as MuseScore's PngWriter (std::lrint)
+        const canvas = createCanvas(Math.round(size.width * dpi), Math.round(size.height * dpi))
+        const ctx = canvas.getContext('2d')
+        drawPage(score, i, ctx as never, { dpi })
+        const name = `${outPrefix}-${i + 1}.png`
+        writeFileSync(name, canvas.toBuffer('image/png'))
+        out.push(name)
+    }
+    return out
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+    const [file, outPrefix, dpi] = process.argv.slice(2)
+    if (!file || !outPrefix) {
+        console.error('usage: npm run render -- <file.mscz> <out-prefix> [dpi]')
+        process.exit(1)
+    }
+    const files = await renderScore(file, outPrefix, dpi ? Number(dpi) : 100)
+    console.log(files.join('\n'))
+}

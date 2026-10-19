@@ -19,12 +19,20 @@ import { FillRule, PainterPath } from './types/painterpath'
 import { Transform } from './types/transform'
 import type { FontProvider } from './internal/fontprovider'
 
+/** clip region "background minus rects" (QPainter clip path set by Painter::setMask), in coordinates of `transform` */
+export interface PaintMask {
+    background: RectF
+    rects: RectF[]
+    transform: Transform
+}
+
 export interface PaintState {
     transform: Transform
     pen: Pen
     brush: Brush
     font: Font
     antialiasing: boolean
+    mask: PaintMask | null
 }
 
 export interface IPaintProvider {
@@ -46,6 +54,7 @@ export class Painter {
             brush: new Brush(Color.BLACK, BrushStyle.NoBrush),
             font: new Font(),
             antialiasing: true,
+            mask: null,
         }]
     }
 
@@ -107,6 +116,7 @@ export class Painter {
             brush: s.brush.clone(),
             font: s.font.clone(),
             antialiasing: s.antialiasing,
+            mask: s.mask,
         })
     }
 
@@ -268,6 +278,12 @@ export class Painter {
         this.setBrush(brush instanceof Brush ? brush : new Brush(brush))
         this.drawRect(rect)
         this.restore()
+    }
+
+    setMask(background: RectF, maskRects: readonly RectF[]): void {
+        this.st.mask = maskRects.length
+            ? { background: background.clone(), rects: maskRects.map(r => r.clone()), transform: this.st.transform.clone() }
+            : null
     }
 
     hasClipping(): boolean { return this.m_clip !== null }
