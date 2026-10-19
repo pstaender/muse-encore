@@ -231,6 +231,25 @@ export class Chord extends ChordRest {
 
     notes(): Note[] { return this.m_notes }
 
+    allElementsInvisible(): boolean {
+        for (const child of this.children()) {
+            if ((child as EngravingItem).visible()) {
+                return false
+            }
+        }
+        for (const grace of this.graceNotes()) {
+            if (!grace.allElementsInvisible()) {
+                return false
+            }
+        }
+        return true
+    }
+
+    slash(): boolean {
+        const n = this.upNote()
+        return n.fixed()
+    }
+
     upNote(): Note {
         let result = this.m_notes[this.m_notes.length - 1]
         const stf = this.staff()

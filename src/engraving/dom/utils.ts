@@ -8,7 +8,7 @@
 
 import { Fraction } from '../types/fraction'
 import { SymId, type SymIdList } from '../types/symid'
-import { ClefType, Key, TimeSigStyle } from '../types/types'
+import { ClefType, Key, TimeSigStyle, VOICES, type staff_idx_t, type track_idx_t } from '../types/types'
 import { ClefInfo } from './clefinfo'
 import {
     MIN_PITCH, PITCH_DELTA_OCTAVE, Prefer, STEP_DELTA_OCTAVE, clampPitch, pitch2tpc, tpc2pitch, tpc2step,
@@ -18,6 +18,7 @@ import { SegmentType, type Segment } from './segment'
 import type { Chord } from './chord'
 import type { ChordRest } from './chordrest'
 import type { Note } from './note'
+import type { Rest } from './rest'
 
 const PTAB: number[][] = [
     //   c  d  e  f  g   a  b
@@ -319,4 +320,59 @@ export function searchTieNote(note: Note | null, nextSegment: Segment | null = n
         }
     }
     return note2
+}
+
+export function collectChordsAndRest(segment: Segment | null, staffIdx: staff_idx_t, chords: Chord[], rests: Rest[]): void {
+    if (!segment) {
+        return
+    }
+    const startTrack = staffIdx * VOICES
+    const endTrack = startTrack + VOICES
+    for (let track = startTrack; track < endTrack; ++track) {
+        const e = segment.element(track)
+        if (!e) {
+            continue
+        }
+        if (e.isChord() && !(e as Chord).staffMove()) {
+            chords.push(e as Chord)
+        } else if (e.isRest() && !(e as Rest).staffMove() && !(e as Rest).isFullMeasureRest()) {
+            rests.push(e as Rest)
+        }
+    }
+}
+
+export function collectChordsOverlappingRests(segment: Segment, staffIdx: staff_idx_t, chords: Chord[]): void {
+    // Check if previous segments contain chords in other voices
+    // whose duration overlaps with rests on this segment
+    const startTrack = staffIdx * VOICES
+    const endTrack = startTrack + VOICES
+
+    const tracksToCheck = new Set<track_idx_t>()
+    for (let track = startTrack; track < endTrack; ++track) {
+        const item = segment.element(track)
+        if (!item || !item.isRest()) {
+            tracksToCheck.add(track)
+        }
+    }
+    const sortedTracks = [...tracksToCheck].sort((a, b) => a - b)
+
+    const curTick = segment.rtick()
+    for (let prevSeg = segment.prev(); prevSeg; prevSeg = prevSeg.prev()) {
+        if (!prevSeg.isChordRestType()) {
+            continue
+        }
+        const prevSegTick = prevSeg.rtick()
+        for (const track of sortedTracks) {
+            const e = prevSeg.element(track)
+            if (!e || !e.isChord()) {
+                continue
+            }
+            const chord = e as Chord
+            const chordEndTick = prevSegTick.plus(chord.actualTicks())
+            if (chordEndTick.le(curTick)) {
+                continue
+            }
+            chords.push(chord)
+        }
+    }
 }

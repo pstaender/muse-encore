@@ -103,6 +103,12 @@ export class Factory {
         }
     }
 
+    static createStemSlash(parent: Chord): StemSlash {
+        const s = new StemSlash(parent)
+        s.setScore(parent.score())
+        return s
+    }
+
     static createStaff(part: Part): Staff {
         const s = new Staff(part)
         s.setScore(part.score())

@@ -66,6 +66,22 @@ export enum DisplayFretOption {
     ArtificialHarmonic,
 }
 
+// LINE ATTACHMENT POINT
+// Represents the attachment point of any line (tie, slur, glissando...)
+// with respect to the note. Each note can hold a vector of line attach points, which
+// it may use to make spacing decision with the surrounding items.
+export class LineAttachPoint {
+    private m_pos: PointF
+
+    constructor(private m_line: EngravingItem, x: number, y: number, private m_start: boolean) {
+        this.m_pos = new PointF(x, y)
+    }
+
+    line(): EngravingItem { return this.m_line }
+    pos(): PointF { return this.m_pos.clone() }
+    start(): boolean { return this.m_start }
+}
+
 export class NoteLayoutData extends LayoutData {
     useTablature = false
     cachedNoteheadSym: SymId = SymId.noSym // use in draw to avoid recomputing at every update
@@ -80,6 +96,7 @@ export class Note extends EngravingItem {
     private m_isTrillCueNote = false
     private m_hidden = false // marks this note as the hidden one if there are overlapping notes
     private m_dotsHidden = false
+    private m_lineAttachPoints: LineAttachPoint[] = []
     private m_fretConflict = false
     private m_isSmall = false
     private m_play = true
@@ -811,6 +828,22 @@ export class Note extends EngravingItem {
     setOnTimeType(v: number): void { this.m_onTimeType = v }
     offTimeType(): number { return this.m_offTimeType }
     onTimeType(): number { return this.m_onTimeType }
+
+    lineAttachPoints(): LineAttachPoint[] { return this.m_lineAttachPoints }
+    addStartLineAttachPoint(point: PointF, line: EngravingItem): void { this.addLineAttachPoint(point, line, true) }
+    addEndLineAttachPoint(point: PointF, line: EngravingItem): void { this.addLineAttachPoint(point, line, false) }
+
+    private addLineAttachPoint(point: PointF, line: EngravingItem, start: boolean): void {
+        // IMPORTANT: the point is expected in *staff* coordinates
+        // We transform into note coordinates by subtracting the note position in staff coordinates
+        point = point.minus(this.posInStaffCoordinates())
+        this.m_lineAttachPoints.push(new LineAttachPoint(line, point.x(), point.y(), start))
+    }
+
+    stringOrLine(): number {
+        // The number string() returns doesn't count spaces.  This should be used where it is expected even numbers are spaces and odd are lines
+        return this.staff()!.staffType(this.tick()).isTabStaff() ? this.string() * 2 : this.line()
+    }
 
     dot(n: number): NoteDot { return this.m_dots[n] }
     dots(): NoteDot[] { return this.m_dots }

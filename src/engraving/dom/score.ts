@@ -560,17 +560,132 @@ export class Score extends EngravingObject {
     override getProperty(_pid: Pid): PropertyValue { return undefined }
     override setProperty(_pid: Pid, _v: PropertyValue): boolean { return false }
 
-    addElement(e: EngravingItem): void {
-        const parent = e.parentItem()
+    addElement(element: EngravingItem): void {
+        const parent = element.parentItem()
+        const et = element.type()
+        if (et === ElementType.MEASURE
+            || (et === ElementType.HBOX && !(parent && parent.isVBox()))
+            || et === ElementType.VBOX
+            || et === ElementType.TBOX
+            || et === ElementType.FBOX) {
+            this.measures().add(element as unknown as MeasureBase)
+            return
+        }
         if (parent) {
-            parent.add(e)
+            parent.add(element)
+        }
+        switch (et) {
+        case ElementType.BEAM: {
+            const b = element as unknown as { elements(): ChordRest[] }
+            for (const cr of b.elements()) {
+                cr.setBeam(element as never)
+            }
+            break
+        }
+        case ElementType.SLUR:
+        case ElementType.HAMMER_ON_PULL_OFF:
+        case ElementType.VOLTA:
+        case ElementType.TRILL:
+        case ElementType.VIBRATO:
+        case ElementType.PEDAL:
+        case ElementType.TEXTLINE:
+        case ElementType.HAIRPIN:
+        case ElementType.LET_RING:
+        case ElementType.GRADUAL_TEMPO_CHANGE:
+        case ElementType.PALM_MUTE:
+        case ElementType.WHAMMY_BAR:
+        case ElementType.RASGUEADO:
+        case ElementType.HARMONIC_MARK:
+        case ElementType.PICK_SCRAPE:
+        case ElementType.PARTIAL_LYRICSLINE:
+        case ElementType.OTTAVA: {
+            const spanner = element as unknown as Spanner
+            if (et === ElementType.TEXTLINE && spanner.anchor() === 3 /* Spanner::Anchor::NOTE */) {
+                break
+            }
+            this.addSpanner(spanner)
+            for (const ss of spanner.spannerSegments()) {
+                if (ss.system()) {
+                    ss.system()!.add(ss)
+                }
+            }
+            // TODO(port): Ottava -> staff()->updateOttava()
+            break
+        }
+        case ElementType.CHORD: {
+            const tick = element.tick()
+            for (const s of this.m_spanner.findOverlapping(tick.ticks(), tick.ticks())) {
+                if (s.track() !== element.track() || !s.isSlur()) {
+                    continue
+                }
+                if (!s.startElement() && s.tick().eq(tick)) {
+                    s.setStartElement(element)
+                }
+                if (!s.endElement() && s.tick2().eq(tick)) {
+                    s.setEndElement(element)
+                }
+            }
+            break
+        }
+        default:
+            break
         }
     }
 
-    removeElement(e: EngravingItem): void {
-        const parent = e.parentItem()
+    removeElement(element: EngravingItem): void {
+        let parent = element.parentItem()
+        const et = element.type()
+        const parentIsVBox = !!parent && parent.isVBox()
+        if (et === ElementType.MEASURE
+            || (et === ElementType.HBOX && !parentIsVBox)
+            || et === ElementType.VBOX
+            || et === ElementType.TBOX
+            || et === ElementType.FBOX) {
+            // TODO(port): remove measure from its system/page
+            this.measures().remove(element as unknown as MeasureBase)
+            return
+        }
+        if (et === ElementType.BEAM) { // beam parent does not survive layout
+            element.resetExplicitParent()
+            parent = null
+        }
         if (parent) {
-            parent.remove(e)
+            parent.remove(element)
+        }
+        switch (et) {
+        case ElementType.BEAM:
+            for (const cr of (element as unknown as { elements(): ChordRest[] }).elements()) {
+                cr.setBeam(null)
+            }
+            break
+        case ElementType.SLUR:
+        case ElementType.HAMMER_ON_PULL_OFF:
+        case ElementType.VOLTA:
+        case ElementType.TRILL:
+        case ElementType.VIBRATO:
+        case ElementType.PEDAL:
+        case ElementType.LET_RING:
+        case ElementType.GRADUAL_TEMPO_CHANGE:
+        case ElementType.PALM_MUTE:
+        case ElementType.WHAMMY_BAR:
+        case ElementType.RASGUEADO:
+        case ElementType.HARMONIC_MARK:
+        case ElementType.PICK_SCRAPE:
+        case ElementType.TEXTLINE:
+        case ElementType.HAIRPIN:
+        case ElementType.PARTIAL_LYRICSLINE:
+        case ElementType.OTTAVA: {
+            const s = element as unknown as Spanner
+            this.removeSpanner(s)
+            for (const ss of s.spannerSegments()) {
+                if (ss.system()) {
+                    ss.system()!.remove(ss)
+                }
+            }
+            break
+        }
+        default:
+            break
         }
     }
 }

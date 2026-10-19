@@ -25,6 +25,7 @@ export class Spatium {
     toAbsolute(spatium: number): number { return this.m_val * spatium }
 
     static fromAbsolute(abs: number, spatium: number): Spatium { return new Spatium(abs / spatium) }
+    static fromMM(mm: number, spatium: number): Spatium { return new Spatium(mm / spatium) }
 
     toString(): string { return `${this.m_val}sp` }
 }
