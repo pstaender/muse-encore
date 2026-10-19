@@ -587,3 +587,44 @@ export function convertNote(s: string, noteSpelling: NoteSpellingType, noteCaseI
     }
     return { tpc: spellings[r * 5 + alter + 2], noteCase, idx }
 }
+
+const PITCH_BY_STEP_AND_KEY: readonly number[][] = [
+    // step  C   D   E   F   G   A   B           Key
+    [-1, 1, 3, 4, 6, 8, 10], // Cb
+    [-1, 1, 3, 5, 6, 8, 10], // Gb
+    [0, 1, 3, 5, 6, 8, 10], // Db
+    [0, 1, 3, 5, 7, 8, 10], // Ab
+    [0, 2, 3, 5, 7, 8, 10], // Eb
+    [0, 2, 3, 5, 7, 9, 10], // B
+    [0, 2, 4, 5, 7, 9, 10], // F
+    [0, 2, 4, 5, 7, 9, 11], // C
+    [0, 2, 4, 6, 7, 9, 11], // G
+    [1, 2, 4, 6, 7, 9, 11], // D
+    [1, 2, 4, 6, 8, 9, 11], // A
+    [1, 3, 4, 6, 8, 9, 11], // E
+    [1, 3, 4, 6, 8, 10, 11], // H
+    [1, 3, 5, 6, 8, 10, 11], // F#
+    [1, 3, 5, 6, 8, 10, 12], // C#
+]
+
+export function step2deltaPitchByKey(step: number, key: Key): number {
+    while (step < MIN_STEP) {
+        step += STEP_DELTA_OCTAVE
+    }
+    return PITCH_BY_STEP_AND_KEY[clampKey(key) - Key.MIN][step % STEP_DELTA_OCTAVE]
+}
+
+export function absStep2pitchByKey(step: number, key: Key): number {
+    // sanitize input data
+    if (step < MIN_STEP) {
+        step += STEP_DELTA_OCTAVE
+    }
+    if (step > MAX_STEP) {
+        step -= STEP_DELTA_OCTAVE
+    }
+    key = clampKey(key)
+
+    const octave = Math.trunc(step / STEP_DELTA_OCTAVE)
+    const deltaPitch = step2deltaPitchByKey(step % STEP_DELTA_OCTAVE, key)
+    return octave * PITCH_DELTA_OCTAVE + deltaPitch
+}

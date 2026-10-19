@@ -1069,7 +1069,14 @@ export class Segment extends EngravingItem {
             shape.add(art.shape().translated(art.pos().plus(chord.pos())))
             // TODO(port): tapping half slurs
         }
-        // TODO(port): ornament cue note chords
+
+        const ornament = chord.findOrnament() as unknown as { cueNoteChord(): Chord | null } | null
+        if (ornament) {
+            const cueNoteChord = ornament.cueNoteChord()
+            if (cueNoteChord && cueNoteChord.upNote().addToSkyline()) {
+                shape.add(cueNoteChord.shape().translate(cueNoteChord.pos().plus(cueNoteChord.staffOffset())))
+            }
+        }
     }
 
     minRight(): number {

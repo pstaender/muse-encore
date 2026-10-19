@@ -47,6 +47,7 @@ import { Autoplace } from './autoplace'
 import { SystemLayout } from './systemlayout'
 import { TabDurationSymbol } from '../../dom/tabdurationsymbol'
 import { TablatureSymbolRepeat } from '../../dom/stafftype'
+import type { Ornament } from '../../dom/ornament'
 
 export class ChordPosInfo {
     chords: Chord[] = []
@@ -1908,7 +1909,12 @@ export class ChordLayout {
 
         layoutSegmentElements(segment, partStartTrack, partEndTrack, staffIdx, ctx)
 
-        // TODO(port): ornament cue notes
+        for (const chord of posInfo.chords) {
+            const ornament = chord.findOrnament() as Ornament | null
+            if (ornament && ornament.showCueNote()) {
+                TLayout.layoutOrnamentCueNote(ornament, ctx)
+            }
+        }
     }
 
     // ---------------------------------------------------------

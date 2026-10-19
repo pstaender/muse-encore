@@ -70,6 +70,7 @@ import { Jump } from './jump'
 import { Parenthesis } from './parenthesis'
 import { Harmony } from './harmony'
 import { FretDiagram } from './fret'
+import { Ornament, ornamentFactories } from './ornament'
 
 type Parent = EngravingObject | null
 
@@ -107,6 +108,7 @@ export class Factory {
         case ElementType.TIE: return new Tie(itemOrDummy())
         case ElementType.SPACER: return new Spacer(measureOrDummy())
         case ElementType.PARENTHESIS: return new Parenthesis(itemOrDummy())
+        case ElementType.ORNAMENT: return new Ornament(chordOrDummy())
         case ElementType.HARMONY: return new Harmony(segmentOrDummy())
         case ElementType.FRET_DIAGRAM: return new FretDiagram(segmentOrDummy())
         case ElementType.MARKER: return new Marker(measureOrDummy())
@@ -192,3 +194,5 @@ export class Factory {
         return Factory.createItem(type, parent)
     }
 }
+
+ornamentFactories.createChord = (parent: Segment): Chord => new Chord(parent)

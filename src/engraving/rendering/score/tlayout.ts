@@ -18,7 +18,7 @@ import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
     StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff, SpannerSegmentType, LineType, PlacementV,
-    HookType, TextPlace, Align, BeamMode, Orientation } from '../../types/types'
+    HookType, TextPlace, Align, BeamMode, Orientation, staff2track } from '../../types/types'
 import { SymNames } from '../../types/symnames'
 import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull } from '../../../framework/global/realfn'
 import { Pid } from '../../dom/property'
@@ -109,6 +109,9 @@ import type { Parenthesis } from '../../dom/parenthesis'
 import { HarmonyLayout } from './harmonylayout'
 import { ParenthesisLayout } from './parenthesislayout'
 import { FingeringItem, type FretDiagram } from '../../dom/fret'
+import type { Ornament } from '../../dom/ornament'
+import { AccidentalsLayout } from './accidentalslayout'
+import type { ChordRest } from '../../dom/chordrest'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -183,6 +186,7 @@ export class TLayout {
         switch (item.type()) {
         case ElementType.ACCIDENTAL: TLayout.layoutAccidental(item as Accidental, ctx); break
         case ElementType.ARTICULATION: TLayout.layoutArticulation(item as Articulation, ctx); break
+        case ElementType.ORNAMENT: TLayout.layoutOrnament(item as Ornament, ctx); break
         case ElementType.BAR_LINE: TLayout.layoutBarLine(item as BarLine, ctx); break
         case ElementType.BEAM: TLayout.layoutBeam(item as Beam, ctx); break
         case ElementType.HBOX: TLayout.layoutHBox(item as HBox, ctx); break
@@ -1537,6 +1541,89 @@ export class TLayout {
         }
 
         ldata.setShape(shape)
+    }
+
+    static layoutOrnament(item: Ornament, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        ldata.setShape(new Shape())
+
+        TLayout.layoutArticulation(item, ctx)
+
+        const _spatium = item.spatium()
+        const vertMargin = 0.35 * _spatium
+        const ornamentAccidentalMag = 0.6 // TODO: style?
+
+        const accidentals = item.accidentalsAboveAndBelow()
+        for (let i = 0; i < accidentals.length; ++i) {
+            const above = (i === 0)
+            const accidental = accidentals[i]
+            if (!accidental) {
+                continue
+            }
+            const accLData = accidental.mutldata()
+
+            accidental.computeMag()
+
+            accLData.setMag(accLData.mag() * ornamentAccidentalMag)
+            accLData.syms = [] // Invalidate
+            TLayout.layoutAccidental(accidental, ctx)
+            const accidentalShape = accidental.shape()
+            const minVertDist = above
+                ? accidentalShape.minVerticalDistance(new Shape(ldata.bbox()))
+                : new Shape(ldata.bbox()).minVerticalDistance(accidentalShape)
+
+            accLData.setPos(-0.5 * accLData.bbox().width() + 0.5 * ldata.bbox().width(),
+                above ? (-minVertDist - vertMargin) : (minVertDist + vertMargin))
+        }
+
+        const sh = new Shape(undefined, undefined, ShapeType.Composite)
+        sh.add(ldata.bbox(), item) // from Articulation
+        for (const accidental of accidentals) {
+            if (accidental && accidental.visible()) {
+                sh.add(accidental.shape().translate(accidental.pos()))
+            }
+        }
+
+        ldata.setShape(sh)
+    }
+
+    static layoutOrnamentCueNote(item: Ornament, ctx: LayoutContext): void {
+        if (!item.explicitParent()) {
+            return
+        }
+
+        const parentChord = item.parentItem() as Chord
+        const cueNoteChord = item.cueNoteChord()
+
+        if (!cueNoteChord) {
+            return
+        }
+
+        const notes = cueNoteChord.notes()
+        const cueNote = notes.length === 0 ? null : notes[0]
+
+        if (!cueNote) {
+            return
+        }
+
+        ChordLayout.layoutChords3([cueNoteChord], [cueNote], item.staff()!, ctx)
+        ChordLayout.layoutLedgerLines([cueNoteChord], ctx)
+        AccidentalsLayout.layoutAccidentals([cueNoteChord], ctx)
+        TLayout.layoutChord(cueNoteChord, ctx)
+
+        const noteShape = cueNoteChord.shape()
+        const parentChordShape = parentChord.shape()
+        let minDist = HorizontalSpacing.minHorizontalDistance(parentChordShape, noteShape, parentChord.spatium())
+        // Check for possible other chords in same segment
+        const startStaff = staff2track(parentChord.staffIdx())
+        for (let staff = startStaff; staff < startStaff + VOICES; ++staff) {
+            const segment = parentChord.segment()!
+            const cr = segment.element(staff) as ChordRest | null
+            if (cr) {
+                minDist = Math.max(minDist, HorizontalSpacing.minHorizontalDistance(cr.shape(), noteShape, cr.spatium()))
+            }
+        }
+        cueNoteChord.mutldata().setPosX(minDist)
     }
 
     static layoutArticulation(item: Articulation, ctx: LayoutContext): void {

@@ -23,7 +23,7 @@ import {
     LineType, LyricsSyllabic, NoteHeadGroup, NoteHeadScheme, NoteHeadType, Orientation, OrnamentStyle, PartialSpannerDirection,
     PlacementH, PlacementV, PreferSharpFlat, SlurStyleType, StaffGroup, TextPlace, TextStyleType, TiePlacement,
     VeloType, VoiceAssignment, AccidentalRole, DynamicType, AutoCustomHide, MarkerType, GlissandoType,
-    ElementType, ParenthesesMode, type track_idx_t,
+    ElementType, OrnamentInterval, ParenthesesMode, type track_idx_t,
     ChangeMethod, DynamicSpeed, SpannerSegmentType, VOICES,
 } from '../../types/types'
 import { Constants } from '../../types/constants'
@@ -106,6 +106,7 @@ import { HDegree, HDegreeType } from '../../dom/chordlist'
 import type { Parenthesis } from '../../dom/parenthesis'
 import type { NoteCaseType } from '../../dom/pitchspelling'
 import { FretItem, FretMarkerType, type FretDiagram } from '../../dom/fret'
+import type { Ornament } from '../../dom/ornament'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -217,6 +218,7 @@ export class TRead {
         case P_TYPE.COLOR: return e.readColor()
         case P_TYPE.ORNAMENT_STYLE: return TConv.fromXmlOrnamentStyle(e.readAsciiText(), OrnamentStyle.DEFAULT)
         case P_TYPE.ORNAMENT_SHOW_ACCIDENTAL: return e.readInt()
+        case P_TYPE.ORNAMENT_INTERVAL: return TConv.fromXmlOrnamentInterval(e.readText(), new OrnamentInterval())
         case P_TYPE.POINT: return e.readPoint()
         case P_TYPE.SCALE: return e.readScale()
         case P_TYPE.SIZE: return e.readSize()
@@ -263,7 +265,7 @@ export class TRead {
         case P_TYPE.AUTO_CUSTOM_HIDE: return TConv.fromXmlAutoCustomHide(e.readAsciiText(), AutoCustomHide.AUTO)
         case P_TYPE.MARKER_TYPE: return TConv.fromXmlMarkerType(e.readAsciiText(), MarkerType.USER)
         default:
-            // TODO(port): ORNAMENT_INTERVAL, PLAYTECH_TYPE, TEMPOCHANGE_TYPE, CHANGE_METHOD
+            // TODO(port): PLAYTECH_TYPE, TEMPOCHANGE_TYPE, CHANGE_METHOD
             return e.readText()
         }
     }
@@ -2012,8 +2014,13 @@ export class TRead {
             atr.setTrack(ch.track())
             TRead.readArticulation(atr, e, ctx)
             ch.add(atr)
-        } else if (tag === 'Ornament' || tag === 'Tapping') {
-            e.skipCurrentElement() // TODO(port): ornaments, tapping
+        } else if (tag === 'Ornament') {
+            const ornament = Factory.createItem(ElementType.ORNAMENT, ch) as Ornament
+            ornament.setTrack(ch.track())
+            TRead.readOrnament(ornament, e, ctx)
+            ch.add(ornament)
+        } else if (tag === 'Tapping') {
+            e.skipCurrentElement() // TODO(port): tapping
         } else if (tag === 'leadingSpace' || tag === 'trailingSpace') {
             e.skipCurrentElement()
         } else if (tag === 'small') {
@@ -2211,6 +2218,14 @@ export class TRead {
 
     static readArticulation(a: Articulation, xml: XmlReader, ctx: ReadContext): void {
         while (xml.readNextStartElement()) {
+            if (!TRead.readArticulationProperties(a, xml, ctx)) {
+                xml.unknown()
+            }
+        }
+    }
+
+    static readArticulationProperties(a: Articulation, xml: XmlReader, ctx: ReadContext): boolean {
+        {
             const tag = xml.name()
             if (tag === 'subtype') {
                 const s = xml.readAsciiText()
@@ -2234,9 +2249,50 @@ export class TRead {
             } else if (tag === 'offset') {
                 TRead.readItemProperties(a, xml, ctx)
             } else if (!TRead.readItemProperties(a, xml, ctx)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    static readOrnament(o: Ornament, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            if (!TRead.readOrnamentProperties(o, xml, ctx)) {
                 xml.unknown()
             }
         }
+    }
+
+    static readOrnamentProperties(o: Ornament, xml: XmlReader, ctx: ReadContext): boolean {
+        const tag = xml.name()
+        if (TRead.readPropertyIfTag(o, tag, xml, ctx, Pid.INTERVAL_ABOVE)) {
+        } else if (TRead.readPropertyIfTag(o, tag, xml, ctx, Pid.INTERVAL_BELOW)) {
+        } else if (TRead.readPropertyIfTag(o, tag, xml, ctx, Pid.ORNAMENT_SHOW_ACCIDENTAL)) {
+        } else if (TRead.readPropertyIfTag(o, tag, xml, ctx, Pid.ORNAMENT_SHOW_CUE_NOTE)) {
+        } else if (TRead.readPropertyIfTag(o, tag, xml, ctx, Pid.START_ON_UPPER_NOTE)) {
+        } else if (TRead.readArticulationProperties(o, xml, ctx)) {
+        } else if (tag === 'Accidental') {
+            const accidental = Factory.createItem(ElementType.ACCIDENTAL, o) as Accidental
+            TRead.readAccidental(accidental, xml, ctx)
+            accidental.setTrack(ctx.track())
+            accidental.setParent(o)
+            if (accidental.placement() === PlacementV.ABOVE) {
+                o.setAccidentalAbove(accidental)
+            } else {
+                o.setAccidentalBelow(accidental)
+            }
+        } else if (tag === 'Chord') {
+            const chord = Factory.createItem(ElementType.CHORD, ctx.score()) as Chord
+            TRead.readChord(chord, xml, ctx)
+            chord.setTrack(ctx.track())
+            chord.setIsTrillCueNote(true)
+            o.setCueNoteChord(chord)
+            o.setNoteAbove(chord.notes()[0])
+            // TODO(port): CompatUtils::doMigrateNoteParens (note parentheses)
+        } else {
+            return false
+        }
+        return true
     }
 
     static readLyrics(l: Lyrics, e: XmlReader, ctx: ReadContext): void {

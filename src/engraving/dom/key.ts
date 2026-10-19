@@ -190,6 +190,13 @@ export class AccidentalState {
     private m_state = new Uint8Array(MAX_ACC_STATE)
     private m_forceRestateAccidental: boolean[] = new Array(MAX_ACC_STATE).fill(false)
 
+    clone(): AccidentalState {
+        const s = new AccidentalState()
+        s.m_state = this.m_state.slice()
+        s.m_forceRestateAccidental = [...this.m_forceRestateAccidental]
+        return s
+    }
+
     init(key: Key | KeySigEvent): void {
         if (key instanceof KeySigEvent) {
             this.initKey(key.key())

@@ -23,7 +23,10 @@ import { EngravingItem, ElementFlag, LayoutData } from './engravingitem'
 import { Pid } from './property'
 import { Interval } from './interval'
 import { NOTE_HEADS } from './noteheadsdata'
-import { Prefer, Tpc, pitch2tpc, tpc2alter, tpc2alterByKey, tpc2degree, tpc2pitch, tpc2stepName, tpcIsValid } from './pitchspelling'
+import {
+    Prefer, STEP_DELTA_OCTAVE, TPC_DELTA_SEMITONE, Tpc, absStep2pitchByKey, clampEnharmonic, clampPitch, pitch2absStepByKey, pitch2tpc,
+    pitchIsValid, step2tpcByKey, tpc2alter, tpc2alterByKey, tpc2degree, tpc2pitch, tpc2stepName, tpcIsValid,
+} from './pitchspelling'
 import { absStep, relStep } from './utils'
 import type { NoteType } from './chordrest'
 import type { Chord } from './chord'
@@ -420,6 +423,70 @@ export class Note extends EngravingItem {
         this.m_pitch = val
     }
 
+    /** C++ Note::transposeDiatonic() (TODO(port): undo) */
+    transposeDiatonic(interval: number, keepAlterations: boolean, useDoubleAccidentals: boolean): boolean {
+        // compute note current absolute step
+        const tick = this.chord().segment()!.tick()
+        const key = this.staff() ? this.staff()!.key(tick) : Key.C
+        const [absStep, alter] = pitch2absStepByKey(this.epitch(), this.tpc(), key)
+
+        // get pitch and tcp corresponding to unaltered degree for this key
+        let newPitch = absStep2pitchByKey(absStep + interval, key)
+        let newTpc = step2tpcByKey((absStep + interval) % STEP_DELTA_OCTAVE, key)
+
+        if (!pitchIsValid(newPitch)) {
+            return false
+        }
+
+        // if required, transfer original degree alteration to new pitch and tpc
+        if (keepAlterations) {
+            newPitch += alter
+            newTpc += alter * TPC_DELTA_SEMITONE
+        }
+
+        // transpose appropriately
+        let newTpc1: number
+        let newTpc2: number
+        const v = this.staff() ? this.staff()!.transpose(tick).clone() : new Interval(0, 0)
+        if (this.concertPitch()) {
+            v.flip()
+            newTpc1 = clampEnharmonic(newTpc, useDoubleAccidentals)
+            newTpc2 = Transpose.transposeTpc(newTpc, v, useDoubleAccidentals)
+        } else {
+            newPitch += v.chromatic
+            newTpc1 = Transpose.transposeTpc(newTpc, v, useDoubleAccidentals)
+            newTpc2 = clampEnharmonic(newTpc, useDoubleAccidentals)
+        }
+
+        // check pitch is in range
+        newPitch = clampPitch(newPitch, true)
+
+        // store new data
+        this.setPitch(newPitch, newTpc1, newTpc2)
+        return true
+    }
+
+    /** C++ Note::transpose() (TODO(port): undo) */
+    transpose(interval: Interval, useDoubleSharpsFlats: boolean): boolean {
+        const npitch = this.pitch() + interval.chromatic
+        if (!pitchIsValid(npitch)) {
+            return false
+        }
+        const ntpc1 = Transpose.transposeTpc(this.tpc1(), interval, useDoubleSharpsFlats)
+        let ntpc2 = ntpc1
+        if (this.transposition()) {
+            if (this.staff()) {
+                const v = this.staff()!.transpose(this.tick()).clone()
+                v.flip()
+                ntpc2 = Transpose.transposeTpc(ntpc1, v, useDoubleSharpsFlats)
+            } else {
+                ntpc2 = Transpose.transposeTpc(this.tpc2(), interval, useDoubleSharpsFlats)
+            }
+        }
+        this.setPitch(npitch, ntpc1, ntpc2)
+        return true
+    }
+
     centOffset(): number { return this.m_centOffset }
     setCentOffset(v: number): void { this.m_centOffset = v }
     quarterToneOffset(): number { return Math.round(this.m_centOffset / 50) }
@@ -499,6 +566,28 @@ export class Note extends EngravingItem {
 
     accidental(): Accidental | null { return this.m_accidental }
     setAccidental(a: Accidental | null): void { this.m_accidental = a }
+
+    accidentalType(): AccidentalType {
+        return this.m_accidental ? this.m_accidental.accidentalType() : noteFactories.accidental!.NONE
+    }
+
+    /** C++ calls Score::changeAccidental() (TODO(port): editing; only sets or removes the accidental here) */
+    setAccidentalType(type: AccidentalType): void {
+        if (type === noteFactories.accidental!.NONE) {
+            if (this.m_accidental) {
+                this.remove(this.m_accidental)
+            }
+            return
+        }
+        if (!this.m_accidental) {
+            const a = noteFactories.createAccidental!(this)
+            a.setParent(this)
+            a.setTrack(this.track())
+            this.add(a)
+        }
+        this.m_accidental!.setAccidentalType(type)
+        this.m_accidental!.setRole(AccidentalRole.USER)
+    }
 
     hasAnotherStraightAboveOrBelow(above: boolean): boolean {
         const chord = this.chord()

@@ -614,7 +614,13 @@ export class Chord extends ChordRest {
                     }
                     note.updateAccidental(as)
                 }
-                // TODO(port): ornaments computeNotesAboveAndBelow
+                for (const art of this.m_articulations) {
+                    if (!art.isOrnament()) {
+                        continue
+                    }
+                    (art as unknown as { computeNotesAboveAndBelow(as: AccidentalState): void }).computeNotesAboveAndBelow(as)
+                }
+                // TODO(port): ornaments of trills (startingSpanners)
                 this.sortNotes()
             }
             for (const ch of [...this.graceNotesAfter()]) {
@@ -654,6 +660,7 @@ export class Chord extends ChordRest {
     isPreBendOrGraceBendStart(): boolean { return false }
     isGraceBendEnd(): boolean { return false }
     isTrillCueNote(): boolean { return this.m_isTrillCueNote }
+    setIsTrillCueNote(v: boolean): void { this.m_isTrillCueNote = v }
 
     override setTrack(val: track_idx_t): void {
         super.setTrack(val)

@@ -69,7 +69,9 @@ export class TDraw {
         switch (item.type()) {
         case ElementType.ACCIDENTAL: TDraw.drawAccidental(item as Accidental, painter, opt)
             break
-        case ElementType.ARTICULATION: TDraw.drawArticulation(item as Articulation, painter, opt)
+        case ElementType.ARTICULATION:
+        case ElementType.ORNAMENT:
+            TDraw.drawArticulation(item as Articulation, painter, opt)
             break
         case ElementType.BAR_LINE: TDraw.drawBarLine(item as BarLine, painter, opt)
             break
