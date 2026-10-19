@@ -10,10 +10,13 @@
  * with opentype.js, so layout is identical in the browser and in node.
  */
 
-import * as opentype from 'opentype.js'
+import * as opentypeNs from 'opentype.js'
 import { PointF, RectF } from '../types/geometry'
 import { Font, FontType } from '../types/font'
 import { PainterPath } from '../types/painterpath'
+
+// node resolves the CommonJS build, where the API is on the default export
+const opentype: typeof opentypeNs = (opentypeNs as unknown as { default?: typeof opentypeNs }).default ?? opentypeNs
 
 /** Same as mu::engraving::DPI */
 const ENGRAVING_DPI = 1200
@@ -23,7 +26,7 @@ interface FaceEntry {
     family: string
     bold: boolean
     italic: boolean
-    otf: opentype.Font
+    otf: opentypeNs.Font
     glyphPaths: Map<number, PainterPath>   // in font units, y down
     glyphBBoxes: Map<number, RectF>        // in font units, y down
 }
@@ -287,7 +290,7 @@ export class FontProvider {
         const scale = this.scale(face, f)
         const otf = face.otf
         const isSymbol = f.type() === FontType.MusicSymbol
-        let glyphs: opentype.Glyph[]
+        let glyphs: opentypeNs.Glyph[]
         if (isSymbol) {
             glyphs = Array.from(text).map(ch => otf.glyphs.get(otf.charToGlyphIndex(ch)))
         } else {

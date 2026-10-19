@@ -33,6 +33,7 @@ import type { AccidentalState } from './key'
 import type { Spanner } from './spanner'
 import type { Tie } from './tie'
 import type { TablatureMinimStyle } from './stafftype'
+import type { Drumset } from './drumset'
 
 /** factories registered by the corresponding modules (avoid runtime import cycles) */
 export const chordFactories: {
@@ -614,7 +615,8 @@ export class Chord extends ChordRest {
                 ch.sortNotes()
             }
         } else if (staffGroup === StaffGroup.PERCUSSION) {
-            // TODO(port): updatePercussionNotes (drumset)
+            const instrument = this.part()!.instrument(this.tick())
+            updatePercussionNotes(this, instrument.drumset())
             this.sortNotes()
         }
     }
@@ -1071,4 +1073,24 @@ export function prevChordRest(cr: ChordRest | null, skipGrace = false): ChordRes
         }
     }
     return null
+}
+
+/** dom/utils.cpp updatePercussionNotes */
+export function updatePercussionNotes(c: Chord, drumset: Drumset | null): void {
+    for (const ch of c.graceNotes()) {
+        updatePercussionNotes(ch, drumset)
+    }
+    for (const note of [...c.notes()]) {
+        if (!drumset) {
+            note.setLine(0)
+        } else {
+            const pitch = note.pitch()
+            if (!drumset.isValid(pitch)) {
+                note.setLine(0)
+            } else if (!note.fixed()) {
+                note.undoChangeProperty(Pid.HEAD_GROUP, drumset.noteHead(pitch))
+                note.setLine(drumset.line(pitch))
+            }
+        }
+    }
 }

@@ -5,11 +5,12 @@
  *
  * Port of src/engraving/rendering/score/segmentlayout.h/.cpp
  *
- * TODO(port): drumsets (layoutChordDrumset), ambitus
+ * TODO(port): ambitus
  */
 
 import type { track_idx_t } from '../../types/types'
 import { Sid } from '../../style/styledef'
+import { Pid } from '../../dom/property'
 import { SegmentType, type Segment } from '../../dom/segment'
 import type { BarLine } from '../../dom/barline'
 import type { Chord } from '../../dom/chord'
@@ -91,13 +92,48 @@ export class SegmentLayout {
         }
     }
 
-    static layoutChordDrumset(staff: Staff, segment: Segment, _startTrack: track_idx_t, _endTrack: track_idx_t,
-                              _conf: LayoutConfiguration): void {
+    static layoutChordDrumset(staff: Staff, segment: Segment, startTrack: track_idx_t, endTrack: track_idx_t,
+                              conf: LayoutConfiguration): void {
         const ins = staff.part().instrument(segment.tick())
         if (!ins.useDrumset()) {
             return
         }
-        // TODO(port): drumsets
+        const drumset = ins.drumset()
+        if (!drumset) {
+            return
+        }
+
+        const st = staff.staffTypeForElement(segment)
+
+        const layoutDrumset = (c: Chord, spatium: number): void => {
+            for (const note of c.notes()) {
+                const pitch = note.pitch()
+                if (!drumset.isValid(pitch)) {
+                    // LOGD("unmapped drum note %d", pitch);
+                } else if (!note.fixed()) {
+                    note.undoChangeProperty(Pid.HEAD_GROUP, drumset.noteHead(pitch))
+                    const line = drumset.line(pitch)
+                    note.setLine(line)
+
+                    const off = st.stepOffset()
+                    const ld = st.lineDistance().val()
+                    note.mutldata().setPosY((line + off * 2.0) * spatium * 0.5 * ld)
+                }
+            }
+        }
+
+        const spatium = conf.spatium()
+        for (let t = startTrack; t < endTrack; ++t) {
+            const e = segment.element(t)
+            if (!e || !e.isChord()) { // maybe Rest
+                continue
+            }
+            const chord = e as Chord
+            for (const c of chord.graceNotes()) {
+                layoutDrumset(c, spatium)
+            }
+            layoutDrumset(chord, spatium)
+        }
     }
 
     static computeChordsUp(segment: Segment, startTrack: track_idx_t, endTrack: track_idx_t, ctx: LayoutContext): void {

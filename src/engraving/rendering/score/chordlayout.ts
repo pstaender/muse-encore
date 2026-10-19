@@ -2483,9 +2483,9 @@ export class ChordLayout {
     }
 }
 
-// Chord::combineVoice is a static C++ method
+// static Chord::combineVoice(c1, c2) (named combineVoices in TS, Chord.combineVoice() is the property getter)
 function Chord_combineVoice(c1: Chord, c2: Chord): boolean {
-    return (c1.constructor as unknown as { combineVoice(a: Chord, b: Chord): boolean }).combineVoice(c1, c2)
+    return c1.shouldCombineVoice() && c2.shouldCombineVoice()
 }
 
 export enum ArticulationStemSideAlign {

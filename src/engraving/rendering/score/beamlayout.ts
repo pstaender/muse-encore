@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/beamlayout.h/.cpp
  *
- * TODO(port): drum staves (drumset stem directions), tremolos
+ * TODO(port): tremolos
  */
 
 import { LineF, PointF } from '../../../framework/draw/types/geometry'
@@ -157,7 +157,6 @@ export class BeamLayout {
         }
 
         if (item.staff()!.isDrumStaff(item.tick())) {
-            // TODO(port): drumset stem directions
             if (item.direction() !== DirectionV.AUTO) {
                 item.setUp(item.direction() === DirectionV.UP)
             } else if (item.isGrace()) {
@@ -177,7 +176,10 @@ export class BeamLayout {
                         break
                     }
                     if (firstChord) {
-                        firstUp = chord.up()
+                        const staff = item.staff()
+                        const part = staff ? staff.part() : null
+                        const ds = part ? part.instrument(item.tick()).drumset() : null
+                        firstUp = ds ? ds.stemDirection(chord.upNote().pitch()) === DirectionV.UP : chord.up()
                         firstChord = false
                     }
                     item.setUp(firstUp)

@@ -11,6 +11,7 @@ import { SortedMap } from '../../framework/global/sortedmap'
 import { ClefType } from '../types/types'
 import { ClefTypeList } from './clefinfo'
 import { Interval } from './interval'
+import { type Drumset, smDrumset } from './drumset'
 
 export class StaffName {
     constructor(private m_name = '', private m_pos = 0) {} // html string; even number -> between staves
@@ -41,7 +42,8 @@ export class Instrument {
     private m_instrumentId = ''
     private m_musicXmlId = ''
     private m_soundId = ''
-    // TODO(port): Drumset, StringData, channels, articulations
+    private m_drumset: Drumset | null = null
+    // TODO(port): StringData, channels, articulations
 
     constructor(private m_id = '') {}
 
@@ -84,7 +86,24 @@ export class Instrument {
     setTranspose(v: Interval): void { this.m_transpose = v }
 
     useDrumset(): boolean { return this.m_useDrumset }
-    setUseDrumset(v: boolean): void { this.m_useDrumset = v }
+    setUseDrumset(val: boolean): void {
+        this.m_useDrumset = val
+        if (val && !this.m_drumset) {
+            this.m_drumset = smDrumset().clone()
+        }
+    }
+
+    drumset(): Drumset | null { return this.m_drumset }
+
+    setDrumset(ds: Drumset | null): void {
+        if (ds) {
+            this.m_useDrumset = true
+            this.m_drumset = ds.clone()
+        } else {
+            this.m_useDrumset = false
+            this.m_drumset = null
+        }
+    }
 
     clefType(staffIdx: number): ClefTypeList {
         if (staffIdx >= this.m_clefType.length) {

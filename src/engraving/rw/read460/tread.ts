@@ -78,6 +78,7 @@ import type { XmlReader } from '../xmlreader'
 import type { ReadContext } from './readcontext'
 import { ConnectorInfoReader } from './connectorinforeader'
 import { scoreDummy } from '../../compat/dummyelement'
+import { smDrumset } from '../../dom/drumset'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -404,18 +405,20 @@ export class TRead {
     }
 
     static readInstrument(item: Instrument, e: XmlReader, ctx: ReadContext, part: Part): void {
+        const customDrumset = { value: false }
         item.setId(e.attribute('id'))
         while (e.readNextStartElement()) {
             const tag = e.name()
             if (tag === 'singleNoteDynamics') {
                 e.skipCurrentElement()
-            } else if (!TRead.readInstrumentProperties(item, e, ctx, part)) {
+            } else if (!TRead.readInstrumentProperties(item, e, ctx, part, customDrumset)) {
                 e.unknown()
             }
         }
     }
 
-    static readInstrumentProperties(item: Instrument, e: XmlReader, _ctx: ReadContext, _part: Part): boolean {
+    static readInstrumentProperties(item: Instrument, e: XmlReader, _ctx: ReadContext, _part: Part,
+                                    customDrumset: { value: boolean }): boolean {
         const tag = e.name()
         if (tag === 'soundId') {
             item.setSoundId(e.readText())
@@ -449,8 +452,24 @@ export class TRead {
             item.setMusicXmlId(e.readText())
         } else if (tag === 'useDrumset') {
             item.setUseDrumset(e.readInt() !== 0)
-            // TODO(port): drumsets
-        } else if (tag === 'Drum' || tag === 'percussionPanelColumns' || tag === 'Tablature' || tag === 'StringData'
+            if (item.useDrumset()) {
+                item.setDrumset(smDrumset())
+            }
+        } else if (tag === 'Drum' || tag === 'percussionPanelColumns') {
+            // if we see one of these tags, a custom drumset will be created
+            if (!item.drumset()) {
+                item.setDrumset(smDrumset())
+            }
+            if (!customDrumset.value) {
+                item.drumset()!.clear()
+                customDrumset.value = true
+            }
+            if (tag === 'Drum') {
+                item.drumset()!.loadDrum(e)
+            } else {
+                item.drumset()!.setPercussionPanelColumns(e.readInt())
+            }
+        } else if (tag === 'Tablature' || tag === 'StringData'
                    || tag === 'MidiAction' || tag === 'Articulation' || tag === 'Channel' || tag === 'channel') {
             // TODO(port): drumsets, string data, MIDI data
             e.skipCurrentElement()

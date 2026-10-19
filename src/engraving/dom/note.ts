@@ -281,7 +281,10 @@ export class Note extends EngravingItem {
         if (this.m_headGroup === NoteHeadGroup.HEAD_CUSTOM) {
             if (st) {
                 if (st.staffTypeForElement(ch!).isDrumStaff()) {
-                    // TODO(port): drumset noteheads
+                    const d = st.part().instrument(ch!.tick()).drumset()
+                    if (d) {
+                        return d.noteHeads(this.m_pitch, ht)
+                    }
                     return Note.noteHeadSym(up, NoteHeadGroup.HEAD_NORMAL, ht)
                 }
                 headGroup = NoteHeadGroup.HEAD_NORMAL
