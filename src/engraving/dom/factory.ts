@@ -45,6 +45,7 @@ import { Stem } from './stem'
 import { StemSlash } from './stemslash'
 import { Symbol } from './symbol'
 import { Text } from './text'
+import { System } from './system'
 import { Tie, TieSegment } from './tie'
 import { TimeSig } from './timesig'
 import { Tuplet } from './tuplet'
@@ -101,6 +102,18 @@ export class Factory {
             // TODO(port): element type not ported yet
             return null
         }
+    }
+
+    static createSystem(parent: EngravingItem): System {
+        const s = new System(parent)
+        s.setScore(parent.score())
+        return s
+    }
+
+    static createBracket(parent: EngravingItem): Bracket {
+        const b = new Bracket(parent)
+        b.setScore(parent.score())
+        return b
     }
 
     static createBeam(parent: EngravingItem): Beam {

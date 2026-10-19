@@ -11,7 +11,7 @@
  */
 
 import { LineF, PointF, RectF, SizeF } from '../../../framework/draw/types/geometry'
-import { PainterPath } from '../../../framework/draw/painterpath'
+import { PainterPath } from '../../../framework/draw/types/painterpath'
 import type { Color } from '../../../framework/draw/types/color'
 import { FontMetrics } from '../../../framework/draw/fontmetrics'
 import { Fraction } from '../../types/fraction'
@@ -756,6 +756,14 @@ export class TLayout {
         if (isTabStaff) {
             ChordLayout.layoutStem(parent, ctx)
         }
+    }
+
+    static layoutGraceNotesGroup2(item: GraceNotesGroup): void {
+        const shape = new Shape(undefined, null, ShapeType.Composite)
+        for (const grace of item) {
+            shape.add(grace.shape().translate(grace.pos().minus(item.pos())))
+        }
+        item.mutldata().setShape(shape)
     }
 
     static layoutHook(item: Hook, _ctx: LayoutContext): void {
