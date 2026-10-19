@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/lyricslayout.h/.cpp
  *
- * TODO(port): partial lyrics lines, repeat structure (segmentsAreAdjacent, jumps)
+ * TODO(port): partial lyrics lines
  */
 
 import { PointF } from '../../../framework/draw/types/geometry'
@@ -27,6 +27,7 @@ import { Shape } from '../../infrastructure/shape'
 import { SegmentType, type Segment } from '../../dom/segment'
 import type { Chord } from '../../dom/chord'
 import { LyricsLine, type LyricsLineSegment } from '../../dom/lyricsline'
+import { segmentsAreAdjacent } from '../../dom/utils'
 
 class LyricsVerse {
     private m_lyrics: Lyrics[] = []
@@ -40,19 +41,6 @@ class LyricsVerse {
 
 /** C++ Lyrics::TEMP_MELISMA_TICKS */
 const TEMP_MELISMA_TICKS = Fraction.eps()
-
-/**
- * dom/utils.cpp segmentsAreAdjacent()
- * TODO(port): repeat list; without it, segments are adjacent if they are in the same or in consecutive measures
- */
-function segmentsAreAdjacent(firstSeg: Segment | null, secondSeg: Segment | null): boolean {
-    if (!firstSeg || !secondSeg) {
-        return false
-    }
-    const firstMeasure = firstSeg.measure()
-    const secondMeasure = secondSeg.measure()
-    return firstMeasure === secondMeasure || firstMeasure.nextMeasure() === secondMeasure
-}
 
 /** dom/utils.cpp searchNextLyrics() */
 function searchNextLyrics(s: Segment | null, staffIdx: staff_idx_t, verse: number, p: PlacementV): Lyrics | null {
@@ -99,14 +87,6 @@ function maxVerse(m: LyricsVersesMap): number {
         }
     }
     return max
-}
-
-/**
- * ChordRest::hasFollowingJumpItem()
- * TODO(port): repeat structure (findFollowingRepeatMeasures is not ported, so there are no jumps)
- */
-function hasFollowingJumpItem(_cr: ChordRest): boolean {
-    return false
 }
 
 const isLetter = (c: string): boolean => /\p{L}/u.test(c)
@@ -253,7 +233,7 @@ export class LyricsLayout {
             }
             if (item.nextLyrics()) {
                 endTick = item.nextLyrics()!.tick()
-            } else if (endCR && hasFollowingJumpItem(endCR)) {
+            } else if (endCR && endCR.hasFollowingJumpItem()) {
                 endTick = endCR.tick()
             }
             item.setTick2(endTick)
@@ -317,7 +297,7 @@ export class LyricsLayout {
         // When the end element is a timetick segment rather than a chordrest, the start element should be a chord with a following repeat
         const startEl = lyricsLine.startElement()
         const startCR = startEl && startEl.isChordRest() ? startEl as ChordRest : null
-        const hasFollowingJump = endCR ? hasFollowingJumpItem(endCR) : (startCR ? hasFollowingJumpItem(startCR) : false)
+        const hasFollowingJump = endCR ? endCR.hasFollowingJumpItem() : (startCR ? startCR.hasFollowingJumpItem() : false)
 
         if (!endLyrics && !hasFollowingJump) {
             return
@@ -557,7 +537,7 @@ export class LyricsLayout {
         const systemPageX = system.pageX()
         const style = item.style()
         const melisma = lyricsLine.isEndMelisma()
-        const hasFollowingJump = !!endChordRest && hasFollowingJumpItem(endChordRest)
+        const hasFollowingJump = !!endChordRest && endChordRest.hasFollowingJumpItem()
 
         if (!melisma && !endLyrics && !hasFollowingJump) {
             return 0.0

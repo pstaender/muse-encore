@@ -19,16 +19,8 @@ import type { Measure } from '../../dom/measure'
 import type { DomAccessor, LayoutContext } from './layoutcontext'
 import { ChordLayout } from './chordlayout'
 import type { Trill } from '../../dom/trill'
-import { absStep } from '../../dom/utils'
+import { absStep, findFollowingRepeatMeasures } from '../../dom/utils'
 import { OrnamentShowAccidental } from '../../types/types'
-
-/**
- * C++ findFollowingRepeatMeasures() (dom/utils.cpp) needs the unwound repeat list.
- * TODO(port): RepeatList
- */
-export function findFollowingRepeatMeasures(_measure: Measure): Measure[] {
-    return []
-}
 
 export class ModifyDom {
     static setCrossMeasure(measure: Measure, ctx: LayoutContext): void {

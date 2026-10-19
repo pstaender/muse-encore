@@ -20,6 +20,7 @@ import type { Beam } from './beam'
 import type { Lyrics } from './lyrics'
 import type { Chord } from './chord'
 import type { TabDurationSymbol } from './tabdurationsymbol'
+import { findFollowingRepeatMeasures, findPreviousRepeatMeasures } from './utils'
 
 /** C++ renderer() calls from the DOM; set by the layout module */
 export const chordRestRenderer: {
@@ -356,6 +357,31 @@ export abstract class ChordRest extends DurationElement {
         if (this.m_tabDur) {
             func(this.m_tabDur)
         }
+    }
+
+    hasFollowingJumpItem(): boolean {
+        const seg = this.segment()
+        const measure = seg ? seg.measure() : null
+        if (!measure) {
+            return false
+        }
+
+        if (!this.endTick().eq(measure.endTick())) {
+            return false
+        }
+
+        return findFollowingRepeatMeasures(measure).length > 0
+    }
+
+    hasPrecedingJumpItem(): boolean {
+        const seg = this.segment()!
+        const measure = seg.measure()
+
+        if (!this.tick().eq(measure.tick())) {
+            return false
+        }
+
+        return findPreviousRepeatMeasures(measure).length > 0
     }
 
     protected override onCloned(original: this): void {

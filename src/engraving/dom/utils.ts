@@ -19,6 +19,7 @@ import type { Chord } from './chord'
 import type { ChordRest } from './chordrest'
 import type { Note } from './note'
 import type { Rest } from './rest'
+import type { Measure } from './measure'
 
 const PTAB: number[][] = [
     //   c  d  e  f  g   a  b
@@ -228,7 +229,7 @@ export function skipTuplet(tuplet: Tuplet): Segment {
 //    search Note to tie to "note"
 // ---------------------------------------------------------
 
-export function searchTieNote(note: Note | null, nextSegment: Segment | null = null): Note | null {
+export function searchTieNote(note: Note | null, nextSegment: Segment | null = null, disableOverRepeats = true): Note | null {
     if (!note) {
         return null
     }
@@ -244,7 +245,10 @@ export function searchTieNote(note: Note | null, nextSegment: Segment | null = n
     if (!nextSegment) {
         return null
     }
-    // TODO(port): disableOverRepeats (segmentsAreAdjacent)
+
+    if (disableOverRepeats && !segmentsAreAdjacent(seg, nextSegment)) {
+        return null
+    }
 
     if (chord.isGraceBefore()) {
         chord = chord.explicitParent() as unknown as Chord
@@ -375,4 +379,133 @@ export function collectChordsOverlappingRests(segment: Segment, staffIdx: staff_
             chords.push(chord)
         }
     }
+}
+
+export function findFollowingRepeatMeasures(measure: Measure): Measure[] {
+    const master = measure.masterScore()
+    const score = measure.score()
+
+    const masterMeasure = master.tick2measure(measure.tick())
+
+    const repeatList = master.repeatList(true, false)
+
+    const measures: Measure[] = []
+
+    for (let i = 0; i < repeatList.length; i++) {
+        const rs = repeatList[i]
+        if (!rs.endsWithMeasure(masterMeasure) || i + 1 === repeatList.length) {
+            continue
+        }
+
+        // Get next segment
+        const nextSeg = repeatList[i + 1]
+        const firstMasterMeasure = nextSeg.firstMeasure()
+        const firstMeasure = firstMasterMeasure ? score.tick2measure(firstMasterMeasure.tick()) : null
+        if (!firstMeasure) {
+            continue
+        }
+
+        measures.push(firstMeasure)
+    }
+
+    return measures
+}
+
+export function findPreviousRepeatMeasures(measure: Measure): Measure[] {
+    const master = measure.masterScore()
+    const score = measure.score()
+
+    const masterMeasure = master.tick2measure(measure.tick())
+
+    const repeatList = master.repeatList(true, false)
+
+    const measures: Measure[] = []
+
+    for (let i = 1; i < repeatList.length; i++) {
+        const rs = repeatList[i]
+        if (!rs.startsWithMeasure(masterMeasure)) {
+            continue
+        }
+
+        // Get next segment
+        const prevSeg = repeatList[i - 1]
+        const lastMasterMeasure = prevSeg.lastMeasure()
+        const lastMeasure = lastMasterMeasure ? score.tick2measure(lastMasterMeasure.tick()) : null
+        if (!lastMeasure) {
+            continue
+        }
+
+        measures.push(lastMeasure)
+    }
+
+    return measures
+}
+
+export function segmentsAreAdjacent(firstSeg: Segment | null, secondSeg: Segment | null): boolean {
+    if (!firstSeg || !secondSeg) {
+        return false
+    }
+    const master = firstSeg.masterScore()
+
+    const firstMeasure = firstSeg.measure()
+    const secondMeasure = secondSeg.measure()
+
+    if (firstMeasure === secondMeasure) {
+        return true
+    }
+
+    const firstMasterMeasure = master.tick2measure(firstMeasure.tick())
+    const secondMasterMeasure = master.tick2measure(secondMeasure.tick())
+
+    if (!firstMasterMeasure || !secondMasterMeasure) {
+        return false
+    }
+
+    const repeatList = firstSeg.score().masterScore().repeatList(true, false)
+
+    const measures: Measure[] = []
+
+    let firstMeasureSegmentFound = false
+    let secondMeasureSegmentFound = false
+
+    for (let i = 0; i < repeatList.length; i++) {
+        const rs = repeatList[i]
+
+        // Check if measures are in the same repeat segment
+        const containsFirstMeasure = rs.containsMeasure(firstMasterMeasure)
+        const containsSecondMeasure = rs.containsMeasure(secondMasterMeasure)
+        firstMeasureSegmentFound ||= containsFirstMeasure
+        secondMeasureSegmentFound ||= containsSecondMeasure
+
+        if (containsFirstMeasure && containsSecondMeasure) {
+            return true
+        }
+
+        // Continue to build list of measures at the start of following repeat segments
+        if (!rs.endsWithMeasure(firstMasterMeasure) || i + 1 === repeatList.length) {
+            continue
+        }
+
+        // Get next segment
+        const nextSegFirstMeasure = repeatList[i + 1].firstMeasure()
+        if (!nextSegFirstMeasure) {
+            continue
+        }
+
+        measures.push(nextSegFirstMeasure)
+    }
+
+    // Check if second segment is in a following measure in the repeat structure
+    for (const m of measures) {
+        if (m === secondMasterMeasure) {
+            return true
+        }
+    }
+
+    if (!firstMeasureSegmentFound && !secondMeasureSegmentFound) {
+        // The measures are outside of the (invalid) repeat structure
+        return firstMasterMeasure.nextMeasure() === secondMasterMeasure
+    }
+
+    return false
 }

@@ -12,7 +12,8 @@
 import { LineF, PointF, type ScaleF } from '../../../framework/draw/types/geometry'
 import { Fraction } from '../../types/fraction'
 import {
-    AlignH, BarLineType, DurationType, ElementType, Key, MeasureNumberPlacement, VOICES, staff2track, track2staff, type staff_idx_t,
+    AlignH, BarLineType, DirectionH, DurationType, ElementType, Key, MeasureNumberPlacement, ParenthesesMode, TimeSigPlacement, VOICES,
+    staff2track, track2staff, type staff_idx_t, type track_idx_t,
 } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { Factory } from '../../dom/factory'
@@ -45,6 +46,9 @@ import type { TextBase } from '../../dom/textbase'
 import { ArpeggioLayout } from './arpeggiolayout'
 import type { Arpeggio } from '../../dom/arpeggio'
 import { TremoloLayout } from './tremololayout'
+import { ParenthesisLayout } from './parenthesislayout'
+import type { Parenthesis } from '../../dom/parenthesis'
+import { findFollowingRepeatMeasures } from '../../dom/utils'
 
 interface MeasureStartEndPos {
     x1: number
@@ -1729,11 +1733,27 @@ export class MeasureLayout {
     static setRepeatCourtesiesAndParens(m: Measure, ctx: LayoutContext): void {
         const showCourtesyRepeats = m.repeatEnd() && ctx.conf().styleB(Sid.showCourtesiesRepeats)
         const showCourtesyOtherJumps = m.repeatJump() && ctx.conf().styleB(Sid.showCourtesiesOtherJumps)
-        if (showCourtesyRepeats || showCourtesyOtherJumps) {
+
+        if (showCourtesyRepeats) {
             MeasureLayout.addRepeatCourtesies(m, ctx)
-            // TODO(port): addRepeatCourtesyParentheses / removeRepeatCourtesyParenthesesMeasure
+            if (ctx.conf().styleB(Sid.useParensRepeatCourtesies)) {
+                MeasureLayout.addRepeatCourtesyParentheses(m, false, ctx)
+            } else {
+                MeasureLayout.removeRepeatCourtesyParenthesesMeasure(m, false, ctx)
+            }
         }
+
+        if (showCourtesyOtherJumps) {
+            MeasureLayout.addRepeatCourtesies(m, ctx)
+            if (ctx.conf().styleB(Sid.useParensOtherJumpCourtesies)) {
+                MeasureLayout.addRepeatCourtesyParentheses(m, false, ctx)
+            } else {
+                MeasureLayout.removeRepeatCourtesyParenthesesMeasure(m, false, ctx)
+            }
+        }
+
         if (!showCourtesyRepeats && !showCourtesyOtherJumps) {
+            MeasureLayout.removeRepeatCourtesyParenthesesMeasure(m, false, ctx)
             MeasureLayout.removeRepeatCourtesies(m)
         }
 
@@ -1744,17 +1764,290 @@ export class MeasureLayout {
         const courtesiesAfterCancellingOtherJumps = !!prev && prev.repeatJump()
                                                     && ctx.conf().styleB(Sid.showCourtesiesAfterCancellingOtherJumps)
                                                     && ctx.conf().styleB(Sid.showCourtesiesOtherJumps)
-        if (courtesiesAfterCancellingRepeats || courtesiesAfterCancellingOtherJumps) {
+        if (courtesiesAfterCancellingRepeats) {
             MeasureLayout.addRepeatContinuationCourtesies(m, ctx)
+            if (ctx.conf().styleB(Sid.useParensRepeatCourtesiesAfterCancelling)) {
+                MeasureLayout.addRepeatCourtesyParentheses(m, true, ctx)
+            } else {
+                MeasureLayout.removeRepeatCourtesyParenthesesMeasure(m, true, ctx)
+            }
         }
+
+        if (courtesiesAfterCancellingOtherJumps) {
+            MeasureLayout.addRepeatContinuationCourtesies(m, ctx)
+            if (ctx.conf().styleB(Sid.useParensOtherJumpCourtesiesAfterCancelling)) {
+                MeasureLayout.addRepeatCourtesyParentheses(m, true, ctx)
+            } else {
+                MeasureLayout.removeRepeatCourtesyParenthesesMeasure(m, true, ctx)
+            }
+        }
+
         if (!courtesiesAfterCancellingRepeats && !courtesiesAfterCancellingOtherJumps) {
+            MeasureLayout.removeRepeatCourtesyParenthesesMeasure(m, true, ctx)
             MeasureLayout.removeRepeatContinuationCourtesies(m)
         }
     }
 
-    static addRepeatCourtesies(m: Measure, _ctx: LayoutContext): void {
-        // TODO(port): findFollowingRepeatMeasures() (repeat list)
-        MeasureLayout.removeRepeatCourtesies(m)
+    private static calcParenTopBottom(item: Parenthesis, tb: { top: number, bottom: number }, ctx: LayoutContext): void {
+        const parent = item.parentItem()
+        const spatium = item.spatium()
+        if (!parent) {
+            return
+        }
+
+        if (!parent.ldata().isValid()) {
+            TLayout.layoutItem(parent, ctx)
+        }
+
+        const bbox = parent.ldata().bbox()
+
+        tb.top = Math.min(tb.top, bbox.top() + parent.pos().y() + spatium / 4)
+        tb.bottom = Math.max(tb.bottom, bbox.bottom() + parent.pos().y() - spatium / 4)
+    }
+
+    static addRepeatCourtesyParentheses(m: Measure, continuation: boolean, ctx: LayoutContext): void {
+        const tsSegType = continuation ? SegmentType.TimeSigStartRepeatAnnounce : SegmentType.TimeSigRepeatAnnounce
+        const ksSegType = continuation ? SegmentType.KeySigStartRepeatAnnounce : SegmentType.KeySigRepeatAnnounce
+        const clefSegType = continuation ? SegmentType.ClefStartRepeatAnnounce : SegmentType.ClefRepeatAnnounce
+
+        const sigTick = continuation ? new Fraction(0, 1) : m.ticks()
+
+        const elShouldHaveParenthesis = (seg: Segment | null, track: track_idx_t): boolean => {
+            if (!seg || !seg.enabled() || track > ctx.dom().ntracks()) {
+                return false
+            }
+
+            const staff = ctx.dom().staff(track2staff(track))
+            if (!staff) {
+                return false
+            }
+            const st = staff.staffType(seg.tick())
+            const noTimesig = !!st && seg.isSegType(SegmentType.TimeSigType) && !st.genTimesig()
+            const noKeysig = !!st && seg.isSegType(SegmentType.KeySigType) && !st.genKeysig()
+            const noClef = !!st && seg.isSegType(SegmentType.ClefType) && !st.genClef()
+            if (noTimesig || noKeysig || noClef) {
+                return false
+            }
+
+            const el = seg.element(track)
+            return !!el && el.visible()
+        }
+
+        const timeSigShouldHaveOwnParentheses = (seg: Segment | null, track: track_idx_t): boolean => {
+            if (!elShouldHaveParenthesis(seg, track)) {
+                return false
+            }
+
+            const el = seg ? seg.element(track) : null
+            if (!el || !el.isTimeSig()) {
+                return false
+            }
+
+            return (ctx.conf().styleV(Sid.timeSigPlacement) as TimeSigPlacement) !== TimeSigPlacement.NORMAL
+        }
+
+        const createParenthesesForSegments = (leftSeg: Segment | null, rightSeg: Segment | null, track: track_idx_t): void => {
+            const tb = { top: Number.MAX_VALUE, bottom: -Number.MAX_VALUE }
+            const leftItem = leftSeg ? leftSeg.element(track) : null
+            const rightItem = rightSeg ? rightSeg.element(track) : null
+            let leftParen: Parenthesis | null = null
+            if (leftItem) {
+                leftItem.setParenthesesMode(leftItem.rightParen() ? ParenthesesMode.BOTH : ParenthesesMode.LEFT, true, true)
+                leftParen = leftItem.leftParen() as Parenthesis | null
+            }
+            let rightParen: Parenthesis | null = null
+            if (rightItem) {
+                rightItem.setParenthesesMode(rightItem.leftParen() ? ParenthesesMode.BOTH : ParenthesesMode.RIGHT, true, true)
+                rightParen = rightItem.rightParen() as Parenthesis | null
+            }
+            const needsBigTimeSigAdjust = !!leftSeg && !!rightSeg && leftSeg === rightSeg && leftSeg.isSegType(SegmentType.TimeSigType)
+                                          && (ctx.conf().styleV(Sid.timeSigPlacement) as TimeSigPlacement) !== TimeSigPlacement.NORMAL
+            if ((ctx.conf().styleB(Sid.smallParens) || needsBigTimeSigAdjust) && leftParen && rightParen) {
+                const spatium = leftParen.spatium()
+                MeasureLayout.calcParenTopBottom(leftParen, tb, ctx)
+                MeasureLayout.calcParenTopBottom(rightParen, tb, ctx)
+
+                let top = tb.top
+                let height = tb.bottom - tb.top
+
+                if (!ctx.conf().styleB(Sid.smallParens)) {
+                    top -= 1.25 * spatium
+                    height += 2.5 * spatium
+                }
+
+                const rl = rightParen.mutldata()
+                rl.startY = top
+                rl.height = height
+                rl.midPointThickness = height / 60 * rl.mag() // 0.1sp for a height of 6sp
+                const ll = leftParen.mutldata()
+                ll.startY = top
+                ll.height = height
+                ll.midPointThickness = height / 60 * ll.mag() // 0.1sp for a height of 6sp
+
+                const mag = Math.max(ll.mag(), rl.mag())
+                ll.setMag(mag)
+                rl.setMag(mag)
+            } else if (leftParen || rightParen) {
+                const staff = (leftParen ? leftParen.staff() : rightParen!.staff())!
+                const spatium = leftParen ? leftParen.spatium() : rightParen!.spatium()
+                const tick = leftParen ? leftParen.tick() : rightParen!.tick()
+                if (leftParen) {
+                    const ll = leftParen.mutldata()
+                    ll.startY = -spatium
+                    ll.height = staff.staffHeight(tick) + 2 * spatium * leftParen.mag()
+                    ll.midPointThickness = ll.height / 60 * ll.mag() // 0.1sp for a height of 6sp
+                }
+                if (rightParen) {
+                    const rl = rightParen.mutldata()
+                    rl.startY = -spatium
+                    rl.height = staff.staffHeight(tick) + 2 * spatium * rightParen.mag()
+                    rl.midPointThickness = rl.height / 60 * rl.mag() // 0.1sp for a height of 6sp
+                }
+            }
+
+            if (leftParen) {
+                ParenthesisLayout.layoutParentheses(leftItem!, ctx)
+            }
+
+            if (rightParen && rightItem !== leftItem) {
+                ParenthesisLayout.layoutParentheses(rightItem!, ctx)
+            }
+        }
+
+        for (let track = 0; track <= ctx.dom().nstaves() * VOICES; track += VOICES) {
+            const clefSeg = m.findSegmentR(clefSegType, sigTick)
+            const ksSeg = m.findSegmentR(ksSegType, sigTick)
+            const tsSeg = m.findSegmentR(tsSegType, sigTick)
+            const separateTsParens = timeSigShouldHaveOwnParentheses(tsSeg, track)
+
+            let leftMostSeg: Segment | null = clefSeg
+
+            if (!elShouldHaveParenthesis(leftMostSeg, track)) {
+                leftMostSeg = ksSeg
+            }
+
+            if (!separateTsParens && !elShouldHaveParenthesis(leftMostSeg, track)) {
+                leftMostSeg = tsSeg
+            }
+
+            if (!elShouldHaveParenthesis(leftMostSeg, track)) {
+                leftMostSeg = null
+            }
+
+            // Remove stale parentheses
+            for (const seg of [clefSeg, ksSeg, tsSeg]) {
+                if (seg === leftMostSeg || !seg || (seg === tsSeg && separateTsParens) || !seg.element(track)) {
+                    continue
+                }
+                MeasureLayout.removeRepeatCourtesyParenthesis(seg.element(track), DirectionH.LEFT)
+            }
+
+            let rightMostSeg: Segment | null = separateTsParens ? null : tsSeg
+
+            if (!elShouldHaveParenthesis(rightMostSeg, track)) {
+                rightMostSeg = ksSeg
+            }
+
+            if (!elShouldHaveParenthesis(rightMostSeg, track)) {
+                rightMostSeg = clefSeg
+            }
+
+            if (!elShouldHaveParenthesis(rightMostSeg, track)) {
+                rightMostSeg = null
+            }
+
+            // Remove stale parentheses
+            for (const seg of [clefSeg, ksSeg, tsSeg]) {
+                if (seg === rightMostSeg || !seg || (seg === tsSeg && separateTsParens) || !seg.element(track)) {
+                    continue
+                }
+                MeasureLayout.removeRepeatCourtesyParenthesis(seg.element(track), DirectionH.RIGHT)
+            }
+
+            createParenthesesForSegments(leftMostSeg, rightMostSeg, track)
+
+            if (separateTsParens) {
+                createParenthesesForSegments(tsSeg, tsSeg, track)
+            }
+        }
+    }
+
+    static removeRepeatCourtesyParenthesesMeasure(m: Measure, continuation: boolean, ctx: LayoutContext): void {
+        const tsSegType = continuation ? SegmentType.TimeSigStartRepeatAnnounce : SegmentType.TimeSigRepeatAnnounce
+        const ksSegType = continuation ? SegmentType.KeySigStartRepeatAnnounce : SegmentType.KeySigRepeatAnnounce
+        const clefSegType = continuation ? SegmentType.ClefStartRepeatAnnounce : SegmentType.ClefRepeatAnnounce
+
+        const sigTick = continuation ? new Fraction(0, 1) : m.ticks()
+
+        const clefSeg = m.findSegmentR(clefSegType, sigTick)
+        const ksSeg = m.findSegmentR(ksSegType, sigTick)
+        const tsSeg = m.findSegmentR(tsSegType, sigTick)
+
+        for (const seg of [clefSeg, ksSeg, tsSeg]) {
+            if (!seg) {
+                continue
+            }
+            for (let track = 0; track <= ctx.dom().nstaves() * VOICES; track += VOICES) {
+                const item = seg.element(track)
+                if (!item) {
+                    continue
+                }
+                MeasureLayout.removeRepeatCourtesyParenthesis(item)
+            }
+        }
+    }
+
+    static removeRepeatCourtesyParenthesis(item: EngravingItem | null, direction = DirectionH.AUTO): void {
+        if (!item) {
+            return
+        }
+        if (direction === DirectionH.AUTO) {
+            const leftParen = item.leftParen()
+            if (leftParen) {
+                item.remove(leftParen)
+            }
+            const rightParen = item.rightParen()
+            if (rightParen) {
+                item.remove(rightParen)
+            }
+            return
+        }
+
+        const paren = item.paren(direction === DirectionH.LEFT)
+        if (!paren) {
+            return
+        }
+
+        item.remove(paren)
+    }
+
+    static addRepeatCourtesies(m: Measure, ctx: LayoutContext): void {
+        const measures = findFollowingRepeatMeasures(m)
+        if (!measures.length) {
+            MeasureLayout.removeRepeatCourtesies(m)
+            return
+        }
+
+        let hasCourtesies = false
+        for (const repeatStartMeasure of measures) {
+            // Follow section break courtesy property
+            const prevMeasure = repeatStartMeasure.prevMeasure()
+            const sectionBreak = prevMeasure ? prevMeasure.sectionBreakElement() : null
+            const sectionBreakHideCourtesies = !!sectionBreak && !sectionBreak.showCourtesy()
+
+            if (repeatStartMeasure === m.nextMeasure() || sectionBreakHideCourtesies) {
+                continue
+            }
+            MeasureLayout.setCourtesyClef(m, repeatStartMeasure.tick(), m.endTick(), SegmentType.ClefRepeatAnnounce, ctx)
+            MeasureLayout.setCourtesyKeySig(m, repeatStartMeasure.tick(), m.endTick(), SegmentType.KeySigRepeatAnnounce, ctx)
+            MeasureLayout.setCourtesyTimeSig(m, repeatStartMeasure.tick(), m.endTick(), SegmentType.TimeSigRepeatAnnounce, ctx)
+
+            hasCourtesies = true
+        }
+
+        if (!hasCourtesies) {
+            MeasureLayout.removeRepeatCourtesies(m)
+        }
     }
 
     static removeRepeatCourtesies(m: Measure): void {

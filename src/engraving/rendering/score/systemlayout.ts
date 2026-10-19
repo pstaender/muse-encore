@@ -724,8 +724,100 @@ export class SystemLayout {
         if ((ctx.conf().styleV(Sid.timeSigPlacement) as TimeSigPlacement) !== TimeSigPlacement.ABOVE_STAVES) {
             return
         }
-        // TODO(port): time signatures above staves
-        void system
+
+        const nstaves = ctx.dom().nstaves()
+        const centerOnBarline = ctx.conf().styleB(Sid.timeSigCenterOnBarline)
+
+        for (const mb of system.measures()) {
+            if (!mb.isMeasure()) {
+                continue
+            }
+            const measure = mb as Measure
+            for (let seg = measure.first(); seg; seg = seg.next()) {
+                if (!seg.isSegType(SegmentType.TimeSigType)) {
+                    continue
+                }
+
+                const timeSigToKeep = new Set<TimeSig>()
+                for (let staffIdx = 0; staffIdx < nstaves; ++staffIdx) {
+                    const timeSig = seg.element(staff2track(staffIdx)) as TimeSig | null
+                    if (!timeSig || !timeSig.showOnThisStaff()) {
+                        continue
+                    }
+
+                    timeSigToKeep.add(timeSig)
+                    if (system.staff(staffIdx)!.show()) {
+                        continue
+                    }
+
+                    const nextVisStaff = system.nextVisibleStaff(staffIdx)
+                    if (nextVisStaff === nidx) {
+                        continue
+                    }
+
+                    const nextVisTimeSig = seg.element(staff2track(nextVisStaff)) as TimeSig | null
+                    if (nextVisTimeSig) {
+                        timeSigToKeep.add(nextVisTimeSig)
+                    }
+                }
+
+                let prevBarlineSeg: Segment | null = null
+                let prevRepeatAnnounceTimeSigSeg: Segment | null = null
+                if (centerOnBarline) {
+                    for (let prevSeg = seg.prev1(); prevSeg && prevSeg.tick().eq(seg.tick()); prevSeg = prevSeg.prev1()) {
+                        if (prevSeg.isEndBarLineType()) {
+                            prevBarlineSeg = prevSeg
+                        } else if (prevSeg.isTimeSigRepeatAnnounceType()) {
+                            prevRepeatAnnounceTimeSigSeg = prevSeg
+                        }
+                    }
+                }
+
+                for (let staffIdx = 0; staffIdx < nstaves; ++staffIdx) {
+                    const timeSig = seg.element(staff2track(staffIdx)) as TimeSig | null
+                    if (!timeSig) {
+                        continue
+                    }
+                    const leftParen = timeSig.leftParen()
+                    const rightParen = timeSig.rightParen()
+                    if (!timeSigToKeep.has(timeSig)) {
+                        timeSig.mutldata().reset() // Eliminates the shape
+                        if (leftParen) {
+                            leftParen.mutldata().reset()
+                        }
+                        if (rightParen) {
+                            rightParen.mutldata().reset()
+                        }
+                        continue
+                    }
+
+                    if (prevBarlineSeg && prevBarlineSeg.system() === system && !prevRepeatAnnounceTimeSigSeg) {
+                        // Center timeSig on its segment
+                        const bbox = timeSig.ldata().bbox()
+                        const newXPos = -0.5 * (bbox.right() + bbox.left())
+                        timeSig.mutldata().setPosX(newXPos)
+                    } else if (!seg.isTimeSigRepeatAnnounceType()) {
+                        // Left-align to parenthesis if present
+                        if (leftParen) {
+                            const xLeftParens = leftParen.x() + leftParen.ldata().bbox().left()
+                            timeSig.mutldata().moveX(-xLeftParens)
+                        }
+                    } else {
+                        // TimeSigRepeatAnnounce: right-align to segment
+                        let xRight = timeSig.shape().right() + timeSig.x()
+                        if (leftParen) {
+                            xRight = Math.max(xRight, leftParen.ldata().bbox().right() + leftParen.x())
+                        }
+                        if (rightParen) {
+                            xRight = Math.max(xRight, rightParen.ldata().bbox().right() + rightParen.x())
+                        }
+                        timeSig.mutldata().moveX(-xRight)
+                    }
+                }
+
+                seg.createShapes()
+            }
+        }
     }
 
     private static clearBigTimeSigNotShown(system: System, ctx: LayoutContext): void {
@@ -2882,8 +2974,47 @@ export class SystemLayout {
         mmRest.mutldata().yNumberPos += yDiff
     }
 
-    static centerBigTimeSigsAcrossStaves(_system: System): void {
-        // TODO(port): time signatures across staves
+    static centerBigTimeSigsAcrossStaves(system: System): void {
+        const nstaves = system.score().nstaves()
+        for (const mb of system.measures()) {
+            if (!mb.isMeasure()) {
+                continue
+            }
+            for (let segment = (mb as Measure).first(); segment; segment = segment.next()) {
+                if (!segment.isSegType(SegmentType.TimeSigType)) {
+                    continue
+                }
+                for (let staffIdx = 0; staffIdx < nstaves; ++staffIdx) {
+                    const timeSig = segment.element(staff2track(staffIdx)) as TimeSig | null
+                    if (!timeSig || !timeSig.showOnThisStaff()) {
+                        continue
+                    }
+                    const thisStaffIdx = timeSig.effectiveStaffIdx()
+                    if (thisStaffIdx === nidx) {
+                        continue
+                    }
+                    let nextStaffIdx = thisStaffIdx
+                    for (let idx = thisStaffIdx + 1; idx < nstaves; ++idx) {
+                        const nextTimeSig = segment.element(staff2track(idx)) as TimeSig | null
+                        if (nextTimeSig && nextTimeSig.showOnThisStaff()) {
+                            const nextTimeSigStave = nextTimeSig.effectiveStaffIdx()
+                            if (nextTimeSigStave !== nidx) {
+                                nextStaffIdx = system.prevVisibleStaff(nextTimeSigStave)
+                                break
+                            }
+                        }
+                        if (idx === nstaves - 1) {
+                            nextStaffIdx = system.prevVisibleStaff(nstaves)
+                            break
+                        }
+                    }
+                    const yTop = system.staff(thisStaffIdx)!.y() + system.score().staff(thisStaffIdx)!.staffHeight(segment.tick())
+                    const yBottom = system.staff(nextStaffIdx)!.y() + system.score().staff(nextStaffIdx)!.staffHeight(segment.tick())
+                    const newYPos = 0.5 * (yBottom - yTop)
+                    timeSig.mutldata().setPosY(newYPos)
+                }
+            }
+        }
     }
 }
 

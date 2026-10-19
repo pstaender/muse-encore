@@ -5,8 +5,7 @@
  *
  * Port of src/engraving/rendering/score/slurtielayout.h/.cpp
  *
- * TODO(port): laissez vibrer, partial ties, tapping half slurs, guitar bends on tab,
- * arpeggios, ornaments
+ * TODO(port): laissez vibrer, partial ties, tapping half slurs, guitar bends on tab
  */
 
 import { PointF, RectF } from '../../../framework/draw/types/geometry'
@@ -41,6 +40,8 @@ import { StemLayout } from './stemlayout'
 import { ShowTiedFret } from '../../dom/stafftype'
 import { TremoloLayout } from './tremololayout'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
+import type { Arpeggio } from '../../dom/arpeggio'
+import type { Ornament } from '../../dom/ornament'
 
 class SlurTiePos {
     p1 = new PointF() // start point of slur
@@ -1138,11 +1139,24 @@ export class SlurTieLayout {
                 return true
             }
             const parent = item.parentItem()!
-            // TODO(port): arpeggios
-            // Items that are on the start segment but in a different voice
+            // Don't remove arpeggio starting on a different voice and ending on the same voice as endCR when slur is on the outside
+            if ((item.isArpeggio() || item.isChordBracket()) && (endCR.track() === (item as Arpeggio).endTrack())
+                && endCR.tick().eq(item.tick())
+                && (!slur.up() && (item as Arpeggio).span() > 1)) {
+                return false
+            }
+
+            // Its own startCR or items belonging to it, lyrics, fingering, ledger lines, articulation on endCR
             if (item === startCR || parent === startCR || item.isTextBase() || item.isLedgerLine()
                 || (item.isArticulationFamily() && parent === endCR) || item.isBend() || item.isTappingHalfSlurSegment()) {
                 return true
+            }
+            // Ornament accidentals on start or end chord
+            if (item.isAccidental() && parent.isOrnament()) {
+                const parentParent = parent.parentItem()
+                if (parentParent && (parentParent === startCR || parentParent === endCR)) {
+                    return true
+                }
             }
             // Items that are on the start segment but in a different voice
             if ((item.tick().eq(startCR.tick()) && item.track() !== startCR.track())
@@ -1155,8 +1169,10 @@ export class SlurTieLayout {
                     || (slur.up() && item.track() < startCR.track()))) { // slur-up: ignore higher voices
                 return true
             }
-            if (item.isArpeggio() || item.isChordBracket()) {
-                return endCR.track() !== item.track()
+            // Remove arpeggios spanning more than 1 voice starting on endCR's voice when the slur is on the inside
+            if ((item.isArpeggio() || item.isChordBracket())
+                && (endCR.track() !== item.track() || (!slur.up() && (item as Arpeggio).span() > 1))) {
+                return true
             }
             if (item.isTimeSig() && (item as TimeSig).timeSigPlacement() !== TimeSigPlacement.NORMAL) {
                 return true
@@ -1250,7 +1266,13 @@ export class SlurTieLayout {
                 return true
             }
         }
-        // TODO(port): ornaments
+        const ornament = chord.findOrnament() as Ornament | null
+        if (ornament) {
+            if (ornament.up() === slurUp) {
+                return true
+            }
+        }
+
         return false
     }
 

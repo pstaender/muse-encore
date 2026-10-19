@@ -122,6 +122,12 @@
 - StaffTypeChange (reading, Measure::add -> staff type list; not drawn as it is unprintable). staff-offset-*
   files: 12-26% -> 3-5%.
 - Chord::findOrnament also returns the ornament of a starting trill (trill cue notes were not laid out).
+- RepeatList (unwind/flatten; uticks only, no tempo map), findFollowingRepeatMeasures/findPreviousRepeatMeasures,
+  segmentsAreAdjacent: repeat courtesies incl. parentheses (courtesy-changes-* 10-25% -> 3-13%), lyrics lines over
+  jumps, ties over repeats (searchTieNote disableOverRepeats).
+- Big time signatures: centerBigTimeSigsAcrossStaves, updateTimeSigAboveStavesXPos (bigTimeSig-* mostly 4-7%).
+- Slurs: ornament accidentals/arpeggio rules in the slur collision shape, hasArticulationAbove for ornaments
+  (ornament-3 41% -> 5%).
 - Note: files < 4.6 are read with read460 plus selected read400/read410 compat (fretFontName, harmony, fret
   diagrams, marker type from label); C++ uses separate readers for them.
 
@@ -129,7 +135,10 @@
 - Not ported (not drawn): fingering, vibrato, gradual tempo changes, partial lyrics lines,
   measure repeats, chord brackets, tremolo bars, glissandi, guitar bends, images, fret boxes, laissez
   vibrer/partial ties, note parentheses on chords, MMRestRange, excerpts.
-- Repeat courtesies (courtesy key/time signatures before jumps) need the repeat list.
-- Repeat structure (repeat list) is not ported: lyrics dashes across repeats/jumps are approximated.
+- harmony-35: chord symbols at size 20 are placed ~0.45sp lower than in MuseScore (10, 15 and 25 match), so a
+  4th system fits on page 1.
+- ornament-9: hairpins on vocal staves (4.2 file) are placed above the staff, MuseScore places them below; with a
+  4.5 file and a vocal instrument MuseScore also places them above. Cause not found yet.
+- bigTimeSig-7/8: barline before a key change is drawn as a double barline.
 - Cross-staff spacing (e.g. cross-10) differs.
 - 3.x and older files (read302/206/114) are rejected.
