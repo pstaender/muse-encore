@@ -11,7 +11,7 @@ import { PointF } from '../../framework/draw/types/geometry'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import {
-    AccidentalVal, AutoOnOff, BarLineType, DurationType, ElementType, VOICES, nidx,
+    AccidentalVal, AutoOnOff, BarLineType, DurationType, ElementType, VOICES, nidx, track2voice,
     type staff_idx_t, type track_idx_t,
 } from '../types/types'
 import { Sid } from '../style/styledef'
@@ -22,8 +22,10 @@ import { Segment, SegmentType } from './segment'
 import { StaffLines } from './stafflines'
 import { AccidentalState } from './key'
 import { tpc2alter } from './pitchspelling'
-import { absStep, relStep } from './utils'
+import { absStep, actualTicks, relStep, skipTuplet } from './utils'
+import { toDurationList } from './durationtype'
 import type { System } from './system'
+import type { EngravingObject } from './engravingobject'
 import type { Staff } from './staff'
 import type { ChordRest } from './chordrest'
 import type { Chord } from './chord'
@@ -44,6 +46,11 @@ export enum MeasureNumberMode {
 export enum SpacerType {
     UP, DOWN, FIXED,
 }
+
+/** factories registered by the corresponding modules (avoid runtime import cycles) */
+export const measureFactories: {
+    createRest?: (parent: Measure) => Rest
+} = {}
 
 export class MStaff {
     private m_measureNumber: EngravingItem | null = null // Measure number text object
@@ -210,7 +217,7 @@ export class Measure extends MeasureBase {
     private m_measureNumberMode = MeasureNumberMode.AUTO
     private m_breakMultiMeasureRest = false
 
-    constructor(parent: EngravingItem) {
+    constructor(parent: EngravingObject | null) {
         super(ElementType.MEASURE, parent)
         this.setTicks(new Fraction(4, 4))
         const n = this.score().nstaves()
@@ -273,6 +280,79 @@ export class Measure extends MeasureBase {
     setMMRangeText(staffIdx: staff_idx_t, t: EngravingItem | null): void { this.m_mstaves[staffIdx].setMMRangeText(t) }
 
     mstaves(): MStaff[] { return this.m_mstaves }
+
+    // ---------------------------------------------------------
+    //   checkMeasure
+    //    after opening / paste and every read operation
+    //    this method checks for gaps and fills them
+    //    with invisible rests (C++: dom/check.cpp)
+    // ---------------------------------------------------------
+
+    checkMeasure(staffIdx: staff_idx_t, useGapRests = true): void {
+        if (this.isMMRest()) {
+            return
+        }
+        const strack = staffIdx * VOICES
+        const dtrack = strack + (this.hasVoices(staffIdx) ? VOICES : 1)
+        const stretch = this.score().staff(staffIdx)!.timeStretch(this.tick())
+        const f = this.ticks().times(stretch)
+
+        for (let track = strack; track < dtrack; track++) {
+            let expectedPos = new Fraction(0, 1)
+            let currentPos = new Fraction(0, 1)
+            for (let seg = this.first(SegmentType.ChordRest); seg; seg = seg.next(SegmentType.ChordRest)) {
+                const e = seg.element(track)
+                if (!e) {
+                    continue
+                }
+                const cr = e as unknown as ChordRest
+                currentPos = seg.rtick().times(stretch)
+                if (currentPos.lt(expectedPos)) {
+                    // in measure overrun
+                    break
+                } else if (currentPos.gt(expectedPos)) {
+                    // in measure underrun
+                    this.fillGap(expectedPos, currentPos.minus(expectedPos), track, stretch, useGapRests)
+                    if (currentPos.ge(f)) {
+                        break
+                    }
+                }
+                let de: { ticks(): Fraction } = cr
+                const tuplet = cr.topTuplet()
+                if (tuplet) {
+                    seg = skipTuplet(tuplet)
+                    de = tuplet
+                }
+                expectedPos = currentPos.plus(de.ticks())
+            }
+            if (f.gt(expectedPos)) {
+                // don't fill empty voices
+                if (expectedPos.isNotZero() || track2voice(track) === 0) {
+                    this.fillGap(expectedPos, f.minus(expectedPos), track, stretch)
+                }
+            }
+        }
+    }
+
+    /** fill gap with rests (C++: dom/check.cpp) */
+    fillGap(rtickStart: Fraction, len: Fraction, track: track_idx_t, stretch: Fraction, useGapRests = true): void {
+        // TODO(port): C++ uses toRhythmicDurationList() which splits the gap at beat boundaries
+        const durationList = toDurationList(len, true)
+        let curTick = this.tick().plus(actualTicks(rtickStart, null, stretch))
+        for (const d of durationList) {
+            const rest = measureFactories.createRest!(this)
+            rest.setTicks(d.isMeasure() ? this.ticks().times(stretch) : d.fraction())
+            rest.setDurationType(d)
+            rest.setTrack(track)
+            rest.setGap(useGapRests)
+            const seg = this.getSegment(SegmentType.ChordRest, curTick)
+            seg.add(rest)
+            curTick = curTick.plus(rest.actualTicks())
+        }
+    }
+
+    /** TODO(port): two-chord tremolos are not ported yet */
+    connectTremolo(): void {}
 
     measureNumberMode(): MeasureNumberMode { return this.m_measureNumberMode }
     setMeasureNumberMode(v: MeasureNumberMode): void { this.m_measureNumberMode = v }
@@ -1219,6 +1299,12 @@ export class Measure extends MeasureBase {
     measureRepeatCount(staffIdx: staff_idx_t): number {
         return staffIdx < this.m_mstaves.length ? this.m_mstaves[staffIdx].measureRepeatCount() : 0
     }
+    setMeasureRepeatCount(n: number, staffIdx: staff_idx_t): void {
+        if (staffIdx < this.m_mstaves.length) {
+            this.m_mstaves[staffIdx].setMeasureRepeatCount(n)
+        }
+    }
+
     isMeasureRepeatGroup(staffIdx: staff_idx_t): boolean { return this.measureRepeatCount(staffIdx) > 0 }
     isOneMeasureRepeat(_staffIdx: staff_idx_t): boolean { return false }
 

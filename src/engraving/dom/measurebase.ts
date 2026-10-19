@@ -332,6 +332,43 @@ export abstract class MeasureBase extends EngravingItem {
     setRepeatJump(v: boolean): void { this.setFlag(ElementFlag.REPEAT_JUMP, v) }
     irregular(): boolean { return this.flag(ElementFlag.IRREGULAR) }
     setIrregular(v: boolean): void { this.setFlag(ElementFlag.IRREGULAR, v) }
+    /** remove unneeded layout breaks */
+    cleanupLayoutBreaks(_undo: boolean): void {
+        const toDelete: EngravingItem[] = []
+        for (const e of this.el()) {
+            if (e.isLayoutBreak()) {
+                switch ((e as unknown as LayoutBreak).layoutBreakType()) {
+                case LayoutBreakType.LINE:
+                    if (!this.lineBreak()) {
+                        toDelete.push(e)
+                    }
+                    break
+                case LayoutBreakType.PAGE:
+                    if (!this.pageBreak()) {
+                        toDelete.push(e)
+                    }
+                    break
+                case LayoutBreakType.SECTION:
+                    if (!this.sectionBreak()) {
+                        toDelete.push(e)
+                    }
+                    break
+                case LayoutBreakType.NOBREAK:
+                    if (!this.noBreak()) {
+                        toDelete.push(e)
+                    }
+                    break
+                }
+            }
+        }
+        for (const e of toDelete) {
+            const i = this.el().indexOf(e)
+            if (i >= 0) {
+                this.el().splice(i, 1)
+            }
+        }
+    }
+
     lineBreak(): boolean { return this.flag(ElementFlag.LINE_BREAK) }
     setLineBreak(v: boolean): void { this.setFlag(ElementFlag.LINE_BREAK, v) }
     pageBreak(): boolean { return this.flag(ElementFlag.PAGE_BREAK) }

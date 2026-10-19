@@ -854,6 +854,16 @@ export abstract class TextBase extends EngravingItem {
     setFamily(val: string): void { this.m_cursor.setFormat(FormatId.FontFamily, val) }
     setSize(val: number): void { this.m_cursor.setFormat(FormatId.FontSize, val) }
 
+    setBold(val: boolean): void { this.setFontStyle(val ? (this.fontStyle() | FontStyle.Bold) : (this.fontStyle() & ~FontStyle.Bold)) }
+    setItalic(val: boolean): void {
+        this.setFontStyle(val ? (this.fontStyle() | FontStyle.Italic) : (this.fontStyle() & ~FontStyle.Italic))
+    }
+    setUnderline(val: boolean): void {
+        this.setFontStyle(val ? (this.fontStyle() | FontStyle.Underline) : (this.fontStyle() & ~FontStyle.Underline))
+    }
+    setStrike(val: boolean): void {
+        this.setFontStyle(val ? (this.fontStyle() | FontStyle.Strike) : (this.fontStyle() & ~FontStyle.Strike))
+    }
     bold(): boolean { return (this.fontStyle() & FontStyle.Bold) !== 0 }
     italic(): boolean { return (this.fontStyle() & FontStyle.Italic) !== 0 }
     underline(): boolean { return (this.fontStyle() & FontStyle.Underline) !== 0 }

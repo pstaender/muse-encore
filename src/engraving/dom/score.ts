@@ -23,6 +23,8 @@ import { TimeSigMap, TimeSigFrac, BeatType } from './sig'
 import { Pid } from './property'
 import type { Measure } from './measure'
 import type { ChordRest } from './chordrest'
+import type { Chord } from './chord'
+import { searchTieNote } from './utils'
 import type { Staff } from './staff'
 import type { Part } from './part'
 import type { System } from './system'
@@ -428,6 +430,106 @@ export class Score extends EngravingObject {
 
     removeSpanner(s: Spanner): void {
         this.m_spanner.removeSpanner(s)
+    }
+
+    // ---------------------------------------------------------
+    //   checkSpanner
+    //    check for spanners that are not attached to anything (C++: editing/edit.cpp)
+    // ---------------------------------------------------------
+
+    checkSpanner(_startTick: Fraction, _endTick: Fraction, removeOrphans = true): void {
+        const spannersToRemove: Spanner[] = []
+        const spannersToShorten: Spanner[] = []
+        const lastTick = this.lastMeasure()!.endTick()
+
+        for (const s of [...this.m_spanner.all()]) {
+            if (s.isSlur()) {
+                let seg = this.tick2segmentMM(s.tick(), false, SegmentType.ChordRest)
+                if (!seg || !seg.element(s.track())) {
+                    spannersToRemove.push(s)
+                } else {
+                    seg = this.tick2segmentMM(s.tick2(), false, SegmentType.ChordRest)
+                    if (!seg || !seg.element(s.track2())) {
+                        spannersToRemove.push(s)
+                    }
+                }
+            } else {
+                // remove spanner if there is no start element
+                s.computeStartElement()
+                if (!s.startElement()) {
+                    spannersToRemove.push(s)
+                } else if (s.tick2().gt(lastTick)) {
+                    spannersToShorten.push(s)
+                } else {
+                    s.computeEndElement()
+                }
+            }
+        }
+        if (removeOrphans) {
+            for (const s of spannersToRemove) {
+                this.removeSpanner(s)
+            }
+        }
+        for (const s of spannersToShorten) { // shorten spanners that extended past end of score
+            s.setTicks(lastTick.minus(s.tick()))
+            s.computeEndElement()
+        }
+    }
+
+    // ---------------------------------------------------------
+    //   connectTies
+    //    Rebuild tie connections.
+    // ---------------------------------------------------------
+
+    connectTies(silent = false): void {
+        const tracks = this.nstaves() * VOICES
+        const m = this.firstMeasure()
+        if (!m) {
+            return
+        }
+        const connectTiesForChord = (c: Chord): void => {
+            for (const n of c.notes()) {
+                // connect a tie without end note
+                if (n.laissezVib()) {
+                    continue
+                }
+                const tie = n.tieFor()
+                // TODO(port): tie->updatePossibleJumpPoints()
+                if (tie && !tie.isPartialTie() && !tie.endNote()) {
+                    const nnote = searchTieNote(n)
+                    if (!nnote) {
+                        if (!silent) {
+                            n.setTieFor(null)
+                        }
+                    } else {
+                        tie.setEndNote(nnote)
+                        nnote.setTieBack(tie)
+                    }
+                }
+                // TODO(port): connect a glissando without initial note (old files)
+                // spanner with no end element can happen during copy/paste
+                for (const spanner of [...n.spannerFor()]) {
+                    if (!spanner.endElement()) {
+                        n.removeSpannerFor(spanner)
+                    }
+                }
+            }
+        }
+
+        const st = SegmentType.ChordRest
+        for (let s = m.first(st); s; s = s.next1(st)) {
+            for (let track = 0; track < tracks; ++track) {
+                const e = s.element(track)
+                if (!e || !e.isChord()) {
+                    continue
+                }
+                const c = e as unknown as Chord
+                connectTiesForChord(c)
+                for (const gc of c.graceNotes()) {
+                    connectTiesForChord(gc)
+                }
+            }
+        }
     }
 
     addUnmanagedSpanner(s: Spanner): void { this.m_unmanagedSpanners.add(s) }

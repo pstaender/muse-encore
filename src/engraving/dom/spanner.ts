@@ -684,7 +684,10 @@ export abstract class Spanner extends EngravingItem {
         if (diff > 0) {
             const ncreate = this.reuseSegments(diff)
             for (let i = 0; i < ncreate; ++i) {
-                this.add(createSegment(null))
+                // C++ creates the segment with score()->dummy()->system() as parent
+                const seg = createSegment(null)
+                seg.setScore(this.score())
+                this.add(seg)
             }
         } else { // diff < 0
             const nremove = -diff

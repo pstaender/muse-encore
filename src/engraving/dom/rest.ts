@@ -17,7 +17,7 @@ import type { EngravingItem } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
 import { TDuration } from './durationtype'
 import { Pid } from './property'
-import type { Measure } from './measure'
+import { measureFactories, type Measure } from './measure'
 import type { NoteDot } from './notedot'
 import { tupletFactories } from './tuplet'
 
@@ -351,3 +351,4 @@ export class Rest extends ChordRest {
 }
 
 tupletFactories.createRest = (parent: EngravingObject) => new Rest(parent)
+measureFactories.createRest = (parent: Measure) => new Rest(parent)

@@ -12,7 +12,8 @@ the desktop app. License: GPL-3.0-only (same as MuseScore).
 - MuseScore 4.7.5 is installed at `/Applications/MuseScore 4.app`; use it to create reference renders:
   `"/Applications/MuseScore 4.app/Contents/MacOS/mscore" -o out.svg file.mscz` (SVG has a CSS class per element type)
   or `-r 100 -o out.png` for PNGs.
-- Test scores: `MuseScore/vtest/scores/*.mscz` (many 4.x files), `MuseScore/demos`.
+- Test scores: use the **v4.7.5** vtest files (`git -C MuseScore archive v4.7.5 vtest | tar -x -C <dir>`);
+  `MuseScore/vtest` on `main` contains 5.0 files that the 4.7.5 reader rejects.
 
 ## Structure (mirrors the C++ tree)
 

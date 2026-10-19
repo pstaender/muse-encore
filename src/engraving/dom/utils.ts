@@ -14,6 +14,10 @@ import {
     MIN_PITCH, PITCH_DELTA_OCTAVE, Prefer, STEP_DELTA_OCTAVE, clampPitch, pitch2tpc, tpc2pitch, tpc2step,
 } from './pitchspelling'
 import type { Tuplet } from './tuplet'
+import { SegmentType, type Segment } from './segment'
+import type { Chord } from './chord'
+import type { ChordRest } from './chordrest'
+import type { Note } from './note'
 
 const PTAB: number[][] = [
     //   c  d  e  f  g   a  b
@@ -202,4 +206,117 @@ export function actualTicks(duration: Fraction, tuplet: Tuplet | null, timeStret
         f = f.div(t.ratio())
     }
     return f
+}
+
+// ---------------------------------------------------------
+//   skipTuplet
+//    return segment of last element of tuplet
+// ---------------------------------------------------------
+
+export function skipTuplet(tuplet: Tuplet): Segment {
+    let nde = tuplet.elements()[tuplet.elements().length - 1]
+    while (nde.isTuplet()) {
+        tuplet = nde as unknown as Tuplet
+        nde = tuplet.elements()[tuplet.elements().length - 1]
+    }
+    return (nde as unknown as ChordRest).segment()
+}
+
+// ---------------------------------------------------------
+//   searchTieNote
+//    search Note to tie to "note"
+// ---------------------------------------------------------
+
+export function searchTieNote(note: Note | null, nextSegment: Segment | null = null): Note | null {
+    if (!note) {
+        return null
+    }
+    let note2: Note | null = null
+    let chord = note.chord()
+    const seg = chord.segment()
+    if (!nextSegment) {
+        nextSegment = seg.next1(SegmentType.ChordRest)
+        while (nextSegment && nextSegment.tick().lt(chord.endTick())) {
+            nextSegment = nextSegment.next1(SegmentType.ChordRest)
+        }
+    }
+    if (!nextSegment) {
+        return null
+    }
+    // TODO(port): disableOverRepeats (segmentsAreAdjacent)
+
+    if (chord.isGraceBefore()) {
+        chord = chord.explicitParent() as unknown as Chord
+        // try to tie to next grace note
+        const index = note.chord().graceIndex()
+        for (const c of chord.graceNotes()) {
+            if (c.graceIndex() === index + 1) {
+                note2 = c.findNote(note.pitch())
+                if (note2) {
+                    return note2
+                }
+            }
+        }
+        // try to tie to note in parent chord
+        note2 = chord.findNote(note.pitch())
+        if (note2) {
+            return note2
+        }
+    } else if (chord.isGraceAfter()) {
+        // grace after
+        // we will try to tie to note in next normal chord, below
+        // meanwhile, set chord to parent chord so the endTick calculation will make sense
+        chord = chord.explicitParent() as unknown as Chord
+    } else {
+        // normal chord
+        // try to tie to grace note after if present
+        const gna = chord.graceNotesAfter()
+        if (!gna.empty()) {
+            const gc = gna.front()
+            note2 = gc.findNote(note.pitch())
+            if (note2) {
+                return note2
+            }
+        }
+    }
+    // at this point, chord is a regular chord, not a grace chord
+    // and we are looking for a note in the *next* chord (grace or regular)
+
+    // calculate end of current note duration
+    // but err on the safe side in case there is roundoff in tick count
+    const idx1 = note.unisonIndex()
+    const part = chord.part()!
+    for (let track = part.startTrack(); track < part.endTrack(); ++track) {
+        const e = nextSegment.element(track)
+        if (!e || !e.isChord()) {
+            continue
+        }
+        const c = e as unknown as Chord
+        if (c.vStaffIdx() !== chord.vStaffIdx()) {
+            continue
+        }
+        // if there are grace notes before, try to tie to first one
+        const gnb = c.graceNotesBefore()
+        if (!gnb.empty()) {
+            const gc = gnb.front()
+            const gn2 = gc.findNote(note.pitch())
+            if (gn2) {
+                return gn2
+            }
+        }
+        let idx2 = 0
+        for (const n of c.notes()) {
+            if (n.pitch() === note.pitch()) {
+                if (idx1 === idx2) {
+                    if (!note2 || c.track() === chord.track()) {
+                        note2 = n
+                        break
+                    }
+                } else {
+                    ++idx2
+                }
+            }
+        }
+    }
+    return note2
 }

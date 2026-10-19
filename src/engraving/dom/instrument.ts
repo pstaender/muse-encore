@@ -39,6 +39,8 @@ export class Instrument {
     private m_minPitchP = 0
     private m_maxPitchP = 127
     private m_instrumentId = ''
+    private m_musicXmlId = ''
+    private m_soundId = ''
     // TODO(port): Drumset, StringData, channels, articulations
 
     constructor(private m_id = '') {}
@@ -66,6 +68,14 @@ export class Instrument {
             this.m_shortNames.push(new StaffName(f, 0))
         }
     }
+
+    appendLongName(n: StaffName): void { this.m_longNames.push(n) }
+    appendShortName(n: StaffName): void { this.m_shortNames.push(n) }
+
+    musicXmlId(): string { return this.m_musicXmlId }
+    setMusicXmlId(id: string): void { this.m_musicXmlId = id }
+    soundId(): string { return this.m_soundId }
+    setSoundId(id: string): void { this.m_soundId = id }
 
     trackName(): string { return this.m_trackName }
     setTrackName(s: string): void { this.m_trackName = s }
