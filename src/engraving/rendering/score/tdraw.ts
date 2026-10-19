@@ -100,6 +100,8 @@ export class TDraw {
         case ElementType.VOLTA_SEGMENT:
         case ElementType.OTTAVA_SEGMENT:
         case ElementType.PEDAL_SEGMENT:
+        case ElementType.LET_RING_SEGMENT:
+        case ElementType.PALM_MUTE_SEGMENT:
             TDraw.drawTextLineBaseSegment(item as TextLineBaseSegment, painter, opt)
             break
         case ElementType.LYRICSLINE_SEGMENT: TDraw.drawLyricsLineSegment(item as LyricsLineSegment, painter, opt)

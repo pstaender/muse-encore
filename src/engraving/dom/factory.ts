@@ -63,6 +63,8 @@ import { Volta, VoltaSegment } from './volta'
 import { Ottava, OttavaSegment } from './ottava'
 import { Pedal, PedalSegment } from './pedal'
 import { LyricsLine } from './lyricsline'
+import { LetRing, LetRingSegment } from './letring'
+import { PalmMute, PalmMuteSegment } from './palmmute'
 
 type Parent = EngravingObject | null
 
@@ -117,6 +119,10 @@ export class Factory {
         case ElementType.VOLTA_SEGMENT: return new VoltaSegment(null, dummy().system())
         case ElementType.OTTAVA: return new Ottava(itemOrDummy())
         case ElementType.OTTAVA_SEGMENT: return new OttavaSegment(null, dummy().system())
+        case ElementType.LET_RING: return new LetRing(itemOrDummy())
+        case ElementType.LET_RING_SEGMENT: return new LetRingSegment(null, dummy().system())
+        case ElementType.PALM_MUTE: return new PalmMute(itemOrDummy())
+        case ElementType.PALM_MUTE_SEGMENT: return new PalmMuteSegment(null, dummy().system())
         case ElementType.PEDAL: return new Pedal(itemOrDummy())
         case ElementType.PEDAL_SEGMENT: return new PedalSegment(null, dummy().system())
         case ElementType.LYRICSLINE: return new LyricsLine(itemOrDummy())

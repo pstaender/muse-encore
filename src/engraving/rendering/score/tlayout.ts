@@ -198,7 +198,15 @@ export class TLayout {
         case ElementType.OTTAVA:
         case ElementType.PEDAL:
         case ElementType.VOLTA:
+        case ElementType.LET_RING:
+        case ElementType.PALM_MUTE:
             TLayout.layoutLine(item as SLine, ctx)
+            break
+        case ElementType.LET_RING_SEGMENT:
+            TLayout.layoutChordTextLineBaseSegment(item as TextLineBaseSegment, Sid.letRingShowTabCommon, Sid.letRingShowTabSimple, ctx)
+            break
+        case ElementType.PALM_MUTE_SEGMENT:
+            TLayout.layoutChordTextLineBaseSegment(item as TextLineBaseSegment, Sid.palmMuteShowTabCommon, Sid.palmMuteShowTabSimple, ctx)
             break
         case ElementType.TEXTLINE_SEGMENT: TLayout.layoutTextLineSegment(item as TextLineSegment, ctx); break
         case ElementType.OTTAVA_SEGMENT: TLayout.layoutOttavaSegment(item as OttavaSegment, ctx); break
@@ -875,6 +883,23 @@ export class TLayout {
     static layoutOttavaSegment(item: OttavaSegment, ctx: LayoutContext): void {
         const ldata = item.mutldata()
         TLayout.layoutTextLineBaseSegment(item, ctx)
+        Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    /** C++ layoutLetRingSegment() and layoutPalmMuteSegment() */
+    static layoutChordTextLineBaseSegment(item: TextLineBaseSegment, showTabCommon: Sid, showTabSimple: Sid, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+
+        const stType = item.staffType()
+
+        if (stType && stType.isHiddenElementOnTab(showTabCommon, showTabSimple)) {
+            ldata.setIsSkipDraw(true)
+            return
+        }
+        ldata.setIsSkipDraw(false)
+
+        TLayout.layoutTextLineBaseSegment(item, ctx)
+
         Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
     }
 

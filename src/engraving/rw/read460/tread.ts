@@ -94,9 +94,11 @@ import type { TextLine } from '../../dom/textline'
 import { TextLineBase } from '../../dom/textlinebase'
 import type { Volta } from '../../dom/volta'
 import { type Ottava, OttavaType, ottavaDefault } from '../../dom/ottava'
-import type { Pedal } from '../../dom/pedal'
+import { Pedal } from '../../dom/pedal'
 import type { LyricsLine } from '../../dom/lyricsline'
 import type { LineSegment, SLine } from '../../dom/line'
+import type { ChordTextLineBase } from '../../dom/chordtextlinebase'
+import { CompatUtils } from '../compat/compatutils'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -174,6 +176,10 @@ export class TRead {
         case ElementType.VOLTA: TRead.readVolta(item as Volta, xml, ctx); break
         case ElementType.OTTAVA: TRead.readOttava(item as Ottava, xml, ctx); break
         case ElementType.PEDAL: TRead.readPedal(item as Pedal, xml, ctx); break
+        case ElementType.LET_RING:
+        case ElementType.PALM_MUTE:
+            TRead.readChordTextLineBase(item as ChordTextLineBase, xml, ctx)
+            break
         case ElementType.LYRICSLINE: TRead.readLyricsLine(item as LyricsLine, xml, ctx); break
         default:
             // TODO(port): element type not ported yet
@@ -604,7 +610,9 @@ export class TRead {
                 e.unknown()
             }
         }
-        // TODO(port): CompatUtils::setTextLineTextPositionFromAlign for files < 4.7
+        if (ctx.mscVersion() < 470) {
+            CompatUtils.setTextLineTextPositionFromAlign(h)
+        }
         h.styleChanged()
     }
 
@@ -622,7 +630,9 @@ export class TRead {
                 e.unknown()
             }
         }
-        // TODO(port): CompatUtils::setTextLineTextPositionFromAlign for files < 4.7
+        if (ctx.mscVersion() < 470) {
+            CompatUtils.setTextLineTextPositionFromAlign(b)
+        }
     }
 
     static readVolta(v: Volta, e: XmlReader, ctx: ReadContext): void {
@@ -636,12 +646,18 @@ export class TRead {
                 e.unknown()
             }
         }
+        if (ctx.mscVersion() < 470) {
+            CompatUtils.setTextLineTextPositionFromAlign(v)
+        }
     }
 
     static readOttava(o: Ottava, e: XmlReader, ctx: ReadContext): void {
         o.eraseSpannerSegments()
         while (e.readNextStartElement()) {
             TRead.readOttavaProperties(o, e, ctx)
+        }
+        if (ctx.mscVersion() < 470) {
+            CompatUtils.setTextLineTextPositionFromAlign(o)
         }
         if (o.ottavaType() !== OttavaType.OTTAVA_8VA || o.numbersOnly() !== (o.propertyDefault(Pid.NUMBERS_ONLY) as boolean)) {
             o.styleChanged()
@@ -685,6 +701,27 @@ export class TRead {
             } else if (!TRead.readTextLineBaseProperties(p, e, ctx)) {
                 e.unknown()
             }
+        }
+        if (ctx.mscVersion() < 470) {
+            CompatUtils.setTextLineTextPositionFromAlign(p)
+
+            if (p.endText() === Pedal.STAR_SYMBOL) {
+                p.setEndHookType(HookType.ROSETTE)
+            }
+        }
+    }
+
+    /** C++ TRead::read(LetRing*) and TRead::read(PalmMute*) */
+    static readChordTextLineBase(r: ChordTextLineBase, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            if (TRead.readPropertyIfTag(r, e.name(), e, ctx, Pid.LINE_WIDTH)) {
+                r.setPropertyFlags(Pid.LINE_WIDTH, PropertyFlags.UNSTYLED)
+            } else if (!TRead.readTextLineBaseProperties(r, e, ctx)) {
+                e.unknown()
+            }
+        }
+        if (ctx.mscVersion() < 470) {
+            CompatUtils.setTextLineTextPositionFromAlign(r)
         }
     }
 
