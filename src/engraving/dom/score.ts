@@ -31,6 +31,7 @@ import type { System } from './system'
 import type { Page } from './page'
 import type { Spanner } from './spanner'
 import type { Text } from './text'
+import { SystemLocks, type SystemLock } from './systemlock'
 
 export enum LayoutMode {
     PAGE, FLOAT, LINE, SYSTEM, HORIZONTAL_FIXED,
@@ -82,6 +83,8 @@ export class SpannerMap {
 
 export class Score extends EngravingObject {
     protected m_style: MStyle
+    private m_systemLocks = new SystemLocks()
+    protected m_eidRegister = new Map<string, EngravingObject>() // C++ EIDRegister (of the master score)
     protected m_staves: Staff[] = []
     protected m_parts: Part[] = []
     protected m_systemObjectStaves: Staff[] = []
@@ -536,6 +539,10 @@ export class Score extends EngravingObject {
     removeUnmanagedSpanner(s: Spanner): void { this.m_unmanagedSpanners.delete(s) }
 
     // other
+
+    systemLocks(): SystemLocks { return this.m_systemLocks }
+    addSystemLock(lock: SystemLock): void { this.m_systemLocks.add(lock) }
+    eidRegister(): Map<string, EngravingObject> { return this.masterScore().m_eidRegister }
 
     sigmap(): TimeSigMap { return this.masterScore().sigmap() }
 

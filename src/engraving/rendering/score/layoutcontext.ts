@@ -27,6 +27,7 @@ import type { Spanner } from '../../dom/spanner'
 import type { Staff } from '../../dom/staff'
 import type { System } from '../../dom/system'
 import { paddingTable, type PaddingTable } from '../paddingtable'
+import type { SystemLocks } from '../../dom/systemlock'
 
 export class LayoutConfiguration {
     constructor(private m_score: Score) {}
@@ -102,6 +103,10 @@ export class DomAccessor {
     lastMeasure(): Measure | null { return this.m_score.lastMeasure() }
     lastMeasureMM(): Measure | null { return this.m_score.lastMeasureMM() }
     spannerMap(): SpannerMap { return this.m_score.spannerMap() }
+    systemLocks(): SystemLocks { return this.m_score.systemLocks() }
+    updateSystemLocksOnCreateMMRest(first: Measure, last: Measure): void {
+        this.m_score.systemLocks().updateSystemLocksOnCreateMMRests(first, last)
+    }
     findCR(tick: Fraction, track: track_idx_t): ChordRest | null { return this.m_score.findCR(tick, track) }
     paddingTable(): PaddingTable { return paddingTable(this.m_score) }
     dummyParent(): DummyElement { return scoreDummy(this.m_score) }

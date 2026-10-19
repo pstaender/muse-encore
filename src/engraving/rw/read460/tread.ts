@@ -88,6 +88,7 @@ import type { Expression } from '../../dom/expression'
 import type { Dynamic } from '../../dom/dynamic'
 import type { Fermata } from '../../dom/fermata'
 import type { Breath } from '../../dom/breath'
+import { SystemLock } from '../../dom/systemlock'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -279,10 +280,48 @@ export class TRead {
         return false
     }
 
+    /** registers the element under its EID (only used to resolve references, e.g. of system locks) */
+    static readItemEID(item: EngravingObject, xml: XmlReader, ctx: ReadContext): void {
+        const s = xml.readAsciiText()
+        if (s) {
+            ctx.score().eidRegister().set(s, item)
+        }
+    }
+
+    static readSystemLocks(score: Score, e: XmlReader): void {
+        while (e.readNextStartElement()) {
+            if (e.name() === 'systemLock') {
+                TRead.readSystemLock(score, e)
+            } else {
+                e.unknown()
+            }
+        }
+    }
+
+    static readSystemLock(score: Score, e: XmlReader): void {
+        let startMeas: MeasureBase | null = null
+        let endMeas: MeasureBase | null = null
+        const eidRegister = score.eidRegister()
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'startMeasure') {
+                startMeas = (eidRegister.get(e.readAsciiText()) ?? null) as MeasureBase | null
+            } else if (tag === 'endMeasure') {
+                endMeas = (eidRegister.get(e.readAsciiText()) ?? null) as MeasureBase | null
+            } else {
+                e.unknown()
+            }
+        }
+        if (!startMeas || !endMeas) {
+            return
+        }
+        score.addSystemLock(new SystemLock(startMeas, endMeas))
+    }
+
     static readItemProperties(item: EngravingItem, e: XmlReader, ctx: ReadContext): boolean {
         const tag = e.name()
         if (tag === 'eid') {
-            e.skipCurrentElement() // EIDs are not ported
+            TRead.readItemEID(item, e, ctx)
         } else if (TRead.readPropertyIfTag(item, tag, e, ctx, Pid.SIZE_SPATIUM_DEPENDENT)) {
         } else if (TRead.readPropertyIfTag(item, tag, e, ctx, Pid.OFFSET)) {
         } else if (TRead.readPropertyIfTag(item, tag, e, ctx, Pid.MIN_DISTANCE)) {

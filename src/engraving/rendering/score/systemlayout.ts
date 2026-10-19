@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/systemlayout.h/.cpp
  *
- * TODO(port): system locks, multi measure rests, lines (hairpins, voltas, ottavas, pedals, trills, ...),
+ * TODO(port): system lock indicators, MMRestRange, lines (hairpins, voltas, ottavas, pedals, trills, ...),
  * dynamics/expressions/harmony/fret diagrams/figured bass alignment, guitar bends, tremolos, hammer-on/pull-off,
  * centering of elements between staves
  */
@@ -299,8 +299,8 @@ export class SystemLayout {
         prevMeasureState.curHeader = ctx.state().curMeasure()!.header()
         prevMeasureState.curTrailer = ctx.state().curMeasure()!.trailer()
 
-        // TODO(port): system locks
-        const systemLock = null
+        const systemLock = ctx.conf().viewMode() === LayoutMode.PAGE || ctx.conf().viewMode() === LayoutMode.SYSTEM
+            ? ctx.dom().systemLocks().lockStartingAt(ctx.state().curMeasure()!) : null
 
         while (ctx.state().curMeasure()) { // collect measure for system
             const curMB = ctx.mutState().curMeasure()!
@@ -872,6 +872,9 @@ export class SystemLayout {
 
         for (const item of elementsToLayout.figuredBass) {
             TLayout.layoutItem(item, ctx)
+            if (item.autoplace()) {
+                Autoplace.autoplaceSegmentElement(item, item.mutldata(), true)
+            }
         }
 
         SystemLayout.layoutDynamicExpressionAndHairpins(elementsToLayout, ctx)
@@ -891,6 +894,8 @@ export class SystemLayout {
                 .plus(mno.staffOffset())), mno)
         }
 
+        // TODO(port): MMRestRange
+
         SystemLayout.processLines(system, ctx, elementsToLayout.ottavas)
         SystemLayout.processLines(system, ctx, elementsToLayout.pedal, /*align=*/ true)
 
@@ -903,9 +908,15 @@ export class SystemLayout {
         for (const item of elementsToLayout.harpDiagrams) {
             TLayout.layoutItem(item, ctx)
         }
-        for (const item of elementsToLayout.harmonies) {
-            TLayout.layoutItem(item, ctx)
+
+        const hasFretDiagram = elementsToLayout.fretDiagrams.length > 0
+        if (!hasFretDiagram) {
+            // TODO(port): layoutHarmonies (alignment)
+            for (const item of elementsToLayout.harmonies) {
+                TLayout.layoutItem(item, ctx)
+            }
         }
+
         for (const item of elementsToLayout.staffText) {
             TLayout.layoutItem(item, ctx)
         }
@@ -915,25 +926,54 @@ export class SystemLayout {
         for (const item of elementsToLayout.playTechCapoStringTunTripletFeel) {
             TLayout.layoutItem(item, ctx)
         }
-        for (const item of elementsToLayout.fretDiagrams) {
-            TLayout.layoutItem(item, ctx)
+
+        if (hasFretDiagram) {
+            // TODO(port): layoutFretDiagrams
+            for (const item of elementsToLayout.fretDiagrams) {
+                TLayout.layoutItem(item, ctx)
+            }
+            for (const item of elementsToLayout.harmonies) {
+                TLayout.layoutItem(item, ctx)
+            }
         }
+
         for (const item of elementsToLayout.systemText) {
             TLayout.layoutItem(item, ctx)
         }
 
+        // TODO(port): layoutVoltas (alignment of consecutive voltas)
         SystemLayout.processLines(system, ctx, elementsToLayout.voltas)
 
         for (const item of elementsToLayout.rehMarks) {
             TLayout.layoutItem(item, ctx)
         }
+
+        const tempoElementsToAlign: EngravingItem[] = []
         for (const item of elementsToLayout.tempoText) {
             TLayout.layoutItem(item, ctx)
+            tempoElementsToAlign.push(item)
         }
+
         SystemLayout.processLines(system, ctx, elementsToLayout.tempoChangeLines)
+        for (const spannerSeg of system.spannerSegments()) {
+            if (spannerSeg.isGradualTempoChangeSegment()) {
+                tempoElementsToAlign.push(spannerSeg)
+            }
+        }
+
         for (const item of elementsToLayout.playCountText) {
             TLayout.layoutItem(item, ctx)
+            if (item.autoplace()) {
+                Autoplace.autoplaceSegmentElement(item, item.mutldata())
+            }
         }
+
+        AlignmentLayout.alignItemsWithTheirSnappingChain(tempoElementsToAlign, system)
+
+        for (const rehearsMark of elementsToLayout.rehMarks) {
+            Autoplace.autoplaceSegmentElement(rehearsMark, rehearsMark.mutldata())
+        }
+
         for (const item of elementsToLayout.markersAndJumps) {
             TLayout.layoutItem(item, ctx)
         }

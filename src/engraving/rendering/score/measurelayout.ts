@@ -486,7 +486,7 @@ export class MeasureLayout {
         mmrMeasure.setMMRestCount(numMeasuresInMMRest)
         mmrMeasure.setNo(firstMeasure.no())
 
-        // TODO(port): system locks (updateSystemLocksOnCreateMMRest)
+        ctx.mutDom().updateSystemLocksOnCreateMMRest(firstMeasure, lastMeasure)
 
         //
         // set mmrMeasure with same barline as last underlying measure

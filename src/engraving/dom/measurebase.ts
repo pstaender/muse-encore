@@ -17,6 +17,7 @@ import { Pid } from './property'
 import type { Measure } from './measure'
 import type { System } from './system'
 import type { LayoutBreak } from './layoutbreak'
+import type { SystemLock } from './systemlock'
 
 export enum Repeat {
     NONE = 0,
@@ -457,9 +458,18 @@ export abstract class MeasureBase extends EngravingItem {
     isAfter(other: MeasureBase): boolean { return !this.isBeforeOrEqual(other) }
     isAfterOrEqual(other: MeasureBase): boolean { return !this.isBefore(other) }
 
-    // TODO(port): system locks
-    isStartOfSystemLock(): boolean { return false }
-    isEndOfSystemLock(): boolean { return false }
+    systemLock(): SystemLock | null {
+        return this.score().systemLocks().lockContaining(this)
+    }
+
+    isStartOfSystemLock(): boolean {
+        return this.score().systemLocks().lockStartingAt(this) !== null
+    }
+
+    isEndOfSystemLock(): boolean {
+        const lock = this.systemLock()
+        return !!lock && lock.endMB() === this
+    }
 }
 
 export class MeasureBaseList {
