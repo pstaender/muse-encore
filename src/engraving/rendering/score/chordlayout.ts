@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/chordlayout.h/.cpp
  *
- * TODO(port): tablature, tremolos, arpeggios, fingerings, chord lines, generated parentheses,
+ * TODO(port): fingerings, chord lines, generated parentheses,
  * glissandi/guitar bends/note lines, ornament cue notes
  */
 
@@ -27,6 +27,7 @@ import type { Beam } from '../../dom/beam'
 import type { BeamSegment } from '../../dom/beambase'
 import type { Arpeggio } from '../../dom/arpeggio'
 import type { Accidental } from '../../dom/accidental'
+import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { NoteDot } from '../../dom/notedot'
 import { prevChordRest, type Chord } from '../../dom/chord'
 import type { ChordRest } from '../../dom/chordrest'
@@ -51,6 +52,7 @@ import { TablatureSymbolRepeat } from '../../dom/stafftype'
 import type { Ornament } from '../../dom/ornament'
 import { ArpeggioLayout } from './arpeggiolayout'
 import { paddingTable } from '../paddingtable'
+import { TremoloLayout } from './tremololayout'
 
 export class ChordPosInfo {
     chords: Chord[] = []
@@ -1326,6 +1328,66 @@ export class ChordLayout {
         }
     }
 
+    static computeUpTremoloCase(item: Chord, tremolo: TremoloTwoChord, ctx: LayoutContext): boolean {
+        const c1 = tremolo.chord1()
+        const c2 = tremolo.chord2()
+        if (!c1 || !c2) {
+            return true
+        }
+        const cross = c1.staffMove() !== c2.staffMove()
+        if (item === c1) {
+            // we have to lay out the tremolo because it hasn't been laid out at all yet, and we need its direction
+            TremoloLayout.layoutTwoChord(tremolo, ctx)
+        }
+
+        const measure = item.findMeasure()
+        if (!cross && !tremolo.userModified()) {
+            return tremolo.up()
+        }
+
+        if (!measure!.explicitParent()) {
+            // this method will be called later (from Measure::layoutCrossStaff) after the
+            // system is completely laid out.
+            // this is necessary because otherwise there's no way to deal with cross-staff beams
+            // because we don't know how far apart the staves actually are
+            return item.ldata().up
+        }
+
+        if (tremolo.userModified()) {
+            return ChordLayout.isChordPosBelowTrem(item, tremolo)
+        }
+
+        // unmodified cross-staff trem, should be one note per staff
+        if (item.staffMove() !== 0) {
+            return item.staffMove() > 0
+        }
+
+        const otherStaffMove = item.staffMove() === c1.staffMove() ? c2.staffMove() : c1.staffMove()
+        return otherStaffMove < 0
+    }
+
+    static isChordPosBelowTrem(item: Chord | null, trem: TremoloTwoChord | null): boolean {
+        if (!item || !trem || !trem.ldata().isValid()) {
+            return true
+        }
+
+        const baseNote = item.up() ? item.downNote() : item.upNote()
+        const noteY = baseNote.pagePos().y()
+
+        const startAnchor = trem.startAnchor()
+        const endAnchor = trem.endAnchor()
+
+        if (startAnchor.isNull() || endAnchor.isNull()) {
+            return trem.crossStaffBeamBetween() ? item.isBelowCrossBeam(trem) : trem.up()
+        }
+
+        if (item === trem.chord1()) {
+            return noteY > startAnchor.y()
+        }
+
+        return noteY > endAnchor.y()
+    }
+
     static isChordPosBelowBeam(item: Chord, beam: Beam): boolean {
         const baseNote = item.up() ? item.downNote() : item.upNote()
         const noteY = baseNote.pagePos().y()
@@ -1402,7 +1464,8 @@ export class ChordLayout {
             ldata.up = ChordLayout.computeUpBeamCase(item, beam!)
             return
         } else if (item.tremoloTwoChord()) {
-            // TODO(port): computeUpTremoloCase
+            ldata.up = ChordLayout.computeUpTremoloCase(item, item.tremoloTwoChord()!, ctx)
+            return
         }
 
         const staffHasMultipleVoices = item.measure()!.hasVoicesInRange(item.staffIdx(), item.tick(), item.actualTicks())

@@ -44,6 +44,7 @@ import type { EngravingItem } from '../../dom/engravingitem'
 import type { TextBase } from '../../dom/textbase'
 import { ArpeggioLayout } from './arpeggiolayout'
 import type { Arpeggio } from '../../dom/arpeggio'
+import { TremoloLayout } from './tremololayout'
 
 interface MeasureStartEndPos {
     x1: number
@@ -1176,7 +1177,34 @@ export class MeasureLayout {
                 } else if (e.isRest()) {
                     e.mutldata().setPosX(0)
                 } else if (e.isChord()) {
-                    // TODO(port): tremolos
+                    const c = e as Chord
+                    if (c.tremoloSingleChord()) {
+                        TremoloLayout.layoutSingleChord(c.tremoloSingleChord()!, ctx)
+                    }
+
+                    const tr = c.tremoloTwoChord()
+                    if (tr) {
+                        const c1 = tr.chord1()
+                        const c2 = tr.chord2()
+                        if (c1 && !c1.staffMove() && c2 && !c2.staffMove()) {
+                            TremoloLayout.layoutTwoChord(tr, ctx)
+                        }
+                    }
+
+                    for (const g of c.graceNotes()) {
+                        if (g.tremoloSingleChord()) {
+                            TremoloLayout.layoutSingleChord(g.tremoloSingleChord()!, ctx)
+                        }
+
+                        const gtr = g.tremoloTwoChord()
+                        if (gtr) {
+                            const gc1 = gtr.chord1()
+                            const gc2 = gtr.chord2()
+                            if (gc1 && !gc1.staffMove() && gc2 && !gc2.staffMove()) {
+                                TremoloLayout.layoutTwoChord(gtr, ctx)
+                            }
+                        }
+                    }
                 } else if (e.isBarLine()) {
                     e.mutldata().setPosY(0.0)
                     // for end barlines, x position was set in createEndBarLines

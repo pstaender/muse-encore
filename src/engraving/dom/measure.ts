@@ -362,8 +362,52 @@ export class Measure extends MeasureBase {
         }
     }
 
-    /** TODO(port): two-chord tremolos are not ported yet */
-    connectTremolo(): void {}
+    connectTremolo(): void {
+        const ntracks = this.score().ntracks()
+        const st = SegmentType.ChordRest
+        for (let s = this.first(st); s; s = s.next(st)) {
+            for (let i = 0; i < ntracks; ++i) {
+                const e = s.element(i)
+                if (!e || !e.isChord()) {
+                    continue
+                }
+
+                const c = e as Chord
+                const tremolo = c.tremoloTwoChord()
+                if (tremolo) {
+                    // Ensure correct duration type for chord
+                    c.setDurationType(tremolo.durationType())
+
+                    // If it is the first tremolo's chord, find the second
+                    // chord for tremolo, if needed.
+                    if (!tremolo.chord1()) {
+                        tremolo.setChords(c, tremolo.chord2())
+                    } else if (tremolo.chord1() !== c || tremolo.chord2()) {
+                        continue
+                    }
+
+                    for (let ls = s.next(st); ls; ls = ls.next(st)) {
+                        const element = ls.element(i)
+                        if (element) {
+                            if (!element.isChord()) {
+                                continue
+                            }
+                            const nc = element as Chord
+                            tremolo.setChords(c, nc)
+                            nc.setTremoloTwoChord(tremolo)
+                            break
+                        }
+                    }
+
+                    if (!tremolo.chord2()) {
+                        // this is an invalid tremolo! a continued tremolo was started on one note without a valid next note in that measure
+                        // remove the tremolo entirely
+                        c.setTremoloTwoChord(null)
+                    }
+                }
+            }
+        }
+    }
 
     measureNumberMode(): MeasureNumberMode { return this.m_measureNumberMode }
     setMeasureNumberMode(v: MeasureNumberMode): void { this.m_measureNumberMode = v }

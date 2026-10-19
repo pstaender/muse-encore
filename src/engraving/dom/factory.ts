@@ -72,6 +72,8 @@ import { Harmony } from './harmony'
 import { FretDiagram } from './fret'
 import { Ornament, ornamentFactories } from './ornament'
 import { Trill, TrillSegment } from './trill'
+import { TremoloSingleChord } from './tremolosinglechord'
+import { TremoloTwoChord } from './tremolotwochord'
 
 type Parent = EngravingObject | null
 
@@ -91,6 +93,8 @@ export class Factory {
         case ElementType.TIMESIG: return new TimeSig(segmentOrDummy())
         case ElementType.BAR_LINE: return new BarLine(segmentOrDummy())
         case ElementType.ARPEGGIO: return new Arpeggio(chordOrDummy())
+        case ElementType.TREMOLO_SINGLECHORD: return new TremoloSingleChord(chordOrDummy())
+        case ElementType.TREMOLO_TWOCHORD: return new TremoloTwoChord(chordOrDummy())
         case ElementType.BRACKET: return new Bracket(itemOrDummy())
         case ElementType.ARTICULATION: return new Articulation(parent && parent.isChordRest() ? parent : dummy().chord())
         case ElementType.ACCIDENTAL: return new Accidental(itemOrDummy())

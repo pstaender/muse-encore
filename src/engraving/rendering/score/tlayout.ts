@@ -116,6 +116,9 @@ import type { TrillSegment } from '../../dom/trill'
 import { ArticulationAnchor } from '../../dom/articulation'
 import { ArpeggioLayout } from './arpeggiolayout'
 import type { Arpeggio } from '../../dom/arpeggio'
+import { TremoloLayout } from './tremololayout'
+import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
+import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -192,6 +195,8 @@ export class TLayout {
         case ElementType.ARTICULATION: TLayout.layoutArticulation(item as Articulation, ctx); break
         case ElementType.ORNAMENT: TLayout.layoutOrnament(item as Ornament, ctx); break
         case ElementType.ARPEGGIO: TLayout.layoutArpeggio(item as Arpeggio, ctx); break
+        case ElementType.TREMOLO_SINGLECHORD: TremoloLayout.layoutSingleChord(item as TremoloSingleChord, ctx); break
+        case ElementType.TREMOLO_TWOCHORD: TremoloLayout.layoutTwoChord(item as TremoloTwoChord, ctx); break
         case ElementType.BAR_LINE: TLayout.layoutBarLine(item as BarLine, ctx); break
         case ElementType.BEAM: TLayout.layoutBeam(item as Beam, ctx); break
         case ElementType.HBOX: TLayout.layoutHBox(item as HBox, ctx); break

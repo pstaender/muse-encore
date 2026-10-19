@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/slurtielayout.h/.cpp
  *
- * TODO(port): laissez vibrer, partial ties, tapping half slurs, guitar bends on tab, two-chord tremolos,
+ * TODO(port): laissez vibrer, partial ties, tapping half slurs, guitar bends on tab,
  * arpeggios, ornaments
  */
 
@@ -39,6 +39,8 @@ import { TLayout } from './tlayout'
 import { ChordLayout } from './chordlayout'
 import { StemLayout } from './stemlayout'
 import { ShowTiedFret } from '../../dom/stafftype'
+import { TremoloLayout } from './tremololayout'
+import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 
 class SlurTiePos {
     p1 = new PointF() // start point of slur
@@ -531,8 +533,9 @@ export class SlurTieLayout {
             const ecBeam = ec!.beam()
             if (ecBeam && ecBeam.elements()[0] !== ec) {
                 yadj = 0.75
+            } else if (ec!.tremoloTwoChord() && ec!.tremoloTwoChord()!.chord2() === ec) {
+                yadj = 0.75
             } else {
-                // TODO(port): two-chord tremolos
                 yadj = -stemSideInset
             }
             yadj *= _spatium * __up
@@ -566,11 +569,11 @@ export class SlurTieLayout {
             po.setY(po.y() + scr.intrinsicMag() * _spatium * offset * __up)
 
             // adjustments for stem and/or beam
-            // TODO(port): two-chord tremolos
-            if (stem1) { //sc not null
+            const trem = sc ? sc.tremoloTwoChord() : null
+            if (stem1 || trem) { //sc not null
                 const beam1 = sc!.beam()
                 const beam1Elements = beam1 ? beam1.elements() : []
-                if (beam1 && (beam1Elements[beam1Elements.length - 1] !== sc) && (sc!.up() === item.up())) {
+                if (stem1 && beam1 && (beam1Elements[beam1Elements.length - 1] !== sc) && (sc!.up() === item.up())) {
                     // start chord is beamed but not the last chord of beam group
                     // and slur direction is same as start chord (stem side)
 
@@ -591,6 +594,27 @@ export class SlurTieLayout {
 
                     // force end of slur to layout to stem as well,
                     // if start and end chords have same stem direction
+                    stemPos = true
+                } else if (trem && trem.chord2() !== sc && sc!.up() === item.up()) {
+                    TremoloLayout.layoutTwoChord(trem, ctx)
+                    const note = item.up() ? sc!.upNote() : sc!.downNote()
+                    const stemHeight = stem1 ? stem1.length() : SlurTieLayout.defaultStemLengthStart(trem)
+                    const offset2 = Math.max(beamClearance * sc!.intrinsicMag(), minOffset) * _spatium
+                    const sh = stemHeight + offset2
+
+                    if (item.up()) {
+                        po.setY(StemLayout.chordStemPos(sc!).y() - sc!.pagePos().y() - sh)
+                    } else {
+                        po.setY(StemLayout.chordStemPos(sc!).y() - sc!.pagePos().y() + sh)
+                    }
+                    if (!stem1) {
+                        po.setX(note.noteheadCenterX())
+                    } else {
+                        po.setX(StemLayout.chordStemPosX(sc!) + (beamAnchorInset * _spatium * sc!.intrinsicMag())
+                                + (stem1.lineWidthMag() / 2.0 * __up))
+                    }
+                    po = SlurTieLayout.fixArticulations(item, po, sc!, __up, true)
+
                     stemPos = true
                 } else {
                     // start chord is not beamed or is last chord of beam group
@@ -666,15 +690,16 @@ export class SlurTieLayout {
                 po.setY(po.y() + ecr.intrinsicMag() * _spatium * offset2 * __up)
 
                 // adjustments for stem and/or beam
-                // TODO(port): two-chord tremolos
-                if (stem2) { //ec can't be null
+                const trem2 = ec ? ec.tremoloTwoChord() : null
+                if (stem2 || trem2) { //ec can't be null
                     const beam2 = ec!.beam()
                     if ((stemPos && (scr.up() === ec!.up()))
                         || (beam2
                             && beam2.elements().length
                             && (beam2.elements()[0] !== ec)
                             && (ec!.up() === item.up())
-                            && sc && (sc.noteType() === 0 /* NoteType::NORMAL */))) {
+                            && sc && (sc.noteType() === 0 /* NoteType::NORMAL */))
+                        || (trem2 && ec!.up() === item.up())) {
                         // slur start was laid out to stem and start and end have same direction
                         // OR
                         // end chord is beamed but not the first chord of beam group
@@ -685,8 +710,12 @@ export class SlurTieLayout {
                         if (beam2) {
                             TLayout.layoutBeam(beam2, ctx)
                         }
+                        if (trem2) {
+                            TremoloLayout.layoutTwoChord(trem2, ctx)
+                        }
                         const beamWidthSp = beam2 ? ctx.conf().styleS(Sid.beamWidth).val() : 0
-                        const stemHeight = stem2.length() + (beamWidthSp / 2)
+                        const note = item.up() ? ec!.upNote() : ec!.downNote()
+                        const stemHeight = stem2 ? stem2.length() + (beamWidthSp / 2) : SlurTieLayout.defaultStemLengthEnd(trem2!)
                         const offset3 = Math.max(beamClearance * ec!.intrinsicMag(), minOffset) * _spatium
                         const sh = stemHeight + offset3
 
@@ -695,8 +724,13 @@ export class SlurTieLayout {
                         } else {
                             po.setY(StemLayout.chordStemPos(ec!).y() - ec!.pagePos().y() + sh)
                         }
-                        po.setX(StemLayout.chordStemPosX(ec!) + (stem2.lineWidthMag() / 2 * __up)
-                                - (beamAnchorInset * _spatium * ec!.intrinsicMag()))
+                        if (!stem2) {
+                            // tremolo whole notes
+                            po.setX(note.noteheadCenterX())
+                        } else {
+                            po.setX(StemLayout.chordStemPosX(ec!) + (stem2.lineWidthMag() / 2 * __up)
+                                    - (beamAnchorInset * _spatium * ec!.intrinsicMag()))
+                        }
 
                         // account for articulations
                         po = SlurTieLayout.fixArticulations(item, po, ec!, __up, true)
@@ -1074,7 +1108,10 @@ export class SlurTieLayout {
                 continue
             }
             if (e.isChord()) {
-                // TODO(port): two-chord tremolos
+                const trem = (e as Chord).tremoloTwoChord()
+                if (trem) {
+                    segShape.add(trem.shape())
+                }
                 for (const note of (e as Chord).notes()) {
                     const tieFor = note.tieFor()
                     const tieBack = note.tieBack()
@@ -1243,8 +1280,16 @@ export class SlurTieLayout {
         if (adjustForBeam) {
             return true
         }
-        // TODO(port): two-chord tremolos
-        return false
+
+        const c = cr && cr.isChord() ? cr as Chord : null
+        const trem = c ? c.tremoloTwoChord() : null
+        let adjustForTrem = !!trem && trem.up() === slur.up()
+        if (start) {
+            adjustForTrem = adjustForTrem && trem!.chord2() !== c
+        } else {
+            adjustForTrem = adjustForTrem && trem!.chord1() !== c
+        }
+        return adjustForTrem
     }
 
     private static isOverBeams(slur: Slur): boolean {
@@ -1266,8 +1311,12 @@ export class SlurTieLayout {
             }
             const cr = e as ChordRest
             const hasBeam = !!cr.beam() && cr.up() === slur.up()
-            // TODO(port): two-chord tremolos
-            if (!hasBeam) {
+            let hasTrem = false
+            if (cr.isChord()) {
+                const c = cr as Chord
+                hasTrem = !!c.tremoloTwoChord() && c.up() === slur.up()
+            }
+            if (!(hasBeam || hasTrem)) {
                 return false
             }
             const next = seg.next()
@@ -2651,6 +2700,16 @@ export class SlurTieLayout {
 
         slurTieSeg.mutldata().setShape(shape)
     }
+
+    static defaultStemLengthStart(tremolo: TremoloTwoChord): number {
+        return TremoloLayout.extendedStemLenWithTwoNoteTremolo(tremolo,
+            tremolo.chord1()!.defaultStemLength(),
+            tremolo.chord2()!.defaultStemLength())[0]
+    }
+
+    static defaultStemLengthEnd(tremolo: TremoloTwoChord): number {
+        return TremoloLayout.extendedStemLenWithTwoNoteTremolo(tremolo,
+            tremolo.chord1()!.defaultStemLength(),
+            tremolo.chord2()!.defaultStemLength())[1]
+    }
 }
-
-

@@ -25,6 +25,7 @@ import {
     VeloType, VoiceAssignment, AccidentalRole, DynamicType, AutoCustomHide, MarkerType, GlissandoType,
     ElementType, OrnamentInterval, ParenthesesMode, TrillType, type track_idx_t,
     ChangeMethod, DynamicSpeed, SpannerSegmentType, VOICES,
+    TremoloType, TremoloStyle, isTremoloTwoChord,
 } from '../../types/types'
 import { Constants } from '../../types/constants'
 import { lrint } from '../../../framework/global/realfn'
@@ -108,6 +109,10 @@ import type { NoteCaseType } from '../../dom/pitchspelling'
 import { FretItem, FretMarkerType, type FretDiagram } from '../../dom/fret'
 import { Ornament } from '../../dom/ornament'
 import type { Trill } from '../../dom/trill'
+import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
+import type { TremoloTwoChord } from '../../dom/tremolotwochord'
+import type { BeamFragment } from '../../dom/beambase'
+import type { TremoloCompat } from '../compat/tremolocompat'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -2019,9 +2024,34 @@ export class TRead {
             TRead.readArpeggio(arpeggio, e, ctx)
             arpeggio.setParent(ch)
             ch.setArpeggio(arpeggio)
-        } else if (tag === 'ChordBracket' || tag === 'Tremolo' || tag === 'TremoloSingleChord' || tag === 'TremoloTwoChord'
-                   || tag === 'ChordLine' || tag === 'NoteParenGroup') {
-            // TODO(port): chord brackets, tremolos, chord lines, note parentheses
+        } else if (tag === 'Tremolo') { // compat
+            const tcompat: TremoloCompat = { parent: ch, single: null, two: null }
+            TRead.readTremoloCompat(tcompat, e, ctx)
+            if (tcompat.two) {
+                tcompat.two.setParent(ch)
+                tcompat.two.setDurationType(ch.durationType())
+                ch.setTremoloTwoChord(tcompat.two, false)
+            } else if (tcompat.single) {
+                tcompat.single.setParent(ch)
+                tcompat.single.setDurationType(ch.durationType())
+                ch.setTremoloSingleChord(tcompat.single)
+            }
+        } else if (tag === 'TremoloSingleChord') {
+            const trem = Factory.createItem(ElementType.TREMOLO_SINGLECHORD, ch) as TremoloSingleChord
+            trem.setTrack(ch.track())
+            TRead.readTremoloCompat({ parent: ch, single: trem, two: null }, e, ctx)
+            trem.setParent(ch)
+            trem.setDurationType(ch.durationType())
+            ch.setTremoloSingleChord(trem)
+        } else if (tag === 'TremoloTwoChord') {
+            const trem = Factory.createItem(ElementType.TREMOLO_TWOCHORD, ch) as TremoloTwoChord
+            trem.setTrack(ch.track())
+            TRead.readTremoloCompat({ parent: ch, single: null, two: trem }, e, ctx)
+            trem.setParent(ch)
+            trem.setDurationType(ch.durationType())
+            ch.setTremoloTwoChord(trem, false)
+        } else if (tag === 'ChordBracket' || tag === 'ChordLine' || tag === 'NoteParenGroup') {
+            // TODO(port): chord brackets, chord lines, note parentheses
             e.skipCurrentElement()
         } else if (tag === 'combineVoice') {
             TRead.readPropertyIfTag(ch, tag, e, ctx, Pid.COMBINE_VOICE)
@@ -2224,6 +2254,72 @@ export class TRead {
             if (TRead.readPropertyIfTag(s, tag, e, ctx, Pid.USER_LEN)) {
             } else if (TRead.readStyledProperty(s, tag, e, ctx)) {
             } else if (!TRead.readItemProperties(s, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readTremoloCompat(tc: TremoloCompat, e: XmlReader, ctx: ReadContext): void {
+        const item = (): EngravingItem => (tc.two ? tc.two : tc.single)!
+
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'subtype') {
+                const type = TConv.fromXmlTremoloType(e.readAsciiText(), TremoloType.INVALID_TREMOLO)
+                if (isTremoloTwoChord(type)) {
+                    if (!tc.two) {
+                        tc.two = Factory.createItem(ElementType.TREMOLO_TWOCHORD, tc.parent) as TremoloTwoChord
+                        tc.two.setTrack(tc.parent!.track())
+                    }
+                    tc.two.setTremoloType(type)
+                } else {
+                    if (!tc.single) {
+                        tc.single = Factory.createItem(ElementType.TREMOLO_SINGLECHORD, tc.parent) as TremoloSingleChord
+                        tc.single.setTrack(tc.parent!.track())
+                    }
+                    tc.single.setTremoloType(type)
+                }
+            }
+            // Style needs special handling other than readStyledProperty()
+            // to avoid calling customStyleApplicable() in setProperty(),
+            // which cannot be called now because durationType() isn't defined yet.
+            else if (tag === 'strokeStyle') {
+                if (tc.two) {
+                    tc.two.setTremoloStyle(e.readInt() as TremoloStyle)
+                    tc.two.setPropertyFlags(Pid.TREMOLO_STYLE, PropertyFlags.UNSTYLED)
+                } else {
+                    e.skipCurrentElement()
+                }
+            } else if (tag === 'Fragment') {
+                if (tc.two) {
+                    const f: BeamFragment = { py1: [0, 0], py2: [0, 0] }
+                    const idx = tc.two.directionIdx()
+                    tc.two.setUserModified(true)
+                    const _spatium = tc.two.spatium()
+                    while (e.readNextStartElement()) {
+                        const tag1 = e.name()
+                        if (tag1 === 'y1') {
+                            f.py1[idx] = e.readDouble() * _spatium
+                        } else if (tag1 === 'y2') {
+                            f.py2[idx] = e.readDouble() * _spatium
+                        } else {
+                            e.unknown()
+                        }
+                    }
+                    tc.two.setBeamFragment(f)
+                } else {
+                    e.skipCurrentElement()
+                }
+            } else if (tag === 'play') {
+                if (tc.two) {
+                    tc.two.setPlayTremolo(e.readBool())
+                } else if (tc.single) {
+                    tc.single.setPlayTremolo(e.readBool())
+                } else {
+                    e.skipCurrentElement()
+                }
+            } else if (TRead.readStyledProperty(item(), tag, e, ctx)) {
+            } else if (!TRead.readItemProperties(item(), e, ctx)) {
                 e.unknown()
             }
         }

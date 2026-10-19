@@ -373,8 +373,7 @@ export class StemLayout {
         const ldata = item.ldata()
         const staff = item.staff()!
 
-        // TODO(port): TremoloSingleChord is not ported; this is its interface as used here
-        const tremolo = item.tremoloSingleChord() as unknown as { isBuzzRoll(): boolean, minHeight(): number } | null
+        const tremolo = item.tremoloSingleChord()
         if (tremolo) {
             // buzz roll's height is actually half of the visual height,
             // so we need to multiply it by 2 to get the actual height
@@ -460,7 +459,7 @@ export class StemLayout {
     }
 
     private static calcBeamCount(item: Chord): number {
-        const trem = item.tremoloTwoChord() as unknown as { lines(): number } | null // TODO(port): TremoloTwoChord
+        const trem = item.tremoloTwoChord()
         return (trem ? trem.lines() : 0) + (item.beam() ? item.beams() : 0)
     }
 }

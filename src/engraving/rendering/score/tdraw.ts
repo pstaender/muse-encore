@@ -63,6 +63,8 @@ import { FretDotType, FretMarkerType, type FretDiagram } from '../../dom/fret'
 import { AlignmentFlag } from '../../../framework/draw/types/drawtypes'
 import type { TrillSegment } from '../../dom/trill'
 import type { Arpeggio } from '../../dom/arpeggio'
+import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
+import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
@@ -98,6 +100,10 @@ export class TDraw {
         case ElementType.LEDGER_LINE: TDraw.drawLedgerLine(item as LedgerLine, painter, opt)
             break
         case ElementType.ARPEGGIO: TDraw.drawArpeggio(item as Arpeggio, painter, opt)
+            break
+        case ElementType.TREMOLO_SINGLECHORD: TDraw.drawTremoloSingleChord(item as TremoloSingleChord, painter, opt)
+            break
+        case ElementType.TREMOLO_TWOCHORD: TDraw.drawTremoloTwoChord(item as TremoloTwoChord, painter, opt)
             break
         case ElementType.FRET_DIAGRAM: TDraw.drawFretDiagram(item as FretDiagram, painter, opt)
             break
@@ -570,6 +576,46 @@ export class TDraw {
             painter.restore()
         }
         item.drawSymbol(ldata.cachedNoteheadSym, painter)
+    }
+
+    static drawTremoloSingleChord(item: TremoloSingleChord, painter: Painter, opt: PaintOptions): void {
+        if (item.isBuzzRoll()) {
+            painter.setPen(new Pen(item.curColor(opt)))
+            item.drawSymbol(SymId.buzzRoll, painter)
+        } else {
+            painter.setBrush(new Brush(item.curColor(opt)))
+            painter.setNoPen()
+            painter.drawPath(item.path())
+        }
+    }
+
+    static drawTremoloTwoChord(item: TremoloTwoChord, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+        const segments = item.beamSegments()
+
+        if (segments.length) {
+            // two-note trems act like beams
+
+            // make beam thickness independent of slant
+            // (expression can be simplified?)
+            const bs = segments[0].line
+            let d = Math.abs(bs.y2() - bs.y1()) / (bs.x2() - bs.x1())
+            if (segments.length > 1 && d > Math.PI / 6.0) {
+                d = Math.PI / 6.0
+            }
+            const ww = (ldata.beamWidth / 2.0) / Math.sin(Math.PI / 2 - Math.atan(d))
+            painter.setBrush(new Brush(item.curColor(opt)))
+            painter.setNoPen()
+            for (const bs1 of segments) {
+                const l = bs1.line
+                painter.drawPolygon([
+                    new PointF(l.x1(), l.y1() - ww),
+                    new PointF(l.x2(), l.y2() - ww),
+                    new PointF(l.x2(), l.y2() + ww),
+                    new PointF(l.x1(), l.y1() + ww),
+                ], FillRule.OddEvenFill)
+            }
+        }
     }
 
     static drawArpeggio(item: Arpeggio, painter: Painter, opt: PaintOptions): void {

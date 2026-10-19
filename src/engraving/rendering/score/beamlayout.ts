@@ -4,8 +4,6 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/engraving/rendering/score/beamlayout.h/.cpp
- *
- * TODO(port): tremolos
  */
 
 import { LineF, PointF } from '../../../framework/draw/types/geometry'
@@ -32,6 +30,7 @@ import { TLayout } from './tlayout'
 import { ChordLayout } from './chordlayout'
 import { RestLayout } from './restlayout'
 import { BeamTremoloLayout } from './beamtremololayout'
+import { TremoloLayout } from './tremololayout'
 
 export { ChordBeamAnchorType }
 
@@ -118,7 +117,9 @@ export class BeamLayout {
         // The beam may have changed shape. one-note trems within this beam need to be layed out here
         for (const cr of item.elements()) {
             ChordLayout.computeUp(cr, ctx)
-            // TODO(port): TremoloLayout::layout for single chord tremolos
+            if (cr.isChord() && (cr as Chord).tremoloSingleChord()) {
+                TremoloLayout.layoutSingleChord((cr as Chord).tremoloSingleChord()!, ctx)
+            }
         }
     }
 
@@ -772,7 +773,19 @@ export class BeamLayout {
         }
         const beam = cr.beam()!
         TLayout.layoutBeam(beam, ctx)
-        // TODO(port): two-chord tremolos within the beam
+
+        if (beam.tremAnchors().length) {
+            // there are inset tremolos in here
+            for (const beamCr of beam.elements()) {
+                if (!beamCr.isChord()) {
+                    continue
+                }
+                const c = beamCr as Chord
+                if (c.tremoloTwoChord()) {
+                    TremoloLayout.layoutTwoChord(c.tremoloTwoChord()!, ctx)
+                }
+            }
+        }
         for (const beamCR of beam.elements()) {
             if (beamCR.isRest() && beamCR.vStaffIdx() === beam.staffIdx()) {
                 BeamLayout.verticalAdjustBeamedRests(beamCR as Rest, beam, ctx)
@@ -1303,8 +1316,41 @@ export class BeamLayout {
         return BeamTremoloLayout.chordBeamAnchorY(item.ldata(), chord)
     }
 
-    static setTremAnchors(item: Beam, _ctx: LayoutContext): void {
+    static setTremAnchors(item: Beam, ctx: LayoutContext): void {
         item.tremAnchors().length = 0
-        // TODO(port): two-chord tremolos
+        for (const cr of item.elements()) {
+            if (!cr || !cr.isChord()) {
+                continue
+            }
+            const c = cr as Chord
+            const t = c.tremoloTwoChord()
+            if (t && t.chord1() === c && t.chord2()!.beam() === item) {
+                // there is an inset tremolo here!
+                // figure out up / down
+                let tremUp = t.up()
+                if (item.userModified()) {
+                    tremUp = c.up()
+                } else if (item.cross() && t.chord1()!.staffMove() === t.chord2()!.staffMove()) {
+                    tremUp = t.chord1()!.staffMove() === item.maxCRMove()
+                }
+                const regularBeams = c.beams() // non-tremolo strokes
+                const scale = t.spatium() * t.mag()
+
+                // find the left-side anchor
+                const width = item.endAnchor().x() - item.startAnchor().x()
+                const height = item.endAnchor().y() - item.startAnchor().y()
+                let x = BeamLayout.chordBeamAnchor(item, c, ChordBeamAnchorType.Middle).x()
+                let proportionAlongX = (x - item.startAnchor().x()) / width
+                let y = item.startAnchor().y() + (proportionAlongX * height)
+                y += regularBeams * (ctx.conf().styleB(Sid.useWideBeams) ? 1.0 : 0.75) * scale * (tremUp ? 1.0 : -1.0)
+                const y1 = y
+                // find the right-side anchor
+                x = BeamLayout.chordBeamAnchor(item, t.chord2()!, ChordBeamAnchorType.Middle).x()
+                proportionAlongX = (x - item.startAnchor().x()) / width
+                y = item.startAnchor().y() + (proportionAlongX * height)
+                y += regularBeams * (ctx.conf().styleB(Sid.useWideBeams) ? 1.0 : 0.75) * scale * (tremUp ? 1.0 : -1.0)
+                item.tremAnchors().push({ chord1: c, y1, y2: y })
+            }
+        }
     }
 }

@@ -21,9 +21,10 @@ import type { LayoutConfiguration, LayoutContext } from './layoutcontext'
 import { TLayout } from './tlayout'
 import { ChordLayout } from './chordlayout'
 import { StemLayout } from './stemlayout'
+import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 
-// TODO(port): TremoloTwoChord is not ported; this is the interface used here
-interface TremoloTwoChordLike {
+/** ldata.trem with chord1/chord2 set (C++ dereferences them without checks) */
+interface TremoloWithChords {
     chord1(): Chord
     chord2(): Chord
     lines(): number
@@ -32,7 +33,7 @@ interface TremoloTwoChordLike {
     pagePos(): PointF
 }
 
-const trem = (ldata: BeamBaseLayoutData): TremoloTwoChordLike => ldata.trem as unknown as TremoloTwoChordLike
+const trem = (ldata: BeamBaseLayoutData): TremoloWithChords => ldata.trem as TremoloTwoChord as TremoloWithChords
 
 enum SlopeConstraint {
     NO_CONSTRAINT,
@@ -530,7 +531,7 @@ export class BeamTremoloLayout {
         if (ldata.beamType === BeamType.TREMOLO) {
             strokes = trem(ldata).lines()
         } else if (ldata.beamType === BeamType.BEAM && c.tremoloTwoChord()) {
-            strokes = (c.tremoloTwoChord() as unknown as TremoloTwoChordLike).lines()
+            strokes = c.tremoloTwoChord()!.lines()
         }
         strokes += ldata.beam ? cr.beams() : 0
         return strokes

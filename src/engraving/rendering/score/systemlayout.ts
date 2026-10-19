@@ -1491,7 +1491,21 @@ export class SystemLayout {
                                 skyline.add(shape.translate(e.pos().plus(p).plus(offset)))
                             }
 
-                            // TODO(port): two-chord tremolos
+                            // add tremolo to skyline
+                            if (e.isChord()) {
+                                const ch = e as Chord
+                                // tremoloSingleChord is added directly to chord shape
+                                const t = ch.tremoloTwoChord()
+                                if (t) {
+                                    const c1 = t.chord1()
+                                    const c2 = t.chord2()
+                                    if (c1 && !c1.staffMove() && c2 && !c2.staffMove()) {
+                                        if (t.chord() === e && t.addToSkyline()) {
+                                            skyline.add(t.shape().translate(t.pos().plus(e.pos()).plus(p)))
+                                        }
+                                    }
+                                }
+                            }
 
                             // add beams to skline
                             if (e.isChordRest()) {
@@ -1678,7 +1692,15 @@ export class SystemLayout {
                 if (beam && (beam.cross() || beam.userModified())) {
                     return true
                 }
-                // TODO(port): two-chord tremolos
+                const c = e.isChord() ? e as Chord : null
+                const trem = c ? c.tremoloTwoChord() : null
+                if (trem) {
+                    const c1 = trem.chord1()!
+                    const c2 = trem.chord2()!
+                    if (trem.userModified() || c1.staffMove() !== c2.staffMove()) {
+                        return true
+                    }
+                }
                 if (e.isChord() && (e as Chord).graceNotes().length) {
                     for (const grace of (e as Chord).graceNotes()) {
                         const gb = grace.beam()
@@ -1742,8 +1764,19 @@ export class SystemLayout {
                             ChordLayout.layoutChords1(ctx, seg, chord.vStaffIdx())
                             somethingChanged = true
                         }
+                    } else if (chord.tremoloTwoChord()) {
+                        const t = chord.tremoloTwoChord()!
+                        const c1 = t.chord1()!
+                        const c2 = t.chord2()!
+                        if (t.userModified() || (c1.staffMove() !== 0 || c2.staffMove() !== 0)) {
+                            const prevUp = chord.up()
+                            ChordLayout.computeUp(chord, ctx)
+                            if (chord.up() !== prevUp) {
+                                ChordLayout.layoutChords1(ctx, seg, chord.vStaffIdx())
+                                somethingChanged = true
+                            }
+                        }
                     }
-                    // TODO(port): two-chord tremolos
                 }
                 if (somethingChanged) {
                     seg.createShapes()

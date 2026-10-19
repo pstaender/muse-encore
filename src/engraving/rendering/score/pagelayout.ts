@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/pagelayout.h/.cpp
  *
- * TODO(port): system dividers, tremolos, fingerings on cross-staff beams,
+ * TODO(port): system dividers, fingerings on cross-staff beams,
  * system lock / staff visibility indicators
  */
 
@@ -318,7 +318,17 @@ export class PageLayout {
                                     }
                                 }
                                 ChordLayout.layoutSpanners(c, ctx)
-                                // TODO(port): cross-staff two-chord tremolos
+                                const t = c.tremoloTwoChord()
+                                if (t) {
+                                    const c1 = t.chord1()
+                                    const c2 = t.chord2()
+                                    if (c1 && c2 && (c1.staffMove() || c2.staffMove())) {
+                                        // For cross-staff tremolo, vertical justification may have changed
+                                        // staff distances, and therefore also stem directions, so re-compute them
+                                        ChordLayout.computeUp(c1, ctx) // This will also call a tremolo layout
+                                        ChordLayout.computeUp(c2, ctx)
+                                    }
+                                }
                             }
                         } else if (e2.isBarLine()) {
                             TLayout.layoutBarLine2(e2 as BarLine, ctx)

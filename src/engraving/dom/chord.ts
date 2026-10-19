@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/chord.h/.cpp (and nextChordRest/prevChordRest of navigate.cpp)
  *
- * TODO(port): tremolos, arpeggios, chord lines, stem slashes, percussion/tab note updates
+ * TODO(port): chord lines, stem slashes, percussion/tab note updates
  */
 
 import { PointF } from '../../framework/draw/types/geometry'
@@ -34,6 +34,9 @@ import type { Spanner } from './spanner'
 import type { Tie } from './tie'
 import type { TablatureMinimStyle } from './stafftype'
 import type { Drumset } from './drumset'
+import { TDuration } from './durationtype'
+import type { TremoloTwoChord } from './tremolotwochord'
+import type { TremoloSingleChord } from './tremolosinglechord'
 
 /** factories registered by the corresponding modules (avoid runtime import cycles) */
 export const chordFactories: {
@@ -144,6 +147,8 @@ export class Chord extends ChordRest {
     private m_stemSlash: StemSlash | null = null // for grace notes
     private m_showStemSlash = false
     private m_arpeggio: EngravingItem | null = null
+    private m_tremoloTwoChord: TremoloTwoChord | null = null
+    private m_tremoloSingleChord: TremoloSingleChord | null = null
     private m_spanArpeggio: EngravingItem | null = null
     private m_endsNoteAnchoredLine = false
     private m_graceNotes: Chord[] = [] // storage for all grace notes
@@ -345,11 +350,95 @@ export class Chord extends ChordRest {
     showStemSlash(): boolean { return this.m_showStemSlash }
     setShowStemSlash(show: boolean): void { this.m_showStemSlash = show }
 
-    // TODO(port): tremolos
-    tremoloType(): TremoloType { return TremoloType.INVALID_TREMOLO }
-    tremoloTwoChord(): (EngravingItem & { chord1(): Chord | null; chord2(): Chord | null }) | null { return null }
-    tremoloSingleChord(): EngravingItem | null { return null }
-    tremoloChordType(): TremoloChordType { return TremoloChordType.TremoloNone }
+    tremoloType(): TremoloType {
+        if (this.m_tremoloSingleChord) {
+            return this.m_tremoloSingleChord.tremoloType()
+        } else if (this.m_tremoloTwoChord) {
+            return this.m_tremoloTwoChord.tremoloType()
+        }
+        return TremoloType.INVALID_TREMOLO
+    }
+
+    tremoloTwoChord(): TremoloTwoChord | null { return this.m_tremoloTwoChord }
+    tremoloSingleChord(): TremoloSingleChord | null { return this.m_tremoloSingleChord }
+
+    setTremoloTwoChord(tr: TremoloTwoChord | null, applyLogic = true): void {
+        if (this.m_tremoloTwoChord && tr && tr === this.m_tremoloTwoChord) {
+            return
+        }
+
+        if (this.m_tremoloTwoChord) {
+            this.resetTremoloTwoChordDuration()
+        }
+        this.m_tremoloSingleChord = null
+
+        if (tr && applyLogic) {
+            let d = tr.durationType()
+            if (!d.isValid()) {
+                d = this.durationType()
+                const dots = d.dots()
+                d = d.shift(-1)
+                d.setDots(dots)
+                tr.setDurationType(d)
+            }
+
+            this.setDurationType(d)
+            const other = tr.chord1() === this ? tr.chord2() : tr.chord1()
+            this.m_tremoloTwoChord = tr
+            if (other) {
+                other.setTremoloTwoChord(tr)
+            }
+        }
+
+        this.m_tremoloTwoChord = tr
+    }
+
+    setTremoloSingleChord(tr: TremoloSingleChord | null): void {
+        if (this.m_tremoloSingleChord && tr && tr === this.m_tremoloSingleChord) {
+            return
+        }
+
+        if (this.m_tremoloTwoChord) {
+            this.resetTremoloTwoChordDuration()
+        }
+
+        this.m_tremoloSingleChord = tr
+    }
+
+    /** common part of C++ setTremoloTwoChord/setTremoloSingleChord */
+    private resetTremoloTwoChordDuration(): void {
+        const trem = this.m_tremoloTwoChord!
+        let d: TDuration
+        const f = this.ticks()
+        if (f.numerator() > 0) {
+            d = new TDuration(f)
+        } else {
+            d = trem.durationType()
+            const dots = d.dots()
+            d = d.shift(1)
+            d.setDots(dots)
+        }
+
+        this.setDurationType(d)
+        const other = trem.chord1() === this ? trem.chord2() : trem.chord1()
+        this.m_tremoloTwoChord = null
+        if (other) {
+            other.setTremoloTwoChord(null)
+        }
+    }
+
+    tremoloChordType(): TremoloChordType {
+        if (this.m_tremoloTwoChord) {
+            if (this.m_tremoloTwoChord.chord1() === this) {
+                return TremoloChordType.TremoloFirstChord
+            } else if (this.m_tremoloTwoChord.chord2() === this) {
+                return TremoloChordType.TremoloSecondChord
+            }
+        } else if (this.m_tremoloSingleChord) {
+            return TremoloChordType.TremoloSingle
+        }
+        return TremoloChordType.TremoloNone
+    }
     chordLine(): EngravingItem | null { return null }
 
     endsNoteAnchoredLine(): boolean { return this.m_endsNoteAnchoredLine }
@@ -462,6 +551,12 @@ export class Chord extends ChordRest {
         case ElementType.ARPEGGIO:
             this.m_arpeggio = e
             break
+        case ElementType.TREMOLO_TWOCHORD:
+            this.setTremoloTwoChord(e as TremoloTwoChord)
+            break
+        case ElementType.TREMOLO_SINGLECHORD:
+            this.setTremoloSingleChord(e as TremoloSingleChord)
+            break
         case ElementType.CHORD_BRACKET:
         case ElementType.CHORDLINE:
             this.addEl(e)
@@ -524,6 +619,12 @@ export class Chord extends ChordRest {
                 this.m_spanArpeggio = null
             }
             this.m_arpeggio = null
+            break
+        case ElementType.TREMOLO_TWOCHORD:
+            this.setTremoloTwoChord(null)
+            break
+        case ElementType.TREMOLO_SINGLECHORD:
+            this.setTremoloSingleChord(null)
             break
         case ElementType.CHORD_BRACKET:
         case ElementType.CHORDLINE:
@@ -684,6 +785,12 @@ export class Chord extends ChordRest {
         }
         if (this.m_arpeggio) {
             f(this.m_arpeggio)
+        }
+        if (this.m_tremoloTwoChord) {
+            f(this.m_tremoloTwoChord)
+        }
+        if (this.m_tremoloSingleChord) {
+            f(this.m_tremoloSingleChord)
         }
         for (const ll of this.m_ledgerLines) {
             f(ll)
@@ -954,6 +1061,12 @@ export class Chord extends ChordRest {
         }
         if (this.m_arpeggio) {
             func(this.m_arpeggio)
+        }
+        if (this.m_tremoloTwoChord && (this.tremoloChordType() !== TremoloChordType.TremoloSecondChord)) {
+            func(this.m_tremoloTwoChord)
+        }
+        if (this.m_tremoloSingleChord) {
+            func(this.m_tremoloSingleChord)
         }
         const st = this.staff()
         if ((st && st.showLedgerLines(this.tick())) || !st) { // also for palette

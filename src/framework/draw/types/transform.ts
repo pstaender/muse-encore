@@ -42,6 +42,7 @@ export class Transform {
 
     translate(dx: number, dy: number): this { return this.premultiply(new Transform(1, 0, 0, 1, dx, dy)) }
     scale(sx: number, sy: number): this { return this.premultiply(new Transform(sx, 0, 0, sy, 0, 0)) }
+    shear(sh: number, sv: number): this { return this.premultiply(new Transform(1, sv, sh, 1, 0, 0)) }
 
     /** angle in degrees */
     rotate(a: number): this {
