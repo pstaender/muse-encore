@@ -1,7 +1,8 @@
 /MuseScore/
 node_modules/
 dist/
-demo/dist/
+dist-demo/
+/compare-out/
 /out/
 *.log
 .DS_Store

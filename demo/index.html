@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MuseScore Web</title>
+    <style>
+        :root { color-scheme: light dark; --bg: #e8e8e8; --fg: #222; --panel: #fff; }
+        @media (prefers-color-scheme: dark) { :root { --bg: #2b2b2b; --fg: #ddd; --panel: #3a3a3a; } }
+        body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+        header { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 16px; background: var(--panel);
+                 box-shadow: 0 1px 3px rgba(0, 0, 0, .2); position: sticky; top: 0; z-index: 1; }
+        header h1 { font-size: 16px; margin: 0 8px 0 0; }
+        #status { opacity: .7; font-size: 13px; }
+        #pages { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 16px; }
+        #pages canvas { background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .3); max-width: 100%; height: auto; }
+        #drop { border: 2px dashed #888; border-radius: 8px; padding: 40px; text-align: center; margin: 32px auto; max-width: 480px; }
+        body.dragging #drop { border-color: #2a7ae2; }
+    </style>
+</head>
+<body>
+<header>
+    <h1>MuseScore Web</h1>
+    <input type="file" id="file" accept=".mscz,.mscx">
+    <label>Zoom <input type="range" id="zoom" min="50" max="200" step="10" value="100"></label>
+    <span id="status">Loading fonts…</span>
+</header>
+<div id="drop">Open or drop a MuseScore 4 file (.mscz / .mscx)</div>
+<div id="pages"></div>
+<script type="module" src="./main.ts"></script>
+</body>
+</html>

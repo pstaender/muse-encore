@@ -57,3 +57,30 @@
   AccidentalsLayout, TLayout, TextLayout, Autoplace, BoxLayout, HeaderFooterLayout, ModifyDom, SlurTieLayout,
   TupletLayout, LyricsLayout.
 - Painting (Paint/TDraw), public API, demo, node render + compare tools.
+
+## 2026-10-19 — Session 1 (continued): layout, painting, API, tools
+
+### Done
+- Layout (rendering/score): LayoutContext, ScoreLayout/ScorePageViewLayout, passes, MeasureLayout, ModifyDom,
+  SegmentLayout, ChordLayout, StemLayout, RestLayout, AccidentalsLayout, BeamLayout, BeamTremoloLayout, Autoplace,
+  TLayout, TextLayout, MeasureNumberLayout, BoxLayout, TupletLayout, LyricsLayout, HorizontalSpacing,
+  SystemLayout, VerticalGapData, PageLayout, HeaderFooterLayout, SlurTieLayout, ScoreRenderer (DOM hooks).
+- Drumsets: Drumset + generated standard drumset (`tools/gen/gen-drumset.ts`), `<Drum>` reading,
+  percussion note lines/heads, drum beam directions.
+- Painting: TDraw (all ported element types), Paint (page iteration, z-order, Page::items without BSP tree),
+  Painter masks (QPainter clip path emulated with canvas clip per mask rect).
+- Public API `src/index.ts`: initEngravingFonts, loadScore, layoutScore, pageCount, pageSize, drawPage.
+- Fonts: `engravingmodule.ts` registers Edwin, FreeSerif/FreeSans, Bravura(+Text), Leland(+Text); other SMuFL fonts
+  fall back to Bravura, their text fonts to Leland Text.
+- Tools: `npm run render`, `npm run compare` (renders with MuseScore 4.7.5 and the port, writes a diff PNG:
+  red = only MuseScore, blue = only port). Demo app (`npm run dev`, supports `?url=<score>`).
+- All 573 4.x vtest scores lay out without exceptions. beams-1: element positions equal MuseScore's SVG
+  export within 0.05 units (1200 DPI).
+
+### Known differences / missing
+- Not ported (not drawn): staff/system/tempo texts, dynamics, rehearsal marks, fermatas, breaths, harmony,
+  fingering, all lines (hairpins, voltas, ottavas, pedal, trills, lyrics lines), tremolos, MM rests,
+  measure repeats, ornaments, arpeggios drawing, images, tablature, laissez vibrer/partial ties, excerpts.
+- 3.x and older files (read302/206/114) are rejected.
+- Headers/footers use placeholder file info macros.
+- Demo not yet verified in a real browser (node rendering path verified).

@@ -49,16 +49,20 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - All layout units are MuseScore "pixels" at 1200 DPI (`DPI` in `types.ts`), spatium default 24.8.
 - Text metrics must follow Qt's QFontMetricsF on a 1200 DPI device (see `fontprovider.ts`).
 - Every file starts with the GPL SPDX header.
+- C++ destructors with side effects must be emulated explicitly (e.g. ~LayoutContext -> end of ScoreLayout.layoutRange).
+- DOM -> rendering calls (C++ `renderer()->...`) go through hooks set in `rendering/score/scorerenderer.ts`.
 
 ## Commands
 
 - `npm run typecheck` - tsc
 - `npm test` - vitest
-- `npm run dev` - demo app (Vite)
-- `npm run render -- <file.mscz> <out-prefix>` - render pages to PNG in node
-- `npm run compare -- <file.mscz>` - render with MuseScore and with this port and diff the PNGs
-- `npx tsx tools/gen/gen-symids.ts <extracted v4.7.5 tree>` - regenerate SymId tables
-- `npx tsx tools/gen/gen-styledef.ts <extracted v4.7.5 tree>` - regenerate style definitions
+- `npm run dev` - demo app (Vite; `?url=<score>` opens a score, fonts are served from ./fonts)
+- `npm run render -- <file.mscz> <out-prefix> [dpi]` - render pages to PNG in node
+- `npm run compare -- <file.mscz> [out-dir] [dpi]` - render with MuseScore and with this port and diff the PNGs
+  (red = only MuseScore, blue = only port). For exact numbers compare with MuseScore's SVG export, which uses
+  the same 1200 DPI coordinates as the layout.
+- `npx tsx tools/gen/<gen-*.ts> <extracted v4.7.5 tree>` - regenerate tables (symids, styledef, property,
+  typesconv, noteheads, accidentals, textstyle, drumset)
 
 ## Progress tracking
 
