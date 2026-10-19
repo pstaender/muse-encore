@@ -38,6 +38,7 @@ import type { LayoutContext } from './layoutcontext'
 import { TLayout } from './tlayout'
 import { ChordLayout } from './chordlayout'
 import { StemLayout } from './stemlayout'
+import { ShowTiedFret } from '../../dom/stafftype'
 
 class SlurTiePos {
     p1 = new PointF() // start point of slur
@@ -1286,8 +1287,8 @@ export class SlurTieLayout {
             return false
         }
         // TODO(port): continuation of bends
-        const showTiedFret = item.style().styleV(Sid.tabShowTiedFret) as number
-        return showTiedFret === 0 // ShowTiedFret::NONE
+        const showTiedFret = item.style().styleI(Sid.tabShowTiedFret) as ShowTiedFret
+        return showTiedFret === ShowTiedFret.NONE
     }
 
     static layoutTieFor(item: Tie, system: System): TieSegment | null {

@@ -1060,6 +1060,8 @@ export class TRead {
                 t.setDurationFontUserY(e.readDouble())
             } else if (tag === 'fretPresetIdx') {
                 t.setFretPresetIdx(e.readInt())
+            } else if (tag === 'fretFontName' && ctx.mscVersion() < 460) { // read400/read410
+                t.setFretPreset(e.readText())
             } else if (tag === 'fretFontSize') {
                 t.setFretFontSize(e.readDouble())
             } else if (tag === 'fretFontY') {
