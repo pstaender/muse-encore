@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/modifydom.h/.cpp
  *
- * TODO(port): trills (ornament accidentals), multi measure rest counterparts in sortMeasureSegments
+ * TODO(port): multi measure rest counterparts in sortMeasureSegments
  */
 
 import { Fraction } from '../../types/fraction'
@@ -18,6 +18,9 @@ import type { Clef } from '../../dom/clef'
 import type { Measure } from '../../dom/measure'
 import type { DomAccessor, LayoutContext } from './layoutcontext'
 import { ChordLayout } from './chordlayout'
+import type { Trill } from '../../dom/trill'
+import { absStep } from '../../dom/utils'
+import { OrnamentShowAccidental } from '../../types/types'
 
 /**
  * C++ findFollowingRepeatMeasures() (dom/utils.cpp) needs the unwound repeat list.
@@ -70,7 +73,21 @@ export class ModifyDom {
             }
             const as = new AccidentalState() // list of already set accidentals for this measure
             as.init(staff.keySigEvent(measure.tick()))
-            // TODO(port): trill ornaments that cross into this measure (force restate accidental)
+
+            // Trills may carry an accidental into this measure that requires a force-restate
+            const ticks = measure.tick().ticks()
+            for (const spanner of dom.spannerMap().findOverlapping(ticks, ticks, true)) {
+                if (spanner.staffIdx() !== staffIdx || !spanner.isTrill()
+                    || spanner.tick().eq(measure.tick()) || spanner.tick2().eq(measure.tick())) {
+                    continue
+                }
+                const ornament = (spanner as Trill).ornament()
+                const trillNote = ornament ? ornament.noteAbove() : null
+                if (trillNote && trillNote.accidental() && ornament!.showAccidental() === OrnamentShowAccidental.DEFAULT) {
+                    const line = absStep(trillNote.tpc(), trillNote.epitch())
+                    as.setForceRestateAccidental(line, true)
+                }
+            }
 
             const startTrack = staff.part().startTrack()
             const mainTrack = staffIdx * VOICES

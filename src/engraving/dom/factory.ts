@@ -71,6 +71,7 @@ import { Parenthesis } from './parenthesis'
 import { Harmony } from './harmony'
 import { FretDiagram } from './fret'
 import { Ornament, ornamentFactories } from './ornament'
+import { Trill, TrillSegment } from './trill'
 
 type Parent = EngravingObject | null
 
@@ -109,6 +110,8 @@ export class Factory {
         case ElementType.SPACER: return new Spacer(measureOrDummy())
         case ElementType.PARENTHESIS: return new Parenthesis(itemOrDummy())
         case ElementType.ORNAMENT: return new Ornament(chordOrDummy())
+        case ElementType.TRILL: return new Trill(itemOrDummy())
+        case ElementType.TRILL_SEGMENT: return new TrillSegment(null, dummy().system())
         case ElementType.HARMONY: return new Harmony(segmentOrDummy())
         case ElementType.FRET_DIAGRAM: return new FretDiagram(segmentOrDummy())
         case ElementType.MARKER: return new Marker(measureOrDummy())

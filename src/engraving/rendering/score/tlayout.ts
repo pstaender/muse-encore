@@ -18,10 +18,10 @@ import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
     StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff, SpannerSegmentType, LineType, PlacementV,
-    HookType, TextPlace, Align, BeamMode, Orientation, staff2track } from '../../types/types'
+    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType } from '../../types/types'
 import { SymNames } from '../../types/symnames'
 import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull } from '../../../framework/global/realfn'
-import { Pid } from '../../dom/property'
+import { Pid, PropertyFlags } from '../../dom/property'
 import { Autoplace } from './autoplace'
 import { Shape, ShapeType } from '../../infrastructure/shape'
 import { Sid } from '../../style/styledef'
@@ -112,6 +112,8 @@ import { FingeringItem, type FretDiagram } from '../../dom/fret'
 import type { Ornament } from '../../dom/ornament'
 import { AccidentalsLayout } from './accidentalslayout'
 import type { ChordRest } from '../../dom/chordrest'
+import type { TrillSegment } from '../../dom/trill'
+import { ArticulationAnchor } from '../../dom/articulation'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -214,8 +216,10 @@ export class TLayout {
         case ElementType.VOLTA:
         case ElementType.LET_RING:
         case ElementType.PALM_MUTE:
+        case ElementType.TRILL:
             TLayout.layoutLine(item as SLine, ctx)
             break
+        case ElementType.TRILL_SEGMENT: TLayout.layoutTrillSegment(item as TrillSegment, ctx); break
         case ElementType.LET_RING_SEGMENT:
             TLayout.layoutChordTextLineBaseSegment(item as TextLineBaseSegment, Sid.letRingShowTabCommon, Sid.letRingShowTabSimple, ctx)
             break
@@ -918,6 +922,93 @@ export class TLayout {
         ldata.setIsSkipDraw(false)
 
         TLayout.layoutTextLineBaseSegment(item, ctx)
+
+        Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    static layoutTrillSegment(item: TrillSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        const trill = item.trill()
+        const startItem = trill.startElement()
+        const startChord = startItem && startItem.isChord() ? startItem as Chord : null
+        if (startChord) {
+            // Semi-hack: spanners don't have staffMove property, so we change
+            // the staffIdx itself to follow cross-staff chords if needed
+            item.setStaffIdx(startChord.vStaffIdx())
+        }
+
+        if (item.staff()) {
+            ldata.setMag(item.staff()!.staffMag(item.tick()))
+        }
+        if (item.spanner().placeBelow()) {
+            ldata.setPosY(item.staff() ? item.staff()!.staffHeight(item.tick()) : 0.0)
+        }
+        const yOff = item.staffOffsetY()
+        ldata.moveY(yOff)
+
+        const accidentalGoesBelow = trill.trillType() === TrillType.DOWNPRALL_LINE
+        const ornament = trill.ornament()
+        if (ornament) {
+            if (item.isSingleBeginType()) {
+                TLayout.layoutOrnament(ornament, ctx)
+            }
+            trill.setAccidental(accidentalGoesBelow ? ornament.accidentalBelow() : ornament.accidentalAbove())
+            trill.setCueNoteChord(ornament.cueNoteChord())
+            const anchor = ornament.anchor()
+            if (anchor === ArticulationAnchor.AUTO) {
+                trill.setPlacement(trill.track() % 2 ? PlacementV.BELOW : PlacementV.ABOVE)
+            } else {
+                trill.setPlacement(anchor === ArticulationAnchor.TOP ? PlacementV.ABOVE : PlacementV.BELOW)
+            }
+            trill.setPropertyFlags(Pid.PLACEMENT, PropertyFlags.STYLED) // Ensures that the property isn't written (it is written by the ornamnent)
+        }
+
+        if (item.isSingleType() || item.isBeginType()) {
+            switch (trill.trillType()) {
+            case TrillType.TRILL_LINE:
+                item.symbolLine(SymId.ornamentTrill, SymId.wiggleTrill)
+                break
+            case TrillType.PRALLPRALL_LINE:
+                item.symbolLine(SymId.wiggleTrill, SymId.wiggleTrill)
+                break
+            case TrillType.UPPRALL_LINE:
+                item.symbolLine(SymId.ornamentBottomLeftConcaveStroke,
+                    SymId.ornamentZigZagLineNoRightEnd, SymId.ornamentZigZagLineWithRightEnd)
+                break
+            case TrillType.DOWNPRALL_LINE:
+                item.symbolLine(SymId.ornamentLeftVerticalStroke,
+                    SymId.ornamentZigZagLineNoRightEnd, SymId.ornamentZigZagLineWithRightEnd)
+                break
+            }
+            const a = trill.accidental()
+            if (a) {
+                const vertMargin = 0.35 * item.spatium()
+                const box = item.symBbox(item.symbols()[0])
+                const x = 0.5 * (box.width() - a.width())
+                const minVertDist = accidentalGoesBelow
+                    ? new Shape(box).minVerticalDistance(a.shape())
+                    : a.shape().minVerticalDistance(new Shape(box))
+                const y = (accidentalGoesBelow ? minVertDist + vertMargin : -minVertDist - vertMargin) + yOff
+                a.setPos(x, y)
+                a.setParent(item)
+            }
+        } else {
+            switch (trill.trillType()) {
+            case TrillType.TRILL_LINE:
+            case TrillType.PRALLPRALL_LINE:
+                item.symbolLine(SymId.wiggleTrill, SymId.wiggleTrill)
+                break
+            case TrillType.UPPRALL_LINE:
+            case TrillType.DOWNPRALL_LINE:
+                item.symbolLine(SymId.ornamentZigZagLineNoRightEnd,
+                    SymId.ornamentZigZagLineNoRightEnd, SymId.ornamentZigZagLineWithRightEnd)
+                break
+            }
+        }
+
+        if (item.isStyled(Pid.OFFSET)) {
+            item.setOffset(trill.propertyDefault(Pid.OFFSET) as PointF)
+        }
 
         Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
     }

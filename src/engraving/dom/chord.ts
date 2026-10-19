@@ -620,7 +620,15 @@ export class Chord extends ChordRest {
                     }
                     (art as unknown as { computeNotesAboveAndBelow(as: AccidentalState): void }).computeNotesAboveAndBelow(as)
                 }
-                // TODO(port): ornaments of trills (startingSpanners)
+                for (const spanner of this.m_startingSpanners) {
+                    if (spanner.isTrill()) {
+                        const ornament = (spanner as unknown as { ornament(): EngravingItem | null }).ornament()
+                        if (ornament) {
+                            ornament.setParent(this)
+                            ;(ornament as unknown as { computeNotesAboveAndBelow(as: AccidentalState): void }).computeNotesAboveAndBelow(as)
+                        }
+                    }
+                }
                 this.sortNotes()
             }
             for (const ch of [...this.graceNotesAfter()]) {

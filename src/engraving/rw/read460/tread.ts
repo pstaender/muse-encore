@@ -23,7 +23,7 @@ import {
     LineType, LyricsSyllabic, NoteHeadGroup, NoteHeadScheme, NoteHeadType, Orientation, OrnamentStyle, PartialSpannerDirection,
     PlacementH, PlacementV, PreferSharpFlat, SlurStyleType, StaffGroup, TextPlace, TextStyleType, TiePlacement,
     VeloType, VoiceAssignment, AccidentalRole, DynamicType, AutoCustomHide, MarkerType, GlissandoType,
-    ElementType, OrnamentInterval, ParenthesesMode, type track_idx_t,
+    ElementType, OrnamentInterval, ParenthesesMode, TrillType, type track_idx_t,
     ChangeMethod, DynamicSpeed, SpannerSegmentType, VOICES,
 } from '../../types/types'
 import { Constants } from '../../types/constants'
@@ -106,7 +106,8 @@ import { HDegree, HDegreeType } from '../../dom/chordlist'
 import type { Parenthesis } from '../../dom/parenthesis'
 import type { NoteCaseType } from '../../dom/pitchspelling'
 import { FretItem, FretMarkerType, type FretDiagram } from '../../dom/fret'
-import type { Ornament } from '../../dom/ornament'
+import { Ornament } from '../../dom/ornament'
+import type { Trill } from '../../dom/trill'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -189,6 +190,7 @@ export class TRead {
         case ElementType.VOLTA: TRead.readVolta(item as Volta, xml, ctx); break
         case ElementType.OTTAVA: TRead.readOttava(item as Ottava, xml, ctx); break
         case ElementType.PEDAL: TRead.readPedal(item as Pedal, xml, ctx); break
+        case ElementType.TRILL: TRead.readTrill(item as Trill, xml, ctx); break
         case ElementType.LET_RING:
         case ElementType.PALM_MUTE:
             TRead.readChordTextLineBase(item as ChordTextLineBase, xml, ctx)
@@ -835,6 +837,38 @@ export class TRead {
             const tag = e.name()
             if (TRead.readPropertyIfTag(p, tag, e, ctx, Pid.HORIZONTAL_DIRECTION)) {
             } else if (!TRead.readItemProperties(p, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readTrill(t: Trill, e: XmlReader, ctx: ReadContext): void {
+        t.eraseSpannerSegments()
+
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'subtype') {
+                t.setTrillType(TConv.fromXmlTrillType(e.readAsciiText(), TrillType.TRILL_LINE))
+            } else if (tag === 'Ornament') {
+                let ornament = t.ornament()
+                if (!ornament) {
+                    ornament = Factory.createItem(ElementType.ORNAMENT, t.parentItem()) as Ornament
+                    t.setOrnament(ornament)
+                }
+                ornament.setSymId(Ornament.fromTrillType(t.trillType()))
+                TRead.readOrnament(ornament, e, ctx)
+                ornament.setTrack(t.track())
+            } else if (tag === 'Accidental') {
+                const accidental = Factory.createItem(ElementType.ACCIDENTAL, t) as Accidental
+                TRead.readAccidental(accidental, e, ctx)
+                accidental.setParent(t)
+                t.setAccidental(accidental)
+                if (t.ornament()) {
+                    t.ornament()!.setTrillOldCompatAccidental(accidental)
+                }
+            } else if (tag === 'ornamentStyle') {
+                TRead.readProperty(t, e, ctx, Pid.ORNAMENT_STYLE)
+            } else if (!TRead.readSLineProperties(t, e, ctx)) {
                 e.unknown()
             }
         }

@@ -61,6 +61,7 @@ import { ChordSymbolParen, TextSegment, type Harmony } from '../../dom/harmony'
 import type { Parenthesis } from '../../dom/parenthesis'
 import { FretDotType, FretMarkerType, type FretDiagram } from '../../dom/fret'
 import { AlignmentFlag } from '../../../framework/draw/types/drawtypes'
+import type { TrillSegment } from '../../dom/trill'
 
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
@@ -111,6 +112,12 @@ export class TDraw {
             break
         case ElementType.MMREST: TDraw.drawMMRest(item as MMRest, painter, opt)
             break
+        case ElementType.TRILL_SEGMENT: {
+            const ts = item as TrillSegment
+            painter.setPen(ts.spanner().curColor(opt))
+            ts.drawSymbols(ts.symbols(), painter)
+            break
+        }
         case ElementType.HAIRPIN_SEGMENT: TDraw.drawHairpinSegment(item as HairpinSegment, painter, opt)
             break
         case ElementType.TEXTLINE_SEGMENT:
