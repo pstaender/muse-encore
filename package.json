@@ -1,0 +1,45 @@
+{
+  "name": "musescore-web",
+  "version": "0.1.0",
+  "description": "TypeScript port of the MuseScore Studio (v4.7.5) engraving engine: read .mscz/.mscx files and render them in the browser",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./fonts/*": "./fonts/*"
+  },
+  "files": [
+    "dist",
+    "fonts",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "dev": "vite demo",
+    "build:demo": "vite build demo",
+    "render": "tsx tools/render.ts",
+    "compare": "tsx tools/compare.ts"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "opentype.js": "^2.0.0"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^1.0.11",
+    "@types/node": "^26.6.5",
+    "@types/pngjs": "^6.0.5",
+    "pixelmatch": "^8.0.0",
+    "pngjs": "^7.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "5.9",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  }
+}

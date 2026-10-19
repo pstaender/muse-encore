@@ -1,0 +1,7 @@
+/MuseScore/
+node_modules/
+dist/
+demo/dist/
+/out/
+*.log
+.DS_Store
