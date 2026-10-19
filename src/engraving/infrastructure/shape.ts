@@ -256,7 +256,7 @@ export class Shape {
         return s
     }
 
-    private invalidateBBox(): void {
+    invalidateBBox(): void {
         this.m_bbox = new RectF()
     }
 

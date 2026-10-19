@@ -483,6 +483,30 @@ export class Note extends EngravingItem {
     accidental(): Accidental | null { return this.m_accidental }
     setAccidental(a: Accidental | null): void { this.m_accidental = a }
 
+    hasAnotherStraightAboveOrBelow(above: boolean): boolean {
+        const chord = this.chord()
+        if (!chord) {
+            return false
+        }
+        const notes = chord.notes()
+        if ((above && this === notes[notes.length - 1]) || (!above && this === notes[0])) {
+            return false
+        }
+        const limitDiff = 0.5 * this.spatium()
+        for (const note of notes) {
+            if (note === this) {
+                continue
+            }
+            if (Math.abs(note.pos().x() - this.pos().x()) > limitDiff) {
+                return false
+            }
+            if ((above && note.line() < this.m_line) || (!above && note.line() > this.m_line)) {
+                return true
+            }
+        }
+        return false
+    }
+
     line(): number { return this.fixed() ? this.m_fixedLine : this.m_line }
     setLine(n: number): void { this.m_line = n }
 

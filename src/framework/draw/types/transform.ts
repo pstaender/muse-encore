@@ -9,6 +9,7 @@
  */
 
 import { LineF, PointF, RectF } from './geometry'
+import type { PainterPath } from './painterpath'
 
 export class Transform {
     constructor(
@@ -57,6 +58,38 @@ export class Transform {
             sina = Math.sin(rad); cosa = Math.cos(rad)
         }
         return this.premultiply(new Transform(cosa, sina, -sina, cosa, 0, 0))
+    }
+
+    rotateRadians(a: number): this {
+        const sina = Math.sin(a)
+        const cosa = Math.cos(a)
+        return this.premultiply(new Transform(cosa, sina, -sina, cosa, 0, 0))
+    }
+
+    reset(): void {
+        this.m11 = 1; this.m12 = 0; this.m21 = 0; this.m22 = 1; this.dx = 0; this.dy = 0
+    }
+
+    determinant(): number { return this.m11 * this.m22 - this.m12 * this.m21 }
+
+    /** QTransform::inverted() for affine transforms (returns identity if not invertible) */
+    inverted(): Transform {
+        const det = this.determinant()
+        if (det === 0) {
+            return new Transform()
+        }
+        const inv = 1.0 / det
+        const h11 = this.m22 * inv
+        const h12 = -this.m12 * inv
+        const h21 = -this.m21 * inv
+        const h22 = this.m11 * inv
+        const hdx = (this.m21 * this.dy - this.m22 * this.dx) * inv
+        const hdy = (this.m12 * this.dx - this.m11 * this.dy) * inv
+        return new Transform(h11, h12, h21, h22, hdx, hdy)
+    }
+
+    mapPath(path: PainterPath): PainterPath {
+        return path.mapped((x, y) => this.mapXY(x, y))
     }
 
     map(p: PointF): PointF {

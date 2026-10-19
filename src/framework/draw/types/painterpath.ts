@@ -145,6 +145,16 @@ export class PainterPath {
         }
     }
 
+    /** returns a copy with all element points mapped (used by Transform.mapPath, QTransform::map(QPainterPath)) */
+    mapped(f: (x: number, y: number) => [number, number]): PainterPath {
+        const p = this.clone()
+        for (const e of p.m_elements) {
+            [e.x, e.y] = f(e.x, e.y)
+        }
+        p.m_dirtyBounds = true
+        return p
+    }
+
     translated(offset: PointF): PainterPath {
         const p = this.clone()
         p.translate(offset)

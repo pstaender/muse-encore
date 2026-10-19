@@ -424,7 +424,14 @@ export abstract class MeasureBase extends EngravingItem {
         return -1
     }
 
-    isBefore(other: MeasureBase): boolean {
+    override isBefore(other: EngravingItem | null): boolean {
+        if (other && !other.isMeasureBase()) {
+            return super.isBefore(other)
+        }
+        return this.isBeforeMeasureBase(other as MeasureBase)
+    }
+
+    isBeforeMeasureBase(other: MeasureBase): boolean {
         if (this === other) {
             return false
         }

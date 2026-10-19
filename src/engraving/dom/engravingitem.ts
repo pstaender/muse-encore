@@ -375,6 +375,26 @@ export abstract class EngravingItem extends EngravingObject {
         return null
     }
 
+    isBefore(item: EngravingItem | null): boolean {
+        if (!item) {
+            return false
+        }
+        if (!this.tick().eq(item.tick())) {
+            return this.tick().lt(item.tick())
+        }
+        const thisMeasure = this.findMeasure()
+        const otherMeasure = item.findMeasure()
+        if (thisMeasure !== otherMeasure) {
+            return thisMeasure!.isBefore(otherMeasure!)
+        }
+        const thisSeg = this.findAncestor(ElementType.SEGMENT)
+        const otherSeg = item.findAncestor(ElementType.SEGMENT)
+        if (!thisSeg || !otherSeg || !thisSeg.isSegment() || !otherSeg.isSegment()) {
+            return false
+        }
+        return (thisSeg as Segment).goesBefore(otherSeg as Segment)
+    }
+
     findMeasureBase(): MeasureBase | null {
         if (this.isMeasureBase()) {
             return this as unknown as MeasureBase
