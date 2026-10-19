@@ -314,6 +314,8 @@ export class Chord extends ChordRest {
     setHook(h: Hook | null): void { this.m_hook = h }
     arpeggio(): EngravingItem | null { return this.m_arpeggio }
     spanArpeggio(): EngravingItem | null { return this.m_spanArpeggio }
+    setSpanArpeggio(a: EngravingItem | null): void { this.m_spanArpeggio = a }
+    setArpeggio(a: EngravingItem | null): void { this.m_arpeggio = a }
     stemSlash(): EngravingItem | null { return this.m_stemSlash }
     showStemSlash(): boolean { return this.m_showStemSlash }
     setShowStemSlash(show: boolean): void { this.m_showStemSlash = show }

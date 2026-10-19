@@ -12,6 +12,7 @@ import type { PropertyValue } from '../types/propertyvalue'
 import { ElementType, LayoutBreakType, nidx } from '../types/types'
 import { Sid } from '../style/styledef'
 import { EngravingItem, ElementFlag } from './engravingitem'
+import type { EngravingObject } from './engravingobject'
 import { Pid } from './property'
 import type { Measure } from './measure'
 import type { System } from './system'
@@ -35,7 +36,7 @@ export abstract class MeasureBase extends EngravingItem {
     private m_no = 0 // Measure number, counting from zero
     private m_noOffset = 0 // Offset to measure number
 
-    constructor(type: ElementType, parent: EngravingItem | null) {
+    constructor(type: ElementType, parent: EngravingObject | null) {
         super(type, parent)
     }
 

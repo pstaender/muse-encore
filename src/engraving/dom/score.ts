@@ -9,7 +9,7 @@
 
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
-import { ElementType, TextStyleType, VOICES, type staff_idx_t } from '../types/types'
+import { ElementType, TextStyleType, VOICES, type staff_idx_t, type track_idx_t } from '../types/types'
 import { Sid } from '../style/styledef'
 import { SymId } from '../types/symid'
 import { MStyle } from '../style/style'
@@ -22,6 +22,7 @@ import { SegmentType, type Segment } from './segment'
 import { TimeSigMap, TimeSigFrac, BeatType } from './sig'
 import { Pid } from './property'
 import type { Measure } from './measure'
+import type { ChordRest } from './chordrest'
 import type { Staff } from './staff'
 import type { Part } from './part'
 import type { System } from './system'
@@ -326,6 +327,38 @@ export class Score extends EngravingObject {
             segment = nsegment
         }
         return null
+    }
+
+    findCR(t: Fraction, track: track_idx_t): ChordRest | null {
+        let tick = t
+        const m = this.tick2measureMM(tick)
+        if (!m) {
+            return null
+        }
+        // attach to first rest all spanner when mmRest
+        if (m.isMMRest()) {
+            tick = m.tick()
+        }
+        let s = m.first(SegmentType.ChordRest)
+        for (let ns = s; ; ns = ns.next(SegmentType.ChordRest)) {
+            if (!ns || ns.tick().gt(tick)) {
+                break
+            }
+            const el = ns.element(track)
+            if (el && el.isRest() && (el as unknown as { isGap(): boolean }).isGap()) {
+                continue
+            } else if (el) {
+                s = ns
+            }
+        }
+        if (!s) {
+            return null
+        }
+        const el = s.element(track)
+        if (el && el.isRest() && (el as unknown as { isGap(): boolean }).isGap()) {
+            return null
+        }
+        return el as unknown as ChordRest | null
     }
 
     tick2segmentMM(tick: Fraction, first = false, st: SegmentType = SegmentType.All): Segment | null {

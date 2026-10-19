@@ -596,10 +596,10 @@ export class System extends EngravingItem {
                 const b1FirstStaffInB2 = (b1.firstStaff() >= b2.firstStaff() && b1.firstStaff() <= b2.lastStaff())
                 const b1LastStaffInB2 = (b1.lastStaff() >= b2.firstStaff() && b1.lastStaff() <= b2.lastStaff())
                 if (b1.column() > b2.column() && (b1FirstStaffInB2 || b1LastStaffInB2)) {
-                    xOffset += b2.bracketWidth()
+                    xOffset += b2.ldata().bracketWidth
                 }
             }
-            const x = xPosition - xOffset - b1.bracketWidth() + lineWidthCorrection
+            const x = xPosition - xOffset - b1.ldata().bracketWidth + lineWidthCorrection
             b1.mutldata().setPosX(x)
         }
     }

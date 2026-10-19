@@ -687,6 +687,18 @@ export class Segment extends EngravingItem {
         }
     }
 
+    firstElement(staffIdx: staff_idx_t): EngravingItem | null {
+        const startTrack = staffIdx * VOICES
+        const endTrack = startTrack + VOICES
+        for (let track = startTrack; track < endTrack; ++track) {
+            const item = this.element(track)
+            if (item) {
+                return item
+            }
+        }
+        return null
+    }
+
     hasElements(): boolean {
         return this.m_elist.some(e => !!e)
     }

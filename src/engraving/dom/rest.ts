@@ -19,6 +19,7 @@ import { TDuration } from './durationtype'
 import { Pid } from './property'
 import type { Measure } from './measure'
 import type { NoteDot } from './notedot'
+import { tupletFactories } from './tuplet'
 
 /** factories registered by the corresponding modules (avoid runtime import cycles) */
 export const restFactories: {
@@ -348,3 +349,5 @@ export class Rest extends ChordRest {
         return true
     }
 }
+
+tupletFactories.createRest = (parent: EngravingObject) => new Rest(parent)

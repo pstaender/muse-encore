@@ -300,6 +300,7 @@ export class StaffTypeList {
     private m_staffTypeChanges = new SortedMap<StaffType>()
 
     uniqueStaffType(): boolean { return this.m_staffTypeChanges.empty() }
+    isStaffTypeStartFrom(tick: Fraction): boolean { return this.m_staffTypeChanges.has(tick.ticks()) }
 
     staffType(tick: Fraction): StaffType {
         if (tick.negative()) {

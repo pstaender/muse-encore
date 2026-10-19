@@ -17,6 +17,7 @@ import type { EngravingItem } from './engravingitem'
 import type { ElementStyle, EngravingObject } from './engravingobject'
 import { Pid } from './property'
 import { TDuration } from './durationtype'
+import { Groups } from './groups'
 import { SegmentType } from './segment'
 import type { Chord } from './chord'
 import type { ChordRest } from './chordrest'
@@ -162,8 +163,7 @@ export class Beam extends BeamBase {
             }
         }
 
-        const group = cr.staff()!.group(cr.measure().tick())
-        const defaultBeamMode = group.baseBeamMode(cr, prevCr)
+        const defaultBeamMode = Groups.baseBeamMode(cr, prevCr)
 
         const isManuallyBroken16 = level >= 1 && beamMode === BeamMode.BEGIN16
         const isManuallyBroken32 = level >= 2 && beamMode === BeamMode.BEGIN32

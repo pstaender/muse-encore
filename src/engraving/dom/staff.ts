@@ -419,6 +419,7 @@ export class Staff extends EngravingItem {
         return st
     }
 
+    isStaffTypeStartFrom(tick: Fraction): boolean { return this.m_staffTypeList.isStaffTypeStartFrom(tick) }
     removeStaffType(tick: Fraction): void { this.m_staffTypeList.removeStaffType(tick) }
 
     initFromStaffType(staffType: StaffType | null): void {

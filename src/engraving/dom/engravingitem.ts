@@ -385,6 +385,9 @@ export abstract class EngravingItem extends EngravingObject {
     }
 
     elementBase(): EngravingItem { return this }
+    /** hooks called after the item was added to / removed from its parent */
+    added(): void {}
+    removed(): void {}
     subtype(): number { return -1 }
 
     spatium(): number {
