@@ -10,7 +10,7 @@
 
 import { Fraction } from '../../types/fraction'
 import { Spatium } from '../../types/dimension'
-import { AutoOnOff, BarLineType, DurationType, ElementType, VOICES } from '../../types/types'
+import { AutoOnOff, BarLineType, DurationType, ElementType, PlacementV, VOICES } from '../../types/types'
 import { TConv } from '../../types/typesconv'
 import { Factory } from '../../dom/factory'
 import { Location } from '../../dom/location'
@@ -32,6 +32,9 @@ import type { Tuplet } from '../../dom/tuplet'
 import type { XmlReader } from '../xmlreader'
 import type { ReadContext } from './readcontext'
 import { TRead } from './tread'
+import type { Fermata } from '../../dom/fermata'
+import type { Breath } from '../../dom/breath'
+import type { StaffText } from '../../dom/stafftextbase'
 
 export class MeasureRead {
     static readMeasure(measure: Measure, e: XmlReader, ctx: ReadContext, staffIdx: number): void {
@@ -156,6 +159,7 @@ export class MeasureRead {
         const graceNotes: Chord[] = []
         let startingBeam: Beam | null = null
         let tuplet: Tuplet | null = null
+        let fermata: Fermata | null = null
         const staff = ctx.staff(staffIdx)!
         let timeStretch = staff.timeStretch(measure.tick())
 
@@ -196,6 +200,10 @@ export class MeasureRead {
                     segment = measure.getSegmentR(st, t)
                     segment.add(bl)
                 }
+                if (fermata) {
+                    segment!.add(fermata)
+                    fermata = null
+                }
             } else if (tag === 'Chord') {
                 const chord = Factory.createItem(ElementType.CHORD, ctx.score()) as Chord
                 chord.setTrack(ctx.track())
@@ -220,6 +228,10 @@ export class MeasureRead {
                     }
                     ctx.incTick(chord.actualTicks())
                 }
+                if (fermata) {
+                    segment.add(fermata)
+                    fermata = null
+                }
             } else if (tag === 'Rest') {
                 if (measure.isMMRest()) {
                     // TODO(port): MMRest
@@ -238,6 +250,10 @@ export class MeasureRead {
                         startingBeam = null
                     }
                     segment.add(rest)
+                    if (fermata) {
+                        segment.add(fermata)
+                        fermata = null
+                    }
                     if (!rest.ticks().isValid()) { // hack
                         rest.setTicks(measure.timesig().div(timeStretch))
                     }
@@ -246,6 +262,52 @@ export class MeasureRead {
                     }
                     ctx.incTick(rest.actualTicks())
                 }
+            } else if (tag === 'Breath') {
+                segment = measure.getSegment(SegmentType.Breath, ctx.tick())
+                const breath = Factory.createItem(ElementType.BREATH, segment) as Breath
+                breath.setTrack(ctx.track())
+                breath.setPlacement(breath.track() & 1 ? PlacementV.BELOW : PlacementV.ABOVE)
+                TRead.readBreath(breath, e, ctx)
+                segment.add(breath)
+            } else if (tag === 'Text') {
+                segment = measure.getSegment(SegmentType.ChordRest, ctx.tick())
+                const t = Factory.createItem(ElementType.STAFF_TEXT, segment) as StaffText
+                t.setTrack(ctx.track())
+                TRead.readStaffText(t, e, ctx)
+                if (!t.empty()) {
+                    segment.add(t)
+                }
+            } else if (tag === 'Dynamic' || tag === 'Expression' || tag === 'Tempo' || tag === 'StaffText') {
+                segment = measure.getChordRestOrTimeTickSegment(ctx.tick())
+                const type = tag === 'Dynamic' ? ElementType.DYNAMIC : tag === 'Expression' ? ElementType.EXPRESSION
+                    : tag === 'Tempo' ? ElementType.TEMPO_TEXT : ElementType.STAFF_TEXT
+                const el = Factory.createItem(type, segment)!
+                el.setTrack(ctx.track())
+                TRead.readItem(el, e, ctx)
+                if (tag !== 'Dynamic' && tag !== 'Expression' && el.systemFlag() && el.isTopSystemObject()) {
+                    el.setTrack(0) // original system object always goes on top
+                }
+                segment.add(el)
+            } else if (tag === 'SystemText' || tag === 'RehearsalMark') {
+                // TODO(port): Sticking, PlayTechAnnotation, Capo, StringTunings, InstrumentChange, StaffState,
+                // FiguredBass, HarpPedalDiagram
+                const el = Factory.createItemByName(tag, ctx.score())!
+                if (el.allowTimeAnchor()) {
+                    segment = measure.getChordRestOrTimeTickSegment(ctx.tick())
+                } else {
+                    segment = measure.getSegment(SegmentType.ChordRest, ctx.tick())
+                }
+                el.setTrack(ctx.track())
+                TRead.readItem(el, e, ctx)
+                if (el.systemFlag() && el.isTopSystemObject()) {
+                    el.setTrack(0) // original system object always goes on top
+                }
+                segment.add(el)
+            } else if (tag === 'Fermata') {
+                fermata = Factory.createItem(ElementType.FERMATA, ctx.score()) as Fermata
+                fermata.setTrack(ctx.track())
+                fermata.setPlacement(fermata.track() & 1 ? PlacementV.BELOW : PlacementV.ABOVE)
+                TRead.readFermata(fermata, e, ctx)
             } else if (tag === 'Spanner') {
                 TRead.readSpanner(e, ctx, measure, ctx.track())
             } else if (tag === 'Clef') {
@@ -333,11 +395,16 @@ export class MeasureRead {
             } else if (tag === 'Segment' && segment) {
                 TRead.readSegment(segment, e, ctx)
             } else {
-                // TODO(port): Breath, MeasureRepeat, Text/StaffText, Dynamic, Expression, Harmony, FretDiagram,
-                // TremoloBar, Tempo, Sticking, SystemText, RehearsalMark, InstrumentChange, Fermata, Image,
+                // TODO(port): MeasureRepeat, Harmony, FretDiagram, TremoloBar, Sticking, InstrumentChange, Image,
                 // PlayCountText, Ambitus, ...
                 e.skipCurrentElement()
             }
+        }
+        if (fermata) {
+            const st = ctx.tick().eq(measure.endTick()) ? SegmentType.EndBarLine : SegmentType.ChordRest
+            segment = measure.getSegment(st, ctx.tick())
+            segment.add(fermata)
+            fermata = null
         }
     }
 }

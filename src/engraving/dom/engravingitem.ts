@@ -16,7 +16,7 @@ import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import { SmuflAnchorId, SymId, type SymIdList } from '../types/symid'
 import {
-    ElementType, ParenthesesMode, PlacementV, nidx, staff2track, track2staff, track2voice, VOICES,
+    AutoOnOff, DirectionV, ElementType, ParenthesesMode, PlacementV, VoiceAssignment, nidx, staff2track, track2staff, track2voice, VOICES,
     type staff_idx_t, type track_idx_t, type voice_idx_t,
 } from '../types/types'
 import { Sid } from '../style/styledef'
@@ -97,6 +97,9 @@ export interface StaffCenteringInfo {
  * by the layout code (in C++ the dom calls into the rendering module directly).
  */
 export const ldataShapeHooks: Partial<Record<ElementType, (item: EngravingItem, ld: LayoutData) => void>> = {}
+
+// Segment::CHORD_REST_OR_TIME_TICK_TYPE (SegmentType::ChordRest | SegmentType::TimeTick); segment.ts can't be imported here
+const CHORD_REST_OR_TIME_TICK_TYPE = 0x2000 | 0x1000
 
 // EngravingConfiguration defaults
 const INVISIBLE_COLOR = new Color(0x80, 0x80, 0x80)
@@ -606,6 +609,73 @@ export abstract class EngravingItem extends EngravingObject {
             return originalStaffIdx
         }
         return system.nextVisibleStaff(originalStaffIdx)
+    }
+
+    allowTimeAnchor(): boolean { return false }
+
+    setPlacementBasedOnVoiceAssignment(styledDirection: DirectionV): void {
+        const oldPlacement = this.placement()
+        const offsetIsStyled = this.isStyled(Pid.OFFSET)
+
+        let newPlacement = PlacementV.BELOW
+
+        const internalDirectionProperty = this.getProperty(Pid.DIRECTION) as DirectionV
+        const part = this.part()!
+        if (internalDirectionProperty !== DirectionV.AUTO) {
+            newPlacement = internalDirectionProperty === DirectionV.UP ? PlacementV.ABOVE : PlacementV.BELOW
+        } else if (styledDirection !== DirectionV.AUTO) {
+            newPlacement = styledDirection === DirectionV.UP ? PlacementV.ABOVE : PlacementV.BELOW
+        } else if (part.nstaves() > 1 && (this.getProperty(Pid.CENTER_BETWEEN_STAVES) as AutoOnOff) === AutoOnOff.ON) {
+            const staves = part.staves()
+            const isOnLastStaffOfInstrument = this.staffIdx() === staves[staves.length - 1].idx()
+            newPlacement = isOnLastStaffOfInstrument ? PlacementV.ABOVE : PlacementV.BELOW
+        } else {
+            const voiceAssignment = this.getProperty(Pid.VOICE_ASSIGNMENT) as VoiceAssignment
+            if (voiceAssignment === VoiceAssignment.ALL_VOICE_IN_INSTRUMENT || voiceAssignment === VoiceAssignment.ALL_VOICE_IN_STAFF) {
+                if (this.style().styleB(Sid.dynamicsHairpinsAboveForVocalStaves) && part.instrument().isVocalInstrument()) {
+                    newPlacement = PlacementV.ABOVE
+                } else {
+                    newPlacement = PlacementV.BELOW
+                }
+            } else if (this.voice() === 0) {
+                // Put above the staff only in case of multiple voices at this tick (similar to stem directions)
+                let measure = this.score().tick2measure(this.tick())
+                let startTick = new Fraction(-1, 1)
+                let length = new Fraction(-1, 1)
+                const segmentItem = this.findAncestor(ElementType.SEGMENT)
+                if (this.isSpanner()) {
+                    startTick = this.tick()
+                    length = (this as unknown as { ticks(): Fraction }).ticks()
+                } else if (segmentItem) {
+                    let segment: Segment | null = segmentItem as unknown as Segment
+                    if (segment.isTimeTickType() && segment.measure() !== measure) {
+                        // Edge case: this is a TimeTick segment at the end of previous measure. Happens only
+                        // when dynamic is anchorToEndOfPrevious. In this case look for preceding segment.
+                        segment = segment.prev1(CHORD_REST_OR_TIME_TICK_TYPE)!
+                        measure = segment.measure()
+                    }
+                    startTick = segment.tick()
+                    length = segment.ticks()
+                } else if (measure) {
+                    startTick = measure.tick()
+                    length = measure.ticks()
+                }
+                if (measure && measure.hasVoicesInRange(this.staffIdx(), startTick, length)) {
+                    newPlacement = PlacementV.ABOVE
+                } else {
+                    newPlacement = PlacementV.BELOW
+                }
+            } else {
+                newPlacement = this.voice() % 2 ? PlacementV.BELOW : PlacementV.ABOVE
+            }
+        }
+
+        if (newPlacement !== oldPlacement) {
+            this.setPlacement(newPlacement)
+            if (offsetIsStyled) {
+                this.resetProperty(Pid.OFFSET)
+            }
+        }
     }
 
     isTopSystemObject(): boolean { return this.systemFlag() && this.track() === 0 }

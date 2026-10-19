@@ -23,6 +23,8 @@ import { DefaultStyle } from '../../style/defaultstyle'
 import { CrossMeasure } from '../../dom/chordrest'
 import { Pid } from '../../dom/property'
 import type { Accidental } from '../../dom/accidental'
+import type { Breath } from '../../dom/breath'
+import type { Fermata } from '../../dom/fermata'
 import type { Articulation } from '../../dom/articulation'
 import type { BarLine } from '../../dom/barline'
 import type { Beam } from '../../dom/beam'
@@ -101,10 +103,24 @@ export class TDraw {
             break
         case ElementType.TUPLET: TDraw.drawTuplet(item as Tuplet, painter, opt)
             break
+        case ElementType.FERMATA:
+            painter.setPen(item.curColor(opt))
+            item.drawSymbol((item as Fermata).symId(), painter)
+            break
+        case ElementType.BREATH:
+            painter.setPen(item.curColor(opt))
+            item.drawSymbol((item as Breath).symId(), painter)
+            break
         case ElementType.TEXT:
         case ElementType.INSTRUMENT_NAME:
         case ElementType.LYRICS:
         case ElementType.MEASURE_NUMBER:
+        case ElementType.DYNAMIC:
+        case ElementType.EXPRESSION:
+        case ElementType.STAFF_TEXT:
+        case ElementType.SYSTEM_TEXT:
+        case ElementType.TEMPO_TEXT:
+        case ElementType.REHEARSAL_MARK:
             TDraw.drawTextBase(item as TextBase, painter, opt)
             break
         default:

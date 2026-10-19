@@ -24,7 +24,10 @@ import {
     PlacementH, PlacementV, PreferSharpFlat, SlurStyleType, StaffGroup, TextPlace, TextStyleType, TiePlacement,
     VeloType, VoiceAssignment, AccidentalRole, DynamicType, AutoCustomHide, MarkerType, GlissandoType,
     ElementType, type track_idx_t,
+    DynamicSpeed, VOICES,
 } from '../../types/types'
+import { Constants } from '../../types/constants'
+import { lrint } from '../../../framework/global/realfn'
 import { TConv } from '../../types/typesconv'
 import { Sid } from '../../style/styledef'
 import { Pid, PropertyFlags, propertyName, propertyType } from '../../dom/property'
@@ -79,6 +82,12 @@ import type { ReadContext } from './readcontext'
 import { ConnectorInfoReader } from './connectorinforeader'
 import { scoreDummy } from '../../compat/dummyelement'
 import { smDrumset } from '../../dom/drumset'
+import { type StaffText, type StaffTextBase } from '../../dom/stafftextbase'
+import { type TempoText, TempoTextType } from '../../dom/tempotext'
+import type { Expression } from '../../dom/expression'
+import type { Dynamic } from '../../dom/dynamic'
+import type { Fermata } from '../../dom/fermata'
+import type { Breath } from '../../dom/breath'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -143,6 +152,14 @@ export class TRead {
         case ElementType.TIE: TRead.readTie(item as Tie, xml, ctx); break
         case ElementType.TIMESIG: TRead.readTimeSig(item as TimeSig, xml, ctx); break
         case ElementType.TUPLET: TRead.readTuplet(item as Tuplet, xml, ctx); break
+        case ElementType.STAFF_TEXT: TRead.readStaffText(item as StaffText, xml, ctx); break
+        case ElementType.SYSTEM_TEXT: TRead.readStaffTextBase(item as StaffTextBase, xml, ctx); break
+        case ElementType.TEMPO_TEXT: TRead.readTempoText(item as TempoText, xml, ctx); break
+        case ElementType.REHEARSAL_MARK: TRead.readTextBase(item as TextBase, xml, ctx); break
+        case ElementType.EXPRESSION: TRead.readExpression(item as Expression, xml, ctx); break
+        case ElementType.DYNAMIC: TRead.readDynamic(item as Dynamic, xml, ctx); break
+        case ElementType.FERMATA: TRead.readFermata(item as Fermata, xml, ctx); break
+        case ElementType.BREATH: TRead.readBreath(item as Breath, xml, ctx); break
         default:
             // TODO(port): element type not ported yet
             xml.skipCurrentElement()
@@ -319,6 +336,193 @@ export class TRead {
         while (xml.readNextStartElement()) {
             if (!TRead.readTextBaseProperties(t, xml, ctx)) {
                 xml.unknown()
+            }
+        }
+    }
+
+    static readTempoText(t: TempoText, e: XmlReader, ctx: ReadContext): void {
+        // This property was written in the wrong order from 4.6.0-4.6.2
+        // It was written before the text style and was reset on initialising the text style
+        let symbolSize: number | undefined
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (TRead.readPropertyIfTag(t, tag, e, ctx, Pid.PLAY)) {
+            } else if (tag === 'tempo') {
+                const v = parseFloat(e.readAsciiText())
+                t.setTempo(Number.isNaN(v) ? Constants.DEFAULT_TEMPO : v)
+            } else if (tag === 'followText') {
+                t.setFollowText(e.readInt() !== 0)
+            } else if (tag === 'type') {
+                const type = e.readAsciiText()
+                if (type === 'aTempo') {
+                    t.setTempoTextType(TempoTextType.A_TEMPO)
+                } else if (type === 'tempoPrimo') {
+                    t.setTempoTextType(TempoTextType.TEMPO_PRIMO)
+                } else if (type === 'normal') {
+                    t.setTempoTextType(TempoTextType.NORMAL)
+                }
+            } else if (tag === 'musicSymbolSize') {
+                symbolSize = e.readDouble()
+            } else if (!TRead.readTextBaseProperties(t, e, ctx)) {
+                e.unknown()
+            }
+        }
+        // check sanity
+        if (t.xmlText() === '') {
+            t.setXmlText(`<sym>metNoteQuarterUp</sym> = ${lrint(t.tempo() * 60)}`)
+            t.setVisible(false)
+        }
+        if (symbolSize !== undefined) {
+            TRead.setUnstyledSymbolSize(t, symbolSize)
+        }
+    }
+
+    private static setUnstyledSymbolSize(t: TextBase, symbolSize: number): void {
+        t.setProperty(Pid.MUSIC_SYMBOL_SIZE, symbolSize)
+        if (t.isStyled(Pid.MUSIC_SYMBOL_SIZE)) {
+            t.setPropertyFlags(Pid.MUSIC_SYMBOL_SIZE, PropertyFlags.UNSTYLED)
+        }
+    }
+
+    static readStaffText(t: StaffText, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+            if (tag === 'SoundFlag') {
+                // TODO(port): sound flags
+                xml.skipCurrentElement()
+            } else if (!TRead.readStaffTextBaseProperties(t, xml, ctx)) {
+                xml.unknown()
+            }
+        }
+    }
+
+    static readStaffTextBase(t: StaffTextBase, xml: XmlReader, ctx: ReadContext): void {
+        t.clearStaffTextBase()
+        let symbolSize: number | undefined
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+            if (tag === 'musicSymbolSize') {
+                symbolSize = xml.readDouble()
+            } else if (!TRead.readStaffTextBaseProperties(t, xml, ctx)) {
+                xml.unknown()
+            }
+        }
+        if (symbolSize !== undefined) {
+            TRead.setUnstyledSymbolSize(t, symbolSize)
+        }
+    }
+
+    static readStaffTextBaseProperties(t: StaffTextBase, e: XmlReader, ctx: ReadContext): boolean {
+        const tag = e.name()
+        if (tag === 'MidiAction') {
+            const channel = e.intAttribute('channel', 0)
+            const name = e.attribute('name')
+            const a = t.channelActions().find(ca => ca.channel === channel)
+            if (a) {
+                a.midiActionNames.push(name)
+            } else {
+                t.channelActions().push({ channel, midiActionNames: [name] })
+            }
+            e.skipCurrentElement()
+        } else if (tag === 'channelSwitch' || tag === 'articulationChange') {
+            const voice = e.intAttribute('voice', -1)
+            if (voice >= 0 && voice < VOICES) {
+                t.setChannelName(voice, e.attribute('name'))
+            } else if (voice === -1) {
+                // no voice applies channel to all voices for compatibility
+                for (let i = 0; i < VOICES; ++i) {
+                    t.setChannelName(i, e.attribute('name'))
+                }
+            }
+            e.skipCurrentElement()
+        } else if (tag === 'aeolus') {
+            const group = e.intAttribute('group', -1)
+            if (group >= 0 && group < 4) {
+                t.setAeolusStop(group, e.readInt())
+            } else {
+                e.skipCurrentElement()
+            }
+            t.setSetAeolusStops(true)
+        } else if (tag === 'swing') {
+            const swingUnit = TConv.fromXmlDurationType(e.attribute('unit'), DurationType.V_INVALID)
+            let unit = 0
+            if (swingUnit === DurationType.V_EIGHTH) {
+                unit = Constants.DIVISION / 2
+            } else if (swingUnit === DurationType.V_16TH) {
+                unit = Constants.DIVISION / 4
+            }
+            const ratio = e.intAttribute('ratio', 60)
+            t.setSwing(true)
+            t.setSwingParameters(unit, ratio)
+            e.skipCurrentElement()
+        } else if (tag === 'capo') {
+            t.setCapo(e.intAttribute('fretId', 0))
+            e.skipCurrentElement()
+        } else if (!TRead.readTextBaseProperties(t, e, ctx)) {
+            return false
+        }
+        return true
+    }
+
+    static readDynamic(d: Dynamic, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'subtype') {
+                d.setDynamicType(e.readText())
+            } else if (tag === 'velocity') {
+                d.setVelocity(e.readInt())
+            } else if (tag === 'veloChange') {
+                d.setChangeInVelocity(e.readInt())
+            } else if (tag === 'veloChangeSpeed') {
+                d.setVelChangeSpeed(TConv.fromXmlDynamicSpeed(e.readAsciiText(), DynamicSpeed.NORMAL))
+            } else if (tag === 'play') {
+                d.setPlayDynamic(e.readInt() !== 0)
+            } else if (ctx.mscVersion() < 470 && tag === 'dynamicsSize') {
+                TRead.readProperty(d, e, ctx, Pid.MUSICAL_SYMBOLS_SCALE)
+            } else if (TRead.readPropertyIfTag(d, tag, e, ctx, Pid.AVOID_BARLINES)) {
+            } else if (TRead.readPropertyIfTag(d, tag, e, ctx, Pid.CENTER_ON_NOTEHEAD)) {
+            } else if (TRead.readPropertyIfTag(d, tag, e, ctx, Pid.ANCHOR_TO_END_OF_PREVIOUS)) {
+            } else if (!TRead.readTextBaseProperties(d, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readExpression(expr: Expression, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+            if (tag === 'snapToDynamics') {
+                TRead.readProperty(expr, xml, ctx, Pid.SNAP_TO_DYNAMICS)
+            } else if (!TRead.readTextBaseProperties(expr, xml, ctx)) {
+                xml.unknown()
+            }
+        }
+    }
+
+    static readFermata(f: Fermata, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+            if (tag === 'subtype') {
+                f.setSymIdAndTimeStretch(SymNames.symIdByName(xml.readAsciiText()))
+            } else if (tag === 'play') {
+                f.setPlay(xml.readInt() !== 0)
+            } else if (tag === 'timeStretch') {
+                f.setTimeStretch(xml.readDouble())
+            } else if (!TRead.readItemProperties(f, xml, ctx)) {
+                xml.unknown()
+            }
+        }
+    }
+
+    static readBreath(b: Breath, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'symbol') {
+                b.setSymId(SymNames.symIdByName(e.readAsciiText()))
+            } else if (tag === 'pause') {
+                b.setPause(e.readDouble())
+            } else if (!TRead.readItemProperties(b, e, ctx)) {
+                e.unknown()
             }
         }
     }

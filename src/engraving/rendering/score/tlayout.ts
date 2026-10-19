@@ -17,11 +17,15 @@ import { FontMetrics } from '../../../framework/draw/fontmetrics'
 import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
-    StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES } from '../../types/types'
+    StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff } from '../../types/types'
+import { SymNames } from '../../types/symnames'
+import { RealIsEqualOrLess, RealIsEqualOrMore } from '../../../framework/global/realfn'
+import { Pid } from '../../dom/property'
+import { Autoplace } from './autoplace'
 import { Shape, ShapeType } from '../../infrastructure/shape'
 import { Sid } from '../../style/styledef'
 import { ClefInfo } from '../../dom/clefinfo'
-import { SegmentType } from '../../dom/segment'
+import { CHORD_REST_OR_TIME_TICK_TYPE, SegmentType } from '../../dom/segment'
 import { BARLINE_SPAN_1LINESTAFF_FROM, BARLINE_SPAN_1LINESTAFF_TO, type BarLine, type BarLineLayoutData } from '../../dom/barline'
 import { SpacerType } from '../../dom/spacer'
 import { TimeSigType } from '../../dom/timesig'
@@ -73,6 +77,14 @@ import { TupletLayout } from './tupletlayout'
 import { LyricsLayout } from './lyricslayout'
 import { MeasureNumberLayout } from './measurenumberlayout'
 import { HorizontalSpacing } from './horizontalspacing'
+import type { Breath } from '../../dom/breath'
+import type { Dynamic } from '../../dom/dynamic'
+import type { Expression } from '../../dom/expression'
+import type { Fermata } from '../../dom/fermata'
+import type { RehearsalMark } from '../../dom/rehearsalmark'
+import type { StaffText, SystemText } from '../../dom/stafftextbase'
+import type { TempoText } from '../../dom/tempotext'
+import { DynamicsLayout } from './dynamicslayout'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -174,6 +186,14 @@ export class TLayout {
         case ElementType.TIE: TLayout.layoutTie(item as Tie, ctx); break
         case ElementType.TIMESIG: TLayout.layoutTimeSig(item as TimeSig, ctx); break
         case ElementType.TUPLET: TLayout.layoutTuplet(item as Tuplet, ctx); break
+        case ElementType.BREATH: TLayout.layoutBreath(item as Breath, ctx); break
+        case ElementType.DYNAMIC: TLayout.layoutDynamic(item as Dynamic, ctx); break
+        case ElementType.EXPRESSION: TLayout.layoutExpression(item as Expression, ctx); break
+        case ElementType.FERMATA: TLayout.layoutFermata(item as Fermata, ctx); break
+        case ElementType.REHEARSAL_MARK: TLayout.layoutRehearsalMark(item as RehearsalMark, ctx); break
+        case ElementType.STAFF_TEXT: TLayout.layoutStaffText(item as StaffText, ctx); break
+        case ElementType.SYSTEM_TEXT: TLayout.layoutSystemText(item as SystemText, ctx); break
+        case ElementType.TEMPO_TEXT: TLayout.layoutTempoText(item as TempoText, ctx); break
         default:
             if (item.isTextBase()) {
                 // TODO(port): specific text types (staff text, tempo text, rehearsal marks, ...)
@@ -182,6 +202,291 @@ export class TLayout {
             // TODO(port): element type not ported yet
             break
         }
+    }
+
+    static layoutBreath(item: Breath, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        const voiceOffset = item.placeBelow() ? item.staff()!.staffHeight(item.tick()) : 0.0
+        if (item.isCaesura()) {
+            if (item.symId() === SymId.chantCaesura) {
+                // special handling for chant caesura, which is higher than the normal one
+                ldata.setPosY(1.5 * item.spatium() + voiceOffset)
+            } else {
+                ldata.setPosY(item.symHeight(item.symId()) / 2 + voiceOffset)
+            }
+        } else if (ctx.conf().styleSt(Sid.musicalSymbolFont) === 'Emmentaler' && item.symId() === SymId.breathMarkComma) {
+            const shift = item.placeBelow() ? -0.5 * item.spatium() + item.symHeight(item.symId()) : 0.5 * item.spatium()
+            ldata.setPosY(shift + voiceOffset)
+        } else {
+            const shift = item.placeBelow() ? 0.5 * item.spatium() + item.symHeight(item.symId()) : -0.5 * item.spatium()
+            ldata.setPosY(shift + voiceOffset)
+        }
+        ldata.setBbox(item.symBbox(item.symId()))
+        ldata.setPosX(-ldata.bbox().right())
+    }
+
+    static layoutDynamic(item: Dynamic, ctx: LayoutContext): void {
+        DynamicsLayout.layoutDynamic(item, item.mutldata(), ctx.conf())
+    }
+
+    static layoutExpression(item: Expression, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        if (!item.explicitParent()) {
+            return
+        }
+        item.setPlacementBasedOnVoiceAssignment(item.style().styleV(Sid.dynamicsHairpinVoiceBasedPlacement) as DirectionV)
+
+        TextLayout.layoutBaseTextBase(item, ctx)
+
+        const segment = item.segment()
+
+        if (item.align().horizontal !== AlignH.LEFT) {
+            let chordToAlign: Chord | null = null
+            // Look for chord in this staff
+            const startTrack = track2staff(item.staffIdx())
+            const endTrack = startTrack + VOICES
+            for (let track = startTrack; track < endTrack; ++track) {
+                const e = segment.element(track)
+                if (e && e.isChord()) {
+                    chordToAlign = e as Chord
+                    break
+                }
+            }
+            if (chordToAlign && chordToAlign.notes().length) {
+                const note = chordToAlign.notes()[0]
+                const headWidth = note.headWidth()
+                const center = item.align().horizontal === AlignH.HCENTER
+                ldata.moveX(headWidth * (center ? 0.5 : 1))
+            }
+        }
+
+        ldata.disconnectSnappedItems()
+
+        if (!item.autoplace()) {
+            return
+        }
+
+        const m = segment.measure()
+        let dynamic = segment.findAnnotation(ElementType.DYNAMIC, item.track(), item.track()) as Dynamic | null
+        if (!dynamic) {
+            const timeTickSeg = m.findSegmentR(SegmentType.TimeTick, segment.rtick())
+            dynamic = timeTickSeg ? timeTickSeg.findAnnotation(ElementType.DYNAMIC, item.track(), item.track()) as Dynamic | null : null
+        }
+        if (!dynamic || dynamic.placeAbove() !== item.placeAbove() || dynamic.voiceAssignment() !== item.voiceAssignment()
+            || !dynamic.visible()) {
+            Autoplace.autoplaceSegmentElement(item, ldata)
+            return
+        }
+
+        // If there is a dynamic on same segment and track make space for it horizontally
+        const padding = item.computeDynamicExpressionDistance(dynamic)
+        const dynamicRight = dynamic.shape().translate(dynamic.pos()).right()
+        const expressionLeft = ldata.bbox().translated(item.pos()).left()
+        const difference = expressionLeft - dynamicRight - padding
+        ldata.moveX(-difference)
+
+        if (item.snapToDynamics()) {
+            ldata.connectItemSnappedBefore(dynamic)
+        }
+
+        Autoplace.autoplaceSegmentElement(item, ldata)
+    }
+
+    static layoutFermata(item: Fermata, _ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        const stType = item.staffType()
+        if (stType && stType.isHiddenElementOnTab(Sid.fermataShowTabCommon, Sid.fermataShowTabSimple)) {
+            ldata.setIsSkipDraw(true)
+            return
+        }
+        ldata.setIsSkipDraw(false)
+        ldata.setPos(new PointF())
+
+        if (item.isStyled(Pid.OFFSET)) {
+            item.setOffset(item.propertyDefault(Pid.OFFSET) as PointF)
+        }
+
+        let x = 0.0
+        let y = item.placeAbove() ? 0.0 : item.staff()!.staffHeight(item.tick())
+        const s = item.segment()!
+        const e = s.element(item.track())
+
+        if (e) {
+            if (e.isChord()) {
+                const chord = e as Chord
+                x = chord.x() + ChordLayout.centerX(chord)
+            } else if (e.isRest()) {
+                const rest = e as Rest
+                x = rest.x() + rest.centerX()
+            } else {
+                x = e.x() - e.shape().left() + e.width() * item.staff()!.staffMag(new Fraction(0, 1)) * 0.5
+            }
+        }
+
+        const name = SymNames.nameForSymId(item.symId())
+        if (item.placeAbove()) {
+            if (name.endsWith('Below')) {
+                item.setSymId(SymNames.symIdByName(name.substring(0, name.length - 5) + 'Above'))
+            }
+        } else {
+            if (name.endsWith('Above')) {
+                item.setSymId(SymNames.symIdByName(name.substring(0, name.length - 5) + 'Below'))
+            }
+        }
+
+        ldata.setShape(new Shape(item.symBbox(item.symId()), item))
+        x -= 0.5 * ldata.bbox().width()
+
+        if (item.isStyled(Pid.OFFSET)) {
+            y += item.offset().y()
+        }
+        const staffShape = s.staffShape(item.staffIdx())
+        staffShape.removeTypes(new Set([ElementType.FERMATA]))
+        if (item.placeAbove()) {
+            const minDist = ldata.shape().minVerticalDistance(staffShape) + item.minDistance().val() * item.spatium()
+            y = Math.min(y, -minDist)
+        } else {
+            const minDist = staffShape.minVerticalDistance(ldata.shape()) + item.minDistance().val() * item.spatium()
+            y = Math.max(y, minDist)
+        }
+        if (item.isStyled(Pid.OFFSET)) {
+            y -= item.offset().y()
+        }
+
+        ldata.setPos(x, y)
+
+        Autoplace.autoplaceSegmentElement(item, ldata)
+    }
+
+    static layoutRehearsalMark(item: RehearsalMark, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        TextLayout.layoutBaseTextBase(item, ctx)
+
+        const s = item.segment()
+        if (!s.rtick().isZero()) {
+            return
+        }
+
+        // first CR of measure, alignment is hcenter or right (the usual cases)
+        // align with barline, point just after header, or start of measure depending on context
+        const m = s.measure()
+        let header = s.prev() // possibly just a start repeat
+        while (header && header.isSegType(CHORD_REST_OR_TIME_TICK_TYPE)) {
+            header = header.prev()
+        }
+        const measureX = -s.x()
+        const repeat = m.findSegmentR(SegmentType.StartRepeatBarLine, new Fraction(0, 1))
+        const barlineX = repeat ? repeat.x() - s.x() : measureX
+        const sys = m.system()
+        const systemFirst = !!sys && m.isFirstInSystem()
+
+        if (!header || repeat || !systemFirst) {
+            // no header, or header with repeat, or header mid-system - align with barline
+            ldata.setPosX(barlineX)
+            TLayout.checkRehearsalMarkVSBigTimeSig(item)
+            return
+        }
+
+        // header at start of system
+        // align to a point just after the header
+        const e = header.element(item.track())
+        const w = e ? e.ldata().bbox().width() : header.ldata().bbox().width()
+        ldata.setPosX(header.x() + w - s.x())
+
+        // special case for right aligned rehearsal marks at start of system
+        // left align with start of measure if that is further left
+        if (item.position() === AlignH.RIGHT) {
+            ldata.setPosX(Math.min(ldata.pos().x(), measureX + ldata.bbox().width()))
+        }
+
+        TLayout.checkRehearsalMarkVSBigTimeSig(item)
+    }
+
+    private static checkRehearsalMarkVSBigTimeSig(item: RehearsalMark): void {
+        const ldata = item.mutldata()
+        if ((item.score().style().styleV(Sid.timeSigPlacement) as TimeSigPlacement) !== TimeSigPlacement.ABOVE_STAVES) {
+            return
+        }
+        const s = item.segment()
+        let bigTimeSig: TimeSig | null = null
+        for (let segment: Segment | null = s; segment && segment.tick().eq(s.tick()); segment = segment.prevActive()) {
+            if (!segment.isSegType(SegmentType.TimeSigType)) {
+                continue
+            }
+            const timeSig = segment.element(item.track()) as TimeSig | null
+            if (timeSig && timeSig.visible()) {
+                bigTimeSig = timeSig
+                break
+            }
+        }
+        if (!bigTimeSig) {
+            return
+        }
+        const timeSigRightEdge = bigTimeSig.ldata().bbox().translated(bigTimeSig.ldata().pos()).right()
+                                 + bigTimeSig.segment()!.x() - s.x()
+        const rehMarkLeftEdge = ldata.bbox().translated(item.ldata().pos()).left()
+        const distance = rehMarkLeftEdge - timeSigRightEdge
+        const margin = 0.5 * item.fontMetrics().xHeight()
+        if (distance < margin) {
+            ldata.moveX(margin - distance)
+        }
+    }
+
+    static layoutStaffText(item: StaffText, ctx: LayoutContext): void {
+        TextLayout.layoutBaseTextBase(item, ctx)
+        Autoplace.autoplaceSegmentElement(item, item.mutldata())
+        // TODO(port): sound flags
+    }
+
+    static layoutSystemText(item: SystemText, ctx: LayoutContext): void {
+        TextLayout.layoutBaseTextBase(item, ctx)
+        Autoplace.autoplaceSegmentElement(item, item.mutldata())
+    }
+
+    static layoutTempoText(item: TempoText, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        if (!item.explicitParent()) {
+            return
+        }
+        ldata.disconnectSnappedItems()
+
+        TextLayout.layoutBaseTextBase(item, ctx)
+
+        if (!item.autoplace()) {
+            return
+        }
+
+        // tempo text on first chordrest of measure should align over time sig if present, unless time sig is above staff
+        const s = item.segment()
+
+        const rehearsalMark = s.findAnnotation(ElementType.REHEARSAL_MARK, item.track(), item.track()) as RehearsalMark | null
+        const rehearsalMarkBbox = rehearsalMark ? rehearsalMark.ldata().bbox().translated(rehearsalMark.pos()) : new RectF()
+        const thisBbox = ldata.bbox().translated(item.pos())
+
+        if (s.rtick().isZero()) {
+            const p = item.segment().prev(SegmentType.TimeSig)
+            if (p && !p.allElementsInvisible()) {
+                ldata.moveX(-(s.x() - p.x()))
+                const e = p.element(item.staffIdx() * VOICES)
+                if (e) {
+                    ldata.moveX(p.hasTimeSigAboveStaves() ? e.x() + e.width() + e.spatium() : e.x())
+                }
+            }
+        }
+
+        if (rehearsalMark) {
+            const sameSide = item.placeAbove() === rehearsalMark.placeAbove()
+            const collision = item.placeAbove() ? RealIsEqualOrMore(rehearsalMarkBbox.bottom(), thisBbox.top())
+                : RealIsEqualOrLess(rehearsalMarkBbox.top(), thisBbox.bottom())
+            if (sameSide && collision && item.getProperty(Pid.TEMPO_ALIGN_RIGHT_OF_REHEARSAL_MARK) as boolean) {
+                const rightEdge = rehearsalMarkBbox.right()
+                const fontSizeScaleFactor = item.size() / 10.0
+                const padding = 0.5 * item.spatium() * fontSizeScaleFactor
+                const curX = ldata.pos().x()
+                ldata.setPosX(Math.max(curX, rightEdge + padding))
+            }
+        }
+        Autoplace.autoplaceSegmentElement(item, ldata)
     }
 
     static layoutAccidental(item: Accidental, ctx: LayoutContext): void {

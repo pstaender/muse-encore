@@ -28,6 +28,12 @@ export class StaffName {
 
 export type StaffNameList = StaffName[]
 
+const VOCAL_INSTRUMENT_IDS = new Set([
+    'soprano', 'mezzo-soprano', 'alto', 'contralto', 'countertenor', 'tenor', 'baritone', 'bass', 'voice', 'boy-soprano',
+    'women', 'men', 'soprano-c-clef', 'mezzo-soprano-c-clef', 'alto-c-clef', 'tenor-c-clef', 'baritone-c-clef', 'baritone-bass-clef',
+    'bass-voice', 'contralto-voice', 'vocals', 'treble-voice', 'choir', 'satb', 'sa', 'tb',
+])
+
 export class Instrument {
     private m_longNames: StaffNameList = []
     private m_shortNames: StaffNameList = []
@@ -94,6 +100,14 @@ export class Instrument {
     }
 
     drumset(): Drumset | null { return this.m_drumset }
+
+    /**
+     * C++ checks the instrument family of the instrument template (instruments.xml).
+     * TODO(port): instrument templates; the vocal instrument ids of instruments.xml are used instead.
+     */
+    isVocalInstrument(): boolean {
+        return VOCAL_INSTRUMENT_IDS.has(this.m_instrumentId)
+    }
 
     setDrumset(ds: Drumset | null): void {
         if (ds) {

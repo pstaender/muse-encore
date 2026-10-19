@@ -13,7 +13,7 @@ import { SymId } from './symid'
 import { SymNames } from './symnames'
 import {
     Align, AlignH, AlignV, AutoOnOff, BarLineType, BeamMode, BracketType, ChordStylePreset, ClefType,
-    DirectionH, DirectionV, DurationType, DynamicType, ElementType, GlissandoStyle, HookType, KeyMode,
+    DirectionH, DirectionV, DurationType, DynamicSpeed, DynamicType, ElementType, GlissandoStyle, HookType, KeyMode,
     LayoutBreakType, LineType, LyricsSyllabic, MarkerType, MeasureNumberPlacement, NoteHeadGroup, NoteHeadScheme,
     NoteHeadType, NoteSpellingType, Orientation, OrnamentInterval, OrnamentStyle, PlacementH, PlacementV,
     RepeatPlayCountPreset, StaffGroup, TextPlace, TextStyleType, TieDotsPlacement, TiePlacement, TimeSigPlacement,
@@ -183,6 +183,7 @@ export const TConv = {
     },
 
     toXmlDynamicType: (v: DynamicType): string => findXmlTagByType(D.DYNAMIC_TYPES, v),
+    fromXmlDynamicSpeed: (tag: string, def: DynamicSpeed): DynamicSpeed => findTypeByXmlTag(D.DYNAMIC_SPEEDS, tag, def),
     fromXmlDynamicType: (tag: string, def: DynamicType): DynamicType => findTypeByXmlTag(D.DYNAMIC_TYPES, tag, def),
 
     fromXmlHookType: (tag: string, def: HookType): HookType => {

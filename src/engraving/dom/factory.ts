@@ -49,6 +49,13 @@ import { System } from './system'
 import { Tie, TieSegment } from './tie'
 import { TimeSig } from './timesig'
 import { Tuplet } from './tuplet'
+import { StaffText, SystemText } from './stafftextbase'
+import { TempoText } from './tempotext'
+import { RehearsalMark } from './rehearsalmark'
+import { Expression } from './expression'
+import { Dynamic } from './dynamic'
+import { Fermata } from './fermata'
+import { Breath } from './breath'
 
 type Parent = EngravingObject | null
 
@@ -98,6 +105,14 @@ export class Factory {
         case ElementType.HOOK: return new Hook(chordOrDummy())
         case ElementType.STEM: return new Stem(chordOrDummy())
         case ElementType.BRACKET_ITEM: return new BracketItem(itemOrDummy())
+        case ElementType.STAFF_TEXT: return new StaffText(segmentOrDummy())
+        case ElementType.SYSTEM_TEXT: return new SystemText(segmentOrDummy())
+        case ElementType.TEMPO_TEXT: return new TempoText(segmentOrDummy())
+        case ElementType.REHEARSAL_MARK: return new RehearsalMark(segmentOrDummy())
+        case ElementType.EXPRESSION: return new Expression(segmentOrDummy())
+        case ElementType.DYNAMIC: return new Dynamic(segmentOrDummy())
+        case ElementType.FERMATA: return new Fermata(itemOrDummy())
+        case ElementType.BREATH: return new Breath(segmentOrDummy())
         default:
             // TODO(port): element type not ported yet
             return null

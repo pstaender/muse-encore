@@ -872,6 +872,7 @@ export abstract class TextBase extends EngravingItem {
 
     anchorToEndOfPrevious(): boolean { return this.m_anchorToEndOfPrevious }
     setAnchorToEndOfPrevious(v: boolean): void { this.m_anchorToEndOfPrevious = v }
+    override allowTimeAnchor(): boolean { return this.hasParentSegment() }
     hasParentSegment(): boolean { return !!this.explicitParent() && this.parent()!.isSegment() }
 
     selectAll(cursor: TextCursor): void {

@@ -55,6 +55,7 @@ import { TupletLayout } from './tupletlayout'
 import { LyricsLayout } from './lyricslayout'
 import { BoxLayout } from './boxlayout'
 import { Autoplace } from './autoplace'
+import { AlignmentLayout } from './alignmentlayout'
 
 class MeasureState {
     measure: Measure | null = null
@@ -868,13 +869,7 @@ export class SystemLayout {
             TLayout.layoutItem(item, ctx)
         }
 
-        for (const item of elementsToLayout.dynamics) {
-            TLayout.layoutItem(item, ctx)
-        }
-        for (const item of elementsToLayout.expressions) {
-            TLayout.layoutItem(item, ctx)
-        }
-        SystemLayout.processLines(system, ctx, elementsToLayout.hairpins)
+        SystemLayout.layoutDynamicExpressionAndHairpins(elementsToLayout, ctx)
 
         SystemLayout.processLines(system, ctx, elementsToLayout.allOtherSpanners)
 
@@ -942,6 +937,36 @@ export class SystemLayout {
         }
 
         SystemLayout.layoutParenthesisAndBigTimeSigs(elementsToLayout)
+    }
+
+    private static layoutDynamicExpressionAndHairpins(elementsToLayout: ElementsToLayout, ctx: LayoutContext): void {
+        const system = elementsToLayout.system
+        const dynamicsExprAndHairpinsToAlign: EngravingItem[] = []
+
+        for (const dynamic of elementsToLayout.dynamics) {
+            TLayout.layoutItem(dynamic, ctx)
+            if (dynamic.autoplace()) {
+                Autoplace.autoplaceSegmentElement(dynamic, dynamic.mutldata())
+                dynamicsExprAndHairpinsToAlign.push(dynamic)
+            }
+        }
+
+        for (const e of elementsToLayout.expressions) {
+            TLayout.layoutItem(e, ctx)
+            if (e.addToSkyline()) {
+                dynamicsExprAndHairpinsToAlign.push(e)
+            }
+        }
+
+        SystemLayout.processLines(system, ctx, elementsToLayout.hairpins)
+
+        for (const spannerSegment of system.spannerSegments()) {
+            if (spannerSegment.isHairpinSegment()) {
+                dynamicsExprAndHairpinsToAlign.push(spannerSegment)
+            }
+        }
+
+        AlignmentLayout.alignItemsWithTheirSnappingChain(dynamicsExprAndHairpinsToAlign, system)
     }
 
     private static layoutParenthesisAndBigTimeSigs(elementsToLayout: ElementsToLayout): void {
