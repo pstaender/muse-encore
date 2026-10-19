@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/pagelayout.h/.cpp
  *
- * TODO(port): system dividers, arpeggios, tremolos, fingerings on cross-staff beams,
+ * TODO(port): system dividers, tremolos, fingerings on cross-staff beams,
  * system lock / staff visibility indicators
  */
 
@@ -37,6 +37,8 @@ import { ChordLayout } from './chordlayout'
 import { SlurTieLayout } from './slurtielayout'
 import { VerticalGapData, VerticalGapDataList } from './verticalgapdata'
 import { MaskLayout } from './masklayout'
+import { ArpeggioLayout } from './arpeggiolayout'
+import type { Arpeggio } from '../../dom/arpeggio'
 
 // MScore::verticalOrientation(), MScore::horizontalPageGapEven/Odd (defaults)
 const VERTICAL_ORIENTATION = false
@@ -309,7 +311,12 @@ export class PageLayout {
                                         }
                                     }
                                 }
-                                // TODO(port): ArpeggioLayout::layoutArpeggio2
+                                ArpeggioLayout.layoutArpeggio2(c.arpeggio() as Arpeggio | null, ctx)
+                                for (const e of c.el()) {
+                                    if (e.isChordBracket()) {
+                                        ArpeggioLayout.layoutArpeggio2(e as Arpeggio, ctx)
+                                    }
+                                }
                                 ChordLayout.layoutSpanners(c, ctx)
                                 // TODO(port): cross-staff two-chord tremolos
                             }

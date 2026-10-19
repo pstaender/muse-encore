@@ -26,6 +26,7 @@ import type { Articulation as ArticulationT } from '../../dom/articulation'
 import type { Beam } from '../../dom/beam'
 import type { BeamSegment } from '../../dom/beambase'
 import type { Arpeggio } from '../../dom/arpeggio'
+import type { Accidental } from '../../dom/accidental'
 import type { NoteDot } from '../../dom/notedot'
 import { prevChordRest, type Chord } from '../../dom/chord'
 import type { ChordRest } from '../../dom/chordrest'
@@ -48,6 +49,8 @@ import { SystemLayout } from './systemlayout'
 import { TabDurationSymbol } from '../../dom/tabdurationsymbol'
 import { TablatureSymbolRepeat } from '../../dom/stafftype'
 import type { Ornament } from '../../dom/ornament'
+import { ArpeggioLayout } from './arpeggiolayout'
+import { paddingTable } from '../paddingtable'
 
 export class ChordPosInfo {
     chords: Chord[] = []
@@ -137,7 +140,15 @@ export class ChordLayout {
 
         let lll = 0.0 // space to leave at left of chord
         let rrr = 0.0 // space to leave at right of chord
+        const upnote = item.upNote()
+        const downnote = item.downNote()
         let leftNote: Note | null = null
+
+        // Keeps track if there are any accidentals in this chord.
+        // Used to remove excess space in front of arpeggios.
+        // See GitHub issue #8970 for more details.
+        // https://github.com/musescore/MuseScore/issues/8970
+        const chordAccidentals: Accidental[] = []
 
         for (const note of item.notes()) {
             TLayout.layoutNote(note, ctx)
@@ -151,6 +162,9 @@ export class ChordLayout {
             }
 
             const accidental = note.accidental()
+            if (accidental && accidental.visible()) {
+                chordAccidentals.push(accidental)
+            }
             if (accidental && accidental.addToSkyline() && !note.fixed()) {
                 // convert x position of accidental to segment coordinate system
                 let x = accidental.pos().x() + note.pos().x() + chordX
@@ -162,7 +176,102 @@ export class ChordLayout {
             // TODO(port): fingerings
         }
 
-        // TODO(port): arpeggios
+        // A chord can have its own arpeggio and also be part of another arpeggio's span.  We need to lay out both of these arpeggios properly
+        const oldSpanArp = item.spanArpeggio() as Arpeggio | null
+        let newSpanArp: Arpeggio | null = null
+
+        // If item has an arpeggio: mark chords which are part of the arpeggio
+        const itemArp = item.arpeggio() as Arpeggio | null
+        if (itemArp) {
+            itemArp.findAndAttachToChords()
+            itemArp.mutldata().maxChordPad = 0.0
+            itemArp.mutldata().minChordX = Number.MAX_VALUE
+            TLayout.layoutItem(itemArp, ctx)
+        }
+
+        if (item.spanArpeggio() !== oldSpanArp) {
+            newSpanArp = item.spanArpeggio() as Arpeggio | null
+        }
+        // If item is within arpeggio span, keep track of largest space needed between glissando and chord across staves
+        let lllMax = lll
+        for (const spanArp of [oldSpanArp, newSpanArp]) {
+            if (!spanArp || !spanArp.chord()) {
+                continue
+            }
+
+            const arpldata = spanArp.mutldata()
+
+            const seg = spanArp.chord()!.segment()!
+            const endItem = seg.element(spanArp.endTrack())
+            let endChord: Chord = item
+            if (endItem && endItem.isChord()) {
+                endChord = endItem as Chord
+            }
+
+            // If a note is covered in the voice span but located outside the visual span of the arpeggio calculate accidental offset later
+            const pairLess = (a1: number, a2: number, b1: number, b2: number): boolean => a1 < b1 || (a1 === b1 && a2 < b2)
+            const aboveStart = pairLess(item.vStaffIdx(), item.downLine(), spanArp.vStaffIdx(), spanArp.chord()!.upLine())
+            const belowEnd = pairLess(endChord.vStaffIdx(), endChord.downLine(), item.vStaffIdx(), item.upLine())
+
+            if (!(aboveStart || belowEnd)) {
+                const elType = spanArp.type()
+                const table = paddingTable(item.score())
+                const arpeggioNoteDistance = table.at(elType, ElementType.NOTE) * mag_
+                const arpeggioLedgerDistance = table.at(elType, ElementType.LEDGER_LINE) * mag_
+                const firstLedgerBelow = item.staff()!.lines(item.downNote().tick()) * 2 - 1
+                const firstLedgerAbove = -1
+
+                let gapSize = arpeggioNoteDistance
+
+                if (leftNote && RealIsNull(leftNote.x())) {
+                    if (downnote.line() > firstLedgerBelow || upnote.line() < firstLedgerAbove) {
+                        gapSize = arpeggioLedgerDistance + ctx.conf().styleS(Sid.ledgerLineLength).val() * item.spatium()
+                    }
+                } else if (leftNote && (leftNote.line() > firstLedgerBelow || leftNote.line() < firstLedgerAbove)) {
+                    gapSize = arpeggioLedgerDistance + ctx.conf().styleS(Sid.ledgerLineLength).val() * item.spatium()
+                }
+
+                const arpChordX = Math.min(chordX, 0.0)
+
+                if (chordAccidentals.length) {
+                    const arpeggioAccidentalDistance = table.at(elType, ElementType.ACCIDENTAL) * mag_
+                    const accidentalDistance = ctx.conf().styleMM(Sid.accidentalDistance) * mag_
+                    gapSize = arpeggioAccidentalDistance - accidentalDistance
+                    gapSize -= ArpeggioLayout.insetDistance(spanArp, ctx, mag_, item, chordAccidentals)
+                }
+
+                const extraX = spanArp.width() + gapSize
+
+                // Track leftmost chord position, as we we always want the arpeggio to be to the left of this
+                arpldata.minChordX = Math.min(arpldata.minChordX, arpChordX)
+
+                // Save this to arpeggio if largest
+                arpldata.maxChordPad = Math.max(arpldata.maxChordPad, lll + extraX)
+
+                // If first chord in arpeggio set y
+                if (itemArp && itemArp === spanArp) {
+                    const y1 = upnote.pos().y() - upnote.headHeight() * 0.5
+                    itemArp.mutldata().setPosY(y1)
+                }
+
+                const endDownNote = endChord.downNote()
+
+                // If last chord in arpeggio, set x
+                if (endDownNote.track() === item.track()) {
+                    // Amount to move arpeggio from it's parent chord to factor in chords further to the left
+                    const firstChordX = spanArp.chord()!.ldata().pos().x()
+                    const xDiff = firstChordX - arpldata.minChordX
+
+                    const offset = -(xDiff + arpldata.maxChordPad)
+                    spanArp.mutldata().setPosX(offset)
+                    if (spanArp.visible()) {
+                        lllMax = Math.max(lllMax, offset)
+                    }
+                }
+            }
+        }
+
+        lll = lllMax
 
         if (item.dots()) {
             let x = item.dotPosX() + dotNoteDistance
@@ -420,7 +529,19 @@ export class ChordLayout {
             }
         } // end of if(duration_symbols)
 
-        // TODO(port): arpeggios
+        const arpeggio = item.arpeggio() as Arpeggio | null
+        if (arpeggio) {
+            arpeggio.findAndAttachToChords()
+            const upnote = item.upNote()
+            const y = upnote.pos().y() - upnote.headHeight() * 0.5
+            TLayout.layoutArpeggio(arpeggio, ctx)
+            lll += arpeggio.width() + _spatium * 0.5
+            arpeggio.setPos(-lll, y)
+
+            // handle the special case of _arpeggio->span() > 1
+            // in layoutArpeggio2() after page layout has done so we
+            // know the y position of the next staves
+        }
 
         // allocate enough room for glissandi
         if (item.endsNoteAnchoredLine()) {

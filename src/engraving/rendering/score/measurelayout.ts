@@ -42,6 +42,8 @@ import { SlurTieLayout } from './slurtielayout'
 import type { MMRest } from '../../dom/mmrest'
 import type { EngravingItem } from '../../dom/engravingitem'
 import type { TextBase } from '../../dom/textbase'
+import { ArpeggioLayout } from './arpeggiolayout'
+import type { Arpeggio } from '../../dom/arpeggio'
 
 interface MeasureStartEndPos {
     x1: number
@@ -1017,7 +1019,9 @@ export class MeasureLayout {
                     ChordLayout.updateLineAttachPoints(gn, false, ctx)
                 }
 
-                // TODO(port): ArpeggioLayout::clearAccidentals
+                if (chord.arpeggio()) {
+                    ArpeggioLayout.clearAccidentals(chord.arpeggio() as Arpeggio, ctx)
+                }
 
                 ChordLayout.layoutArticulations(chord, ctx)
                 ChordLayout.checkStartEndSlurs(chord, ctx)

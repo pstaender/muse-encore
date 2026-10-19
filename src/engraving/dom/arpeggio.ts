@@ -53,6 +53,25 @@ export class Arpeggio extends EngravingItem {
     setSpan(val: number): void { this.m_span = val }
     endTrack(): track_idx_t { return this.track() + this.m_span - 1 }
 
+    /** C++ Arpeggio::findAndAttachToChords() (TODO(port): rebaseEndAnchor, undo) */
+    findAndAttachToChords(): void {
+        const strack = this.track()
+        const _chord = this.chord()!
+        const etrack = strack + (this.m_span - 1)
+        let lastTrack = strack
+        for (let track = strack; track <= etrack; track++) {
+            const e = _chord.segment()!.element(track)
+            if (e && e.isChord()) {
+                (e as unknown as Chord).setSpanArpeggio(this)
+                lastTrack = track
+            }
+        }
+
+        if (lastTrack !== etrack) {
+            this.m_span = lastTrack - strack + 1
+        }
+    }
+
     crossStaff(): boolean {
         return Math.trunc((this.track() + this.span() - 1) / VOICES) !== this.vStaffIdx()
     }

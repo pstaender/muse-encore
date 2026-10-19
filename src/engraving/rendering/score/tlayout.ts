@@ -18,7 +18,7 @@ import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
     StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff, SpannerSegmentType, LineType, PlacementV,
-    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType } from '../../types/types'
+    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType, ArpeggioType } from '../../types/types'
 import { SymNames } from '../../types/symnames'
 import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull } from '../../../framework/global/realfn'
 import { Pid, PropertyFlags } from '../../dom/property'
@@ -114,6 +114,8 @@ import { AccidentalsLayout } from './accidentalslayout'
 import type { ChordRest } from '../../dom/chordrest'
 import type { TrillSegment } from '../../dom/trill'
 import { ArticulationAnchor } from '../../dom/articulation'
+import { ArpeggioLayout } from './arpeggiolayout'
+import type { Arpeggio } from '../../dom/arpeggio'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -189,6 +191,7 @@ export class TLayout {
         case ElementType.ACCIDENTAL: TLayout.layoutAccidental(item as Accidental, ctx); break
         case ElementType.ARTICULATION: TLayout.layoutArticulation(item as Articulation, ctx); break
         case ElementType.ORNAMENT: TLayout.layoutOrnament(item as Ornament, ctx); break
+        case ElementType.ARPEGGIO: TLayout.layoutArpeggio(item as Arpeggio, ctx); break
         case ElementType.BAR_LINE: TLayout.layoutBarLine(item as BarLine, ctx); break
         case ElementType.BEAM: TLayout.layoutBeam(item as Beam, ctx); break
         case ElementType.HBOX: TLayout.layoutHBox(item as HBox, ctx); break
@@ -1632,6 +1635,91 @@ export class TLayout {
         }
 
         ldata.setShape(shape)
+    }
+
+    static layoutArpeggio(item: Arpeggio, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        // TODO(port): Sid::arpeggioHiddenInStdIfTab (linked staves); C++ resets isSkipDraw right after anyway
+        ldata.setIsSkipDraw(false)
+        if (!ldata.isSetPos()) {
+            ldata.setPos(new PointF())
+        }
+
+        if (!item.explicitParent()) {
+            return
+        }
+
+        const font = ctx.engravingFont()
+        const symbolLine = (end: SymId, fill: SymId): void => {
+            ldata.symbols = []
+
+            const w = ldata.bottom - ldata.top
+            const w1 = font.advance(end, ldata.magS)
+            const w2 = font.advance(fill, ldata.magS)
+            const n = Math.round((w - w1) / w2)
+            for (let i = 0; i < n; ++i) {
+                ldata.symbols.push(fill)
+            }
+            ldata.symbols.push(end)
+        }
+
+        ldata.arpeggioHeight = ArpeggioLayout.computeHeight(item)
+        ldata.top = ArpeggioLayout.calcTop(item, ctx)
+        ldata.bottom = ArpeggioLayout.calcBottom(item, ldata.arpeggioHeight, ctx)
+
+        ldata.setMag(item.staff() ? item.staff()!.staffMag(item.tick()) : item.mag())
+        ldata.magS = ctx.conf().magS(ldata.mag())
+
+        switch (item.arpeggioType()) {
+        case ArpeggioType.NORMAL: {
+            symbolLine(SymId.wiggleArpeggiatoUp, SymId.wiggleArpeggiatoUp)
+            // string is rotated -90 degrees
+            ldata.symsBBox = font.bboxList(ldata.symbols, ldata.magS)
+            ldata.setBbox(new RectF(0.0, -ldata.symsBBox.x() + ldata.top, ldata.symsBBox.height(), ldata.symsBBox.width()))
+        } break
+
+        case ArpeggioType.UP: {
+            symbolLine(SymId.wiggleArpeggiatoUpArrow, SymId.wiggleArpeggiatoUp)
+            // string is rotated -90 degrees
+            ldata.symsBBox = font.bboxList(ldata.symbols, ldata.magS)
+            ldata.setBbox(new RectF(0.0, -ldata.symsBBox.x() + ldata.top, ldata.symsBBox.height(), ldata.symsBBox.width()))
+        } break
+
+        case ArpeggioType.DOWN: {
+            symbolLine(SymId.wiggleArpeggiatoUpArrow, SymId.wiggleArpeggiatoUp)
+            // string is rotated +90 degrees (so that UpArrow turns into a DownArrow)
+            ldata.symsBBox = font.bboxList(ldata.symbols, ldata.magS)
+            ldata.setBbox(new RectF(0.0, ldata.symsBBox.x() + ldata.top, ldata.symsBBox.height(), ldata.symsBBox.width()))
+        } break
+
+        case ArpeggioType.UP_STRAIGHT: {
+            const x1 = item.spatium() * 0.5
+            ldata.symsBBox = font.bbox(SymId.arrowheadBlackUp, ldata.magS)
+            const w = ldata.symsBBox.width()
+            ldata.setBbox(new RectF(x1 - w * 0.5, ldata.top, w, ldata.bottom))
+        } break
+
+        case ArpeggioType.DOWN_STRAIGHT: {
+            const x1 = item.spatium() * 0.5
+            ldata.symsBBox = font.bbox(SymId.arrowheadBlackDown, ldata.magS)
+            const w = ldata.symsBBox.width()
+            ldata.setBbox(new RectF(x1 - w * 0.5, ldata.top, w, ldata.bottom))
+        } break
+
+        case ArpeggioType.BRACKET: {
+            const w = ctx.conf().styleS(Sid.arpeggioHookLen).val() * item.spatium()
+            ldata.setBbox(new RectF(0.0, ldata.top, w, ldata.bottom))
+        } break
+        }
+
+        // Loop through staves spanned & regenerate chord shape
+        // This makes sure the arpeggio's shape is added to the shape of each chord it spans
+        const chord = item.chord()!
+        const seg = chord.segment()!
+        const staveSpan = Math.trunc((item.track() + item.span() - 1) / VOICES)
+        for (let staffIdx = item.staffIdx(); staffIdx <= staveSpan; staffIdx++) {
+            seg.createShape(staffIdx)
+        }
     }
 
     static layoutOrnament(item: Ornament, ctx: LayoutContext): void {

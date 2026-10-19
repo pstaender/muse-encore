@@ -62,6 +62,8 @@ import type { Shape } from '../../infrastructure/shape'
 import type { SkylineLine } from '../../infrastructure/skyline'
 import type { FretDiagram } from '../../dom/fret'
 import type { Harmony } from '../../dom/harmony'
+import type { Ornament } from '../../dom/ornament'
+import type { Arpeggio } from '../../dom/arpeggio'
 
 class MeasureState {
     measure: Measure | null = null
@@ -1459,7 +1461,32 @@ export class SystemLayout {
                                     if (!graceAfter.empty()) {
                                         skyline.add(graceAfter.shape().translate(graceAfter.pos().plus(p).plus(offset)))
                                     }
-                                    // TODO(port): ornament cue notes, spanning arpeggios
+
+                                    // If present, add ornament cue note to skyline
+                                    const ornament = chord.findOrnament() as Ornament | null
+                                    if (ornament) {
+                                        const cue = ornament.cueNoteChord()
+                                        if (cue && cue.upNote().visible()) {
+                                            skyline.add(cue.shape().translate(cue.pos().plus(p).plus(cue.staffOffset())))
+                                        }
+                                    }
+
+                                    // Don't include cross-staff arpeggios
+                                    shape.remove_if((sh) => {
+                                        const it = sh.item()
+                                        return !!it && (it.isArpeggio() || it.isChordBracket()) && it === chord.spanArpeggio()
+                                    })
+                                    const arp = chord.spanArpeggio() as Arpeggio | null
+                                    if (arp) {
+                                        const staffBbox = ss.bbox().clone()
+                                        const arpBbox = arp.ldata().bbox().translated(e.pos().plus(p).plus(offset))
+                                        if (chord.track() === arp.track()) {
+                                            staffBbox.setTop(arpBbox.top())
+                                        } else if (chord.track() === arp.endTrack()) {
+                                            staffBbox.setBottom(arpBbox.bottom())
+                                        }
+                                        shape.add(arpBbox.intersected(staffBbox), arp)
+                                    }
                                 }
                                 skyline.add(shape.translate(e.pos().plus(p).plus(offset)))
                             }

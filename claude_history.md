@@ -111,12 +111,16 @@
   format), HarmonyLayout (render lists, polychords, capo, kerning, system alignment), Parenthesis +
   ParenthesisLayout + ParenPaddingTable, MuseJazz fonts. Most harmony-* files are at 3-5% diff.
 - Fret diagrams (incl. old format, alignment with chord symbols).
+- Ornaments (notes above/below, accidentals, cue notes) and trill lines (TrillSegment symbol lines, cue notes).
+- Arpeggios (ArpeggioLayout: spacing in layoutPitched/layoutTablature across spanned chords, clearAccidentals,
+  layoutArpeggio2 after page layout, cross-staff skyline handling; drawing of all types). arpeggio-* vtest
+  files are at 1.8-6.4% diff at 50 dpi.
 - Note: files < 4.6 are read with read460 plus selected read400/read410 compat (fretFontName, harmony, fret
   diagrams); C++ uses separate readers for them.
 
 ### Known differences / missing
-- Not ported (not drawn): fingering, trills/ornaments, vibrato, gradual tempo changes, partial lyrics lines,
-  tremolos, measure repeats, arpeggio drawing, glissandi, guitar bends, images, fret boxes, laissez
+- Not ported (not drawn): fingering, vibrato, gradual tempo changes, partial lyrics lines,
+  tremolos, measure repeats, chord brackets, glissandi, guitar bends, images, fret boxes, laissez
   vibrer/partial ties, note parentheses on chords, MMRestRange, excerpts.
 - Repeat courtesies (courtesy key/time signatures before jumps) need the repeat list.
 - Repeat structure (repeat list) is not ported: lyrics dashes across repeats/jumps are approximated.

@@ -17,7 +17,7 @@ import { FillRule } from '../../../framework/draw/types/painterpath'
 import type { Painter } from '../../../framework/draw/painter'
 import { RealIsNull } from '../../../framework/global/realfn'
 import { SymId } from '../../types/symid'
-import { ArticulationTextType, BarLineType, BracketType, ElementType, HookType, LineType, Orientation, SlurStyleType, VOICES } from '../../types/types'
+import { ArpeggioType, ArticulationTextType, BarLineType, BracketType, ElementType, HookType, LineType, Orientation, SlurStyleType, VOICES } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { DefaultStyle } from '../../style/defaultstyle'
 import { CrossMeasure } from '../../dom/chordrest'
@@ -62,6 +62,7 @@ import type { Parenthesis } from '../../dom/parenthesis'
 import { FretDotType, FretMarkerType, type FretDiagram } from '../../dom/fret'
 import { AlignmentFlag } from '../../../framework/draw/types/drawtypes'
 import type { TrillSegment } from '../../dom/trill'
+import type { Arpeggio } from '../../dom/arpeggio'
 
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
@@ -95,6 +96,8 @@ export class TDraw {
         case ElementType.SPACER:
             break
         case ElementType.LEDGER_LINE: TDraw.drawLedgerLine(item as LedgerLine, painter, opt)
+            break
+        case ElementType.ARPEGGIO: TDraw.drawArpeggio(item as Arpeggio, painter, opt)
             break
         case ElementType.FRET_DIAGRAM: TDraw.drawFretDiagram(item as FretDiagram, painter, opt)
             break
@@ -567,6 +570,56 @@ export class TDraw {
             painter.restore()
         }
         item.drawSymbol(ldata.cachedNoteheadSym, painter)
+    }
+
+    static drawArpeggio(item: Arpeggio, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+
+        const y1 = ldata.bbox().top()
+        const y2 = ldata.bbox().bottom()
+        const lineWidth = item.style().styleMM(Sid.arpeggioLineWidth)
+
+        painter.setPen(new Pen(item.curColor(opt), lineWidth, PenStyle.SolidLine, PenCapStyle.FlatCap))
+        painter.save()
+
+        switch (item.arpeggioType()) {
+        case ArpeggioType.NORMAL:
+        case ArpeggioType.UP: {
+            const r = ldata.symsBBox
+            painter.rotate(-90.0)
+            item.drawSymbols(ldata.symbols, painter, new PointF(-r.right() - y1, -r.bottom() + r.height()))
+        } break
+
+        case ArpeggioType.DOWN: {
+            const r = ldata.symsBBox
+            painter.rotate(90.0)
+            item.drawSymbols(ldata.symbols, painter, new PointF(-r.left() + y1, -r.top() - r.height()))
+        } break
+
+        case ArpeggioType.UP_STRAIGHT: {
+            const r = ldata.symsBBox
+            const x1 = item.spatium() * 0.5
+            item.drawSymbol(SymId.arrowheadBlackUp, painter, new PointF(x1 - r.width() * 0.5, y1 - r.top()))
+            const ny1 = y1 - r.top() * 0.5
+            painter.drawLine(new LineF(x1, ny1, x1, y2))
+        } break
+
+        case ArpeggioType.DOWN_STRAIGHT: {
+            const r = ldata.symsBBox
+            const x1 = item.spatium() * 0.5
+            item.drawSymbol(SymId.arrowheadBlackDown, painter, new PointF(x1 - r.width() * 0.5, y2 - r.bottom()))
+            const ny2 = y2 + r.top() * 0.5
+            painter.drawLine(new LineF(x1, y1, x1, ny2))
+        } break
+
+        case ArpeggioType.BRACKET: {
+            const w = item.style().styleS(Sid.arpeggioHookLen).val() * item.spatium()
+            painter.drawLine(new LineF(0.0, y1, w, y1))
+            painter.drawLine(new LineF(0.0, y2, w, y2))
+            painter.drawLine(new LineF(0.0, y1 - lineWidth / 2, 0.0, y2 + lineWidth / 2))
+        } break
+        }
+        painter.restore()
     }
 
     static drawFretDiagram(item: FretDiagram, painter: Painter, opt: PaintOptions): void {
