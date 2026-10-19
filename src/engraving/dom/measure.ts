@@ -37,6 +37,8 @@ import type { LayoutBreak } from './layoutbreak'
 import type { Spacer } from './spacer'
 import type { Tuplet } from './tuplet'
 import type { Marker } from './marker'
+import type { StaffTypeChange } from './stafftypechange'
+import type { StaffType } from './stafftype'
 
 export enum MeasureNumberMode {
     AUTO, // show measure number depending on style
@@ -705,6 +707,31 @@ export class Measure extends MeasureBase {
         case ElementType.MEASURE:
             this.m_mmRest = e as unknown as Measure
             break
+        case ElementType.STAFFTYPE_CHANGE: {
+            const staffTypeChange = e as StaffTypeChange
+            let templateStaffType = staffTypeChange.staffType()
+
+            const staff = staffTypeChange.staff()!
+
+            // This will need to point to the stafftype element within the stafftypelist for the staff
+            let newStaffType: StaffType
+            if (templateStaffType) {
+                // executed on read, undo/redo, clone
+                // setStaffType adds a copy to stafftypelist and returns a pointer to that element within stafftypelist
+                newStaffType = staff.setStaffType(this.tick(), templateStaffType)
+            } else {
+                // executed on add from palette
+                // staffType returns a pointer to the current stafftype element in the list
+                // setStaffType will make a copy and return a pointer to that element within list
+                templateStaffType = staff.staffType(this.tick())
+                newStaffType = staff.setStaffType(this.tick(), templateStaffType)
+            }
+
+            staffTypeChange.setStaffType(newStaffType, false)
+
+            super.add(e)
+            return
+        }
         default:
             super.add(e)
             return

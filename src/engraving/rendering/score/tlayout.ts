@@ -119,6 +119,7 @@ import type { Arpeggio } from '../../dom/arpeggio'
 import { TremoloLayout } from './tremololayout'
 import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
+import type { StaffTypeChange } from '../../dom/stafftypechange'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
     const conf = ctx.conf()
@@ -195,6 +196,7 @@ export class TLayout {
         case ElementType.ARTICULATION: TLayout.layoutArticulation(item as Articulation, ctx); break
         case ElementType.ORNAMENT: TLayout.layoutOrnament(item as Ornament, ctx); break
         case ElementType.ARPEGGIO: TLayout.layoutArpeggio(item as Arpeggio, ctx); break
+        case ElementType.STAFFTYPE_CHANGE: TLayout.layoutStaffTypeChange(item as StaffTypeChange, ctx); break
         case ElementType.TREMOLO_SINGLECHORD: TremoloLayout.layoutSingleChord(item as TremoloSingleChord, ctx); break
         case ElementType.TREMOLO_TWOCHORD: TremoloLayout.layoutTwoChord(item as TremoloTwoChord, ctx); break
         case ElementType.BAR_LINE: TLayout.layoutBarLine(item as BarLine, ctx); break
@@ -1640,6 +1642,20 @@ export class TLayout {
         }
 
         ldata.setShape(shape)
+    }
+
+    static layoutStaffTypeChange(item: StaffTypeChange, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        const spatium = ctx.conf().spatium()
+        ldata.setBbox(new RectF(-item.lw() * 0.5, -item.lw() * 0.5, spatium * 2.5 + item.lw(), spatium * 2.5 + item.lw()))
+        const m = item.measure()
+        const system = m ? m.system() : null
+        if (m && system) {
+            const y = -1.5 * spatium - ldata.bbox().height() + system.staff(item.staffIdx())!.y()
+            ldata.setPos(spatium * 0.8, y)
+        } else {
+            ldata.setPos(0.0, 0.0)
+        }
     }
 
     static layoutArpeggio(item: Arpeggio, ctx: LayoutContext): void {

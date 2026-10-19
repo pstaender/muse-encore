@@ -113,6 +113,7 @@ import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { BeamFragment } from '../../dom/beambase'
 import type { TremoloCompat } from '../compat/tremolocompat'
+import type { StaffTypeChange } from '../../dom/stafftypechange'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -880,6 +881,11 @@ export class TRead {
     }
 
     static readMarker(m: Marker, e: XmlReader, ctx: ReadContext): void {
+        if (ctx.mscVersion() < 460) {
+            TRead.readMarker410(m, e, ctx)
+            return
+        }
+
         // This property was written in the wrong order from 4.6.0-4.6.2
         // It was written before the text style and was reset on initialising the text style
         let symbolSize: number | null = null
@@ -903,6 +909,23 @@ export class TRead {
                 m.setPropertyFlags(Pid.MUSIC_SYMBOL_SIZE, PropertyFlags.UNSTYLED)
             }
         }
+    }
+
+    /** read410 TRead::read(Marker*): the marker type is derived from the label */
+    private static readMarker410(m: Marker, e: XmlReader, ctx: ReadContext): void {
+        let mt = MarkerType.SEGNO
+
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'label') {
+                const s = e.readAsciiText()
+                m.setLabel(s)
+                mt = TConv.fromXmlMarkerType(s, MarkerType.USER)
+            } else if (!TRead.readTextBaseProperties(m, e, ctx)) {
+                e.unknown()
+            }
+        }
+        m.setMarkerType(mt)
     }
 
     static readJump(j: Jump, e: XmlReader, ctx: ReadContext): void {
@@ -1883,6 +1906,20 @@ export class TRead {
         return true
     }
 
+    static readStaffTypeChange(c: StaffTypeChange, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'StaffType') {
+                const st = new StaffType()
+                TRead.readStaffType(st, e, ctx)
+                // Measure::add() will replace this with a pointer to a copy in the staff
+                c.setStaffType(st, true)
+            } else if (!TRead.readItemProperties(c, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
     static readMeasureBaseProperties(b: MeasureBase, e: XmlReader, ctx: ReadContext): boolean {
         const tag = e.name()
         if (tag === 'LayoutBreak') {
@@ -1901,7 +1938,11 @@ export class TRead {
                 b.cleanupLayoutBreaks(false)
             }
         } else if (tag === 'StaffTypeChange') {
-            e.skipCurrentElement() // TODO(port): StaffTypeChange
+            const stc = Factory.createItem(ElementType.STAFFTYPE_CHANGE, b) as StaffTypeChange
+            stc.setTrack(ctx.track())
+            stc.setParent(b)
+            TRead.readStaffTypeChange(stc, e, ctx)
+            b.add(stc)
         } else if (TRead.readItemProperties(b, e, ctx)) {
         } else {
             return false

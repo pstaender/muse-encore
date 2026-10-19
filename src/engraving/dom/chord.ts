@@ -36,6 +36,7 @@ import type { TablatureMinimStyle } from './stafftype'
 import type { Drumset } from './drumset'
 import { TDuration } from './durationtype'
 import type { TremoloTwoChord } from './tremolotwochord'
+import type { Trill } from './trill'
 import type { TremoloSingleChord } from './tremolosinglechord'
 
 /** factories registered by the corresponding modules (avoid runtime import cycles) */
@@ -961,10 +962,22 @@ export class Chord extends ChordRest {
         }
     }
 
-    findOrnament(): EngravingItem | null {
+    findOrnament(forPlayback = false): EngravingItem | null {
         for (const art of this.m_articulations) {
             if (art.isOrnament()) {
                 return art
+            }
+        }
+        for (const spanner of this.m_startingSpanners) {
+            if (spanner.isTrill()) {
+                return (spanner as unknown as Trill).ornament()
+            }
+        }
+        if (forPlayback) {
+            for (const spanner of this.m_endingSpanners) {
+                if (spanner.isTrill()) {
+                    return (spanner as unknown as Trill).ornament()
+                }
             }
         }
         return null

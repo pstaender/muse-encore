@@ -119,8 +119,11 @@
   TremoloLayout, stem direction/length handling, tremolos inside beams (trem anchors), slur anchoring at
   tremolos, cross-staff tremolos, drawing. The tremolo vtest files went from 4-33% to 0.1-5.8% (tremolo-tab
   from 100%).
+- StaffTypeChange (reading, Measure::add -> staff type list; not drawn as it is unprintable). staff-offset-*
+  files: 12-26% -> 3-5%.
+- Chord::findOrnament also returns the ornament of a starting trill (trill cue notes were not laid out).
 - Note: files < 4.6 are read with read460 plus selected read400/read410 compat (fretFontName, harmony, fret
-  diagrams); C++ uses separate readers for them.
+  diagrams, marker type from label); C++ uses separate readers for them.
 
 ### Known differences / missing
 - Not ported (not drawn): fingering, vibrato, gradual tempo changes, partial lyrics lines,
@@ -129,5 +132,4 @@
 - Repeat courtesies (courtesy key/time signatures before jumps) need the repeat list.
 - Repeat structure (repeat list) is not ported: lyrics dashes across repeats/jumps are approximated.
 - Cross-staff spacing (e.g. cross-10) differs.
-- staff-offset (22%): staff type y offset is not applied to some elements.
 - 3.x and older files (read302/206/114) are rejected.
