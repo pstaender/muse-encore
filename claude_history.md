@@ -102,10 +102,23 @@
 - Sample results (`npm run compare`, ink diff): lyrics-24 21% -> 3.2%, hairpins-3 9.9% -> 2.2%,
   hairpins-4 14% -> 1.5%, volta-1 9% -> 3.8%, ottava-3 0.3%.
 
+- Let ring, palm mute (ChordTextLineBase); CompatUtils::setTextLineTextPositionFromAlign for files < 4.7.
+- Tablature: tab fonts (mscoreTab.ttf, fonts_tablature.xml read at init), StaffType tab metrics/presets,
+  fret marks, ChordLayout::layoutTablature, TabDurationSymbol, MaskLayout (string lines masked under frets,
+  barlines masked under text). The tab vtest files went from 100% to 0-10% diff (beams-20: 0.00%).
+- Markers and jumps (MarkerLayout, layoutJump).
+- Chord symbols: ChordList (chord description files in fonts/chords, parser), Harmony (also the 4.0-4.5
+  format), HarmonyLayout (render lists, polychords, capo, kerning, system alignment), Parenthesis +
+  ParenthesisLayout + ParenPaddingTable, MuseJazz fonts. Most harmony-* files are at 3-5% diff.
+- Fret diagrams (incl. old format, alignment with chord symbols).
+- Note: files < 4.6 are read with read460 plus selected read400/read410 compat (fretFontName, harmony, fret
+  diagrams); C++ uses separate readers for them.
+
 ### Known differences / missing
-- Not ported (not drawn): harmony, fingering, trills/ornaments, vibrato, let ring, palm mute, gradual tempo
-  changes, partial lyrics lines, tremolos, measure repeats, arpeggio drawing, images, tablature, laissez
-  vibrer/partial ties, MMRestRange, excerpts.
+- Not ported (not drawn): fingering, trills/ornaments, vibrato, gradual tempo changes, partial lyrics lines,
+  tremolos, measure repeats, arpeggio drawing, glissandi, guitar bends, images, fret boxes, laissez
+  vibrer/partial ties, note parentheses on chords, MMRestRange, excerpts.
+- Repeat courtesies (courtesy key/time signatures before jumps) need the repeat list.
 - Repeat structure (repeat list) is not ported: lyrics dashes across repeats/jumps are approximated.
 - Cross-staff spacing (e.g. cross-10) differs.
 - 3.x and older files (read302/206/114) are rejected.
