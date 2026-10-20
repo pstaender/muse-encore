@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-webviewer/
+dist-musescoreweb/
 /compare-out/
 /out/
 *.log

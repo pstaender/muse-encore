@@ -25,6 +25,8 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "dev": "vite webviewer",
     "build:webviewer": "vite build webviewer",
+    "dev:musescoreweb": "vite musescoreweb",
+    "build:musescoreweb": "vite build musescoreweb",
     "render": "tsx tools/render.ts",
     "compare": "tsx tools/compare.ts",
     "compare:all": "tsx tools/compare-all.ts"
@@ -41,7 +43,7 @@
     "playwright-core": "1.56.0",
     "pngjs": "^7.0.0",
     "tsx": "^4.23.15",
-    "typescript": "5.9",
+    "typescript": "7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"
   }

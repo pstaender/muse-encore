@@ -38,6 +38,7 @@ fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore,
 tools/gen/              generators for tables derived from the C++ sources (re-run on MuseScore updates)
 tools/                  node scripts: render to PNG, compare with MuseScore output
 webviewer/              Vite web viewer app (MuseScore icon font in webviewer/assets)
+musescoreweb/           Vite score editor app "MuseScore Web" (started as a copy of the viewer; separate app)
 test/                   vitest tests
 ```
 
@@ -54,6 +55,9 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - All layout units are MuseScore "pixels" at 1200 DPI (`DPI` in `types.ts`), spatium default 24.8.
 - Text metrics must follow Qt's QFontMetricsF on a 1200 DPI device (see `fontprovider.ts`).
 - Every file starts with the GPL SPDX header.
+- The web UI is built with React (the viewer still uses plain DOM code; new UI, e.g. the editor, uses React).
+  The engraving library itself stays framework independent.
+- TypeScript 7 (native compiler); `npm run typecheck` / `npm run build` use it.
 - C++ destructors with side effects must be emulated explicitly (e.g. ~LayoutContext -> end of ScoreLayout.layoutRange).
 - DOM -> rendering calls (C++ `renderer()->...`) go through hooks set in `rendering/score/scorerenderer.ts`.
 - There is no read400/read410: the 2.x/3.x readers call the shared read460 `TRead` functions where C++ calls
@@ -66,6 +70,7 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - `npm test` - vitest (library); `npm run test:e2e` - web viewer in headless Chrome; see `test/README.md`
 - `npm run dev` - web viewer (Vite; `?url=<score>` opens a score, fonts are served from ./fonts);
   `npm run build:webviewer` builds it into dist-webviewer/
+- `npm run dev:musescoreweb` - the editor (same options); `npm run build:musescoreweb` builds it into dist-musescoreweb/
 - `npm run render -- <file.mscz> <out-prefix> [dpi | svg]` - render pages to PNG (or SVG) in node
 - `npm run compare -- <file.mscz> [out-dir] [dpi]` - render with MuseScore and with this port and diff the PNGs
   (red = only MuseScore, blue = only port). For exact numbers compare with MuseScore's SVG export, which uses
