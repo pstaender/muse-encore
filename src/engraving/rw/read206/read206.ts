@@ -8,7 +8,7 @@
  * Like C++, the elements that did not change are read with the read400 readers (here: the shared read460
  * readers, which contain the read400/read410 compat code).
  * TODO(port): excerpts (<Score> recursion), Audio, Synthesizer, images, old Bend, note events,
- * instrument channels and id recognition (Instrument::updateInstrumentId needs the instrument templates),
+ * MIDI data of instrument channels,
  * SystemDivider, tempo map, MIDI mapping, <ticklen> (< 1.12, needs the compat time sig map)
  */
 
@@ -1516,7 +1516,9 @@ function readInstrument206(i: Instrument, p: Part, e: XmlReader, ctx: ReadContex
         }
     }
 
-    // TODO(port): i->updateInstrumentId(), single note dynamics from template, channels
+    i.updateInstrumentId()
+
+    // TODO(port): single note dynamics from template
 }
 
 //---------------------------------------------------------
@@ -1616,6 +1618,16 @@ function readAmbitus(ambitus: Ambitus, e: XmlReader, ctx: ReadContext): void {
             ambitus.setNoteHeadGroup(Read206.convertHeadGroup(e.readInt()))
         } else if (tag === 'headType') {
             ambitus.setNoteHeadType(convertHeadType(e.readInt()))
+        } else if (tag === 'topAccidental' || tag === 'bottomAccidental') {
+            // read400::TRead::readProperties(Ambitus*): files < 3.01 have 2.x accidentals
+            const acc = tag === 'topAccidental' ? ambitus.topAccidental() : ambitus.bottomAccidental()
+            while (e.readNextStartElement()) {
+                if (e.name() === 'Accidental') {
+                    Read206.readAccidental206(acc, e, ctx)
+                } else {
+                    e.skipCurrentElement()
+                }
+            }
         } else if (TRead.readAmbitusProperties(ambitus, e, ctx)) {
         } else {
             e.unknown()
@@ -2167,9 +2179,7 @@ function readChord(chord: Chord, e: XmlReader, ctx: ReadContext): void {
                 const t = e.name()
                 if (t === 'subtype') { // obsolete
                     e.skipCurrentElement()
-                } else if (TRead.readPropertyIfTag(stem, t, e, ctx, Pid.USER_LEN)) {
-                } else if (TRead.readStyledProperty(stem, t, e, ctx)) {
-                } else if (!TRead.readItemProperties(stem, e, ctx)) {
+                } else if (!TRead.readStemProperties(stem, e, ctx)) {
                     e.unknown()
                 }
             }

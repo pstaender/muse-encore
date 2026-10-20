@@ -459,8 +459,9 @@ export class FontProvider {
             }
         }
 
+        // Qt (HarfBuzz) kerns strings of music symbol fonts too, e.g. "pp" of dynamics in text (MScore: -29 units)
         let kerningLookups: unknown = null
-        if (!isSymbol) {
+        {
             try {
                 kerningLookups = otf.position.getKerningTables(otf.position.getDefaultScriptName())
             } catch {
@@ -474,7 +475,7 @@ export class FontProvider {
             run.glyphs.push(g.index)
             run.xs.push(x)
             x += (g.advanceWidth ?? 0) * scale
-            if (!isSymbol && i < glyphs.length - 1) {
+            if (i < glyphs.length - 1) {
                 let kern = 0
                 try {
                     kern = kerningLookups

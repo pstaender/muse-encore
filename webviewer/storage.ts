@@ -12,6 +12,9 @@ export interface StoredFile {
 const DB_NAME = 'musescore-web-viewer'
 const STORE = 'files'
 const LAST_FILE_KEY = 'last'
+// IndexedDB writes finish after a while: closing a file and reloading at once would bring it back. So the id of the
+// current file is also kept in (synchronous) localStorage, and a stored file is only opened if its id matches.
+const CURRENT_FILE_KEY = 'musescore-web-viewer:file'
 
 function openDb(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
@@ -35,24 +38,52 @@ async function withStore<T>(mode: IDBTransactionMode, op: (store: IDBObjectStore
     }
 }
 
-export async function saveLastFile(file: StoredFile): Promise<void> {
+/** the id of the current file; undefined if localStorage is not available (then any stored file is used) */
+function currentFileId(): string | null | undefined {
     try {
-        await withStore('readwrite', s => s.put(file, LAST_FILE_KEY))
+        return localStorage.getItem(CURRENT_FILE_KEY)
+    } catch {
+        return undefined
+    }
+}
+
+function setCurrentFileId(id: string | null): void {
+    try {
+        if (id) {
+            localStorage.setItem(CURRENT_FILE_KEY, id)
+        } else {
+            localStorage.removeItem(CURRENT_FILE_KEY)
+        }
+    } catch {
+        // ignore
+    }
+}
+
+export async function saveLastFile(file: StoredFile): Promise<void> {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    setCurrentFileId(id)
+    try {
+        await withStore('readwrite', s => s.put({ ...file, id }, LAST_FILE_KEY))
     } catch (e) {
         console.warn('could not remember the file', e)
     }
 }
 
 export async function loadLastFile(): Promise<StoredFile | null> {
+    const id = currentFileId()
+    if (id === null) {
+        return null
+    }
     try {
-        const f = await withStore<StoredFile | undefined>('readonly', s => s.get(LAST_FILE_KEY))
-        return f && f.data ? f : null
+        const f = await withStore<(StoredFile & { id?: string }) | undefined>('readonly', s => s.get(LAST_FILE_KEY))
+        return f && f.data && (id === undefined || f.id === id) ? { name: f.name, data: f.data } : null
     } catch {
         return null
     }
 }
 
 export async function clearLastFile(): Promise<void> {
+    setCurrentFileId(null)
     try {
         await withStore('readwrite', s => s.delete(LAST_FILE_KEY))
     } catch {

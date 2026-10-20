@@ -8,7 +8,7 @@
  * C++ reads the elements of 3.x files with the read400 readers; here the shared (read460) readers are used,
  * which contain the read400/read410 compat code (see claude_history.md).
  * TODO(port): excerpts (<Score> recursion), Audio, Synthesizer, instrument id recognition
- * (Instrument::updateInstrumentId needs the instrument templates), tempo map, MIDI mapping
+ * tempo map, MIDI mapping
  */
 
 import { ElementType } from '../../types/types'
@@ -154,8 +154,15 @@ export class Read302 {
                     Read302.fixInstrumentId(instrument)
                 }
             }
+        } else {
+            // Older scores had no IDs at all
+            for (const part of score.parts()) {
+                for (const instrument of part.instruments().values()) {
+                    instrument.updateInstrumentId()
+                }
+            }
         }
-        // TODO(port): older scores had no IDs at all (Instrument::updateInstrumentId), tempo map, harmony channels, MIDI mapping
+        // TODO(port): tempo map, harmony channels, MIDI mapping
 
         for (const staff of score.staves()) {
             staff.updateOttava()

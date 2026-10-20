@@ -323,6 +323,17 @@ export abstract class Spanner extends EngravingItem {
     anchor(): SpannerAnchor { return this.m_anchor }
     setAnchor(a: SpannerAnchor): void { this.m_anchor = a }
 
+    /** C++ copy constructor: the segments are cloned */
+    protected override onCloned(original: this): void {
+        super.onCloned(original)
+        this.m_segments = []
+        for (const segment of original.m_segments) {
+            const newSegment = segment.clone() as SpannerSegment
+            newSegment.setParent(null)
+            this.add(newSegment)
+        }
+    }
+
     spannerSegments(): SpannerSegment[] { return this.m_segments }
     setSpannerSegments(s: SpannerSegment[]): void { this.m_segments = s }
     frontSegment(): SpannerSegment { return this.m_segments[0] }

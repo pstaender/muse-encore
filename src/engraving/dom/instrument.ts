@@ -4,7 +4,7 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/engraving/dom/instrument.h/.cpp (only what is needed for engraving:
- * names, clefs, transposition; no MIDI/playback data)
+ * names, clefs, transposition; of the MIDI data only what identifies the instrument)
  */
 
 import { SortedMap } from '../../framework/global/sortedmap'
@@ -13,7 +13,7 @@ import { ClefTypeList } from './clefinfo'
 import { Interval } from './interval'
 import { StringData } from './stringdata'
 import { type Drumset, smDrumset } from './drumset'
-import { INSTRUMENT_FAMILIES } from './instrumentfamilies'
+import { instrumentGroups, searchTemplate, searchTemplateForInstrNameList, searchTemplateForMidiProgram } from './instrtemplate'
 
 export class StaffName {
     constructor(private m_name = '', private m_pos = 0) {} // html string; even number -> between staves
@@ -30,6 +30,23 @@ export class StaffName {
 
 export type StaffNameList = StaffName[]
 
+/** InstrChannel: only name, bank and program (used to recognize the instrument of old scores); no playback data */
+export class InstrChannel {
+    static readonly DEFAULT_NAME = 'normal'
+
+    private m_name = ''
+    private m_program = -1
+    private m_bank = 0
+
+    name(): string { return this.m_name }
+    setName(n: string): void { this.m_name = n }
+    program(): number { return this.m_program }
+    setProgram(v: number): void { this.m_program = v }
+    bank(): number { return this.m_bank }
+    setBank(v: number): void { this.m_bank = v }
+    clone(): InstrChannel { return Object.assign(new InstrChannel(), this) }
+}
+
 export class Instrument {
     private m_longNames: StaffNameList = []
     private m_shortNames: StaffNameList = []
@@ -45,7 +62,8 @@ export class Instrument {
     private m_musicXmlId = ''
     private m_soundId = ''
     private m_drumset: Drumset | null = null
-    // TODO(port): channels, articulations
+    private m_channel: InstrChannel[] = []
+    // TODO(port): articulations, MIDI actions
     private m_stringData = new StringData()
 
     constructor(private m_id = '') {}
@@ -58,6 +76,145 @@ export class Instrument {
         this.m_transpose = i.m_transpose.clone()
         this.m_clefType = i.m_clefType.map(c => c.clone())
         this.m_drumset = i.m_drumset ? i.m_drumset.clone() : null
+        this.m_channel = i.m_channel.map(c => c.clone())
+    }
+
+    channel(idx: number): InstrChannel | null { return this.m_channel[idx] ?? null }
+    appendChannel(c: InstrChannel): void { this.m_channel.push(c) }
+
+    channelIdx(s: string): number {
+        let idx = 0
+        for (const a of this.m_channel) {
+            if (!a.name() && s === InstrChannel.DEFAULT_NAME) {
+                return idx
+            }
+            if (s === a.name()) {
+                return idx
+            }
+            ++idx
+        }
+        return -1
+    }
+
+    /** Return a MusicXML "Sound ID", which is essentially an instrument ID */
+    recognizeMusicXmlId(): string {
+        // See https://github.com/w3c/musicxml/blob/gh-pages/schema/sounds.xml
+        const defaultMusicXmlId = 'keyboard.piano'
+        const defaultMusicXmlPercussionId = 'drum.group' // our General MIDI Percussion
+
+        const nameList = [this.m_trackName, ...this.m_longNames.map(n => n.name()), ...this.m_shortNames.map(n => n.name())]
+        const tmplByName = searchTemplateForInstrNameList(nameList, this.m_useDrumset)
+        if (tmplByName && tmplByName.musicXmlId) {
+            return tmplByName.musicXmlId
+        }
+
+        const channel = this.channel(0)
+        if (!channel) {
+            return defaultMusicXmlId
+        }
+
+        const tmplMidiProgram = searchTemplateForMidiProgram(channel.bank(), channel.program(), this.m_useDrumset)
+        if (tmplMidiProgram && tmplMidiProgram.musicXmlId) {
+            return tmplMidiProgram.musicXmlId
+        }
+
+        return this.m_useDrumset ? defaultMusicXmlPercussionId : defaultMusicXmlId
+    }
+
+    /**
+     * When reading a score created with pre-3.6, MuseScore's instrument ID isn't saved in the score file, so we must
+     * try to guess the ID based on the MusicXML ID, which is saved. However, MusicXML IDs are not unique, so we must
+     * also consider other data to find the best match, preferring more generic instruments when there's a tie.
+     */
+    recognizeId(): string {
+        // In these cases, the best and/or most generic match is already known,
+        // and we don't want to risk returning something else.
+        if (this.m_musicXmlId === 'drum.group') {
+            return 'percussion-synthesizer' // General MIDI Percussion (most generic kit)
+        } else if (this.m_musicXmlId === 'drum.group.set') {
+            return 'drumset' // Large Drum Kit (most generic drum kit)
+        } else if (this.m_musicXmlId.startsWith('mdl.')) {
+            // Use fixed mapping for MDL1 instruments to ensure we get the
+            // marching versions (e.g. "marching-snare" and not "snare-drum").
+            switch (this.m_musicXmlId) {
+            case 'mdl.drum.snare-drum': return 'marching-snare'
+            case 'mdl.drum.tenor-drum': return 'marching-tenor-drums'
+            case 'mdl.drum.bass-drum': return 'marching-bass-drums'
+            case 'mdl.metal.cymbal.crash': return 'marching-cymbals'
+            case 'mdl.drum.group.set': return 'drumset'
+            default: break
+            }
+        }
+
+        // Several instruments have MusicXML ID "strings.group". Let's use the
+        // value of controller 32 of the "arco" channel to distinguish them.
+        const arco = 'arco'
+        const groupHack = this.m_musicXmlId === 'strings.group'
+        const idxref = this.channelIdx(arco)
+        const val32ref = idxref < 0 ? -1 : this.channel(idxref)!.bank()
+
+        // For other instruments, consider how closely the instrument data
+        // matches each of our templates. Use the ID that gives the best match.
+        let fallback = '' // ID that gave the best match so far
+        let bestMatchStrength = 0 // higher when ID is a better match
+
+        for (const g of instrumentGroups()) {
+            for (const it of g) {
+                if (it.musicXmlId !== this.m_musicXmlId) {
+                    continue
+                }
+                if (groupHack) {
+                    if (!fallback) {
+                        // Instrument "Strings" doesn't have bank defined so
+                        // if no "strings.group" instrument with requested bank
+                        // is found, assume "Strings".
+                        fallback = it.id
+                    }
+                    for (const chan of it.channel) {
+                        if (chan.name === arco && chan.bank === val32ref) {
+                            return it.id
+                        }
+                    }
+                } else {
+                    const matchStrength = 0
+                        + (this.minPitchP() === it.minPitchP ? 1 : 0)
+                        + (this.minPitchA() === it.minPitchA ? 1 : 0)
+                        + (this.maxPitchA() === it.maxPitchA ? 1 : 0)
+                        + (this.maxPitchP() === it.maxPitchP ? 1 : 0)
+                    const perfectMatchStrength = 4
+                    if (!fallback || matchStrength > bestMatchStrength) {
+                        // Set a fallback ID or update it because we've found a better one.
+                        fallback = it.id
+                        bestMatchStrength = matchStrength
+                        if (bestMatchStrength === perfectMatchStrength) {
+                            break // stop looking for matches (in this group)
+                        }
+                    } else if (matchStrength === bestMatchStrength && it.id.length < fallback.length) {
+                        // Update fallback ID because we've found a shorter one that is equally good.
+                        // Shorter IDs tend to correspond to more generic instruments (e.g. "piano"
+                        // vs. "grand-piano") so it's better to use a shorter one if unsure.
+                        fallback = it.id
+                    }
+                }
+            }
+        }
+
+        if (fallback) {
+            return fallback
+        }
+
+        return this.m_useDrumset
+            ? 'percussion-synthesizer' // General MIDI Percussion (most generic kit)
+            : 'piano'
+    }
+
+    updateInstrumentId(): void {
+        if (!this.m_musicXmlId) {
+            this.m_musicXmlId = this.recognizeMusicXmlId()
+        }
+        if (!this.m_id) {
+            this.m_id = this.recognizeId()
+        }
     }
 
     id(): string { return this.m_id }
@@ -110,9 +267,9 @@ export class Instrument {
 
     drumset(): Drumset | null { return this.m_drumset }
 
-    /** C++ uses the family of the instrument template (instruments.xml) */
+    /** the family of the instrument template (instruments.xml) */
     family(): string {
-        return INSTRUMENT_FAMILIES.get(this.m_id) ?? ''
+        return searchTemplate(this.m_id)?.familyId ?? ''
     }
 
     isVocalInstrument(): boolean {

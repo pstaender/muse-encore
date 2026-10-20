@@ -193,7 +193,27 @@ export const TConv = {
         const it = D.HOOK_TYPES.find(i => i.xml === tag)
         return it ? it.type : compatInt(tag, def)
     },
-    fromXmlLineType: (tag: string, def: LineType): LineType => findTypeByXmlTag(D.LINE_TYPES, tag, def),
+    fromXmlLineType: (tag: string, def: LineType): LineType => {
+        // Pre-4.0 files: Qt pen style
+        if (/^\s*-?\d+\s*$/.test(tag)) {
+            switch (parseInt(tag, 10)) {
+            case 0: // NoPen
+                return def
+            case 1: // SolidLine
+                return LineType.SOLID
+            case 2: // DashLine
+            case 4: // DashDotLine
+            case 0x10: // CustomDashLine
+                return LineType.DASHED
+            case 3: // DotLine
+            case 5: // DashDotDotLine
+                return LineType.DOTTED
+            default:
+                break
+            }
+        }
+        return findTypeByXmlTag(D.LINE_TYPES, tag, def)
+    },
     fromXmlKeyMode: (tag: string, def: KeyMode): KeyMode => findTypeByXmlTag(D.KEY_MODES, tag, def),
 
     toXmlTextStyleType: (v: TextStyleType): string => findXmlTagByType(D.TEXTSTYLE_TYPES, v),

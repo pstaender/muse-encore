@@ -1,0 +1,4 @@
+[submodule "MuseScore"]
+	path = MuseScore
+	url = https://github.com/musescore/MuseScore.git
+	shallow = true

@@ -312,3 +312,32 @@
   edge (8 px trigger strip; tap on touch), stays while hovered or keyboard-focused, hides when the pointer is clearly
   below it (not on mouseleave, an open zoom list is outside of it); shown for 1.2 s on entering full screen.
   Fit zoom modes refit and recenter the page when the view is resized.
+
+## 2026-10-20 — Real-world score (Chopin op. 9/2, 2.x), tests, MuseScore submodule
+
+- `MuseScore/` is now a git submodule pinned to v4.7.5 (shallow); tests and tools use its vtest scores and demos.
+- Tests: library tests for rendering, SVG output (vs canvas, 1 px tolerance), font fallback, regressions;
+  web viewer end-to-end tests in headless Chrome (`npm run test:e2e`, playwright-core); `npm run compare:all`
+  compares every page with MuseScore against `test/compare-baseline.csv`. Overview in `test/README.md`.
+- Note.clone() shared accidental, dots, attached elements and ties with the original (generic clone): the ornament
+  helper notes of a turn changed the main note's natural into a flat. Note.onCloned / Spanner.onCloned follow the
+  C++ copy constructors.
+- Version checks of read400::TRead were missing because the old-file readers use the read460 functions: slur user
+  offsets (o1-o4) and stem lengths of pre-4.0 files ignored, dynamics size/align, articulation anchor/offset and
+  old subtype names (mordent -> short trill before 3.6), chord line/TAB parenthesis offsets, grace chord x offset,
+  note velocity/ghost, lyrics offset before 3.1, time signature strings 3.0-3.4, 2.x ambitus accidentals.
+- Instrument::updateInstrumentId (recognizeId / recognizeMusicXmlId) ported: old files only store the MusicXML id;
+  instrument templates generated from instruments.xml (tools/gen/gen-instrumenttemplates.ts, replaces the family
+  table), minimal InstrChannel (name/bank/program). With the family known, dynamics and hairpins of 2.x/3.x piano
+  scores are centered between the staves like in MuseScore.
+- Horizontal spacing: a ledger line exactly 0.1 sp from an accidental is an exact tie in `intersects`; rounding
+  decides it, and MuseScore treats it as a collision. Ties within 1e-9 now count as intersecting (deviation).
+- Web viewer: closing a file and reloading at once brought it back (IndexedDB delete still pending); the current
+  file id is now also kept in localStorage.
+- TConv.fromXmlLineType: pre-4.0 line styles are Qt pen styles (2 = dash, 3 = dot); they were read as solid
+  (e.g. the dashed ottava lines of 2.x files, from the legacy default style).
+- Dynamics: Qt kerns strings of music symbol fonts too (MScore "pp": -29 units), the glyph runs did not; and
+  a dynamic's text block shape is the shape of its SMuFL symbol (TextLayout::layoutTextBlock, was a TODO), which
+  HCENTER alignment uses. 2.x "pp"/"ppp" now at MuseScore's position to the unit.
+- Chopin: 3.1-5.3% -> 1.0-2.2% per page. Left: systems ~1 unit higher further down the page, fp dynamic x, a trill
+  line end.

@@ -6,14 +6,15 @@ the desktop app. License: GPL-3.0-only (same as MuseScore).
 
 ## Reference sources
 
-- `./MuseScore` is a git checkout of MuseScore (on `main`, **not** the reference version).
-  Always read the v4.7.5 sources: `git -C MuseScore show v4.7.5:<path>` or extract them with
-  `git -C MuseScore archive v4.7.5 src/engraving fonts | tar -x -C <dir>`.
+- `./MuseScore` is a git submodule pinned to the reference version v4.7.5
+  (`git submodule update --init`; shallow). Read the sources there directly, e.g.
+  `MuseScore/src/engraving/rendering/score/chordlayout.cpp`. When updating the reference, move the submodule
+  to the new tag and follow the changes file by file.
 - MuseScore 4.7.5 is installed at `/Applications/MuseScore 4.app`; use it to create reference renders:
   `"/Applications/MuseScore 4.app/Contents/MacOS/mscore" -o out.svg file.mscz` (SVG has a CSS class per element type)
   or `-r 100 -o out.png` for PNGs.
-- Test scores: use the **v4.7.5** vtest files (`git -C MuseScore archive v4.7.5 vtest | tar -x -C <dir>`);
-  `MuseScore/vtest` on `main` contains 5.0 files that the 4.7.5 reader rejects.
+- Test scores: the v4.7.5 vtest files in `MuseScore/vtest/scores` (newer MuseScore versions contain
+  5.0 files that the 4.7.5 reader rejects), plus real-world scores in `mscz-test-files/`.
 
 ## Structure (mirrors the C++ tree)
 
@@ -55,20 +56,24 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - Every file starts with the GPL SPDX header.
 - C++ destructors with side effects must be emulated explicitly (e.g. ~LayoutContext -> end of ScoreLayout.layoutRange).
 - DOM -> rendering calls (C++ `renderer()->...`) go through hooks set in `rendering/score/scorerenderer.ts`.
+- There is no read400/read410: the 2.x/3.x readers call the shared read460 `TRead` functions where C++ calls
+  `read400::TRead`. Version checks of read400 (`mscVersion() < 400` etc.) must therefore be in the read460
+  functions (guarded by the file version), e.g. ignoring pre-4.0 slur offsets and stem lengths.
 
 ## Commands
 
 - `npm run typecheck` - tsc
-- `npm test` - vitest
+- `npm test` - vitest (library); `npm run test:e2e` - web viewer in headless Chrome; see `test/README.md`
 - `npm run dev` - web viewer (Vite; `?url=<score>` opens a score, fonts are served from ./fonts);
   `npm run build:webviewer` builds it into dist-webviewer/
 - `npm run render -- <file.mscz> <out-prefix> [dpi | svg]` - render pages to PNG (or SVG) in node
 - `npm run compare -- <file.mscz> [out-dir] [dpi]` - render with MuseScore and with this port and diff the PNGs
   (red = only MuseScore, blue = only port). For exact numbers compare with MuseScore's SVG export, which uses
   the same 1200 DPI coordinates as the layout.
-- `npx tsx tools/gen/<gen-*.ts> <extracted v4.7.5 tree>` - regenerate tables (symids, styledef, property,
-  typesconv, noteheads, accidentals, textstyle, drumset, instrumentfamilies; the latter needs `share/instruments`
-  in the extracted tree)
+- `npm run compare:all` - compare all vtest scores and `mscz-test-files/` with MuseScore against
+  `test/compare-baseline.csv` (regressions fail); `-- --update-baseline` after intended changes
+- `npx tsx tools/gen/<gen-*.ts> MuseScore` - regenerate tables from the reference sources (symids, styledef,
+  property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates)
 
 ## Progress tracking
 

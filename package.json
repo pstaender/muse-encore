@@ -22,10 +22,12 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "dev": "vite webviewer",
     "build:webviewer": "vite build webviewer",
     "render": "tsx tools/render.ts",
-    "compare": "tsx tools/compare.ts"
+    "compare": "tsx tools/compare.ts",
+    "compare:all": "tsx tools/compare-all.ts"
   },
   "dependencies": {
     "fflate": "^0.8.3",
@@ -36,6 +38,7 @@
     "@types/node": "^26.6.5",
     "@types/pngjs": "^6.0.5",
     "pixelmatch": "^8.0.0",
+    "playwright-core": "1.56.0",
     "pngjs": "^7.0.0",
     "tsx": "^4.23.15",
     "typescript": "5.9",

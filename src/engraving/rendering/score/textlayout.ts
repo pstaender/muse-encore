@@ -16,6 +16,7 @@ import { Shape } from '../../infrastructure/shape'
 import { SUBSCRIPT_OFFSET, SUBSCRIPT_SIZE, SUPERSCRIPT_OFFSET, TextFragment, VerticalAlignment, type CharFormat, type TextBase,
     type TextBaseLayoutData, type TextBlock } from '../../dom/textbase'
 import type { Box } from '../../dom/box'
+import { dynamicSymId, type Dynamic } from '../../dom/dynamic'
 import type { Page } from '../../dom/page'
 import type { LayoutContext } from './layoutcontext'
 
@@ -322,8 +323,18 @@ export class TextLayout {
                 f.pos.setY(f.pos.y() - yOffset)
 
                 const textBRect = fm.tightBoundingRect(f.text).translated(f.pos)
-                // TODO(port): dynamics (symShapeWithCutouts for the dynamic symbol)
-                shape.add(textBRect, t)
+                const useDynamicSymShape = fragmentFont.type() === FontType.MusicSymbol && t.isDynamic()
+                if (useDynamicSymShape) {
+                    const dyn = t as Dynamic
+                    const symId = dynamicSymId(dyn.dynamicType())
+                    if (symId !== SymId.noSym) {
+                        shape.add(dyn.symShapeWithCutouts(symId).translated(f.pos))
+                    } else {
+                        shape.add(textBRect, t)
+                    }
+                } else {
+                    shape.add(textBRect, t)
+                }
 
                 if (fragmentFont.type() === FontType.MusicSymbol || fragmentFont.type() === FontType.MusicSymbolText) {
                     // SEMI-HACK: Music fonts can have huge linespacing because of tall symbols, so instead of using the

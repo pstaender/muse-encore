@@ -37,7 +37,10 @@ export function intersects(a: number, b: number, c: number, d: number, minCleara
     if (a === b || c === d) {
         return false
     }
-    return (b + minClearance > c) && (a < d + minClearance)
+    // Deviation from C++: exact ties (e.g. a ledger line exactly the clearance away from an accidental) are decided
+    // by floating point rounding, which differs between the C++ build and JS; MuseScore treats them as intersecting.
+    const TIE = 1e-9
+    return (b + minClearance > c - TIE) && (a < d + minClearance + TIE)
 }
 
 export class Shape {

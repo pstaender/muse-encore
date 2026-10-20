@@ -152,6 +152,58 @@ export class Note extends EngravingItem {
         super(ElementType.NOTE, parent, ElementFlag.MOVABLE)
     }
 
+    /** C++ copy constructor: accidental, attached elements, dots and outgoing ties are copied, other links are not */
+    protected override onCloned(original: this): void {
+        super.onCloned(original)
+        this.m_accidental = null
+        this.m_el = []
+        this.m_dots = []
+        this.m_tieFor = null
+        this.m_tieBack = null
+        this.m_spannerFor = []
+        this.m_spannerBack = []
+
+        if (original.m_accidental) {
+            this.add(original.m_accidental.clone())
+        }
+
+        // types in m_el: SYMBOL, IMAGE, FINGERING, TEXT, BEND
+        const stf = this.staff()
+        const tabFingering = stf ? stf.staffTypeForElement(this).showTabFingering() : false
+        for (const e of original.m_el) {
+            if (e.isFingering() && stf && stf.isTabStaff(this.tick()) && !tabFingering) { // tablature has no fingering
+                continue
+            }
+            this.add(e.clone())
+        }
+
+        if (original.laissezVib() || original.outgoingPartialTie()) {
+            const t = original.m_tieFor!.clone() as Tie
+            t.setParent(this)
+            t.setStartNote(this)
+            t.setTick(this.tick())
+            this.setTieFor(t)
+        } else if (original.m_tieFor) {
+            const t = original.m_tieFor.clone() as Tie
+            t.setStartNote(this)
+            t.setTick(this.tick())
+            t.setEndNote(null)
+            this.m_tieFor = t
+        }
+
+        if (original.incomingPartialTie()) {
+            const t = original.m_tieBack!.clone() as Tie
+            t.setParent(this)
+            t.setEndNote(this)
+            t.setTick(this.tick())
+            this.setTieBack(t)
+        }
+
+        for (const dot of original.m_dots) {
+            this.add(dot.clone())
+        }
+    }
+
     protected override createLayoutData(): NoteLayoutData { return new NoteLayoutData(this) }
     override ldata(): NoteLayoutData { return super.ldata() as NoteLayoutData }
     override mutldata(): NoteLayoutData { return super.ldata() as NoteLayoutData }

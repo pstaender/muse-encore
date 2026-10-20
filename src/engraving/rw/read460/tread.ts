@@ -18,7 +18,7 @@ import { P_TYPE, type PropertyValue } from '../../types/propertyvalue'
 import { SymId } from '../../types/symid'
 import { SymNames } from '../../types/symnames'
 import {
-    Align, AlignH, ArpeggioType, ArticulationTextType, AutoOnOff, BarLineType, BeamMode, BracketType, ClefType,
+    Align, AlignH, AlignV, ArpeggioType, ArticulationTextType, AutoOnOff, BarLineType, BeamMode, BracketType, ClefType,
     DirectionH, DirectionV, DPMM, DurationType, FontStyle, GlissandoStyle, HookType, Key, KeyMode, LayoutBreakType,
     LineType, LyricsSyllabic, NoteHeadGroup, NoteHeadScheme, NoteHeadType, Orientation, OrnamentStyle, PartialSpannerDirection,
     PlacementH, PlacementV, PreferSharpFlat, SlurStyleType, StaffGroup, TextPlace, TextStyleType, TiePlacement,
@@ -38,7 +38,7 @@ import { TDuration } from '../../dom/durationtype'
 import { ClefTypeList } from '../../dom/clefinfo'
 import { KeySigEvent, type CustDef, type KeyList } from '../../dom/key'
 import { Groups } from '../../dom/groups'
-import { StaffName, Instrument } from '../../dom/instrument'
+import { StaffName, Instrument, InstrChannel } from '../../dom/instrument'
 import { StaffType } from '../../dom/stafftype'
 import { Location } from '../../dom/location'
 import { NoteType, type ChordRest } from '../../dom/chordrest'
@@ -77,7 +77,7 @@ import type { Symbol } from '../../dom/symbol'
 import type { Text } from '../../dom/text'
 import type { TextBase } from '../../dom/textbase'
 import type { Tie } from '../../dom/tie'
-import type { TimeSig, TimeSigType } from '../../dom/timesig'
+import { TimeSigType, type TimeSig } from '../../dom/timesig'
 import type { Tuplet } from '../../dom/tuplet'
 import type { XmlReader } from '../xmlreader'
 import { StaffHideMode, type ReadContext } from './readcontext'
@@ -101,6 +101,7 @@ import type { LyricsLine } from '../../dom/lyricsline'
 import type { LineSegment, SLine } from '../../dom/line'
 import type { ChordTextLineBase } from '../../dom/chordtextlinebase'
 import { CompatUtils } from '../compat/compatutils'
+import { Read206 } from '../read206/read206'
 import type { Marker } from '../../dom/marker'
 import type { Jump } from '../../dom/jump'
 import { HarmonyInfo, type Harmony } from '../../dom/harmony'
@@ -676,6 +677,8 @@ export class TRead {
                 d.setVelChangeSpeed(TConv.fromXmlDynamicSpeed(e.readAsciiText(), DynamicSpeed.NORMAL))
             } else if (tag === 'play') {
                 d.setPlayDynamic(e.readInt() !== 0)
+            } else if (tag === 'size' && d.score().mscVersion() < 400) { // read400::TRead::read(Dynamic*)
+                e.skipCurrentElement()
             } else if (ctx.mscVersion() < 470 && tag === 'dynamicsSize') {
                 TRead.readProperty(d, e, ctx, Pid.MUSICAL_SYMBOLS_SCALE)
             } else if (TRead.readPropertyIfTag(d, tag, e, ctx, Pid.AVOID_BARLINES)) {
@@ -683,6 +686,12 @@ export class TRead {
             } else if (TRead.readPropertyIfTag(d, tag, e, ctx, Pid.ANCHOR_TO_END_OF_PREVIOUS)) {
             } else if (!TRead.readTextBaseProperties(d, e, ctx)) {
                 e.unknown()
+            }
+        }
+        if (d.score().mscVersion() < 400) {
+            d.setSize(10.0)
+            if (d.xmlText().includes('<sym>') && !d.xmlText().includes('<font')) {
+                d.setAlign(new Align(AlignH.HCENTER, AlignV.BASELINE))
             }
         }
     }
@@ -1132,6 +1141,8 @@ export class TRead {
                 l.setLengthY(e.readInt())
             } else if (tag === 'play') {
                 l.setPlayChordLine(e.readBool())
+            } else if (tag === 'offset' && l.score().mscVersion() < 400) { // default positions has changed in 4.0 so ignore previous offset
+                e.skipCurrentElement()
             } else if (!TRead.readItemProperties(l, e, ctx)) {
                 e.unknown()
             }
@@ -1761,9 +1772,12 @@ export class TRead {
             }
         } else if (tag === 'StringData') {
             TRead.readStringData(item.stringData(), e)
-        } else if (tag === 'Tablature'
-                   || tag === 'MidiAction' || tag === 'Articulation' || tag === 'Channel' || tag === 'channel') {
-            // TODO(port): drumsets, string data, MIDI data
+        } else if (tag === 'Channel' || tag === 'channel') {
+            const a = new InstrChannel()
+            TRead.readInstrChannel(a, e)
+            item.appendChannel(a)
+        } else if (tag === 'Tablature' || tag === 'MidiAction' || tag === 'Articulation') {
+            // TODO(port): MIDI data
             e.skipCurrentElement()
         } else if (tag === 'clef') { // sets both transposing and concert clef
             const idx = e.intAttribute('staff', 1) - 1
@@ -2272,6 +2286,20 @@ export class TRead {
             sig = new Fraction(z1 + z2 + z3 + z4, n)
         }
         const stretch = new Fraction(stretchN, stretchD).reduced()
+
+        // read400::TRead::read(TimeSig*)
+        // HACK: handle time signatures from scores before 3.5 differently on some special occasions.
+        // See https://musescore.org/node/308139.
+        const version = ctx.mscoreVersion()
+        if (ctx.mscVersion() < 410 && version && version >= '3.0' && version < '3.5') {
+            if (timeSigType === TimeSigType.NORMAL && numeratorString && !denominatorString) {
+                if (numeratorString === String(sig.numerator())) {
+                    numeratorString = ''
+                } else {
+                    denominatorString = String(sig.denominator())
+                }
+            }
+        }
         s.setSig(sig, timeSigType)
         s.setStretch(stretch)
         s.setNumeratorString(numeratorString)
@@ -2587,6 +2615,10 @@ export class TRead {
             } else if (TRead.readPropertyIfTag(sym, tag, e, ctx, Pid.SCORE_FONT)) {
             } else if (TRead.readPropertyIfTag(sym, tag, e, ctx, Pid.SYMBOLS_SIZE)) {
             } else if (TRead.readPropertyIfTag(sym, tag, e, ctx, Pid.SYMBOL_ANGLE)) {
+            } else if (tag === 'offset' && sym.score().mscVersion() < 400 && sym.onTabStaff()
+                       && (symId === SymId.noteheadParenthesisLeft || symId === SymId.noteheadParenthesisRight)) {
+                // Reset mu3 TAB parentheses offset
+                e.skipCurrentElement()
             } else if (!TRead.readBSymbolProperties(sym, e, ctx)) {
                 e.unknown()
             }
@@ -2603,6 +2635,10 @@ export class TRead {
             if (!TRead.readChordProperties(ch, e, ctx)) {
                 e.unknown()
             }
+        }
+        // Reset horizontal offset of grace notes when migrating from before 4.0
+        if (ch.isGrace() && ch.score().mscVersion() < 400) {
+            ch.setOffset(0, ch.offset().y())
         }
     }
 
@@ -2867,7 +2903,11 @@ export class TRead {
         } else if (tag === 'head') {
             TRead.readProperty(n, e, ctx, Pid.HEAD_GROUP)
         } else if (tag === 'velocity') {
-            n.setUserVelocity(e.readInt())
+            if (n.score().mscVersion() >= 400) {
+                n.setUserVelocity(e.readInt())
+            } else {
+                e.skipCurrentElement() // pre-4.0 velocity values are not converted (as in C++)
+            }
         } else if (tag === 'play') {
             n.setPlay(e.readInt() !== 0)
         } else if (tag === 'tuning') {
@@ -2877,7 +2917,11 @@ export class TRead {
         } else if (tag === 'string') {
             n.setString(e.readInt())
         } else if (tag === 'ghost') {
-            n.setGhost(e.readInt() !== 0)
+            if (n.score().mscVersion() < 400) {
+                n.setDeadNote(e.readInt() !== 0)
+            } else {
+                n.setGhost(e.readInt() !== 0)
+            }
         } else if (tag === 'dead') {
             n.setDeadNote(e.readInt() !== 0)
         } else if (tag === 'headType') {
@@ -2963,15 +3007,56 @@ export class TRead {
         }
     }
 
-    static readStem(s: Stem, e: XmlReader, ctx: ReadContext): void {
+    /** TRead::read(InstrChannel*): only name, program and bank (no playback data) */
+    static readInstrChannel(item: InstrChannel, e: XmlReader): void {
+        item.setName(e.attribute('name'))
+        if (!item.name()) {
+            item.setName(InstrChannel.DEFAULT_NAME)
+        }
         while (e.readNextStartElement()) {
             const tag = e.name()
-            if (TRead.readPropertyIfTag(s, tag, e, ctx, Pid.USER_LEN)) {
-            } else if (TRead.readStyledProperty(s, tag, e, ctx)) {
-            } else if (!TRead.readItemProperties(s, e, ctx)) {
+            if (tag === 'program') {
+                item.setProgram(e.intAttribute('value', -1))
+                if (item.program() === -1) {
+                    item.setProgram(e.readInt())
+                } else {
+                    e.skipCurrentElement()
+                }
+            } else if (tag === 'controller') {
+                const value = e.intAttribute('value', 0)
+                const ctrl = e.intAttribute('ctrl', 0)
+                if (ctrl === 0) { // CTRL_HBANK
+                    item.setBank((value << 7) + (item.bank() & 0x7f))
+                } else if (ctrl === 32) { // CTRL_LBANK
+                    item.setBank((item.bank() & ~0x7f) + (value & 0x7f))
+                }
+                e.skipCurrentElement()
+            } else {
+                e.skipCurrentElement()
+            }
+        }
+    }
+
+    static readStem(s: Stem, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            if (!TRead.readStemProperties(s, e, ctx)) {
                 e.unknown()
             }
         }
+    }
+
+    static readStemProperties(s: Stem, e: XmlReader, ctx: ReadContext): boolean {
+        const tag = e.name()
+        if (tag === 'userLen' && s.score().mscVersion() < 400) {
+            // Ignore stem length pre-4.0
+            e.skipCurrentElement()
+            s.setUserLength(new Spatium(0))
+        } else if (TRead.readPropertyIfTag(s, tag, e, ctx, Pid.USER_LEN)) {
+        } else if (TRead.readStyledProperty(s, tag, e, ctx)) {
+        } else if (!TRead.readItemProperties(s, e, ctx)) {
+            return false
+        }
+        return true
     }
 
     static readTremoloCompat(tc: TremoloCompat, e: XmlReader, ctx: ReadContext): void {
@@ -3144,6 +3229,22 @@ export class TRead {
                 const textType = TConv.fromXmlArticulationTextType(s, ArticulationTextType.NO_TEXT)
                 if (textType !== ArticulationTextType.NO_TEXT) {
                     a.setTextType(textType)
+                } else if (ctx.mscVersion() < 410) {
+                    // read400::TRead::readProperties(Articulation*)
+                    let id = SymNames.symIdByName(s)
+                    if (id === SymId.noSym) {
+                        id = Read206.articulationNames2SymId206(s) // compatibility hack for "old" 3.0 scores
+                    }
+                    if (id === SymId.noSym || s === 'ornamentMordentInverted') { // SMuFL < 1.30
+                        id = SymId.ornamentMordent
+                    }
+                    const programVersion = ctx.mscoreVersion()
+                    if (programVersion && programVersion < '3.6') {
+                        if ((id as SymId) === SymId.noSym || s === 'ornamentMordent') { // SMuFL < 1.30 and MuseScore < 3.6
+                            id = SymId.ornamentShortTrill
+                        }
+                    }
+                    a.setSymId(id)
                 } else {
                     a.setSymId(SymNames.symIdByName(s))
                 }
@@ -3151,7 +3252,14 @@ export class TRead {
                 a.setChannelName(xml.attribute('name'))
                 xml.readNext()
             } else if (tag === 'anchor') {
-                TRead.readPropertyIfTag(a, tag, xml, ctx, Pid.ARTICULATION_ANCHOR)
+                if (ctx.mscVersion() <= 400) {
+                    a.setAnchor(CompatUtils.translateToNewArticulationAnchor(xml.readInt()))
+                    if (a.isStyled(Pid.ARTICULATION_ANCHOR)) {
+                        a.setPropertyFlags(Pid.ARTICULATION_ANCHOR, PropertyFlags.UNSTYLED)
+                    }
+                } else {
+                    TRead.readPropertyIfTag(a, tag, xml, ctx, Pid.ARTICULATION_ANCHOR)
+                }
             } else if (tag === 'direction') {
                 TRead.readProperty(a, xml, ctx, Pid.DIRECTION)
             } else if (tag === 'ornamentStyle') {
@@ -3159,7 +3267,11 @@ export class TRead {
             } else if (tag === 'play') {
                 a.setPlayArticulation(xml.readBool())
             } else if (tag === 'offset') {
-                TRead.readItemProperties(a, xml, ctx)
+                if (a.score().mscVersion() >= 400) {
+                    TRead.readItemProperties(a, xml, ctx)
+                } else {
+                    xml.skipCurrentElement() // ignore manual layout in older scores
+                }
             } else if (!TRead.readItemProperties(a, xml, ctx)) {
                 return false
             }
@@ -3211,6 +3323,16 @@ export class TRead {
         while (e.readNextStartElement()) {
             if (!TRead.readLyricsProperties(l, e, ctx)) {
                 e.unknown()
+            }
+        }
+        // read400::TRead::read(Lyrics*)
+        if (ctx.mscVersion() < 410 && !l.isStyled(Pid.OFFSET) && !ctx.pasteMode()) {
+            // fix offset for pre-3.1 scores
+            // 3.0: y offset was meaningless if autoplace is set
+            const version = ctx.mscoreVersion()
+            if (l.autoplace() && version && version < '3.1') {
+                const off = l.propertyDefault(Pid.OFFSET) as PointF
+                l.setOffset(l.offset().x(), off.y())
             }
         }
     }
@@ -3409,7 +3531,10 @@ export class TRead {
         const sp = s.style().spatium()
         while (e.readNextStartElement()) {
             const tag = e.name()
-            if (tag === 'o1') {
+            // read400::TRead::read(SlurTieSegment*), used by the 2.x/3.x readers
+            if (s.score().mscVersion() < 400 && (tag === 'o1' || tag === 'o2' || tag === 'o3' || tag === 'o4')) {
+                e.skipCurrentElement() // Ignore slur user offsets from pre-4.0
+            } else if (tag === 'o1') {
                 s.ups(Grip.START).off = e.readPoint().times(sp)
             } else if (tag === 'o2') {
                 s.ups(Grip.BEZIER1).off = e.readPoint().times(sp)

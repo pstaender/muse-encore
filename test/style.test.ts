@@ -5,7 +5,7 @@ import { MStyle } from '../src/engraving/style/style'
 import { Sid } from '../src/engraving/style/styledef'
 import { Spatium } from '../src/engraving/types/dimension'
 
-const VTEST = process.env.MS_VTEST ?? '/private/tmp/claude-501/-Users-philipp-code-musescoreweb/fb1d61ce-8898-49cf-80cd-e1f9d2b7a5d3/scratchpad/ms475/vtest/scores'
+import { VTEST } from './helpers'
 
 describe('MStyle', () => {
     it('has defaults', () => {
