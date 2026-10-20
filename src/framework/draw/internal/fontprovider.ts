@@ -131,14 +131,18 @@ export class FontProvider {
         return FontProvider.pixelSize(f) / face.otf.unitsPerEm
     }
 
+    /**
+     * Qt QFontEngine::initializeHeightMetrics(): hhea metrics, overridden by the OS/2 typo metrics
+     * (MuseScore's Font::toQFont() sets QFont::PreferTypoLineMetrics)
+     */
     private hhea(face: FaceEntry): { ascender: number; descender: number; lineGap: number } {
+        const os2 = face.otf.tables.os2
+        if (os2 && (os2.sTypoAscender !== 0 || os2.sTypoDescender !== 0)) {
+            return { ascender: os2.sTypoAscender, descender: os2.sTypoDescender, lineGap: os2.sTypoLineGap }
+        }
         const h = face.otf.tables.hhea
         if (h && (h.ascender !== 0 || h.descender !== 0)) {
             return h
-        }
-        const os2 = face.otf.tables.os2
-        if (os2) {
-            return { ascender: os2.sTypoAscender, descender: os2.sTypoDescender, lineGap: os2.sTypoLineGap }
         }
         return { ascender: face.otf.ascender, descender: face.otf.descender, lineGap: 0 }
     }

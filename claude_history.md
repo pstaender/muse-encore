@@ -115,6 +115,9 @@
 - Measure `<stretch>` of files < 4.0 is ignored like read400.
 - Custom key signatures (layout incl. naturals after a custom key sig; 3.x `<KeySym>` tag): custom-keysig-1..4
   12-15% -> 3-4.5%.
+- Font height metrics use the OS/2 typo values like Qt 6 with QFont::PreferTypoLineMetrics (set by MuseScore's
+  Font::toQFont); metrics are taken from QFontProvider in the app, not from the FreeType FontsEngine.
+  FreeSerif lyrics verse distance (2.x/3.x): lyrics-5 19% -> 5.2%, lyrics-3/7 15-17% -> 4-6%.
 - Not ported: ProjectMigrator (the converter does not apply it; no migration options are stored).
 - Headers/footers use placeholder file info macros.
 - Demo not yet verified in a real browser (node rendering path verified).
@@ -262,4 +265,7 @@
 - Measure `<stretch>` of files < 4.0 is ignored like read400.
 - Custom key signatures (layout incl. naturals after a custom key sig; 3.x `<KeySym>` tag): custom-keysig-1..4
   12-15% -> 3-4.5%.
+- Font height metrics use the OS/2 typo values like Qt 6 with QFont::PreferTypoLineMetrics (set by MuseScore's
+  Font::toQFont); metrics are taken from QFontProvider in the app, not from the FreeType FontsEngine.
+  FreeSerif lyrics verse distance (2.x/3.x): lyrics-5 19% -> 5.2%, lyrics-3/7 15-17% -> 4-6%.
 - Not ported: ProjectMigrator (the converter does not apply it; no migration options are stored).

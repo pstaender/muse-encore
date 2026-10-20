@@ -518,6 +518,8 @@ export class Segment extends EngravingItem {
         case ElementType.STICKING:
         case ElementType.STRING_TUNINGS:
         case ElementType.STAFF_STATE:
+            this.m_annotations.push(el)
+            break
         case ElementType.INSTRUMENT_CHANGE: {
             const part = el.part()!
             part.setInstrument((el as InstrumentChange).instrument(), this.tick())
