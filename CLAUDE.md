@@ -36,7 +36,7 @@ fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore,
                         chord description files (chords/), legacy default styles for old scores (styles/)
 tools/gen/              generators for tables derived from the C++ sources (re-run on MuseScore updates)
 tools/                  node scripts: render to PNG, compare with MuseScore output
-demo/                   Vite demo app
+webviewer/              Vite web viewer app (MuseScore icon font in webviewer/assets)
 test/                   vitest tests
 ```
 
@@ -60,7 +60,8 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 
 - `npm run typecheck` - tsc
 - `npm test` - vitest
-- `npm run dev` - demo app (Vite; `?url=<score>` opens a score, fonts are served from ./fonts)
+- `npm run dev` - web viewer (Vite; `?url=<score>` opens a score, fonts are served from ./fonts);
+  `npm run build:webviewer` builds it into dist-webviewer/
 - `npm run render -- <file.mscz> <out-prefix> [dpi]` - render pages to PNG in node
 - `npm run compare -- <file.mscz> [out-dir] [dpi]` - render with MuseScore and with this port and diff the PNGs
   (red = only MuseScore, blue = only port). For exact numbers compare with MuseScore's SVG export, which uses

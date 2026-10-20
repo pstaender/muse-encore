@@ -7,5 +7,5 @@ export default defineConfig({
     root: __dirname,
     // the runtime fonts are served from the repository's fonts directory (e.g. /leland/Leland.otf)
     publicDir: '../fonts',
-    build: { outDir: '../dist-demo', emptyOutDir: true },
+    build: { outDir: '../dist-webviewer', emptyOutDir: true },
 })

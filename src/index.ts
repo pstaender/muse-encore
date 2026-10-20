@@ -12,6 +12,7 @@ import { Painter } from './framework/draw/painter'
 import { Transform } from './framework/draw/types/transform'
 import { Fraction } from './engraving/types/fraction'
 import { DPI } from './engraving/types/types'
+import { Sid } from './engraving/style/styledef'
 import { fontProvider } from './engraving/infrastructure/engravingcontext'
 import { loadScore as loadMasterScore } from './engraving/rw/mscloader'
 import { EngravingCompat } from './engraving/compat/engravingcompat'
@@ -62,6 +63,16 @@ export function pageSize(score: MasterScore, pageIdx = 0): { width: number; heig
         return { width: s.width(), height: s.height() }
     }
     return { width: bbox.width() / DPI, height: bbox.height() / DPI }
+}
+
+/** true if the score is laid out for two-sided printing (style "pageTwosided"): odd pages are right-hand pages */
+export function isTwoSided(score: MasterScore): boolean {
+    return score.style().styleB(Sid.pageTwosided)
+}
+
+/** score title (metaTag "workTitle" or the first title text), empty if none */
+export function scoreTitle(score: MasterScore): string {
+    return score.metaTag('workTitle') || ''
 }
 
 export interface DrawPageOptions {

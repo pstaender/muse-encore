@@ -1,7 +1,7 @@
 /MuseScore/
 node_modules/
 dist/
-dist-demo/
+dist-webviewer/
 /compare-out/
 /out/
 *.log

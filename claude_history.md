@@ -281,3 +281,14 @@
   and the read position advances by its own duration like C++; relative locations after it (e.g. the end bar line)
   were placed mid-measure, which made the MM rest too wide and broke the system: bravura-mmrest-1 20% -> 3.3%,
   mmrest-10 17% (2 pages) -> 3.1% (1 page like MuseScore), emmentaler-mmrest-1 9.3% -> 3.4%.
+
+## 2026-10-20 — Web viewer
+
+- `demo/` renamed to `webviewer/`: toolbar with MuseScore's icon font (MusescoreIcon.ttf), light/dark theme,
+  pages side by side (default) or vertical, two-page spreads for scores with a two-sided page layout
+  (style pageTwosided; page 1 is a right-hand page), zoom (MuseScore zoom steps, page width / whole page, mouse wheel
+  and pinch zoom at the pointer), space bar + drag (and middle button) to move the view, MuseScore keyboard shortcuts
+  (Ctrl +/-/0, Ctrl+PgDn/PgUp, Home/End, Ctrl+O, Ctrl+P, F11), page indicator, only visible pages are drawn,
+  last opened file remembered in IndexedDB (close button clears it), view settings in localStorage, print stylesheet.
+- Library API: isTwoSided(score), scoreTitle(score).
+

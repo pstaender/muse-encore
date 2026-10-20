@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MuseScore Web Viewer</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="toolbar" role="toolbar" aria-label="Viewer controls">
+    <div class="group">
+        <button id="open" class="icon" title="Open… (Ctrl+O)" aria-label="Open file">&#xEF23;</button>
+        <span id="title" class="title">MuseScore Web Viewer</span>
+        <button id="clear" class="icon" title="Close file" aria-label="Close file" hidden>&#xEF14;</button>
+        <input type="file" id="file" accept=".mscz,.mscx" hidden>
+    </div>
+
+    <div class="group" id="nav-group">
+        <button id="prev" class="icon" title="Previous page (Ctrl+PgUp)" aria-label="Previous page">&#xF39C;</button>
+        <span id="page-info" class="page-info" aria-live="polite">–</span>
+        <button id="next" class="icon" title="Next page (Ctrl+PgDn)" aria-label="Next page">&#xF39B;</button>
+    </div>
+
+    <div class="group">
+        <div class="segmented" role="radiogroup" aria-label="Page layout">
+            <button id="layout-h" class="icon" role="radio" title="Pages side by side" aria-label="Pages side by side">&#xEF1C;</button>
+            <button id="layout-v" class="icon" role="radio" title="Pages vertically" aria-label="Pages vertically">&#xF3AF;</button>
+        </div>
+        <button id="spread" class="icon toggle" title="Two pages (two-sided page layout)" aria-label="Two pages" aria-pressed="false">&#xEF7F;</button>
+    </div>
+
+    <div class="group">
+        <button id="zoom-out" class="icon" title="Zoom out (Ctrl+−)" aria-label="Zoom out">&#xEF16;</button>
+        <select id="zoom" title="Zoom" aria-label="Zoom">
+            <option value="page-width">Page width</option>
+            <option value="whole-page">Whole page</option>
+        </select>
+        <button id="zoom-in" class="icon" title="Zoom in (Ctrl++)" aria-label="Zoom in">&#xEF18;</button>
+    </div>
+
+    <div class="group end">
+        <button id="print" class="icon" title="Print (Ctrl+P)" aria-label="Print">&#xF3B7;</button>
+        <button id="fullscreen" class="icon" title="Full screen (F11)" aria-label="Full screen">&#xEF15;</button>
+        <button id="help" class="icon text" title="Keyboard shortcuts" aria-label="Keyboard shortcuts" aria-expanded="false">?</button>
+    </div>
+</header>
+
+<main id="viewport" tabindex="0" aria-label="Score">
+    <div id="pages"></div>
+    <div id="empty" class="empty">
+        <div class="drop-target">
+            <div class="drop-icon">&#xEF23;</div>
+            <p><strong>Open a MuseScore file</strong></p>
+            <p class="muted">Drop a .mscz or .mscx file here, or <button id="open2" class="link">browse</button></p>
+        </div>
+    </div>
+</main>
+
+<footer class="statusbar">
+    <span id="status">Loading fonts…</span>
+</footer>
+
+<dialog id="help-dialog" aria-label="Keyboard shortcuts">
+    <h2>Keyboard shortcuts</h2>
+    <table>
+        <tr><td><kbd>Ctrl</kbd> <kbd>O</kbd></td><td>Open file</td></tr>
+        <tr><td><kbd>Ctrl</kbd> <kbd>+</kbd> / <kbd>Ctrl</kbd> <kbd>−</kbd></td><td>Zoom in / out</td></tr>
+        <tr><td><kbd>Ctrl</kbd> <kbd>0</kbd></td><td>Zoom to 100%</td></tr>
+        <tr><td>Mouse wheel, pinch</td><td>Zoom at pointer</td></tr>
+        <tr><td><kbd>Shift</kbd> + wheel, trackpad</td><td>Scroll</td></tr>
+        <tr><td>Hold <kbd>Space</kbd> + drag</td><td>Move the view</td></tr>
+        <tr><td><kbd>Ctrl</kbd> <kbd>PgDn</kbd> / <kbd>Ctrl</kbd> <kbd>PgUp</kbd></td><td>Next / previous page</td></tr>
+        <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td>First / last page</td></tr>
+        <tr><td>Arrow keys</td><td>Scroll</td></tr>
+        <tr><td><kbd>Ctrl</kbd> <kbd>P</kbd></td><td>Print</td></tr>
+        <tr><td><kbd>F11</kbd></td><td>Full screen</td></tr>
+    </table>
+    <p class="muted">On macOS use <kbd>⌘</kbd> instead of <kbd>Ctrl</kbd>.</p>
+    <form method="dialog"><button class="primary">Close</button></form>
+</dialog>
+
+<script type="module" src="./main.ts"></script>
+</body>
+</html>

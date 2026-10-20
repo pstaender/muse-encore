@@ -1,0 +1,289 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+
+@font-face {
+    font-family: "MusescoreIcon";
+    src: url("./assets/MusescoreIcon.ttf") format("truetype");
+    font-display: block;
+}
+
+:root {
+    color-scheme: light dark;
+    --bg: #eceef1;
+    --panel: #ffffff;
+    --fg: #1d2127;
+    --muted: #6b7280;
+    --border: #dfe2e7;
+    --hover: #eef0f3;
+    --active: #e1e7f5;
+    --accent: #2a6ad8;
+    --page-shadow: 0 1px 2px rgba(15, 23, 42, .08), 0 4px 16px rgba(15, 23, 42, .10);
+    --radius: 6px;
+    --page-gap: 24px;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #1b1d21;
+        --panel: #26292e;
+        --fg: #e7e9ec;
+        --muted: #9aa1ab;
+        --border: #363a41;
+        --hover: #31353b;
+        --active: #2f3a50;
+        --accent: #6c9cf2;
+        --page-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .35);
+    }
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html, body { height: 100%; }
+
+body {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--fg);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+}
+
+/* ---- toolbar ---- */
+
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 48px;
+    padding: 6px 10px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    z-index: 2;
+}
+
+.group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 6px;
+}
+
+.group + .group { border-left: 1px solid var(--border); }
+.group.end { margin-left: auto; border-left: none; }
+
+.title {
+    max-width: 32ch;
+    padding: 0 6px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+button.icon {
+    display: inline-grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius);
+    font-family: "MusescoreIcon";
+    font-size: 16px;
+    line-height: 1;
+}
+
+button.icon.text { font-family: inherit; font-weight: 600; font-size: 14px; }
+
+button.icon:hover:not(:disabled) { background: var(--hover); }
+button.icon:active:not(:disabled) { background: var(--active); }
+button.icon:disabled { opacity: .35; cursor: default; }
+button.icon[aria-pressed="true"], button.icon[aria-checked="true"] { background: var(--active); color: var(--accent); }
+
+main:focus { outline: none; }
+
+button:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.segmented { display: flex; gap: 2px; }
+
+select {
+    height: 30px;
+    padding: 0 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--fg);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+}
+
+.page-info {
+    min-width: 64px;
+    text-align: center;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---- score view ---- */
+
+main {
+    flex: 1;
+    position: relative;
+    overflow: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-x pan-y;
+}
+
+main.hand { cursor: grab; }
+main.hand.dragging { cursor: grabbing; user-select: none; }
+
+#pages {
+    display: flex;
+    gap: var(--page-gap);
+    padding: var(--page-gap);
+    width: max-content;
+    min-width: 100%;
+    min-height: 100%;
+}
+
+/* #pages is at least as large as the viewport, so centering never clips */
+#pages.horizontal { flex-direction: row; align-items: flex-start; justify-content: center; }
+#pages.vertical { flex-direction: column; align-items: center; }
+
+/* a spread holds two facing pages without gap */
+.spread { display: flex; flex-shrink: 0; }
+
+.page {
+    display: block;
+    flex-shrink: 0;
+    background: #fff;
+    box-shadow: var(--page-shadow);
+}
+
+.page.placeholder { visibility: hidden; }
+
+/* ---- empty state ---- */
+
+.empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+}
+
+.empty[hidden] { display: none; }
+
+.drop-target {
+    width: min(440px, 100%);
+    padding: 40px 24px;
+    text-align: center;
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    background: var(--panel);
+    transition: border-color .15s, background .15s;
+}
+
+.drop-target p { margin: 4px 0; }
+.drop-icon { font-family: "MusescoreIcon"; font-size: 40px; color: var(--muted); margin-bottom: 8px; }
+body.dragover .drop-target { border-color: var(--accent); background: var(--active); }
+body.dragover main::after {
+    content: "";
+    position: absolute;
+    inset: 8px;
+    border: 2px dashed var(--accent);
+    border-radius: 12px;
+    pointer-events: none;
+}
+
+.muted { color: var(--muted); }
+
+button.link { padding: 0; color: var(--accent); text-decoration: underline; }
+
+/* ---- status bar ---- */
+
+.statusbar {
+    display: flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 2px 12px;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.statusbar.error { color: #d33; }
+
+/* ---- help dialog ---- */
+
+dialog {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 24px;
+    background: var(--panel);
+    color: var(--fg);
+    box-shadow: 0 10px 40px rgba(0, 0, 0, .25);
+}
+
+dialog::backdrop { background: rgba(0, 0, 0, .25); }
+dialog h2 { margin: 0 0 12px; font-size: 16px; }
+dialog table { border-collapse: collapse; }
+dialog td { padding: 4px 16px 4px 0; vertical-align: top; }
+dialog form { margin-top: 16px; text-align: right; }
+
+kbd {
+    display: inline-block;
+    min-width: 1.6em;
+    padding: 1px 5px;
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    text-align: center;
+}
+
+button.primary {
+    padding: 6px 16px;
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: #fff;
+}
+
+/* ---- small screens ---- */
+
+@media (max-width: 640px) {
+    .toolbar { gap: 0; padding: 4px; }
+    .group { padding: 0 2px; }
+    .title { max-width: 14ch; }
+    #print, #help { display: none; }
+    :root { --page-gap: 12px; }
+}
+
+/* ---- printing: only the pages, one per sheet ---- */
+
+@media print {
+    body { display: block; overflow: visible; background: #fff; }
+    .toolbar, .statusbar, .empty, dialog { display: none !important; }
+    main { overflow: visible; }
+    #pages { display: block; padding: 0; width: auto; }
+    .spread { display: block; }
+    .page { box-shadow: none; width: 100% !important; height: auto !important; break-after: page; }
+    .page.placeholder { display: none; }
+}
