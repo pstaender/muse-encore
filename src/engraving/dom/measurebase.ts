@@ -39,6 +39,7 @@ export abstract class MeasureBase extends EngravingItem {
 
     constructor(type: ElementType, parent: EngravingObject | null) {
         super(type, parent)
+        this.setIrregular(true)
     }
 
     system(): System | null { return this.explicitParent() as unknown as System | null }

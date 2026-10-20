@@ -341,3 +341,6 @@
   HCENTER alignment uses. 2.x "pp"/"ppp" now at MuseScore's position to the unit.
 - Chopin: 3.1-5.3% -> 1.0-2.2% per page. Left: systems ~1 unit higher further down the page, fp dynamic x, a trill
   line end.
+- Measure numbers were one too high after a frame (e.g. every score with a title VBox): the MeasureBase
+  constructor marks measure bases irregular (only Measure resets it), so frames are not counted.
+

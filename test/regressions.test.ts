@@ -154,4 +154,14 @@ describe('regressions', () => {
             expect((o as unknown as { lineStyle(): LineType }).lineStyle()).toBe(LineType.DASHED)
         }
     }, 60000)
+
+    // MeasureBase constructor: frames are irregular (not counted); the title frame made all numbers one too high
+    it('does not count frames as measures (measure numbers)', async () => {
+        const score = await openScore(CHOPIN)
+        const firstNumbers = score.pages().flatMap(p => p.systems()).map(s => s.firstMeasure()).filter(m => m)
+            .map(m => m!.no() + 1)
+        // MuseScore 4.7.5: systems start with measures 1 4 6 8 10 13 15 17 ... 35 36
+        expect(firstNumbers.slice(0, 7)).toEqual([1, 4, 6, 8, 10, 13, 15])
+        expect(firstNumbers.slice(-2)).toEqual([35, 36])
+    }, 60000)
 })
