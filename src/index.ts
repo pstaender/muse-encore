@@ -10,6 +10,7 @@
 import { CanvasPaintProvider, type Canvas2D } from './framework/draw/canvaspaintprovider'
 import { Painter } from './framework/draw/painter'
 import { Transform } from './framework/draw/types/transform'
+import { PointF, RectF } from './framework/draw/types/geometry'
 import { Fraction } from './engraving/types/fraction'
 import { DPI } from './engraving/types/types'
 import { Sid } from './engraving/style/styledef'
@@ -82,6 +83,11 @@ export interface DrawPageOptions {
     background?: boolean
     /** draw like printing: invisible elements are skipped (default true) */
     printing?: boolean
+    /**
+     * draw only this part of the page (in canvas pixels at `dpi`, relative to the page's top left corner); the canvas
+     * then has the size of the region. Used to draw sharp tiles at high zoom without a huge page bitmap.
+     */
+    region?: { x: number; y: number; width: number; height: number }
 }
 
 /**
@@ -91,12 +97,20 @@ export interface DrawPageOptions {
 export function drawPage(score: MasterScore, pageIdx: number, ctx: Canvas2D, options: DrawPageOptions = {}): void {
     const dpi = options.dpi ?? 100
     const scale = dpi / DPI
-    const provider = new CanvasPaintProvider(ctx, new Transform(scale, 0, 0, scale, 0, 0))
+    const r = options.region
+    const provider = new CanvasPaintProvider(ctx, new Transform(scale, 0, 0, scale, r ? -r.x : 0, r ? -r.y : 0))
     const painter = new Painter(provider, fontProvider(), 'page_' + pageIdx)
+    let frameRect: RectF | undefined
+    if (r) {
+        // the region in score coordinates: only the items intersecting it are painted
+        const pagePos = score.pages()[pageIdx]?.pos() ?? new PointF()
+        frameRect = new RectF(r.x / scale, r.y / scale, r.width / scale, r.height / scale).translated(pagePos)
+    }
     Paint.paintScore(painter, score, {
         fromPage: pageIdx,
         toPage: pageIdx,
         isPrinting: options.printing ?? true,
         printPageBackground: options.background ?? true,
+        frameRect,
     })
 }

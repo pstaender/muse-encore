@@ -167,11 +167,14 @@ main.hand.dragging { cursor: grabbing; user-select: none; }
 .spread { display: flex; flex-shrink: 0; }
 
 .page {
-    display: block;
+    position: relative;
     flex-shrink: 0;
+    overflow: hidden;
     background: #fff;
     box-shadow: var(--page-shadow);
 }
+
+.page canvas { position: absolute; display: block; }
 
 .page.placeholder { visibility: hidden; }
 
@@ -284,6 +287,7 @@ button.primary {
     main { overflow: visible; }
     #pages { display: block; padding: 0; width: auto; }
     .spread { display: block; }
-    .page { box-shadow: none; width: 100% !important; height: auto !important; break-after: page; }
+    .page { box-shadow: none; width: 100% !important; height: auto !important; break-after: page; overflow: visible; }
+    .page canvas { position: static; width: 100% !important; height: auto !important; }
     .page.placeholder { display: none; }
 }

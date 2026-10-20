@@ -49,7 +49,7 @@ const ZOOM_LEVELS = [5, 10, 15, 25, 50, 75, 100, 150, 200, 400, 800, 1600]
 const MIN_ZOOM = ZOOM_LEVELS[0]
 const MAX_ZOOM = ZOOM_LEVELS[ZOOM_LEVELS.length - 1]
 const CSS_DPI = 96 // CSS pixels per inch at 100%
-const MAX_CANVAS_PIXELS = 32 * 1024 * 1024 // per page bitmap, keeps memory bounded at high zoom
+const MAX_CANVAS_PIXELS = 16 * 1024 * 1024 // larger pages are drawn as tiles of the visible part
 const PRINT_DPI = 200
 
 const FIT_MODES = ['page-width', 'whole-page'] as const
@@ -59,8 +59,8 @@ let score: MasterScore | null = null
 let fileName = ''
 let settings: ViewSettings = loadSettings({ zoom: 'whole-page', orientation: 'horizontal', spread: false })
 let zoom = 100 // current zoom in percent
-let canvases: HTMLCanvasElement[] = []
-const visible = new Set<HTMLCanvasElement>()
+let pages: HTMLDivElement[] = []
+const visible = new Set<HTMLDivElement>()
 let renderTimer = 0
 
 function fitMode(): FitMode | null {
@@ -129,31 +129,33 @@ function closeFile(): void {
 
 const observer = new IntersectionObserver((entries) => {
     for (const e of entries) {
-        const c = e.target as HTMLCanvasElement
+        const el = e.target as HTMLDivElement
         if (e.isIntersecting) {
-            visible.add(c)
+            visible.add(el)
         } else {
-            visible.delete(c)
+            visible.delete(el)
         }
     }
     scheduleRender(0)
     updatePageInfo()
 }, { root: viewport, rootMargin: '50%' })
 
-function makeCanvas(idx: number): HTMLCanvasElement {
-    const c = document.createElement('canvas')
-    c.className = 'page'
-    c.dataset.page = String(idx)
-    c.setAttribute('role', 'img')
-    c.setAttribute('aria-label', `Page ${idx + 1}`)
-    return c
+/** a page is a white box; its canvas covers the whole page or, at high zoom, only the visible part */
+function makePage(idx: number): HTMLDivElement {
+    const el = document.createElement('div')
+    el.className = 'page'
+    el.dataset.page = String(idx)
+    el.setAttribute('role', 'img')
+    el.setAttribute('aria-label', `Page ${idx + 1}`)
+    el.appendChild(document.createElement('canvas'))
+    return el
 }
 
 function buildPages(): void {
     observer.disconnect()
     visible.clear()
     pagesDiv.replaceChildren()
-    canvases = []
+    pages = []
 
     const hasScore = !!score
     emptyDiv.hidden = hasScore
@@ -166,15 +168,15 @@ function buildPages(): void {
     if (score) {
         const n = pageCount(score)
         for (let i = 0; i < n; ++i) {
-            canvases.push(makeCanvas(i))
+            pages.push(makePage(i))
         }
         if (spreadActive()) {
             // two-sided layout: the first page is a right-hand page
-            const placeholder = makeCanvas(0)
-            placeholder.classList.add('placeholder')
-            placeholder.removeAttribute('role')
+            const placeholder = document.createElement('div')
+            placeholder.className = 'page placeholder'
+            placeholder.dataset.page = '0'
             placeholder.setAttribute('aria-hidden', 'true')
-            const items = [placeholder, ...canvases]
+            const items = [placeholder, ...pages]
             for (let i = 0; i < items.length; i += 2) {
                 const spread = document.createElement('div')
                 spread.className = 'spread'
@@ -182,10 +184,10 @@ function buildPages(): void {
                 pagesDiv.appendChild(spread)
             }
         } else {
-            pagesDiv.append(...canvases)
+            pagesDiv.append(...pages)
         }
-        for (const c of canvases) {
-            observer.observe(c)
+        for (const el of pages) {
+            observer.observe(el)
         }
     }
 
@@ -201,20 +203,14 @@ function pageCssSize(idx: number, z = zoom): { w: number; h: number } {
     return { w: s.width * f, h: s.height * f }
 }
 
-/** sets the CSS size of all pages; the bitmaps are redrawn later */
+/** sets the CSS size of all pages; the bitmaps are redrawn later (until then they are scaled) */
 function applyZoom(z: number): void {
     zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
     if (score) {
-        for (const c of canvases) {
-            const { w, h } = pageCssSize(Number(c.dataset.page))
-            c.style.width = `${w}px`
-            c.style.height = `${h}px`
-        }
-        const ph = pagesDiv.querySelector<HTMLCanvasElement>('.placeholder')
-        if (ph) {
-            const { w, h } = pageCssSize(0)
-            ph.style.width = `${w}px`
-            ph.style.height = `${h}px`
+        for (const el of pagesDiv.querySelectorAll<HTMLDivElement>('.page')) {
+            const { w, h } = pageCssSize(Number(el.dataset.page))
+            el.style.width = `${w}px`
+            el.style.height = `${h}px`
         }
     }
     updateZoomSelect()
@@ -226,22 +222,68 @@ function scheduleRender(delay: number): void {
     renderTimer = window.setTimeout(renderVisible, delay)
 }
 
-function renderCanvas(c: HTMLCanvasElement, cssDpi: number): void {
-    const idx = Number(c.dataset.page)
+/**
+ * Draws a page at the given resolution. Small enough pages are drawn completely; otherwise only the visible part
+ * of the page plus a margin of half a viewport is drawn (a "tile"), so the bitmap stays small at any zoom.
+ */
+function renderPage(el: HTMLDivElement, cssDpi: number, wholePage = false): void {
+    const idx = Number(el.dataset.page)
     const s = pageSize(score!, idx)
-    let dpi = cssDpi * window.devicePixelRatio
-    const pixels = s.width * s.height * dpi * dpi
-    if (pixels > MAX_CANVAS_PIXELS) {
-        dpi *= Math.sqrt(MAX_CANVAS_PIXELS / pixels)
+    const dpr = window.devicePixelRatio
+    const dpi = cssDpi * dpr
+    const fullW = s.width * dpi
+    const fullH = s.height * dpi
+    const c = el.querySelector('canvas')!
+    const d = c.dataset
+    const sameDpi = d.dpi === dpi.toFixed(4)
+
+    let region: { x: number; y: number; width: number; height: number } | undefined
+    if (wholePage || fullW * fullH <= MAX_CANVAS_PIXELS) {
+        if (sameDpi && d.tile === '0') {
+            return
+        }
+    } else {
+        // visible part of the page in device pixels
+        const pr = el.getBoundingClientRect()
+        const vr = viewport.getBoundingClientRect()
+        const vis = {
+            l: (Math.max(pr.left, vr.left) - pr.left) * dpr,
+            t: (Math.max(pr.top, vr.top) - pr.top) * dpr,
+            r: (Math.min(pr.right, vr.right) - pr.left) * dpr,
+            b: (Math.min(pr.bottom, vr.bottom) - pr.top) * dpr,
+        }
+        if (vis.r <= vis.l || vis.b <= vis.t) {
+            return
+        }
+        if (sameDpi && d.tile === '1' && Number(d.x) <= vis.l + 1 && Number(d.y) <= vis.t + 1
+            && Number(d.x) + Number(d.w) >= vis.r - 1 && Number(d.y) + Number(d.h) >= vis.b - 1) {
+            return // the current tile still covers the visible part
+        }
+        const mx = vr.width * dpr / 2
+        const my = vr.height * dpr / 2
+        const x = Math.floor(Math.max(0, vis.l - mx))
+        const y = Math.floor(Math.max(0, vis.t - my))
+        region = {
+            x,
+            y,
+            width: Math.ceil(Math.min(fullW, vis.r + mx)) - x,
+            height: Math.ceil(Math.min(fullH, vis.b + my)) - y,
+        }
     }
-    const key = `${dpi.toFixed(3)}`
-    if (c.dataset.rendered === key) {
-        return
-    }
-    c.width = Math.max(1, Math.round(s.width * dpi))
-    c.height = Math.max(1, Math.round(s.height * dpi))
-    drawPage(score!, idx, c.getContext('2d')!, { dpi })
-    c.dataset.rendered = key
+
+    const x = region?.x ?? 0
+    const y = region?.y ?? 0
+    const w = region?.width ?? Math.round(fullW)
+    const h = region?.height ?? Math.round(fullH)
+    c.width = Math.max(1, w)
+    c.height = Math.max(1, h)
+    // relative to the page, so a bitmap keeps its place while zooming until it is redrawn
+    c.style.left = `${x / fullW * 100}%`
+    c.style.top = `${y / fullH * 100}%`
+    c.style.width = `${w / fullW * 100}%`
+    c.style.height = `${h / fullH * 100}%`
+    drawPage(score!, idx, c.getContext('2d')!, { dpi, region })
+    Object.assign(d, { dpi: dpi.toFixed(4), tile: region ? '1' : '0', x: String(x), y: String(y), w: String(w), h: String(h) })
 }
 
 function renderVisible(): void {
@@ -252,26 +294,27 @@ function renderVisible(): void {
     // draw one page per frame to keep the UI responsive
     const queue = [...visible].sort((a, b) => Number(a.dataset.page) - Number(b.dataset.page))
     const step = (): void => {
-        const c = queue.shift()
-        if (!c || !score) {
+        const el = queue.shift()
+        if (!el || !score) {
             return
         }
-        if (c.isConnected) {
-            renderCanvas(c, cssDpi)
+        if (el.isConnected) {
+            renderPage(el, cssDpi)
         }
         requestAnimationFrame(step)
     }
     step()
 }
 
-// all pages must be drawn for printing
+// all pages must be drawn completely for printing
 window.addEventListener('beforeprint', () => {
     if (score) {
-        for (const c of canvases) {
-            renderCanvas(c, Math.max(PRINT_DPI / window.devicePixelRatio, CSS_DPI * zoom / 100))
+        for (const el of pages) {
+            renderPage(el, PRINT_DPI / window.devicePixelRatio, true)
         }
     }
 })
+window.addEventListener('afterprint', () => scheduleRender(0))
 
 // ---------------------------------------------------------------------------------
 //   zoom
@@ -334,9 +377,9 @@ function zoomAt(z: number, clientX?: number, clientY?: number): void {
     const y = clientY ?? rect.top + rect.height / 2
 
     // anchor: the page under the point (or the nearest one) and the relative position on it
-    let anchor: HTMLCanvasElement | null = null
+    let anchor: HTMLDivElement | null = null
     let best = Infinity
-    for (const c of visible.size ? visible : canvases) {
+    for (const c of visible.size ? visible : pages) {
         const r = c.getBoundingClientRect()
         const dx = Math.max(r.left - x, 0, x - r.right)
         const dy = Math.max(r.top - y, 0, y - r.bottom)
@@ -438,7 +481,7 @@ function toggleSpread(): void {
 
 /** index of the page nearest to the start of the viewport */
 function currentPage(): number {
-    if (!canvases.length) {
+    if (!pages.length) {
         return 0
     }
     const r = viewport.getBoundingClientRect()
@@ -448,8 +491,8 @@ function currentPage(): number {
         ? viewport.scrollLeft > 0 && viewport.scrollLeft >= viewport.scrollWidth - viewport.clientWidth - 1
         : viewport.scrollTop > 0 && viewport.scrollTop >= viewport.scrollHeight - viewport.clientHeight - 1
     if (atEnd) {
-        for (let i = canvases.length - 1; i >= 0; --i) {
-            const cr = canvases[i].getBoundingClientRect()
+        for (let i = pages.length - 1; i >= 0; --i) {
+            const cr = pages[i].getBoundingClientRect()
             if (horizontal ? cr.left < r.right : cr.top < r.bottom) {
                 return i
             }
@@ -457,7 +500,7 @@ function currentPage(): number {
     }
     let best = 0
     let bestDist = Infinity
-    for (const c of canvases) {
+    for (const c of pages) {
         const cr = c.getBoundingClientRect()
         // the page whose visible part is largest wins; ties go to the first one
         const visibleLen = horizontal
@@ -473,10 +516,10 @@ function currentPage(): number {
 }
 
 function goToPage(idx: number, behavior: ScrollBehavior = 'smooth'): void {
-    if (!canvases.length) {
+    if (!pages.length) {
         return
     }
-    const c = canvases[Math.max(0, Math.min(canvases.length - 1, idx))]
+    const c = pages[Math.max(0, Math.min(pages.length - 1, idx))]
     // in a spread, scroll to the spread (its left page)
     const target = c.parentElement?.classList.contains('spread') ? c.parentElement : c
     const gap = parseFloat(getComputedStyle(pagesDiv).paddingLeft) || 0
@@ -507,7 +550,7 @@ function updatePageInfo(): void {
         btn.prev.disabled = btn.next.disabled = true
         return
     }
-    const n = canvases.length
+    const n = pages.length
     const cur = currentPage()
     const partner = spreadActive() && cur > 0 ? (cur % 2 === 1 ? cur + 1 : cur - 1) : -1
     const shown = partner >= 0 && partner < n ? `${Math.min(cur, partner) + 1}–${Math.max(cur, partner) + 1}` : `${cur + 1}`
@@ -516,7 +559,10 @@ function updatePageInfo(): void {
     btn.next.disabled = Math.max(cur, partner) >= n - 1
 }
 
-viewport.addEventListener('scroll', () => updatePageInfo(), { passive: true })
+viewport.addEventListener('scroll', () => {
+    updatePageInfo()
+    scheduleRender(60) // tiles of zoomed-in pages follow the view
+}, { passive: true })
 
 // ---------------------------------------------------------------------------------
 //   wheel, pinch and the hand tool
@@ -670,7 +716,7 @@ document.addEventListener('keydown', (e) => {
     } else if (key === 'Home') {
         goToPage(0)
     } else if (key === 'End') {
-        goToPage(canvases.length - 1)
+        goToPage(pages.length - 1)
     } else if (!mod && key.startsWith('Arrow') && document.activeElement !== viewport) {
         // arrow keys scroll natively when the score has the focus
         const d = 60

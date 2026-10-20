@@ -291,4 +291,5 @@
   (Ctrl +/-/0, Ctrl+PgDn/PgUp, Home/End, Ctrl+O, Ctrl+P, F11), page indicator, only visible pages are drawn,
   last opened file remembered in IndexedDB (close button clears it), view settings in localStorage, print stylesheet.
 - Library API: isTwoSided(score), scoreTitle(score).
-
+- High zoom: pages whose bitmap would exceed 16 Mpx are drawn as tiles (visible part plus half a viewport) instead
+  of a downscaled page bitmap, so the view stays sharp at any zoom; drawPage() got a `region` option for this.
