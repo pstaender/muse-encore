@@ -4,15 +4,15 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/engraving/rendering/score/boxlayout.h/.cpp
- *
- * TODO(port): FBox (fret diagram frames)
  */
 
 import { PointF } from '../../../framework/draw/types/geometry'
 import { FontMetrics } from '../../../framework/draw/fontmetrics'
-import { DPMM, ElementType } from '../../types/types'
+import { AlignH, DPMM, ElementType } from '../../types/types'
+import { RealIsNull } from '../../../framework/global/realfn'
 import { Pid } from '../../dom/property'
-import type { Box, HBox, TBox, VBox } from '../../dom/box'
+import type { Box, FBox, HBox, TBox, VBox } from '../../dom/box'
+import type { FretDiagram } from '../../dom/fret'
 import type { LayoutContext } from './layoutcontext'
 import { TLayout } from './tlayout'
 
@@ -24,6 +24,9 @@ export class BoxLayout {
             break
         case ElementType.VBOX:
             BoxLayout.layoutVBox(item as VBox, ctx)
+            break
+        case ElementType.FBOX:
+            BoxLayout.layoutFBox(item as FBox, ctx)
             break
         case ElementType.TBOX:
             BoxLayout.layoutTBox(item as TBox, ctx)
@@ -101,6 +104,139 @@ export class BoxLayout {
                 TLayout.layoutItem(e, ctx)
             }
         }
+    }
+
+    /** C++ FBox::needsRebuild()/init() are only used when editing (TODO(port)) */
+    static layoutFBox(item: FBox, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        ldata.setPos(new PointF())
+
+        const fretDiagrams: FretDiagram[] = []
+        for (const element of item.el()) {
+            if (!element || !element.isFretDiagram() || !element.visible()) {
+                continue
+            }
+
+            fretDiagrams.push(element as FretDiagram)
+        }
+
+        //! NOTE: layout fret diagrams and calculate sizes
+
+        const totalDiagrams = fretDiagrams.length
+        let maxFretDiagramWidth = 0.0
+
+        for (let i = 0; i < totalDiagrams; ++i) {
+            const fretDiagram = fretDiagrams[i]
+            fretDiagram.setUserMag(item.diagramScale())
+
+            const harmony = fretDiagram.harmony()!
+            harmony.mutldata().setMag(item.textScale())
+
+            TLayout.layoutItem(fretDiagram, ctx)
+
+            fretDiagram.mutldata().setIsSkipDraw(false)
+            harmony.mutldata().setIsSkipDraw(false)
+
+            const width = fretDiagram.ldata().bbox().width()
+            maxFretDiagramWidth = Math.max(maxFretDiagramWidth, width)
+        }
+
+        //! NOTE: table view layout
+
+        const spatium = item.spatium()
+        const chordsPerRow = item.chordsPerRow()
+        const rowGap = item.rowGap().val() * spatium
+        const columnGap = item.columnGap().val() * spatium
+
+        //! The height of each row is determined by the height of the tallest cell in that row
+        const rowHeights: number[] = []
+        const harmonyHeights: number[] = []
+        const harmonyBaselines: number[] = []
+        for (let i = 0; i < totalDiagrams; i += chordsPerRow) {
+            const itemsInRow = Math.min(chordsPerRow, totalDiagrams - i)
+            let maxRowHeight = 0.0
+            let maxHarmonyHeight = 0.0
+            let harmonyBaseline = 0.0
+
+            for (let j = 0; j < itemsInRow; ++j) {
+                const fretDiagram = fretDiagrams[i + j]
+
+                const fretRect = fretDiagram.ldata().bbox()
+
+                const harmonyLdata = fretDiagram.harmony()!.ldata()
+                const harmonyRect = harmonyLdata.bbox().translated(harmonyLdata.pos())
+
+                const height = fretRect.united(harmonyRect).height()
+                maxRowHeight = Math.max(maxRowHeight, height)
+                maxHarmonyHeight = Math.max(maxHarmonyHeight, -harmonyRect.top())
+                harmonyBaseline = Math.min(harmonyBaseline, harmonyLdata.pos().y())
+            }
+
+            rowHeights.push(maxRowHeight)
+            harmonyHeights.push(maxHarmonyHeight)
+            harmonyBaselines.push(harmonyBaseline)
+        }
+
+        const cellWidth = maxFretDiagramWidth
+        const columns = Math.min(totalDiagrams, chordsPerRow)
+
+        const totalTableWidth = cellWidth * columns + (columns - 1) * columnGap
+
+        const alignH = item.contentHorizontalAlignment()
+        const leftMargin = Number(item.getProperty(Pid.LEFT_MARGIN) ?? 0) * spatium
+        const rightMargin = Number(item.getProperty(Pid.RIGHT_MARGIN) ?? 0) * spatium
+        const topMargin = Number(item.getProperty(Pid.TOP_MARGIN) ?? 0) * spatium
+        const bottomMargin = Number(item.getProperty(Pid.BOTTOM_MARGIN) ?? 0) * spatium
+
+        const width = item.system()!.width()
+
+        const startX = alignH === AlignH.HCENTER
+            ? (width - totalTableWidth) / 2
+            : alignH === AlignH.RIGHT ? width - totalTableWidth : 0.0
+        const startY = topMargin
+
+        let bottomY = 0.0
+
+        for (let i = 0; i < totalDiagrams; ++i) {
+            const fretDiagram = fretDiagrams[i]
+            const harmony = fretDiagram.harmony()!
+
+            const row = Math.trunc(i / chordsPerRow)
+            const col = i % chordsPerRow
+
+            const itemsInRow = Math.min(chordsPerRow, totalDiagrams - row * chordsPerRow)
+            const rowOffsetX = alignH === AlignH.HCENTER
+                ? (totalTableWidth - (itemsInRow * cellWidth + (itemsInRow - 1) * columnGap)) / 2
+                : alignH === AlignH.RIGHT
+                    ? totalTableWidth - (itemsInRow * cellWidth + (itemsInRow - 1) * columnGap) - rightMargin + spatium
+                    : leftMargin + spatium
+
+            const x = startX + rowOffsetX + col * (cellWidth + columnGap)
+
+            let y = startY
+            for (let r = 0; r < row; ++r) {
+                y += rowHeights[r] + rowGap
+            }
+
+            const commonBaseline = harmonyBaselines[row]
+            const thisBaseline = harmony.ldata().pos().y()
+            const baselineOff = commonBaseline - thisBaseline
+            harmony.mutldata().moveY(baselineOff)
+
+            const fretDiagramX = x
+            const fretDiagramY = y + harmonyHeights[row]
+
+            fretDiagram.mutldata().setPos(new PointF(fretDiagramX, fretDiagramY))
+
+            bottomY = Math.max(bottomY, fretDiagram.ldata().bbox().translated(fretDiagram.ldata().pos()).bottom())
+        }
+
+        let height = bottomY + bottomMargin
+        if (RealIsNull(height)) {
+            height = item.minHeight()
+        }
+
+        ldata.setBbox(0.0, 0.0, width, height)
     }
 
     static layoutTBox(item: TBox, ctx: LayoutContext): void {

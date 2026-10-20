@@ -2987,7 +2987,7 @@ function readStaffContent206(score: Score, e: XmlReader, ctx: ReadContext): void
             } else if (tag === 'HBox' || tag === 'VBox' || tag === 'TBox' || tag === 'FBox') {
                 const b = Factory.createItemByName(tag, scoreDummy(score)) as Box | null
                 if (!b) {
-                    e.skipCurrentElement() // TODO(port): FBox
+                    e.skipCurrentElement()
                     continue
                 }
                 readBox(b, e, ctx)

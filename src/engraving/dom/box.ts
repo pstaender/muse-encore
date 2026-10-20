@@ -9,9 +9,10 @@
 import { RectF } from '../../framework/draw/types/geometry'
 import { Spatium } from '../types/dimension'
 import type { PropertyValue } from '../types/propertyvalue'
-import { ElementType, TextStyleType } from '../types/types'
+import { AlignH, ElementType, TextStyleType } from '../types/types'
 import { Sid } from '../style/styledef'
-import type { EngravingItem } from './engravingitem'
+import { ElementFlag, type EngravingItem } from './engravingitem'
+import type { FretDiagram } from './fret'
 import type { ElementStyle, EngravingObject } from './engravingobject'
 import { MeasureBase } from './measurebase'
 import { Pid } from './property'
@@ -296,5 +297,142 @@ export class TBox extends VBox {
             return new Spatium(1)
         }
         return super.propertyDefault(id)
+    }
+}
+
+// ---------------------------------------------------------
+//   FBox
+//   frame containing fret diagrams
+//   TODO(port): init() (rebuilding the diagrams from the chord symbols of the score; only needed when editing),
+//   diagrams order
+// ---------------------------------------------------------
+
+export class FBox extends VBox {
+    private m_textScale = 0.0
+    private m_diagramScale = 0.0
+    private m_columnGap = new Spatium(0)
+    private m_rowGap = new Spatium(0)
+    private m_chordsPerRow = 0
+    private m_contentAlignmentH = AlignH.HCENTER
+
+    constructor(parent: EngravingObject | null) {
+        super(parent, ElementType.FBOX)
+        this.resetProperty(Pid.FRET_FRAME_TEXT_SCALE)
+        this.resetProperty(Pid.FRET_FRAME_DIAGRAM_SCALE)
+        this.resetProperty(Pid.FRET_FRAME_COLUMN_GAP)
+        this.resetProperty(Pid.FRET_FRAME_ROW_GAP)
+        this.resetProperty(Pid.FRET_FRAME_CHORDS_PER_ROW)
+        this.resetProperty(Pid.FRET_FRAME_H_ALIGN)
+
+        this.resetProperty(Pid.LEFT_MARGIN)
+        this.resetProperty(Pid.RIGHT_MARGIN)
+        this.resetProperty(Pid.TOP_MARGIN)
+        this.resetProperty(Pid.BOTTOM_MARGIN)
+        this.resetProperty(Pid.TOP_GAP)
+        this.resetProperty(Pid.BOTTOM_GAP)
+    }
+
+    override add(e: EngravingItem): void {
+        e.setParent(this)
+        if (e.isFretDiagram()) {
+            this.addAtIdx(e as FretDiagram, -1)
+        }
+    }
+
+    addAtIdx(fretDiagram: FretDiagram, idx: number): void {
+        fretDiagram.setTrack(-1)
+        fretDiagram.setFlag(ElementFlag.MOVABLE, false)
+        fretDiagram.setFlag(ElementFlag.ON_STAFF, false)
+
+        const harmony = fretDiagram.harmony()
+        if (harmony) {
+            harmony.setTrack(-1)
+            harmony.setFlag(ElementFlag.MOVABLE, false)
+            harmony.setFlag(ElementFlag.ON_STAFF, false)
+        }
+
+        const el = this.el()
+        if (idx >= 0 && idx < el.length) {
+            el.splice(idx, 0, fretDiagram)
+        } else {
+            el.push(fretDiagram)
+        }
+    }
+
+    textScale(): number { return this.m_textScale }
+    diagramScale(): number { return this.m_diagramScale }
+    columnGap(): Spatium { return this.m_columnGap }
+    rowGap(): Spatium { return this.m_rowGap }
+    chordsPerRow(): number { return this.m_chordsPerRow }
+    contentHorizontalAlignment(): AlignH { return this.m_contentAlignmentH }
+
+    override getProperty(propertyId: Pid): PropertyValue {
+        switch (propertyId) {
+        case Pid.FRET_FRAME_TEXT_SCALE:
+            return this.m_textScale
+        case Pid.FRET_FRAME_DIAGRAM_SCALE:
+            return this.m_diagramScale
+        case Pid.FRET_FRAME_COLUMN_GAP:
+            return this.m_columnGap
+        case Pid.FRET_FRAME_ROW_GAP:
+            return this.m_rowGap
+        case Pid.FRET_FRAME_CHORDS_PER_ROW:
+            return this.m_chordsPerRow
+        case Pid.FRET_FRAME_H_ALIGN:
+            return this.m_contentAlignmentH
+        case Pid.LEFT_MARGIN:
+            return this.m_contentAlignmentH === AlignH.LEFT ? super.getProperty(propertyId) : undefined
+        case Pid.RIGHT_MARGIN:
+            return this.m_contentAlignmentH === AlignH.RIGHT ? super.getProperty(propertyId) : undefined
+        default:
+            return super.getProperty(propertyId)
+        }
+    }
+
+    override setProperty(propertyId: Pid, val: PropertyValue): boolean {
+        switch (propertyId) {
+        case Pid.FRET_FRAME_TEXT_SCALE:
+            this.m_textScale = val as number
+            break
+        case Pid.FRET_FRAME_DIAGRAM_SCALE:
+            this.m_diagramScale = val as number
+            break
+        case Pid.FRET_FRAME_COLUMN_GAP:
+            this.m_columnGap = val instanceof Spatium ? val : new Spatium(val as number)
+            break
+        case Pid.FRET_FRAME_ROW_GAP:
+            this.m_rowGap = val instanceof Spatium ? val : new Spatium(val as number)
+            break
+        case Pid.FRET_FRAME_CHORDS_PER_ROW:
+            this.m_chordsPerRow = val as number
+            break
+        case Pid.FRET_FRAME_H_ALIGN:
+            this.m_contentAlignmentH = val as AlignH
+            this.resetProperty(Pid.LEFT_MARGIN)
+            this.resetProperty(Pid.RIGHT_MARGIN)
+            break
+        default:
+            return super.setProperty(propertyId, val)
+        }
+        return true
+    }
+
+    override propertyDefault(propertyId: Pid): PropertyValue {
+        switch (propertyId) {
+        case Pid.FRET_FRAME_TEXT_SCALE:
+        case Pid.FRET_FRAME_DIAGRAM_SCALE:
+            return 1.0
+        case Pid.FRET_FRAME_COLUMN_GAP:
+        case Pid.FRET_FRAME_ROW_GAP:
+            return new Spatium(3.0)
+        case Pid.FRET_FRAME_CHORDS_PER_ROW:
+            return 8
+        case Pid.FRET_FRAME_H_ALIGN:
+            return AlignH.HCENTER
+        case Pid.EXCLUDE_FROM_OTHER_PARTS:
+            return true
+        default:
+            return super.propertyDefault(propertyId)
+        }
     }
 }

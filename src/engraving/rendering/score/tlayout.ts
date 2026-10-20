@@ -42,7 +42,7 @@ import type { Bracket } from '../../dom/bracket'
 import type { Chord, GraceNotesGroup } from '../../dom/chord'
 import type { Clef } from '../../dom/clef'
 import type { EngravingItem } from '../../dom/engravingitem'
-import type { HBox, TBox, VBox } from '../../dom/box'
+import type { FBox, HBox, TBox, VBox } from '../../dom/box'
 import type { Hook } from '../../dom/hook'
 import type { InstrumentName } from '../../dom/instrumentname'
 import type { KeySig, KeySigLayoutData } from '../../dom/keysig'
@@ -237,6 +237,7 @@ export class TLayout {
         case ElementType.HBOX: TLayout.layoutHBox(item as HBox, ctx); break
         case ElementType.VBOX: TLayout.layoutVBox(item as VBox, ctx); break
         case ElementType.TBOX: TLayout.layoutTBox(item as TBox, ctx); break
+        case ElementType.FBOX: BoxLayout.layoutFBox(item as FBox, ctx); break
         case ElementType.BRACKET: TLayout.layoutBracket(item as Bracket, ctx); break
         case ElementType.CHORD: TLayout.layoutChord(item as Chord, ctx); break
         case ElementType.CLEF: TLayout.layoutClef(item as Clef, ctx); break

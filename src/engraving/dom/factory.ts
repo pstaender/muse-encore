@@ -16,7 +16,7 @@ import { Arpeggio } from './arpeggio'
 import { Articulation } from './articulation'
 import { BarLine } from './barline'
 import { Beam } from './beam'
-import { HBox, TBox, VBox } from './box'
+import { HBox, TBox, VBox, FBox } from './box'
 import { Bracket } from './bracket'
 import { BracketItem } from './bracketitem'
 import { Chord } from './chord'
@@ -152,6 +152,7 @@ export class Factory {
         case ElementType.HBOX: return new HBox(dummy().system())
         case ElementType.VBOX: return new VBox(dummy().system())
         case ElementType.TBOX: return new TBox(dummy().system())
+        case ElementType.FBOX: return new FBox(dummy().system())
         case ElementType.NOTE: return new Note(chordOrDummy())
         case ElementType.NOTEDOT: return new NoteDot(parent && (parent.isNote() || parent.isRest()) ? parent as unknown as Note : dummy().note())
         case ElementType.CHORD: return new Chord(segmentOrDummy())

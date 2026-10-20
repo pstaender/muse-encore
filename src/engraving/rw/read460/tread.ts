@@ -50,7 +50,7 @@ import type { Arpeggio } from '../../dom/arpeggio'
 import type { Articulation } from '../../dom/articulation'
 import type { BarLine } from '../../dom/barline'
 import type { Beam } from '../../dom/beam'
-import type { Box, HBox, TBox } from '../../dom/box'
+import type { Box, FBox, HBox, TBox } from '../../dom/box'
 import type { Bracket } from '../../dom/bracket'
 import type { BracketItem } from '../../dom/bracketitem'
 import type { BSymbol } from '../../dom/bsymbol'
@@ -174,6 +174,7 @@ export class TRead {
         case ElementType.HBOX: TRead.readHBox(item as HBox, xml, ctx); break
         case ElementType.VBOX: TRead.readBox(item as Box, xml, ctx); break
         case ElementType.TBOX: TRead.readTBox(item as TBox, xml, ctx); break
+        case ElementType.FBOX: TRead.readFBox(item as FBox, xml, ctx); break
         case ElementType.BRACKET: TRead.readBracket(item as Bracket, xml, ctx); break
         case ElementType.CHORD: TRead.readChord(item as Chord, xml, ctx); break
         case ElementType.CLEF: TRead.readClef(item as Clef, xml, ctx); break
@@ -2421,6 +2422,22 @@ export class TRead {
         return TRead.readBoxProperties(b, e, ctx)
     }
 
+    static readFBox(b: FBox, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+            if (TRead.readPropertyIfTag(b, tag, xml, ctx, Pid.FRET_FRAME_TEXT_SCALE)) {
+            } else if (TRead.readPropertyIfTag(b, tag, xml, ctx, Pid.FRET_FRAME_DIAGRAM_SCALE)) {
+            } else if (TRead.readPropertyIfTag(b, tag, xml, ctx, Pid.FRET_FRAME_COLUMN_GAP)) {
+            } else if (TRead.readPropertyIfTag(b, tag, xml, ctx, Pid.FRET_FRAME_ROW_GAP)) {
+            } else if (TRead.readPropertyIfTag(b, tag, xml, ctx, Pid.FRET_FRAME_CHORDS_PER_ROW)) {
+            } else if (TRead.readPropertyIfTag(b, tag, xml, ctx, Pid.FRET_FRAME_H_ALIGN)) {
+            } else if (TRead.readBoxProperties(b, xml, ctx)) {
+            } else {
+                xml.unknown()
+            }
+        }
+    }
+
     static readTBox(b: TBox, e: XmlReader, ctx: ReadContext): void {
         while (e.readNextStartElement()) {
             const tag = e.name()
@@ -2468,8 +2485,12 @@ export class TRead {
             const s = Factory.createItem(ElementType.SYMBOL, b) as Symbol
             TRead.readSymbol(s, e, ctx)
             b.add(s)
-        } else if (tag === 'Image' || tag === 'FretDiagram') {
-            e.skipCurrentElement() // TODO(port): images, fret diagrams
+        } else if (tag === 'Image') {
+            e.skipCurrentElement() // TODO(port): images
+        } else if (tag === 'FretDiagram') {
+            const f = Factory.createItem(ElementType.FRET_DIAGRAM, scoreDummy(b.score()).segment()) as FretDiagram
+            TRead.readFretDiagram(f, e, ctx)
+            b.add(f)
         } else if (tag === 'HBox' || tag === 'VBox') {
             e.skipCurrentElement() // TODO(port): nested boxes
         } else if (TRead.readPropertyIfTag(b, tag, e, ctx, Pid.PADDING_TO_NOTATION_ABOVE)) {

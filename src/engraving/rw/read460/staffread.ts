@@ -66,7 +66,7 @@ export class StaffRead {
                 } else if (tag === 'HBox' || tag === 'VBox' || tag === 'TBox' || tag === 'FBox') {
                     const mb = Factory.createItemByName(tag, score) as MeasureBase | null
                     if (!mb) {
-                        e.skipCurrentElement() // TODO(port): FBox
+                        e.skipCurrentElement()
                         continue
                     }
                     mb.setTick(ctx.tick())

@@ -32,7 +32,7 @@ import type { BracketItem } from '../../dom/bracketitem'
 import type { Chord } from '../../dom/chord'
 import type { ChordRest } from '../../dom/chordrest'
 import type { EngravingItem } from '../../dom/engravingitem'
-import type { HBox, TBox, VBox } from '../../dom/box'
+import type { FBox, HBox, TBox, VBox } from '../../dom/box'
 import type { Measure } from '../../dom/measure'
 import type { MeasureBase } from '../../dom/measurebase'
 import type { MeasureNumber } from '../../dom/measurenumber'
@@ -2516,8 +2516,9 @@ export class SystemLayout {
                 BoxLayout.layoutHBox2(m as HBox, ctx)
             } else if (m.isTBox()) {
                 BoxLayout.layoutTBox(m as TBox, ctx)
+            } else if (m.isFBox()) {
+                BoxLayout.layoutFBox(m as FBox, ctx)
             }
-            // TODO(port): FBox
         }
     }
 
