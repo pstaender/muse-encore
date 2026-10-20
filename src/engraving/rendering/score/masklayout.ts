@@ -4,7 +4,6 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/engraving/rendering/score/masklayout.h/.cpp
- * TODO(port): masks for note parentheses on TAB staves (parentheses are not ported yet)
  */
 
 import { Fraction } from '../../types/fraction'
@@ -269,6 +268,29 @@ export class MaskLayout {
             }
         }
 
+        const maskParens = (chord: Chord): void => {
+            if (linesThrough) {
+                return
+            }
+            for (const i of chord.noteParentheses()) {
+                const leftParen = i.leftParen()
+                const rightParen = i.rightParen()
+                // C++ initialises allHidden with false, so it never skips
+
+                // HACK: Overlapping mask regions which have the same y value and height cause errors
+                // Parentheses on single fret marks have the same height as the fret marks
+                const PAREN_PADDING_EPSILON = 1.0
+                for (const paren of [leftParen, rightParen]) {
+                    if (paren && paren.visible()) {
+                        const parenShape = new Shape(paren.ldata().bbox().translated(paren.pagePos()))
+                        parenShape.pad(padding)
+                        parenShape.adjust(0, -PAREN_PADDING_EPSILON, 0, PAREN_PADDING_EPSILON)
+                        mask.add(parenShape.translated(staffLinesPos.times(-1)))
+                    }
+                }
+            }
+        }
+
         const measure = staffLines.measure()
         for (let seg = measure.first(SegmentType.ChordRest); seg; seg = seg.next(SegmentType.ChordRest)) {
             for (let track = startTrack; track < endTrack; ++track) {
@@ -277,8 +299,10 @@ export class MaskLayout {
                     continue
                 }
                 maskFret(el as Chord)
+                maskParens(el as Chord)
                 for (const grace of (el as Chord).graceNotes()) {
                     maskFret(grace)
+                    maskParens(grace)
                 }
             }
         }

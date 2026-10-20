@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/horizontalspacing.h/.cpp
  *
- * TODO(port): parentheses, glissandi, guitar bends, note lines
+ * TODO(port): glissandi, guitar bends, note lines
  */
 
 import { RectF } from '../../../framework/draw/types/geometry'
@@ -32,6 +32,7 @@ import type { System } from '../../dom/system'
 import type { TimeSig } from '../../dom/timesig'
 import { paddingTable } from '../paddingtable'
 import type { LyricsLine } from '../../dom/lyricsline'
+import { ParenthesisLayout } from './parenthesislayout'
 
 interface HorizontalSpacingContext {
     system: System
@@ -1396,7 +1397,9 @@ export class HorizontalSpacing {
     }
 
     static computePadding(item1: EngravingItem, item2: EngravingItem): number {
-        // TODO(port): ParenthesisLayout::computeParenthesisPadding
+        if (item1.isParenthesis() || item2.isParenthesis()) {
+            return ParenthesisLayout.computeParenthesisPadding(item1, item2)
+        }
         const table = paddingTable(item1.score())
         const type1 = item1.type()
         const type2 = item2.type()

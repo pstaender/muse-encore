@@ -1840,9 +1840,26 @@ export class SlurTieLayout {
     }
 
     private static calculateLaissezVibY(segment: LaissezVibSegment, sPos: SlurTiePos): void {
+        const lv = segment.laissezVib()
+
         SlurTieLayout.adjustYforLedgerLines(segment, sPos)
 
-        // TODO(port): note parentheses (Chord::findNoteParenthesisInfo)
+        const note = lv.startNote()!
+        const chord = note.chord()
+
+        const noteParenInfo = chord.findNoteParenthesisInfo(note)
+
+        const paren = noteParenInfo ? noteParenInfo.leftParen() : null
+
+        const avoidStem = !!chord.stem() && chord.stem()!.visible() && chord.up() === lv.up()
+        if (paren && (!lv.isOuterTieOfChord(Grip.START) || avoidStem)) {
+            const parenBbox = paren.ldata().bbox().translated(paren.systemPos())
+            let adj = sPos.p1.y() - (lv.up() ? parenBbox.top() : parenBbox.bottom())
+            const PAREN_LV_PADDING = 0.1 * segment.spatium()
+            adj += PAREN_LV_PADDING * (lv.up() ? 1.0 : -1.0)
+            sPos.p1.setY(sPos.p1.y() - adj)
+            sPos.p2.setY(sPos.p2.y() - adj)
+        }
 
         segment.ups(Grip.START).p = sPos.p1.clone()
         segment.ups(Grip.END).p = sPos.p2.clone()

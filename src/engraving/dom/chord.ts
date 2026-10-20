@@ -38,6 +38,7 @@ import { TDuration } from './durationtype'
 import type { TremoloTwoChord } from './tremolotwochord'
 import type { Trill } from './trill'
 import type { TremoloSingleChord } from './tremolosinglechord'
+import type { Parenthesis } from './parenthesis'
 
 /** factories registered by the corresponding modules (avoid runtime import cycles) */
 export const chordFactories: {
@@ -140,7 +141,36 @@ function sortByNoteIsBefore(notes: Note[]): void {
     notes.sort((a, b) => noteIsBefore(a, b) ? -1 : (noteIsBefore(b, a) ? 1 : 0))
 }
 
+export class NoteParenthesisInfo {
+    private m_notes: Note[]
+
+    constructor(private m_leftParen: Parenthesis, private m_rightParen: Parenthesis, nList: Note[]) {
+        this.m_notes = [...nList]
+        sortByNoteIsBefore(this.m_notes)
+    }
+
+    leftParen(): Parenthesis { return this.m_leftParen }
+    rightParen(): Parenthesis { return this.m_rightParen }
+    notes(): readonly Note[] { return this.m_notes }
+
+    insertNote(note: Note): void {
+        let i = 0
+        while (i < this.m_notes.length && !noteIsBefore(note, this.m_notes[i])) {
+            ++i
+        }
+        this.m_notes.splice(i, 0, note)
+    }
+
+    removeNote(note: Note): void {
+        const i = this.m_notes.indexOf(note)
+        if (i >= 0) {
+            this.m_notes.splice(i, 1)
+        }
+    }
+}
+
 export class Chord extends ChordRest {
+    private m_noteParens: NoteParenthesisInfo[] = []
     private m_notes: Note[] = [] // sorted to decreasing line step
     private m_ledgerLines: LedgerLine[] = []
     private m_stem: Stem | null = null
@@ -350,6 +380,36 @@ export class Chord extends ChordRest {
     stemSlash(): StemSlash | null { return this.m_stemSlash }
     showStemSlash(): boolean { return this.m_showStemSlash }
     setShowStemSlash(show: boolean): void { this.m_showStemSlash = show }
+
+    noteParentheses(): readonly NoteParenthesisInfo[] { return this.m_noteParens }
+
+    /** C++ findNoteParenthesisInfo(const Note*) / findNoteParenthesisInfo(const Parenthesis*) */
+    findNoteParenthesisInfo(item: Note | Parenthesis): NoteParenthesisInfo | null {
+        for (const info of this.m_noteParens) {
+            if (item.isParenthesis()) {
+                if (item === info.leftParen() || item === info.rightParen()) {
+                    return info
+                }
+            } else if (info.notes().includes(item as Note)) {
+                return info
+            }
+        }
+        return null
+    }
+
+    addNoteParenthesisInfo(noteParenInfo: NoteParenthesisInfo): void {
+        this.m_noteParens.push(noteParenInfo)
+    }
+
+    removeNoteParenthesisInfo(noteParenInfo: NoteParenthesisInfo | null): void {
+        if (!noteParenInfo) {
+            return
+        }
+        const i = this.m_noteParens.indexOf(noteParenInfo)
+        if (i >= 0) {
+            this.m_noteParens.splice(i, 1)
+        }
+    }
 
     tremoloType(): TremoloType {
         if (this.m_tremoloSingleChord) {
@@ -1095,6 +1155,10 @@ export class Chord extends ChordRest {
         }
         for (const e of this.el()) {
             e.scanElements(func)
+        }
+        for (const p of this.m_noteParens) {
+            p.leftParen().scanElements(func)
+            p.rightParen().scanElements(func)
         }
         super.scanElements(func)
     }

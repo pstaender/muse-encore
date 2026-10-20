@@ -117,6 +117,7 @@ import type { StaffTypeChange } from '../../dom/stafftypechange'
 import type { LaissezVib } from '../../dom/laissezvib'
 import type { PartialTie } from '../../dom/partialtie'
 import type { MeasureRepeat } from '../../dom/measurerepeat'
+import { NoteParenthesisInfo } from '../../dom/chord'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -839,6 +840,70 @@ export class TRead {
                 }
             }
         }
+    }
+
+    /** TODO(port): note sorting on percussion staves, linked parentheses */
+    static readNoteParenGroup(ch: Chord, e: XmlReader, ctx: ReadContext): void {
+        let leftParen: Parenthesis | null = null
+        let rightParen: Parenthesis | null = null
+        const notes: Note[] = []
+        while (e.readNextStartElement()) {
+            const t = e.name()
+
+            if (t === 'Parenthesis') {
+                const paren = Factory.createItem(ElementType.PARENTHESIS, ch) as Parenthesis
+                TRead.readParenthesis(paren, e, ctx)
+                paren.setParent(ch)
+                paren.setTrack(ctx.track())
+
+                if (paren.direction() === DirectionH.LEFT) {
+                    leftParen = paren
+                } else {
+                    rightParen = paren
+                }
+            } else if (t === 'Notes') {
+                while (e.readNextStartElement()) {
+                    if (e.name() === 'NoteIdx') {
+                        const idx = e.readInt()
+                        if (idx >= ch.notes().length) {
+                            continue
+                        }
+                        notes.push(ch.notes()[idx])
+                    } else {
+                        e.unknown()
+                    }
+                }
+            } else {
+                e.unknown()
+            }
+        }
+
+        if (!notes.length) {
+            return
+        }
+
+        for (const existing of ch.noteParentheses()) {
+            for (const note of notes) {
+                if (existing.notes().includes(note)) {
+                    return
+                }
+            }
+        }
+
+        if (!leftParen) {
+            leftParen = Factory.createItem(ElementType.PARENTHESIS, ch) as Parenthesis
+            leftParen.setParent(ch)
+            leftParen.setTrack(ctx.track())
+        }
+
+        if (!rightParen) {
+            rightParen = Factory.createItem(ElementType.PARENTHESIS, ch) as Parenthesis
+            rightParen.setDirection(DirectionH.RIGHT)
+            rightParen.setParent(ch)
+            rightParen.setTrack(ctx.track())
+        }
+
+        ch.addNoteParenthesisInfo(new NoteParenthesisInfo(leftParen, rightParen, notes))
     }
 
     static readParenthesis(p: Parenthesis, e: XmlReader, ctx: ReadContext): void {
@@ -2094,8 +2159,10 @@ export class TRead {
             trem.setParent(ch)
             trem.setDurationType(ch.durationType())
             ch.setTremoloTwoChord(trem, false)
-        } else if (tag === 'ChordBracket' || tag === 'ChordLine' || tag === 'NoteParenGroup') {
-            // TODO(port): chord brackets, chord lines, note parentheses
+        } else if (tag === 'NoteParenGroup') {
+            TRead.readNoteParenGroup(ch, e, ctx)
+        } else if (tag === 'ChordBracket' || tag === 'ChordLine') {
+            // TODO(port): chord brackets, chord lines
             e.skipCurrentElement()
         } else if (tag === 'combineVoice') {
             TRead.readPropertyIfTag(ch, tag, e, ctx, Pid.COMBINE_VOICE)

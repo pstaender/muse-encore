@@ -54,6 +54,29 @@ export class ParenthesisLayout {
         ParenthesisLayout.layoutParenthesesPair(leftParen, rightParen, dummyItemShape, itemAddToSkyline)
     }
 
+    static layoutChordParentheses(chord: Chord, ctx: LayoutContext): void {
+        for (const parenNotesInfo of chord.noteParentheses()) {
+            const leftParen = parenNotesInfo.leftParen()
+            const rightParen = parenNotesInfo.rightParen()
+
+            if (!(leftParen || rightParen)) {
+                return
+            }
+            if (leftParen) {
+                ParenthesisLayout.layoutParenthesis(leftParen, ctx)
+            }
+
+            if (rightParen) {
+                ParenthesisLayout.layoutParenthesis(rightParen, ctx)
+            }
+
+            const itemAddToSkyline = chord.autoplace() && !chord.ldata().isSkipDraw()
+            const dummyItemShape = ParenthesisLayout.getParentShape(chord)
+
+            ParenthesisLayout.layoutParenthesesPair(leftParen, rightParen, dummyItemShape, itemAddToSkyline)
+        }
+    }
+
     /** C++ layoutParentheses(Parenthesis*, Parenthesis*, Shape&, bool, ctx) */
     private static layoutParenthesesPair(leftParen: Parenthesis | null, rightParen: Parenthesis | null, dummyItemShape: Shape,
         itemAddToSkyline: boolean): void {
@@ -302,7 +325,7 @@ export class ParenthesisLayout {
         // Set ldata values based on parent
         switch (item.parentItem()!.type()) {
         case ElementType.CHORD:
-            // TODO(port): setChordValues (note parentheses)
+            ParenthesisLayout.setChordValues(item, ldata)
             break
         // height & startY are set in MeasureLayout for clef, timesig and keysig
         // TODO: create generic way of matching height & startY between parentheses on different items
@@ -399,6 +422,56 @@ export class ParenthesisLayout {
 
         const PADDING = spatium * 0.2
         ldata.setPosX(item.direction() === DirectionH.RIGHT ? bbox.right() + PADDING : bbox.left() - PADDING)
+    }
+
+    private static setChordValues(item: Parenthesis, ldata: ParenthesisLayoutData): void {
+        const chord = item.parentItem() as Chord
+
+        ldata.setMag(chord.mag())
+        ldata.intrinsicMag = chord.intrinsicMag() // Scaling information not linked to staff size. item->spatium is NOT scaled by this
+
+        const notesShape = new Shape()
+
+        const parenInfo = chord.findNoteParenthesisInfo(item)
+        if (!parenInfo) {
+            return
+        }
+
+        for (const note of parenInfo.notes()) {
+            notesShape.add(ParenthesisLayout.getNoteShape(note, item).translated(note.pos()))
+        }
+
+        const st = chord.staffType()!
+        const isTab = st.isTabStaff()
+
+        const calculateMidPointThickness = (): number => {
+            const sp = item.spatium()
+            const sp0 = item.defaultSpatium()
+
+            if (!(sp > 0.0 && sp0 > 0.0)) {
+                return 0.0
+            }
+
+            const exponent = isTab ? 0.36 : 0.33
+            const exponentComplement = 1.0 - exponent
+
+            const normalizedHeight = ldata.height / sp
+
+            // Scale factor that keeps the normalized formula compatible with the
+            // original formula at the default spatium.
+            const scaleNormalization = sp / Math.pow(sp0, exponentComplement)
+            return Math.pow(normalizedHeight, exponent) * scaleNormalization * ldata.intrinsicMag
+        }
+
+        if (isTab) {
+            ldata.startY = notesShape.top()
+            ldata.height = notesShape.bbox().height()
+        } else {
+            ldata.startY = notesShape.top() - 0.25 * item.spatium() * ldata.intrinsicMag
+            ldata.height = notesShape.bbox().height() + 0.5 * item.spatium() * ldata.intrinsicMag
+        }
+        ldata.midPointThickness = calculateMidPointThickness()
+        ldata.endPointThickness = 0.05
     }
 
     private static setDefaultValues(item: Parenthesis, ldata: ParenthesisLayoutData): void {

@@ -135,12 +135,15 @@
   21%/42% -> 3%/5%.
 - read400 compat: header clef guess for files < 4.1, clef-to-barline position for files < 4.5 (extra clefs at the
   start of 4.0 scores).
+- Note parentheses on chords (NoteParenGroup reading, generated parentheses for ghost notes/tab tie-backs with a
+  simplified EditChord, ParenthesisLayout chord values, TAB masks) and parenthesis padding in HorizontalSpacing:
+  paren-chords 63% -> 4%.
 - Note: files < 4.6 are read with read460 plus selected read400/read410 compat (fretFontName, harmony, fret
   diagrams, marker type from label, header clefs); C++ uses separate readers for them.
 
 ### Known differences / missing
 - Not ported (not drawn): fingering, vibrato, gradual tempo changes, partial lyrics lines,
-  chord brackets, tremolo bars, glissandi, guitar bends, images, fret boxes, note parentheses on chords, MMRestRange, excerpts.
+  chord brackets, tremolo bars, glissandi, guitar bends, images, fret boxes, MMRestRange, excerpts.
 - harmony-35: chord symbols at size 20 are placed ~0.45sp lower than in MuseScore (10, 15 and 25 match), so a
   4th system fits on page 1.
 - ornament-9: hairpins on vocal staves (4.2 file) are placed above the staff, MuseScore places them below; with a

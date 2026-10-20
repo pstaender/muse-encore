@@ -12,7 +12,7 @@
 import { PointF } from '../../../framework/draw/types/geometry'
 import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull, stdRound } from '../../../framework/global/realfn'
 import { BeamMode, DirectionH, DirectionV, DurationType, ElementType, track2voice, NoteHeadType, VOICES, staff2track,
-    NoteHeadGroup, type staff_idx_t, type track_idx_t } from '../../types/types'
+    NoteHeadGroup, type staff_idx_t, type track_idx_t, ParenthesesMode } from '../../types/types'
 import { Shape, ShapeType } from '../../infrastructure/shape'
 import { Sid } from '../../style/styledef'
 import { SymId } from '../../types/symid'
@@ -48,12 +48,17 @@ import { BeamLayout, ChordBeamAnchorType } from './beamlayout'
 import { Autoplace } from './autoplace'
 import { SystemLayout } from './systemlayout'
 import { TabDurationSymbol } from '../../dom/tabdurationsymbol'
-import { TablatureSymbolRepeat } from '../../dom/stafftype'
+import { TablatureSymbolRepeat, ShowTiedFret } from '../../dom/stafftype'
 import type { Ornament } from '../../dom/ornament'
 import { ArpeggioLayout } from './arpeggiolayout'
 import { paddingTable } from '../paddingtable'
 import { TremoloLayout } from './tremololayout'
 import type { MeasureRepeat } from '../../dom/measurerepeat'
+import { ParenthesisLayout } from './parenthesislayout'
+import { NoteParenthesisInfo } from '../../dom/chord'
+import type { Parenthesis } from '../../dom/parenthesis'
+import { Pid } from '../../dom/property'
+import { DisplayFretOption } from '../../dom/note'
 
 export class ChordPosInfo {
     chords: Chord[] = []
@@ -313,6 +318,9 @@ export class ChordLayout {
         }
 
         ChordLayout.layoutLvArticulation(item, ctx)
+
+        ChordLayout.createParenGroups(item)
+        ParenthesisLayout.layoutChordParentheses(item, ctx)
 
         ChordLayout.fillShape(item, ctx)
     }
@@ -649,7 +657,8 @@ export class ChordLayout {
 
         ChordLayout.layoutLvArticulation(item, ctx)
 
-        // TODO(port): createParenGroups, ParenthesisLayout::layoutChordParentheses
+        ChordLayout.createParenGroups(item)
+        ParenthesisLayout.layoutChordParentheses(item, ctx)
 
         ChordLayout.fillShape(item, ctx)
     }
@@ -2784,7 +2793,23 @@ export class ChordLayout {
         }
         const staffType = staff.staffTypeForElement(item)
         const isTabStaff = !!staffType && staffType.isTabStaff()
-        // TODO(port): generated parentheses (tab tie-back, ghost notes)
+        const ldata = item.mutldata()
+        // First, for tab staves that have show back-tied fret marks option, we add parentheses to the tied note if
+        // the tie spans a system boundary. This can't be done in layout as the system of each note is not decided yet
+        const showTiedFret = item.style().styleV(Sid.tabShowTiedFret) as ShowTiedFret
+        const tieBackParen = isTabStaff && !item.fixed() && !!item.tieBack()
+                             && (showTiedFret !== ShowTiedFret.TIE_AND_FRET || item.isContinuationOfBend()) && !item.shouldHideFret()
+        let useParens = (tieBackParen || item.ghost()) && !item.hideGeneratedParens()
+
+        if (item.harmonic() && item.displayFret() !== DisplayFretOption.NaturalHarmonic) {
+            useParens = false
+        }
+
+        if (useParens) {
+            ldata.hasGeneratedParens = true
+        } else if (!item.ghost() || item.shouldHideFret() || item.hideGeneratedParens()) {
+            ldata.hasGeneratedParens = false
+        }
 
         // layout dots
         const dots = chord.dots()
@@ -2889,6 +2914,60 @@ export class ChordLayout {
         }
     }
 
+    /**
+     * C++ ChordLayout::createParenGroups(). EditChord::addChordParentheses/removeChordParentheses are simplified
+     * here: generated parentheses only exist in one group per chord.
+     */
+    static createParenGroups(chord: Chord): void {
+        const addParens: Note[] = []
+        const removeParens: Note[] = []
+
+        for (const note of chord.notes()) {
+            const noteParenInfo = note.parenthesisInfo()
+            const leftParen = noteParenInfo ? noteParenInfo.leftParen() : null
+            const parenGenerated = !!leftParen && leftParen.generated()
+
+            if (note.ldata().hasGeneratedParens) {
+                if (noteParenInfo) {
+                    if (parenGenerated) {
+                        removeParens.push(note)
+                    } else {
+                        continue
+                    }
+                }
+                addParens.push(note)
+                note.setProperty(Pid.HAS_PARENTHESES, ParenthesesMode.BOTH)
+            } else if (parenGenerated) {
+                removeParens.push(note)
+            }
+        }
+
+        for (const note of removeParens) {
+            const info = note.parenthesisInfo()
+            if (info) {
+                info.removeNote(note)
+                if (!info.notes().length) {
+                    chord.removeNoteParenthesisInfo(info)
+                }
+            }
+        }
+
+        if (addParens.length) {
+            const track = chord.track()
+            const leftParen = Factory.createItem(ElementType.PARENTHESIS, chord) as Parenthesis
+            leftParen.setParent(chord)
+            leftParen.setTrack(track)
+            leftParen.setDirection(DirectionH.LEFT)
+            leftParen.setGenerated(true)
+            const rightParen = Factory.createItem(ElementType.PARENTHESIS, chord) as Parenthesis
+            rightParen.setParent(chord)
+            rightParen.setTrack(track)
+            rightParen.setDirection(DirectionH.RIGHT)
+            rightParen.setGenerated(true)
+            chord.addNoteParenthesisInfo(new NoteParenthesisInfo(leftParen, rightParen, addParens))
+        }
+    }
+
     static fillShape(item: ChordRest, ctx: LayoutContext): void {
         switch (item.type()) {
         case ElementType.CHORD:
@@ -2972,7 +3051,17 @@ export class ChordLayout {
         for (const note of item.notes()) {
             shape.add(note.shape().translate(note.pos()))
         }
-        // TODO(port): note parentheses
+        for (const parenInfo of item.noteParentheses()) {
+            const leftParen = parenInfo.leftParen()
+            const rightParen = parenInfo.rightParen()
+
+            if (leftParen && leftParen.addToSkyline()) {
+                shape.add(leftParen.shape().translate(leftParen.pos()))
+            }
+            if (rightParen && rightParen.addToSkyline()) {
+                shape.add(rightParen.shape().translate(rightParen.pos()))
+            }
+        }
         for (const e of item.el()) {
             if (e.addToSkyline()) {
                 shape.add(e.shape().translate(e.pos()))
@@ -2996,7 +3085,14 @@ export class ChordLayout {
                 shape.add(a.shape().translate(a.pos()))
             }
         }
-        // TODO(port): chord parentheses
+        const leftParen = item.leftParen()
+        if (leftParen && leftParen.addToSkyline()) {
+            shape.add(leftParen.ldata().shape().translated(leftParen.pos()))
+        }
+        const rightParen = item.rightParen()
+        if (rightParen && rightParen.addToSkyline()) {
+            shape.add(rightParen.ldata().shape().translated(rightParen.pos()))
+        }
 
         item.mutldata().setShape(shape)
     }

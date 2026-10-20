@@ -29,7 +29,7 @@ import {
 } from './pitchspelling'
 import { absStep, relStep } from './utils'
 import type { NoteType } from './chordrest'
-import type { Chord } from './chord'
+import type { Chord, NoteParenthesisInfo } from './chord'
 import type { NoteDot } from './notedot'
 import type { Accidental, AccidentalType } from './accidental'
 import type { AccidentalState } from './key'
@@ -626,6 +626,9 @@ export class Note extends EngravingItem {
     setFretString(s: string): void { this.m_fretString = s }
     string(): number { return this.m_string }
     setString(val: number): void { this.m_string = val }
+    /** TODO(port): guitar bends */
+    isContinuationOfBend(): boolean { return false }
+
     shouldHideFret(): boolean {
         if (!this.tieBack() || this.shouldForceShowFret() || !this.staffType()!.isTabStaff()) {
             return false
@@ -856,6 +859,8 @@ export class Note extends EngravingItem {
     // ---------------------------------------------------------
 
     tieFor(): Tie | null { return this.m_tieFor }
+
+    parenthesisInfo(): NoteParenthesisInfo | null { return this.chord() ? this.chord().findNoteParenthesisInfo(this) : null }
     tieBack(): Tie | null { return this.m_tieBack }
     tieForNonPartial(): Tie | null { return this.m_tieFor && this.m_tieFor.type() === ElementType.TIE ? this.m_tieFor : null }
     tieBackNonPartial(): Tie | null { return this.m_tieBack && this.m_tieBack.type() === ElementType.TIE ? this.m_tieBack : null }
