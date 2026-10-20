@@ -302,3 +302,6 @@
   Rasterized SVG matches the canvas output (only antialiasing differences).
 - Web viewer printing: all pages as SVG in a print-only container, @page size = score page size (portrait/landscape),
   margin 0; removed again after printing. Goldberg (119 pages) prints to a 2.4 MB vector PDF.
+- Web viewer: the view can be moved beyond the pages (space of almost a viewport around them, 48 px of a page stay
+  visible); "Center page" button (icon ALIGN_HORIZONTAL_CENTER) centers the current page/spread in both directions;
+  opening a score, changing layout/spread and choosing a fit zoom also center it.

@@ -150,10 +150,11 @@ main {
 main.hand { cursor: grab; }
 main.hand.dragging { cursor: grabbing; user-select: none; }
 
+/* --pan-x/--pan-y (set by the script, almost a viewport): the pages can be moved until only a strip is visible */
 #pages {
     display: flex;
     gap: var(--page-gap);
-    padding: var(--page-gap);
+    padding: calc(var(--page-gap) + var(--pan-y, 0px)) calc(var(--page-gap) + var(--pan-x, 0px));
     width: max-content;
     min-width: 100%;
     min-height: 100%;

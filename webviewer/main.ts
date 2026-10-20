@@ -36,6 +36,7 @@ const btn = {
     zoomIn: $<HTMLButtonElement>('zoom-in'),
     zoomOut: $<HTMLButtonElement>('zoom-out'),
     print: $<HTMLButtonElement>('print'),
+    center: $<HTMLButtonElement>('center'),
     fullscreen: $<HTMLButtonElement>('fullscreen'),
     help: $<HTMLButtonElement>('help'),
 }
@@ -192,8 +193,9 @@ function buildPages(): void {
     }
 
     updateControls()
+    updatePan()
     applyZoom(computeZoom())
-    viewport.scrollTo(0, 0)
+    centerPage(0)
     viewport.focus({ preventScroll: true })
 }
 
@@ -361,7 +363,7 @@ function computeZoom(): number {
         const z = Number(settings.zoom)
         return Number.isFinite(z) && z > 0 ? z : 100
     }
-    const gap = parseFloat(getComputedStyle(pagesDiv).paddingLeft) || 24
+    const gap = pageGap()
     const availW = viewport.clientWidth - 2 * gap
     const availH = viewport.clientHeight - 2 * gap
     const s = pageSize(score, 0)
@@ -445,9 +447,11 @@ function zoomStep(dir: 1 | -1): void {
 }
 
 function setFitMode(mode: FitMode): void {
+    const page = currentPage()
     settings.zoom = mode
     saveSettings(settings)
     applyZoom(computeZoom())
+    centerPage(page)
 }
 
 for (const level of ZOOM_LEVELS) {
@@ -469,6 +473,7 @@ zoomSelect.addEventListener('change', () => {
 })
 
 new ResizeObserver(() => {
+    updatePan()
     if (fitMode()) {
         applyZoom(computeZoom())
     }
@@ -488,7 +493,7 @@ function updateControls(): void {
     btn.spread.disabled = !twoSided
     btn.spread.setAttribute('aria-pressed', String(spreadActive()))
     btn.spread.title = twoSided ? 'Two pages' : 'Two pages (only for scores with a two-sided page layout)'
-    for (const b of [btn.prev, btn.next, btn.zoomIn, btn.zoomOut, btn.print, btn.layoutH, btn.layoutV]) {
+    for (const b of [btn.prev, btn.next, btn.zoomIn, btn.zoomOut, btn.center, btn.print, btn.layoutH, btn.layoutV]) {
         b.disabled = !has
     }
     zoomSelect.disabled = !has
@@ -503,7 +508,7 @@ function setOrientation(o: 'horizontal' | 'vertical'): void {
     if (fitMode()) {
         applyZoom(computeZoom())
     }
-    goToPage(page, 'instant')
+    centerPage(page)
 }
 
 function toggleSpread(): void {
@@ -511,7 +516,7 @@ function toggleSpread(): void {
     settings.spread = !settings.spread
     saveSettings(settings)
     buildPages()
-    goToPage(page, 'instant')
+    centerPage(page)
 }
 
 /** index of the page nearest to the start of the viewport */
@@ -521,18 +526,6 @@ function currentPage(): number {
     }
     const r = viewport.getBoundingClientRect()
     const horizontal = settings.orientation === 'horizontal'
-    // scrolled to the end: the last page (it may never reach the start of the viewport)
-    const atEnd = horizontal
-        ? viewport.scrollLeft > 0 && viewport.scrollLeft >= viewport.scrollWidth - viewport.clientWidth - 1
-        : viewport.scrollTop > 0 && viewport.scrollTop >= viewport.scrollHeight - viewport.clientHeight - 1
-    if (atEnd) {
-        for (let i = pages.length - 1; i >= 0; --i) {
-            const cr = pages[i].getBoundingClientRect()
-            if (horizontal ? cr.left < r.right : cr.top < r.bottom) {
-                return i
-            }
-        }
-    }
     let best = 0
     let bestDist = Infinity
     for (const c of pages) {
@@ -557,7 +550,7 @@ function goToPage(idx: number, behavior: ScrollBehavior = 'smooth'): void {
     const c = pages[Math.max(0, Math.min(pages.length - 1, idx))]
     // in a spread, scroll to the spread (its left page)
     const target = c.parentElement?.classList.contains('spread') ? c.parentElement : c
-    const gap = parseFloat(getComputedStyle(pagesDiv).paddingLeft) || 0
+    const gap = pageGap()
     const vr = viewport.getBoundingClientRect()
     const tr = target.getBoundingClientRect()
     if (settings.orientation === 'horizontal') {
@@ -565,6 +558,43 @@ function goToPage(idx: number, behavior: ScrollBehavior = 'smooth'): void {
     } else {
         viewport.scrollTo({ top: viewport.scrollTop + tr.top - vr.top - gap, behavior })
     }
+}
+
+/** shows the page (in a spread: the spread) in the middle of the view, horizontally and vertically */
+function centerPage(idx = currentPage()): void {
+    if (!pages.length) {
+        return
+    }
+    const c = pages[Math.max(0, Math.min(pages.length - 1, idx))]
+    const target = c.parentElement?.classList.contains('spread') ? c.parentElement : c
+    const vr = viewport.getBoundingClientRect()
+    const tr = target.getBoundingClientRect()
+    viewport.scrollLeft += tr.left + tr.width / 2 - (vr.left + viewport.clientWidth / 2)
+    viewport.scrollTop += tr.top + tr.height / 2 - (vr.top + viewport.clientHeight / 2)
+}
+
+function pageGap(): number {
+    return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--page-gap')) || 24
+}
+
+// the pages can be moved beyond their edges (like MuseScore's canvas) until this much of them is visible
+const MIN_VISIBLE = 48
+let pan = { x: 0, y: 0 }
+
+/** sets the space around the pages; the view keeps showing the same part of the pages */
+function updatePan(): void {
+    const next = {
+        x: Math.max(0, viewport.clientWidth - MIN_VISIBLE - pageGap()),
+        y: Math.max(0, viewport.clientHeight - MIN_VISIBLE - pageGap()),
+    }
+    if (next.x === pan.x && next.y === pan.y) {
+        return
+    }
+    pagesDiv.style.setProperty('--pan-x', `${next.x}px`)
+    pagesDiv.style.setProperty('--pan-y', `${next.y}px`)
+    viewport.scrollLeft += next.x - pan.x
+    viewport.scrollTop += next.y - pan.y
+    pan = next
 }
 
 function stepPage(dir: 1 | -1): void {
@@ -791,6 +821,7 @@ btn.spread.addEventListener('click', toggleSpread)
 btn.zoomIn.addEventListener('click', () => zoomStep(1))
 btn.zoomOut.addEventListener('click', () => zoomStep(-1))
 btn.print.addEventListener('click', () => void print())
+btn.center.addEventListener('click', () => centerPage())
 btn.fullscreen.addEventListener('click', toggleFullscreen)
 btn.help.addEventListener('click', () => helpDialog.showModal())
 helpDialog.addEventListener('close', () => viewport.focus({ preventScroll: true }))
