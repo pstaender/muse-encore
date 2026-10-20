@@ -18,6 +18,7 @@ import type { Text } from '../../dom/text'
 import type { XmlReader } from '../xmlreader'
 import { ReadContext } from './readcontext'
 import { StaffRead } from './staffread'
+import { ScoreOrder } from '../../dom/scoreorder'
 import { TRead } from './tread'
 import { ReadChordListHook } from '../compat/readchordlisthook'
 
@@ -103,7 +104,11 @@ export class Read460 {
                 const name = e.attribute('name')
                 score.setMetaTag(name, e.readText())
             } else if (tag === 'Order') {
-                e.skipCurrentElement() // TODO(port): ScoreOrder
+                const order = new ScoreOrder()
+                order.read(e)
+                if (order.isValid()) {
+                    score.setScoreOrder(order)
+                }
             } else if (tag === 'SystemObjects') {
                 score.clearSystemObjectStaves()
                 while (e.readNextStartElement()) {

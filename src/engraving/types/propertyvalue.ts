@@ -12,7 +12,7 @@
 import type { Color } from '../../framework/draw/types/color'
 import type { PointF, SizeF } from '../../framework/draw/types/geometry'
 import type { Spatium } from './dimension'
-import type { Fraction } from './fraction'
+import { Fraction } from './fraction'
 import type { Align } from './types'
 
 export enum P_TYPE {
@@ -115,6 +115,9 @@ export function propertyValueEquals(a: PropertyValue | undefined, b: PropertyVal
     }
     if (a === undefined || b === undefined || a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
         return false
+    }
+    if (a instanceof Fraction && b instanceof Fraction) {
+        return a.identical(b) // like C++ PropertyValue::operator== ("HACK Temporary hack for Fraction comparisons")
     }
     if (Array.isArray(a) && Array.isArray(b)) {
         return a.length === b.length && a.every((v, i) => propertyValueEquals(v as PropertyValue, b[i] as PropertyValue))

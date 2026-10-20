@@ -33,6 +33,15 @@ export class StringData {
     private m_frets = 0
     private m_useFlats = false
 
+    /** C++ copy constructor */
+    clone(): StringData {
+        const d = new StringData()
+        d.m_stringTable = this.m_stringTable.map(s => new InstrString(s.pitch, s.open, s.startFret, s.useFlat))
+        d.m_frets = this.m_frets
+        d.m_useFlats = this.m_useFlats
+        return d
+    }
+
     isNull(): boolean {
         return this.m_frets === 0 && this.m_stringTable.length === 0
     }

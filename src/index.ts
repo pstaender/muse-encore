@@ -13,12 +13,19 @@ import { Transform } from './framework/draw/types/transform'
 import { SvgGlyphDefs, SvgPaintProvider } from './framework/draw/svgpaintprovider'
 import { PointF, RectF } from './framework/draw/types/geometry'
 import { Fraction } from './engraving/types/fraction'
-import { DPI } from './engraving/types/types'
+import { DPI, DurationType, Key } from './engraving/types/types'
+import { TimeSigType } from './engraving/dom/timesig'
+import { ScoreOrder } from './engraving/dom/scoreorder'
+import {
+    TraitType, instrumentGenres as engravingInstrumentGenres, instrumentGroups, instrumentOrders, searchTemplate,
+} from './engraving/dom/instrtemplate'
+import { NotationProject, ProjectCreateOptions } from './project/internal/notationproject'
 import { Sid } from './engraving/style/styledef'
 import { fontProvider } from './engraving/infrastructure/engravingcontext'
-import { loadScore as loadMasterScore } from './engraving/rw/mscloader'
+import { MscLoader, loadScore as loadMasterScore } from './engraving/rw/mscloader'
+import { MscReader } from './engraving/infrastructure/mscreader'
 import { EngravingCompat } from './engraving/compat/engravingcompat'
-import type { MasterScore } from './engraving/dom/masterscore'
+import { MasterScore } from './engraving/dom/masterscore'
 import { ScoreRenderer } from './engraving/rendering/score/scorerenderer'
 import { Paint } from './engraving/rendering/score/paint'
 
@@ -35,6 +42,21 @@ export {
 /** Reads a .mscz (zip) or .mscx (xml) file. Fonts must be initialized before (initEngravingFonts). */
 export function loadScore(data: Uint8Array | ArrayBuffer): MasterScore {
     return loadMasterScore(data)
+}
+
+/**
+ * Loads a template of share/templates (the .mscx file and the score_style.mss of its directory) as it is, e.g. for a
+ * preview (MuseScore's TemplatePaintView); lay it out with layoutScore(). New scores are made with createScore().
+ */
+export function loadTemplate(mscx: string, style?: string | null): MasterScore {
+    const encoder = new TextEncoder()
+    const files = new Map<string, Uint8Array>([['template.mscx', encoder.encode(mscx)]])
+    if (style) {
+        files.set('score_style.mss', encoder.encode(style))
+    }
+    const score = new MasterScore()
+    new MscLoader().loadMscz(score, MscReader.fromFiles(files, { mainFileName: 'template.mscx' }))
+    return score
 }
 
 /** Lays out the whole score (pages, systems, measures, ...) */
@@ -146,4 +168,203 @@ export function drawPageSvg(score: MasterScore, pageIdx: number, options: DrawPa
     const size = pageSize(score, pageIdx)
     const bbox = score.pages()[pageIdx]?.ldata().bbox() ?? new RectF(0, 0, size.width * DPI, size.height * DPI)
     return provider.svg(`${size.width}in`, `${size.height}in`, bbox, !options.defs)
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+//   new scores (MuseScore's New Score dialog)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Key.INVALID: "Open/Atonal" in the New Score dialog */
+export const KEY_ATONAL: number = Key.INVALID
+
+export type NewScoreTempoDuration = 'whole' | 'half' | 'quarter' | 'eighth' | '16th'
+
+export interface NewScoreOptions {
+    title?: string
+    subtitle?: string
+    composer?: string
+    lyricist?: string
+    copyright?: string
+    /** instrument template ids in score order (from instrumentGroupList()); ignored when templateMscx is given */
+    instruments: { id: string; soloist?: boolean }[]
+    /**
+     * score order id from scoreOrders(), or 'custom' (C++ customOrder()); like InstrumentsRepository::order() an
+     * unknown id (incl. 'custom' and undefined) gives an empty order, which sets no brackets
+     */
+    order?: string
+    /** the user moved instruments out of the order (C++ ScoreOrder::customized) */
+    orderCustomized?: boolean
+    /** a template file's contents (.mscx text from MuseScore/share/templates) instead of instruments */
+    templateMscx?: string
+    /** the score_style.mss of the template's directory (MuseScore reads it with the template, it holds the style) */
+    templateStyle?: string
+    /** Key -7..7 (C♭ major .. C♯ major), KEY_ATONAL for open/atonal */
+    key: number
+    timesig: { numerator: number; denominator: number }
+    timesigType: 'normal' | 'common' | 'cut'
+    /** number of measures (without the pickup measure) */
+    measures: number
+    /** pickup measure (anacrusis) length; null/undefined = no pickup measure */
+    pickup?: { numerator: number; denominator: number } | null
+    /** tempo marking; null/undefined = none */
+    tempo?: { bpm: number; duration: NewScoreTempoDuration; dot: boolean } | null
+}
+
+/** the dialog's default tempo and pickup (used when the user enables them) */
+export const DEFAULT_NEW_SCORE_TEMPO: Readonly<{ bpm: number; duration: NewScoreTempoDuration; dot: boolean }> =
+    Object.freeze({ bpm: 120, duration: 'quarter', dot: false })
+export const DEFAULT_NEW_SCORE_PICKUP: Readonly<{ numerator: number; denominator: number }> = Object.freeze({ numerator: 1, denominator: 4 })
+
+/** the defaults of the New Score dialog (AdditionalInfoModel::init): C major, 4/4, 32 measures, no tempo, no pickup */
+export function defaultNewScoreOptions(): NewScoreOptions {
+    return {
+        instruments: [],
+        key: Key.C,
+        timesig: { numerator: 4, denominator: 4 },
+        timesigType: 'normal',
+        measures: 32,
+        pickup: null,
+        tempo: null,
+    }
+}
+
+const TEMPO_DURATIONS: Record<NewScoreTempoDuration, DurationType> = {
+    whole: DurationType.V_WHOLE, half: DurationType.V_HALF, quarter: DurationType.V_QUARTER, eighth: DurationType.V_EIGHTH,
+    '16th': DurationType.V_16TH,
+}
+
+/** InstrumentsRepository::order(): a copy of the order with that id, an empty order if there is none */
+function repositoryOrder(orderId: string | undefined): ScoreOrder {
+    const order = instrumentOrders().find(o => o.id === orderId)
+    return order ? order.clone() : new ScoreOrder()
+}
+
+/**
+ * Creates and lays out a new score like MuseScore's New Score dialog (NewScoreModel::parseOptions,
+ * NotationProject::createNew / loadTemplate). Deterministic for the same options.
+ */
+export function createScore(options: NewScoreOptions): MasterScore {
+    const projectOptions = new ProjectCreateOptions()
+    projectOptions.title = options.title ?? ''
+    projectOptions.subtitle = options.subtitle ?? ''
+    projectOptions.composer = options.composer ?? ''
+    projectOptions.lyricist = options.lyricist ?? ''
+    projectOptions.copyright = options.copyright ?? ''
+    if (options.templateMscx !== undefined) {
+        const encoder = new TextEncoder()
+        projectOptions.template = {
+            mscx: encoder.encode(options.templateMscx),
+            style: options.templateStyle ? encoder.encode(options.templateStyle) : null,
+        }
+    }
+
+    const scoreOptions = projectOptions.scoreOptions
+    scoreOptions.withTempo = !!options.tempo
+    if (options.tempo) {
+        scoreOptions.tempo.valueBpm = options.tempo.bpm
+        scoreOptions.tempo.duration = TEMPO_DURATIONS[options.tempo.duration] ?? DurationType.V_QUARTER
+        scoreOptions.tempo.withDot = options.tempo.dot
+    }
+    scoreOptions.timesigType = options.timesigType === 'common' ? TimeSigType.FOUR_FOUR
+        : options.timesigType === 'cut' ? TimeSigType.ALLA_BREVE : TimeSigType.NORMAL
+    scoreOptions.globalTimesig = new Fraction(options.timesig.numerator, options.timesig.denominator)
+    scoreOptions.key = options.key as Key
+    scoreOptions.totalMeasures = options.measures
+    scoreOptions.withPickupMeasure = !!options.pickup
+    if (options.pickup) {
+        scoreOptions.pickupTimesig = new Fraction(options.pickup.numerator, options.pickup.denominator)
+    }
+
+    if (!projectOptions.template) {
+        for (const instr of options.instruments) {
+            const t = searchTemplate(instr.id)
+            if (!t) {
+                throw new Error(`unknown instrument template: ${instr.id}`)
+            }
+            scoreOptions.parts.push({ partId: '', instrumentTemplate: t, isExistingPart: false, isSoloist: !!instr.soloist })
+        }
+    }
+
+    scoreOptions.order = repositoryOrder(options.order)
+    scoreOptions.order.customized = !!options.orderCustomized
+
+    const score = new NotationProject().createNew(projectOptions)
+    s_compatDone.add(score) // laid out like MuseScore does for a new score (once, no compatibility conversions)
+    return score
+}
+
+export interface InstrumentTemplateInfo {
+    id: string
+    groupId: string
+    familyId: string
+    trackName: string
+    longName: string
+    shortName: string
+    description: string
+    /** genre ids (instrumentGenres()) */
+    genres: readonly string[]
+    trait: { type: 'tuning' | 'transposition' | 'course' | 'unknown' | ''; name: string; isDefault: boolean; isHiddenOnScore: boolean }
+    staffCount: number
+    /** C++ InstrumentTemplate::sequenceOrder (the index in its instruments.xml group, used by instrumentSortingIndex()) */
+    sequenceOrder: number
+}
+
+function traitTypeName(t: TraitType): 'tuning' | 'transposition' | 'course' | 'unknown' {
+    return t === TraitType.Tuning ? 'tuning' : t === TraitType.Transposition ? 'transposition' : t === TraitType.Course ? 'course' : 'unknown'
+}
+
+let s_groupList: { id: string; name: string; templates: readonly InstrumentTemplateInfo[] }[] | null = null
+
+/** genres of instruments.xml (id + English name) */
+export function instrumentGenres(): readonly { id: string; name: string }[] {
+    return engravingInstrumentGenres().map(g => ({ id: g.id, name: g.name }))
+}
+
+/**
+ * The instrument groups with their templates in the order of instruments.xml (like InstrumentsRepository: only
+ * templates with a track name and a long name).
+ */
+export function instrumentGroupList(): readonly { id: string; name: string; templates: readonly InstrumentTemplateInfo[] }[] {
+    s_groupList ??= instrumentGroups().map(g => ({
+        id: g.id,
+        name: g.name,
+        templates: g.instrumentTemplates.filter(t => t.trackName && t.longNames.length).map(t => ({
+            id: t.id,
+            groupId: t.groupId,
+            familyId: t.familyId(),
+            trackName: t.trackName,
+            longName: t.longNames[0]?.name() ?? '',
+            shortName: t.shortNames[0]?.name() ?? '',
+            description: t.description,
+            genres: t.genres.map(ig => ig.id),
+            trait: {
+                type: t.trait.name || t.trait.type !== TraitType.Unknown ? traitTypeName(t.trait.type) : '',
+                name: t.trait.name,
+                isDefault: t.trait.isDefault,
+                isHiddenOnScore: t.trait.isHiddenOnScore,
+            },
+            staffCount: t.staffCount,
+            sequenceOrder: t.sequenceOrder,
+        })),
+    }))
+    return s_groupList
+}
+
+/** the score orders of orders.xml (id + English name); 'custom' is not in the list (C++ customOrder()) */
+export function scoreOrders(): readonly { id: string; name: string }[] {
+    return instrumentOrders().map(o => ({ id: o.id, name: o.name }))
+}
+
+/** ScoreOrder::instrumentSortingIndex of that order (0 for 'custom' and unknown orders: the order is kept) */
+export function instrumentSortingIndex(orderId: string, instrumentId: string, isSoloist: boolean): number {
+    const order = instrumentOrders().find(o => o.id === orderId)
+    return order ? order.instrumentSortingIndex(instrumentId, isSoloist) : 0
+}
+
+/** ScoreOrder::isScoreOrder: true if the sorting indices are in ascending order (always true for 'custom') */
+export function isScoreOrder(orderId: string, indices: readonly number[]): boolean {
+    if (orderId === 'custom') {
+        return true
+    }
+    return repositoryOrder(orderId).isScoreOrder(indices)
 }

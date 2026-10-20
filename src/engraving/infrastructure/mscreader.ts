@@ -40,6 +40,14 @@ export class MscReader {
         }
     }
 
+    /** C++ MscIoMode::Dir: the files of an unpacked score directory (e.g. a template: <name>.mscx, score_style.mss) */
+    static fromFiles(files: ReadonlyMap<string, Uint8Array>, params: MscReaderParams = {}): MscReader {
+        const r = new MscReader(new Uint8Array(0), params)
+        r.m_xmlData = null
+        r.m_files = new Map(files)
+        return r
+    }
+
     isOpened(): boolean { return this.m_files !== null || this.m_xmlData !== null }
 
     isContainer(): boolean { return this.m_files !== null }

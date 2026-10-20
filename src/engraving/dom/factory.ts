@@ -17,6 +17,7 @@ import { Articulation } from './articulation'
 import { BarLine } from './barline'
 import { Beam } from './beam'
 import { HBox, TBox, VBox, FBox } from './box'
+import { Fraction } from '../types/fraction'
 import { Bracket } from './bracket'
 import { BracketItem } from './bracketitem'
 import { Chord } from './chord'
@@ -221,6 +222,13 @@ export class Factory {
         const s = new StemSlash(parent)
         s.setScore(parent.score())
         return s
+    }
+
+    static createTitleVBox(parent: System): VBox {
+        const b = new VBox(parent)
+        b.setSizeIsSpatiumDependent(false)
+        b.setTick(new Fraction(0, 1))
+        return b
     }
 
     static createStaff(part: Part): Staff {

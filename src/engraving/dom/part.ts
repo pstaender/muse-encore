@@ -42,6 +42,13 @@ export class Part extends EngravingObject {
     nstaves(): number { return this.m_staves.length }
     staves(): readonly Staff[] { return this.m_staves }
     appendStaff(staff: Staff): void { this.m_staves.push(staff) }
+    insertStaff(staff: Staff, idx: staff_idx_t): void {
+        if (idx >= this.m_staves.length) {
+            idx = this.m_staves.length
+        }
+        this.m_staves.splice(idx, 0, staff)
+        staff.setPart(this)
+    }
     clearStaves(): void { this.m_staves = [] }
     staff(idx: number): Staff | null { return this.m_staves[idx] ?? null }
 
@@ -74,6 +81,33 @@ export class Part extends EngravingObject {
         this.m_instruments.setInstrument(i, tick.ticks())
     }
 
+    insertTime(tick: Fraction, len: Fraction): void {
+        if (len.isZero()) {
+            return
+        }
+
+        // move all instruments
+
+        if (len.lt(new Fraction(0, 1))) {
+            // remove instruments between tickpos >= tick and tickpos < (tick+len)
+            // ownership goes back to class InstrumentChange()
+            this.m_instruments.eraseRange(this.m_instruments.lowerBound(tick.ticks()), this.m_instruments.lowerBound(tick.minus(len).ticks()))
+            // TODO(port): harp pedal diagrams
+        }
+
+        const il: [number, Instrument][] = []
+        for (let i = this.m_instruments.lowerBound(tick.ticks()); i < this.m_instruments.size();) {
+            il.push([this.m_instruments.keyAt(i) + len.ticks(), this.m_instruments.valueAt(i)])
+            this.m_instruments.eraseAt(i)
+        }
+        for (const [t, instrument] of il) {
+            if (!this.m_instruments.has(t)) { // std::map::insert: existing keys are kept
+                this.m_instruments.set(t, instrument)
+            }
+        }
+        // TODO(port): harp pedal diagrams, capo
+    }
+
     removeInstrument(tick: Fraction): void {
         this.m_instruments.erase(tick.ticks())
     }
@@ -90,6 +124,9 @@ export class Part extends EngravingObject {
         const nl = this.shortNames(tick)
         return nl.length ? nl[0].name() : ''
     }
+
+    setLongName(s: string): void { this.instrument().setLongName(s) }
+    setShortName(s: string): void { this.instrument().setShortName(s) }
 
     instrumentName(tick: Fraction = new Fraction(-1, 1)): string { return this.instrument(tick).trackName() }
     instrumentId(tick: Fraction = new Fraction(-1, 1)): string { return this.instrument(tick).id() }

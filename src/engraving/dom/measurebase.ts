@@ -535,6 +535,26 @@ export class MeasureBaseList {
         el.setPrev(m)
     }
 
+    /** insert the linked range fm..lm (fm.prev() and lm.next() are set); the tick index is updated by setUpTempoMap() */
+    insert(fm: MeasureBase, lm: MeasureBase): void {
+        for (let m: MeasureBase | null = fm; m !== lm; m = m!.next()) {
+            ++this.m_size
+        }
+        ++this.m_size
+        const pm = fm.prev()
+        if (pm) {
+            pm.setNext(fm)
+        } else {
+            this.m_first = fm
+        }
+        const nm = lm.next()
+        if (nm) {
+            nm.setPrev(lm)
+        } else {
+            this.m_last = lm
+        }
+    }
+
     remove(m: MeasureBase): void {
         --this.m_size
         if (m.prev()) {

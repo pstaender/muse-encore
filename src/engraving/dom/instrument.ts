@@ -8,12 +8,14 @@
  */
 
 import { SortedMap } from '../../framework/global/sortedmap'
-import { ClefType } from '../types/types'
+import { ClefType, GlissandoStyle } from '../types/types'
 import { ClefTypeList } from './clefinfo'
 import { Interval } from './interval'
 import { StringData } from './stringdata'
 import { type Drumset, smDrumset } from './drumset'
-import { instrumentGroups, searchTemplate, searchTemplateForInstrNameList, searchTemplateForMidiProgram } from './instrtemplate'
+import {
+    instrumentGroups, searchTemplate, searchTemplateForInstrNameList, searchTemplateForMidiProgram, type InstrumentTemplate,
+} from './instrtemplate'
 
 export class StaffName {
     constructor(private m_name = '', private m_pos = 0) {} // html string; even number -> between staves
@@ -29,6 +31,24 @@ export class StaffName {
 }
 
 export type StaffNameList = StaffName[]
+
+export enum TraitType {
+    Unknown,
+    Tuning,
+    Transposition,
+    Course,
+}
+
+export class Trait {
+    name = ''
+    type = TraitType.Unknown
+    isDefault = false
+    isHiddenOnScore = false
+
+    isValid(): boolean { return this.name.length > 0 }
+    clone(): Trait { return Object.assign(new Trait(), this) }
+}
+
 
 /** InstrChannel: only name, bank and program (used to recognize the instrument of old scores); no playback data */
 export class InstrChannel {
@@ -65,8 +85,64 @@ export class Instrument {
     private m_channel: InstrChannel[] = []
     // TODO(port): articulations, MIDI actions
     private m_stringData = new StringData()
+    private m_singleNoteDynamics = true
+    private m_trait = new Trait()
+    private m_glissandoStyle = GlissandoStyle.CHROMATIC
 
     constructor(private m_id = '') {}
+
+    static fromTemplate(templ: InstrumentTemplate): Instrument {
+        const instrument = new Instrument(templ.id)
+        instrument.setSoundId(templ.soundId)
+        instrument.setAmateurPitchRange(templ.minPitchA, templ.maxPitchA)
+        instrument.setProfessionalPitchRange(templ.minPitchP, templ.maxPitchP)
+
+        for (const sn of templ.longNames) {
+            instrument.addLongName(new StaffName(sn.name(), sn.pos()))
+        }
+
+        for (const sn of templ.shortNames) {
+            instrument.addShortName(new StaffName(sn.name(), sn.pos()))
+        }
+
+        instrument.setTrackName(templ.trackName)
+        instrument.setTranspose(templ.transpose.clone())
+        instrument.setMusicXmlId(templ.musicXmlId)
+        instrument.m_useDrumset = templ.useDrumset
+
+        if (templ.useDrumset) {
+            instrument.setDrumset(templ.drumset ? templ.drumset : smDrumset())
+        }
+
+        for (let i = 0; i < templ.staffCount; ++i) {
+            instrument.setClefType(i, templ.clefTypes[i].clone())
+        }
+
+        // TODO(port): MIDI actions, articulations
+        instrument.m_channel = []
+
+        for (const c of templ.channel) {
+            const ch = new InstrChannel()
+            ch.setName(c.name)
+            ch.setBank(c.bank)
+            ch.setProgram(c.program)
+            instrument.m_channel.push(ch)
+        }
+
+        if (instrument.m_channel.length === 0) {
+            const fallbackChannel = new InstrChannel()
+            fallbackChannel.setName(InstrChannel.DEFAULT_NAME)
+            // TODO(port): fallbackChannel->setProgram(instrument.recognizeMidiProgram())
+            instrument.m_channel.push(fallbackChannel)
+        }
+
+        instrument.setStringData(templ.stringData.clone())
+        instrument.setSingleNoteDynamics(templ.singleNoteDynamics)
+        instrument.setTrait(templ.trait.clone())
+        instrument.m_glissandoStyle = templ.glissandoStyle
+
+        return instrument
+    }
 
     /** C++ Instrument::operator=() / copy constructor */
     assign(i: Instrument): void {
@@ -77,6 +153,8 @@ export class Instrument {
         this.m_clefType = i.m_clefType.map(c => c.clone())
         this.m_drumset = i.m_drumset ? i.m_drumset.clone() : null
         this.m_channel = i.m_channel.map(c => c.clone())
+        this.m_stringData = i.m_stringData.clone()
+        this.m_trait = i.m_trait.clone()
     }
 
     channel(idx: number): InstrChannel | null { return this.m_channel[idx] ?? null }
@@ -159,7 +237,7 @@ export class Instrument {
         let bestMatchStrength = 0 // higher when ID is a better match
 
         for (const g of instrumentGroups()) {
-            for (const it of g) {
+            for (const it of g.instrumentTemplates) {
                 if (it.musicXmlId !== this.m_musicXmlId) {
                     continue
                 }
@@ -219,6 +297,12 @@ export class Instrument {
 
     id(): string { return this.m_id }
     stringData(): StringData { return this.m_stringData }
+    setStringData(d: StringData): void { this.m_stringData = d }
+    singleNoteDynamics(): boolean { return this.m_singleNoteDynamics }
+    setSingleNoteDynamics(v: boolean): void { this.m_singleNoteDynamics = v }
+    trait(): Trait { return this.m_trait }
+    setTrait(t: Trait): void { this.m_trait = t }
+    glissandoStyle(): GlissandoStyle { return this.m_glissandoStyle }
     hasStrings(): boolean { return this.m_stringData.strings() > 0 }
     setId(id: string): void { this.m_id = id }
     instrumentId(): string { return this.m_instrumentId }
@@ -245,6 +329,8 @@ export class Instrument {
 
     appendLongName(n: StaffName): void { this.m_longNames.push(n) }
     appendShortName(n: StaffName): void { this.m_shortNames.push(n) }
+    addLongName(n: StaffName): void { this.m_longNames.push(n) }
+    addShortName(n: StaffName): void { this.m_shortNames.push(n) }
 
     musicXmlId(): string { return this.m_musicXmlId }
     setMusicXmlId(id: string): void { this.m_musicXmlId = id }
@@ -269,7 +355,7 @@ export class Instrument {
 
     /** the family of the instrument template (instruments.xml) */
     family(): string {
-        return searchTemplate(this.m_id)?.familyId ?? ''
+        return searchTemplate(this.m_id)?.familyId() ?? ''
     }
 
     isVocalInstrument(): boolean {
@@ -321,6 +407,8 @@ export class Instrument {
     setMaxPitchA(v: number): void { this.m_maxPitchA = v }
     setMinPitchP(v: number): void { this.m_minPitchP = v }
     setMaxPitchP(v: number): void { this.m_maxPitchP = v }
+    setAmateurPitchRange(a: number, b: number): void { this.m_minPitchA = a; this.m_maxPitchA = b }
+    setProfessionalPitchRange(a: number, b: number): void { this.m_minPitchP = a; this.m_maxPitchP = b }
 }
 
 const defaultInstrument = new Instrument()

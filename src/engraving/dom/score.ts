@@ -9,7 +9,7 @@
 
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
-import { ElementType, TextStyleType, VOICES, type staff_idx_t, type track_idx_t } from '../types/types'
+import { DPI, ElementType, INCH, Key, TextStyleType, VOICES, type staff_idx_t, type track_idx_t } from '../types/types'
 import { Sid } from '../style/styledef'
 import { SymId } from '../types/symid'
 import { MStyle } from '../style/style'
@@ -19,7 +19,7 @@ import { EngravingObject } from './engravingobject'
 import type { EngravingItem } from './engravingitem'
 import { MeasureBaseList, type MeasureBase } from './measurebase'
 import { SegmentType, type Segment } from './segment'
-import { TimeSigMap, TimeSigFrac, BeatType } from './sig'
+import { TimeSigMap, TimeSigFrac, BeatType, SigEvent } from './sig'
 import { Pid } from './property'
 import type { Measure } from './measure'
 import type { ChordRest } from './chordrest'
@@ -33,6 +33,11 @@ import type { Spanner } from './spanner'
 import type { Text } from './text'
 import { SystemLocks, type SystemLock } from './systemlock'
 import { ChordList } from './chordlist'
+import { ScoreOrder } from './scoreorder'
+import type { TimeSig } from './timesig'
+import { KeyList, KeySigEvent } from './key'
+import { Transpose } from '../editing/transpose'
+import { Interval } from './interval'
 
 export enum LayoutMode {
     PAGE, FLOAT, LINE, SYSTEM, HORIZONTAL_FIXED,
@@ -114,6 +119,7 @@ export class Score extends EngravingObject {
     protected m_markIrregularMeasures = true
     protected m_showInstrumentNames = true
     protected m_printing = false
+    protected m_scoreOrder = new ScoreOrder()
 
     constructor() {
         super(ElementType.SCORE, null)
@@ -206,11 +212,255 @@ export class Score extends EngravingObject {
         this.m_parts.push(part)
     }
 
+    insertPart(part: Part | null, targetPartIdx: number): void {
+        if (!part) {
+            return
+        }
+
+        part.setScore(this)
+        this.assignIdIfNeed(part)
+
+        if (targetPartIdx < this.m_parts.length) {
+            this.m_parts.splice(targetPartIdx, 0, part)
+        } else {
+            this.m_parts.push(part)
+        }
+
+        // TODO(port): masterScore()->rebuildMidiMapping(), setInstrumentsChanged(true), markInstrumentsAsPrimary(m_parts)
+    }
+
+    /** C++ Score::assignIdIfNeed(Part&/Staff&); TODO(port): ids are numbered here, not muse::ID random-ish values */
+    assignIdIfNeed(object: Part | Staff): void {
+        if (object.id()) {
+            return
+        }
+        const list: readonly (Part | Staff)[] = object.isStaff() ? this.m_staves : this.m_parts
+        let id = 1
+        for (const o of list) {
+            id = Math.max(id, (parseInt(o.id(), 10) || 0) + 1)
+        }
+        object.setId(String(id))
+    }
+
     staves(): Staff[] { return this.m_staves }
     nstaves(): number { return this.m_staves.length }
     ntracks(): number { return this.m_staves.length * VOICES }
     staff(n: number): Staff | null { return n >= 0 && n < this.m_staves.length ? this.m_staves[n] : null }
     staffIdx(staff: Staff): staff_idx_t { return this.m_staves.indexOf(staff) }
+
+    /** C++ Score::staffIdx(const Part*): index of the first staff of the part */
+    staffIdxOfPart(part: Part): staff_idx_t {
+        let idx = 0
+        for (const p of this.m_parts) {
+            if (p === part) {
+                break
+            }
+            idx += p.nstaves()
+        }
+        return idx
+    }
+
+    insertStaff(staff: Staff | null, ridx: staff_idx_t): void {
+        if (!staff || !staff.part()) {
+            return
+        }
+
+        this.assignIdIfNeed(staff)
+        staff.part().insertStaff(staff, ridx)
+
+        const idx = this.staffIdxOfPart(staff.part()) + ridx
+        this.m_staves.splice(idx, 0, staff)
+
+        // TODO(port): move spanners down (moveDownWhenAddingStaves), updateStavesNumberForSystems()
+    }
+
+    /** staves which are not linked to another staff; TODO(port): linked staves */
+    uniqueStaves(): staff_idx_t[] {
+        return this.m_staves.map((_s, i) => i)
+    }
+
+    insertTime(tick: Fraction, len: Fraction): void {
+        for (const staff of this.staves()) {
+            staff.insertTime(tick, len)
+        }
+        for (const part of this.parts()) {
+            part.insertTime(tick, len)
+        }
+        // TODO(port): automation (playback)
+    }
+
+    /** the key list of the first pitched staff (intersection with the other staves), normalized to concert pitch */
+    keyList(): KeyList {
+        // find the keylist of the first pitched staff
+        let tmpKeymap = new KeyList()
+        let firstStaff: Staff | null = null
+        let isFirstStaff = true
+        for (const s of this.masterScore().staves()) {
+            if (!s.isDrumStaff(new Fraction(0, 1))) {
+                const km = s.keyList()
+                if (isFirstStaff) {
+                    isFirstStaff = false
+                    for (const [k, v] of km.entries()) {
+                        tmpKeymap.set(k, v)
+                    }
+                    firstStaff = s
+                    continue
+                }
+
+                // in terms of ticks, tmpKeymap = intersection(tmpKeymap, km)
+                // note that if every single staff has a custom local keysig on this tick,
+                // we will just copy the one from the top staff.
+                const kl = new KeyList()
+                for (const [k, v] of tmpKeymap.entries()) {
+                    if (km.has(k)) {
+                        kl.set(k, v)
+                    }
+                }
+                tmpKeymap = kl
+            }
+        }
+        let normalizedC = Key.C
+        const needNormalize = !!firstStaff && !this.masterScore().style().styleB(Sid.concertPitch)
+            && (firstStaff.part().instrument().transpose().chromatic !== 0 || firstStaff.part().instruments().size() > 1)
+        // normalize the keyevents to concert pitch if necessary
+        const nkl = new KeyList()
+        for (const [k, v] of tmpKeymap.entries()) {
+            if (firstStaff && !v.forInstrumentChange()) {
+                const key = v.clone()
+                if (needNormalize) {
+                    key.setKey(key.concertKey())
+                }
+                nkl.set(k, key)
+            }
+        }
+        if (needNormalize) {
+            const interval = firstStaff!.part().instrument().transpose().chromatic
+            normalizedC = Transpose.transposeKey(normalizedC, Interval.fromChromatic(interval))
+        }
+
+        // create initial keyevent for transposing instrument if necessary
+        if (nkl.empty() || nkl.keyAt(0) !== 0) {
+            const ke = nkl.get(0) ?? new KeySigEvent()
+            ke.setConcertKey(normalizedC)
+            nkl.set(0, ke)
+        }
+
+        return nkl
+    }
+
+    scoreOrder(): ScoreOrder {
+        const order = this.m_scoreOrder.clone()
+        order.customized = !order.isScoreOrderOfScore(this)
+        return order
+    }
+
+    setScoreOrder(order: ScoreOrder): void { this.m_scoreOrder = order }
+
+    setBracketsAndBarlines(): void {
+        this.scoreOrder().setBracketsAndBarlines(this)
+    }
+
+    /**
+     * update measure ticks and the time signature map; this is needed after inserting or removing a measure,
+     * changing the sigmap or inserting/deleting time.
+     * TODO(port): tempo map (playback), repeat list tempo, anacrusis tempo
+     */
+    setUpTempoMap(): void {
+        let tick = new Fraction(0, 1)
+        const fm = this.firstMeasure()
+        if (!fm) {
+            return
+        }
+
+        for (const staff of this.m_staves) {
+            staff.clearTimeSig()
+        }
+
+        if (this.isMaster()) {
+            this.sigmap().clear()
+            this.sigmap().addSig(0, new SigEvent(fm.ticks(), fm.timesig(), 0))
+        }
+
+        for (let mb = this.first(); mb; mb = mb.next()) {
+            if (!mb.isMeasure()) {
+                mb.setTick(tick)
+                continue
+            }
+            const m = mb as Measure
+            const mtick = m.tick()
+            const diff = tick.minus(mtick)
+            const measureTicks = m.ticks()
+            m.moveTicks(diff)
+            if (m.mmRest()) {
+                m.mmRest()!.moveTicks(diff)
+            }
+
+            this.rebuildTempoAndTimeSigMaps(m)
+
+            tick = tick.plus(measureTicks)
+        }
+
+        this.m_measures.updateTickIndex()
+    }
+
+    /** updates the time signature map for a measure; TODO(port): tempo map, pauses, fermatas */
+    rebuildTempoAndTimeSigMaps(measure: Measure): void {
+        for (let segment = measure.first(); segment; segment = segment.next()) {
+            if (segment.isTimeSigType()) {
+                for (let staffIdx = 0; staffIdx < this.m_staves.length; ++staffIdx) {
+                    const ts = segment.element(staffIdx * VOICES) as TimeSig | null
+                    if (ts) {
+                        this.staff(staffIdx)!.addTimeSig(ts)
+                    }
+                }
+            }
+        }
+
+        // update time signature map
+        // create event if measure len and time signature are different
+        // even if they are equivalent 4/4 vs 2/2
+        // also check if nominal time signature has changed
+
+        if (this.isMaster()) {
+            const m = measure
+            const mTicks = m.isMMRest() ? m.mmRestFirst()!.ticks() : m.ticks() // for time signature the underlying measure length matters for MM rests
+
+            const pm = measure.prevMeasure()
+            // prevMeasure() doesn't return MM rest so we don't handle it here
+
+            if (pm && (!mTicks.identical(pm.ticks()) || !m.timesig().identical(pm.timesig()))) {
+                this.sigmap().addSig(m.tick().ticks(), new SigEvent(mTicks, m.timesig(), m.no()))
+            }
+        }
+    }
+
+    autoUpdateSpatium(): void {
+        const breathingSpace = 2.5 // allow breathing space between staves
+        const minStaffHeight = 2.0 // never make staff smaller than 2.0 mm
+        const maxStaffHeight = 7.0 // never make staff bigger than 7.0 mm (default value)
+
+        let availableHeight = (this.style().styleD(Sid.pageHeight)
+                               - this.style().styleD(Sid.pageOddTopMargin)
+                               - this.style().styleD(Sid.pageOddBottomMargin)) * DPI // convert from inches to DPI
+        const titleHeight = (!this.measures().empty() && this.measures().first()!.isVBox()) ? this.measures().first()!.height() : 0.0
+        availableHeight -= titleHeight
+        const totalNeededSpaces = 4 * this.m_staves.length * breathingSpace
+        let targetSpatium = availableHeight / totalNeededSpaces
+
+        let resultingStaffHeight = 4 * targetSpatium / DPI * INCH // conversion from DPI to mm
+        resultingStaffHeight = Math.round(resultingStaffHeight * 10) / 10 // round to nearest 0.1 mm
+        if (resultingStaffHeight > maxStaffHeight) {
+            return
+        }
+        if (resultingStaffHeight < minStaffHeight) {
+            resultingStaffHeight = minStaffHeight
+        }
+
+        targetSpatium = (resultingStaffHeight / 4) * DPI / INCH
+
+        this.style().setSpatium(targetSpatium)
+        this.styleChanged() // C++ createPaddingTable(); the padding table is computed by the layout here
+    }
 
     appendStaff(staff: Staff): void {
         staff.part().appendStaff(staff)
@@ -226,6 +476,14 @@ export class Score extends EngravingObject {
     }
 
     systemObjectStaves(): Staff[] { return this.m_systemObjectStaves }
+    systemObjectStavesWithTopStaff(): Staff[] {
+        const result: Staff[] = []
+        const topStaff = this.staff(0)
+        if (topStaff) {
+            result.push(topStaff)
+        }
+        return [...result, ...this.m_systemObjectStaves]
+    }
     clearSystemObjectStaves(): void { this.m_systemObjectStaves = [] }
     addSystemObjectStaff(staff: Staff): void {
         if (!this.m_systemObjectStaves.includes(staff)) {

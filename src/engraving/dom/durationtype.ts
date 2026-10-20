@@ -8,6 +8,8 @@
 
 import { Fraction } from '../types/fraction'
 import { DurationType, DurationTypeWithDots, NoteHeadType } from '../types/types'
+import { BeatType, type TimeSigFrac } from './sig'
+import type { Measure } from './measure'
 
 export const MAX_DOTS = 4
 
@@ -352,4 +354,240 @@ export function toDurationList(l: Fraction, useDots: boolean, maxDots = 4, print
         }
     }
     return dList
+}
+
+/**
+ * Port of toRhythmicDurationList()
+ *  - l and rtickStart are in local (stretched) time
+ *  - returned durations are in local time
+ */
+export function toRhythmicDurationList(l: Fraction, isRest: boolean, rtickStart: Fraction, nominal: TimeSigFrac, msr: Measure,
+    maxDots: number, timeStretch: Fraction = new Fraction(1, 1)): TDuration[] {
+    if (!l.gt(new Fraction(0, 1))) {
+        return []
+    }
+
+    const dList: TDuration[] = []
+
+    if (msr.isAnacrusis()) {
+        rtickStart = rtickStart.plus(msr.anacrusisOffset().times(timeStretch))
+    } else if (isRest && l.eq(msr.ticks().times(timeStretch))) {
+        dList.push(new TDuration(DurationType.V_MEASURE))
+        return dList
+    }
+
+    if (nominal.isCompound()) {
+        splitCompoundBeatsForList(dList, l, isRest, rtickStart, nominal, maxDots)
+    } else {
+        populateRhythmicList(dList, l, isRest, rtickStart, nominal, maxDots)
+    }
+
+    return dList
+}
+
+export function populateRhythmicList(dList: TDuration[], l: Fraction, isRest: boolean, rtickStart: Fraction, nominal: TimeSigFrac,
+    maxDots: number): void {
+    const rtickEnd = rtickStart.plus(l)
+
+    let needToSplit = false // do we need to split?
+    let rtickSplit = 0 // tick to split on if we need to
+
+    // CHECK AT SUBBEAT LEVEL
+
+    const startLevel = nominal.rtick2subbeatLevel(rtickStart.ticks())
+    const endLevel = nominal.rtick2subbeatLevel(rtickEnd.ticks())
+    const [strongestLevelCrossed, split] = nominal.strongestSubbeatLevelInRange(rtickStart.ticks(), rtickEnd.ticks()) // sets rtickSplit
+    rtickSplit = split
+
+    if (startLevel < 0 || endLevel < 0 || strongestLevelCrossed < 0) {
+        // Beyond maximum subbeat level so just split into largest possible durations.
+        dList.push(...toDurationList(l, maxDots > 0, maxDots, false))
+        return
+    }
+
+    // split if we cross something stronger than where we start and end
+    if (strongestLevelCrossed < startLevel && strongestLevelCrossed < endLevel) {
+        needToSplit = true
+    }
+    // but don't split for level 1 syncopation (allow eight-note, quarter, quarter... to cross unstressed beats)
+    if (startLevel === endLevel && strongestLevelCrossed === startLevel - 1) {
+        needToSplit = false
+    }
+    // nor for the next simplest case of level 2 syncopation (allow sixteenth-note, eighth, eighth... to cross unstressed beats)
+    if (startLevel === endLevel && strongestLevelCrossed === startLevel - 2) {
+        // but disallow sixteenth-note, quarter, quarter...
+        const ticksToNext = nominal.ticksToNextSubbeat(rtickStart.ticks(), startLevel - 1)
+        const ticksPastPrev = nominal.ticksPastSubbeat(rtickStart.ticks(), startLevel - 1)
+        needToSplit = ticksToNext !== ticksPastPrev
+    }
+
+    if (!needToSplit && strongestLevelCrossed === 0) {
+        // NOW CHECK AT DENOMINATOR UNIT LEVEL AND BEAT LEVEL
+        const startBeat = nominal.rtick2beatType(rtickStart.ticks())
+        const endBeat = nominal.rtick2beatType(rtickEnd.ticks())
+
+        // if there is a choice of which beat to split on, should we use the first or last?
+        const useLast = startBeat <= BeatType.SIMPLE_UNSTRESSED // split on the later beat if starting on a beat
+
+        const [strongestBeatCrossed, dUnitsCrossed, beatSplit] = nominal.strongestBeatInRange(rtickStart.ticks(), rtickEnd.ticks(), useLast)
+        rtickSplit = beatSplit
+
+        needToSplit = forceRhythmicSplit(isRest, startBeat, endBeat, dUnitsCrossed, strongestBeatCrossed, nominal)
+    }
+
+    if (!needToSplit) {
+        // CHECK THERE IS A DURATION THAT FITS
+        // crossed beats/subbeats were not important so try to avoid splitting
+        const d = new TDuration(l, true, maxDots)
+        if (d.fraction().eq(l)) {
+            // we can use a single duration - no need to split!
+            dList.push(new TDuration(l))
+            return
+        }
+        // no single TDuration fits so must split anyway
+    }
+
+    // Prevent infinite recursion if there is no splitting point other than the start and end ticks
+    if (!(rtickStart.ticks() < rtickSplit && rtickSplit < rtickEnd.ticks())) {
+        dList.push(...toDurationList(l, maxDots > 0, maxDots, false))
+        return
+    }
+
+    // Split on the strongest beat or subbeat crossed
+    const leftSplit = Fraction.fromTicks(rtickSplit).minus(rtickStart)
+    const rightSplit = l.minus(leftSplit)
+
+    // Recurse to see if we need to split further before adding to list
+    populateRhythmicList(dList, leftSplit, isRest, rtickStart, nominal, maxDots)
+    populateRhythmicList(dList, rightSplit, isRest, Fraction.fromTicks(rtickSplit), nominal, maxDots)
+}
+
+/** Split compound notes/rests where they enter a compound beat. */
+export function splitCompoundBeatsForList(dList: TDuration[], l: Fraction, isRest: boolean, rtickStart: Fraction, nominal: TimeSigFrac,
+    maxDots: number): void {
+    const rtickEnd = rtickStart.plus(l)
+
+    const startBeat = nominal.rtick2beatType(rtickStart.ticks())
+    const endBeat = nominal.rtick2beatType(rtickEnd.ticks())
+
+    if (startBeat > BeatType.COMPOUND_UNSTRESSED) {
+        // Not starting on a compound beat so mustn't extend into next compound beat
+        const splitTicks = nominal.ticksToNextBeat(rtickStart.ticks())
+
+        if (rtickEnd.minus(rtickStart).ticks() > splitTicks) {
+            // Duration extends into next beat so must split
+            const leftSplit = Fraction.fromTicks(splitTicks)
+            const rightSplit = l.minus(leftSplit)
+            populateRhythmicList(dList, leftSplit, isRest, rtickStart, nominal, maxDots) // this side is ok to proceed
+            splitCompoundBeatsForList(dList, rightSplit, isRest, rtickStart.plus(Fraction.fromTicks(splitTicks)), nominal, maxDots) // not checked yet
+            return
+        }
+    }
+
+    if (endBeat > BeatType.COMPOUND_UNSTRESSED) {
+        // Not ending on a compound beat so mustn't extend into previous compound beat
+        const splitTicks = nominal.ticksPastBeat(rtickEnd.ticks())
+
+        if (rtickEnd.minus(rtickStart).ticks() > splitTicks) {
+            // Duration extends into previous beat so must split
+            const rightSplit = Fraction.fromTicks(splitTicks)
+            const leftSplit = l.minus(rightSplit)
+            populateRhythmicList(dList, leftSplit, isRest, rtickStart, nominal, maxDots) // must add leftSplit to list first
+            populateRhythmicList(dList, rightSplit, isRest, rtickEnd.minus(Fraction.fromTicks(splitTicks)), nominal, maxDots)
+            return
+        }
+    }
+
+    // Duration either starts and ends on compound beats, or it remains within a single compound beat
+    populateRhythmicList(dList, l, isRest, rtickStart, nominal, maxDots)
+}
+
+/**
+ * Where to split notes and force a tie to indicate rhythm (see the comments of forceRhythmicSplit() in
+ * durationtype.cpp).
+ */
+export function forceRhythmicSplit(isRest: boolean, startBeat: BeatType, endBeat: BeatType, dUnitsCrossed: number,
+    strongestBeatCrossed: BeatType, nominal: TimeSigFrac): boolean {
+    // SPECIAL CASES
+
+    // nothing can cross a stressed beat in an irregular time signature
+    if (strongestBeatCrossed <= BeatType.SIMPLE_STRESSED && !nominal.isTriple() && !nominal.isDuple()) {
+        return true
+    }
+    if (isRest) {
+        // rests must not cross the middle of a bar with numerator == 2 (e.g. 2/4 bar) even though the beat is unstressed
+        if (strongestBeatCrossed <= BeatType.SIMPLE_UNSTRESSED && nominal.numerator() === 2) {
+            return true
+        }
+        // rests must not cross a beat in a triple meter - simple (e.g. 3/4) or compound (e.g. 9/8)
+        if (strongestBeatCrossed <= BeatType.SIMPLE_UNSTRESSED && nominal.isTriple()) {
+            return true
+        }
+    }
+
+    // GENERAL RULES
+
+    if (nominal.isCompound()) {
+        return forceRhythmicSplitCompound(isRest, startBeat, endBeat, dUnitsCrossed, strongestBeatCrossed)
+    } else {
+        return forceRhythmicSplitSimple(isRest, startBeat, endBeat, dUnitsCrossed, strongestBeatCrossed)
+    }
+}
+
+function forceRhythmicSplitCompound(isRest: boolean, startBeat: BeatType, endBeat: BeatType, dUnitsCrossed: number,
+    strongestBeatCrossed: BeatType): boolean {
+    switch (strongestBeatCrossed) {
+    case BeatType.COMPOUND_STRESSED:
+        // Notes are guaranteed to and start on a compound beat so we can pretend we have a simple measure.
+        return forceRhythmicSplitSimple(isRest, startBeat, endBeat, Math.trunc(dUnitsCrossed / 3), BeatType.SIMPLE_STRESSED)
+    case BeatType.COMPOUND_UNSTRESSED:
+        // No further conditions since note are guaranteed to start and end on a compound beat.
+        return false
+    case BeatType.COMPOUND_SUBBEAT:
+        // don't split anything that takes up a full compound beat
+        if (startBeat <= BeatType.COMPOUND_UNSTRESSED && endBeat <= BeatType.COMPOUND_UNSTRESSED) {
+            return false
+        }
+        // split rests that don't start on a compound beat
+        if (isRest && startBeat > BeatType.COMPOUND_UNSTRESSED) {
+            return true
+        }
+        // Remaining groupings within compound triplets are the same as for simple triple (3/4, 3/8, etc.)
+        return forceRhythmicSplitSimple(isRest, startBeat, endBeat, dUnitsCrossed, BeatType.SIMPLE_UNSTRESSED)
+    default: // BeatType::SUBBEAT
+        return forceRhythmicSplitSimple(isRest, startBeat, endBeat, dUnitsCrossed, strongestBeatCrossed)
+    }
+}
+
+function forceRhythmicSplitSimple(isRest: boolean, startBeat: BeatType, endBeat: BeatType, beatsCrossed: number,
+    strongestBeatCrossed: BeatType): boolean {
+    switch (strongestBeatCrossed) {
+    case BeatType.SIMPLE_STRESSED:
+        // Must split rests on a stressed beat.
+        if (isRest) {
+            return true
+        }
+        // Don't split notes that start or end on a stressed beat. Enables double-dotting in 4/4.
+        if (startBeat <= BeatType.SIMPLE_STRESSED || endBeat <= BeatType.SIMPLE_STRESSED) {
+            return false
+        }
+        // Don't split notes that both start and end on unstressed beats or stronger.
+        if (startBeat <= BeatType.SIMPLE_UNSTRESSED && endBeat <= BeatType.SIMPLE_UNSTRESSED) {
+            return false
+        }
+        // anything else must split on stressed beat.
+        return true
+    case BeatType.SIMPLE_UNSTRESSED:
+        // Don't split notes or rests if starting and ending on stressed beat.
+        if (startBeat <= BeatType.SIMPLE_STRESSED && endBeat <= BeatType.SIMPLE_STRESSED) {
+            return false
+        }
+        // Split rests that don't start or end on a beat. Notes may cross 1 unstressed beat.
+        if (startBeat === BeatType.SUBBEAT || endBeat === BeatType.SUBBEAT) {
+            return isRest || (beatsCrossed > 1)
+        }
+        return false
+    default: // BeatType::SUBBEAT
+        return false
+    }
 }

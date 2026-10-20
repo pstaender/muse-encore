@@ -106,6 +106,9 @@ export class TimeSigFrac extends Fraction {
         return level
     }
 
+    ticksPastSubbeat(rtick: number, level: number): number { return rtick % this.subbeatTicks(level) }
+    ticksToNextSubbeat(rtick: number, level: number): number { return this.subbeatTicks(level) - this.ticksPastSubbeat(rtick, level) }
+
     /** range is exclusive; returns [strongest, dUnitsCrossed, subbeatTick] */
     strongestBeatInRange(rtick1: number, rtick2: number, saveLast = false): [BeatType, number, number] {
         let strongest = BeatType.SUBBEAT

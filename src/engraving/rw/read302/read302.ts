@@ -24,6 +24,7 @@ import type { Instrument } from '../../dom/instrument'
 import type { XmlReader } from '../xmlreader'
 import { ReadContext } from '../read460/readcontext'
 import { StaffRead } from '../read460/staffread'
+import { ScoreOrder } from '../../dom/scoreorder'
 import { TRead } from '../read460/tread'
 import { ReadChordListHook } from '../compat/readchordlisthook'
 
@@ -103,7 +104,11 @@ export class Read302 {
                 const name = e.attribute('name')
                 score.setMetaTag(name, e.readText())
             } else if (tag === 'Order') {
-                e.skipCurrentElement() // TODO(port): ScoreOrder
+                const order = new ScoreOrder()
+                order.read(e)
+                if (order.isValid()) {
+                    score.setScoreOrder(order)
+                }
             } else if (tag === 'Part') {
                 const part = new Part(score)
                 TRead.readPart(part, e, ctx)

@@ -24,6 +24,7 @@ import { Interval } from './interval'
 import { Transpose } from '../editing/transpose'
 import { StaffType, StaffTypeList } from './stafftype'
 import type { Part } from './part'
+import type { InstrumentTemplate } from './instrtemplate'
 import type { BracketItem } from './bracketitem'
 import type { Clef } from './clef'
 import type { TimeSig } from './timesig'
@@ -120,6 +121,22 @@ export class Staff extends EngravingItem {
     }
 
     brackets(): BracketItem[] { return this.m_brackets }
+
+    changeBracketColumn(oldColumn: number, newColumn: number): void {
+        const idx = Math.max(oldColumn, newColumn)
+        this.fillBrackets(idx)
+        const step = newColumn > oldColumn ? 1 : -1
+        for (let i = oldColumn; i !== newColumn; i += step) {
+            const oldIdx = i
+            const newIdx = i + step
+            this.m_brackets[oldIdx].setColumn(newIdx)
+            this.m_brackets[newIdx].setColumn(oldIdx)
+            const b = this.m_brackets[oldIdx]
+            this.m_brackets[oldIdx] = this.m_brackets[newIdx]
+            this.m_brackets[newIdx] = b
+        }
+        this.cleanBrackets()
+    }
 
     bracketLevels(): number {
         let columns = 0
@@ -425,6 +442,99 @@ export class Staff extends EngravingItem {
 
     isStaffTypeStartFrom(tick: Fraction): boolean { return this.m_staffTypeList.isStaffTypeStartFrom(tick) }
     removeStaffType(tick: Fraction): void { this.m_staffTypeList.removeStaffType(tick) }
+
+    /** C++ Staff::init(const InstrumentTemplate*, const StaffType*, int) */
+    init(t: InstrumentTemplate, staffType: StaffType | null, cidx: number): void {
+        // set staff-type-independent parameters
+        let pst = staffType ? staffType : t.staffTypePreset
+        if (!pst) {
+            pst = StaffType.getDefaultPreset(t.staffGroup)
+        }
+
+        const stt = this.setStaffType(new Fraction(0, 1), pst)
+        if (cidx >= 4 /* MAX_STAVES */) {
+            stt.setSmall(false)
+        } else {
+            stt.setSmall(t.smallStaff[cidx])
+            this.setBracketType(0, t.bracket[cidx])
+            this.setBracketSpan(0, t.bracketSpan[cidx])
+            this.setBarLineSpan(t.barlineSpan[cidx])
+        }
+        this.setDefaultClefType(t.clefType(cidx))
+    }
+
+    /** list of linked staves; TODO(port): linked staves (excerpts) */
+    staffList(): Staff[] { return [this] }
+
+    insertTime(tick: Fraction, len: Fraction): void {
+        if (len.isZero()) {
+            return
+        }
+
+        // move all keys and clefs >= tick
+
+        if (len.lt(new Fraction(0, 1))) {
+            // remove entries between tickpos >= tick and tickpos < (tick+len)
+            this.m_keys.eraseRange(this.m_keys.lowerBound(tick.ticks()), this.m_keys.lowerBound(tick.minus(len).ticks()))
+            this.m_clefs.eraseRange(this.m_clefs.lowerBound(tick.ticks()), this.m_clefs.lowerBound(tick.minus(len).ticks()))
+        }
+
+        const kl2 = new KeyList()
+        for (let i = this.m_keys.lowerBound(tick.ticks()); i < this.m_keys.size();) {
+            const kse = this.m_keys.valueAt(i)
+            const t = Fraction.fromTicks(this.m_keys.keyAt(i))
+            if (t.plus(len).lt(this.score().endTick())) {
+                this.m_keys.eraseAt(i)
+                kl2.set(t.plus(len).ticks(), kse)
+            } else {
+                ++i
+            }
+        }
+        for (const [k, v] of kl2.entries()) { // std::map::insert: existing keys are kept
+            if (!this.m_keys.has(k)) {
+                this.m_keys.set(k, v)
+            }
+        }
+
+        // check if there is a clef at the end of measure
+        // before tick
+        let clef: Clef | null = null
+        let m = this.score().tick2measure(tick)
+        if (m && m.tick().eq(tick) && m.prevMeasure()) {
+            m = m.prevMeasure()!
+            const s = m.findSegment(SegmentType.Clef, tick)
+            if (s) {
+                const track = this.idx() * VOICES
+                clef = s.element(track) as Clef | null
+            }
+        }
+
+        const cl2 = new ClefList()
+        for (let i = this.m_clefs.lowerBound(tick.ticks()); i < this.m_clefs.size();) {
+            const ctl = this.m_clefs.valueAt(i)
+            const t = Fraction.fromTicks(this.m_clefs.keyAt(i))
+            if (clef && tick.eq(t)) {
+                ++i
+                continue
+            }
+            this.m_clefs.eraseAt(i)
+            cl2.setClef(t.plus(len).ticks(), ctl)
+        }
+        for (const [k, v] of cl2.entries()) {
+            if (!this.m_clefs.has(k)) {
+                this.m_clefs.set(k, v)
+            }
+        }
+
+        // check if there is a clef at the end of measure
+        // before tick: do not remove from clefs list
+
+        if (clef) {
+            this.setClef(clef)
+        }
+
+        this.updateOttava()
+    }
 
     initFromStaffType(staffType: StaffType | null): void {
         // get staff type if given (if none, get default preset for default staff group)

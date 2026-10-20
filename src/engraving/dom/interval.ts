@@ -49,9 +49,23 @@ export class Interval {
         return resultingInterval
     }
 
+    /** C++ Interval(int chromatic) */
     static fromChromatic(c: number): Interval {
-        // TODO(port): Interval(int chromatic) computes the diatonic part from a table
-        return new Interval(0, c)
+        return new Interval(Interval.chromatic2diatonic(c), c)
+    }
+
+    static chromatic2diatonic(semitones: number): number {
+        // diatonic steps of: Perfect Unison, Minor Second, Major Second, Minor Third, Major Third, Perfect Fourth,
+        // Augmented Fourth, Perfect Fifth, Minor Sixth, Major Sixth, Minor Seventh, Major Seventh (allIntervals[il[i]])
+        const il = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]
+        const down = semitones < 0
+        if (down) {
+            semitones = -semitones
+        }
+        const val = semitones % 12
+        const octave = Math.trunc(semitones / 12)
+        const steps = il[val] + octave * 7
+        return down ? -steps : steps
     }
 
     clone(): Interval { return new Interval(this.diatonic, this.chromatic) }
