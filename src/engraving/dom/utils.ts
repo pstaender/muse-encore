@@ -20,6 +20,7 @@ import type { ChordRest } from './chordrest'
 import type { Note } from './note'
 import type { Rest } from './rest'
 import type { Measure } from './measure'
+import type { System } from './system'
 
 const PTAB: number[][] = [
     //   c  d  e  f  g   a  b
@@ -39,6 +40,19 @@ const PTAB: number[][] = [
     [1, 3, 5, 6, 8, 10, 11], // Fis
     [1, 3, 5, 6, 8, 10, 12], // Cis
 ]
+
+export function yStaffDifference(system1: System | null, system2: System | null, staffIdx: staff_idx_t): number {
+    if (!system1 || !system2) {
+        return 0.0
+    }
+
+    const staff1 = system1.staff(staffIdx)
+    const staff2 = system2.staff(staffIdx)
+    if (!staff1 || !staff2) {
+        return 0.0
+    }
+    return staff1.y() - staff2.y()
+}
 
 export function pitchKeyAdjust(step: number, key: Key): number {
     return PTAB[key + 7][step]

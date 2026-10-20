@@ -23,7 +23,7 @@ import {
     LineType, LyricsSyllabic, NoteHeadGroup, NoteHeadScheme, NoteHeadType, Orientation, OrnamentStyle, PartialSpannerDirection,
     PlacementH, PlacementV, PreferSharpFlat, SlurStyleType, StaffGroup, TextPlace, TextStyleType, TiePlacement,
     VeloType, VoiceAssignment, AccidentalRole, DynamicType, AutoCustomHide, MarkerType, GlissandoType,
-    ElementType, OrnamentInterval, ParenthesesMode, TrillType, GuitarBendType, VibratoType, type track_idx_t,
+    ElementType, OrnamentInterval, ParenthesesMode, TrillType, ChordLineType, GradualTempoChangeType, GuitarBendType, VibratoType, track2staff, type track_idx_t,
     ChangeMethod, DynamicSpeed, SpannerSegmentType, VOICES,
     TremoloType, TremoloStyle, isTremoloTwoChord,
 } from '../../types/types'
@@ -111,7 +111,13 @@ import { Ornament } from '../../dom/ornament'
 import type { Trill } from '../../dom/trill'
 import { GuitarBendHold, GuitarBendText, type GuitarBend, type GuitarBendSegment } from '../../dom/guitarbend'
 import { InstrString, type StringData } from '../../dom/stringdata'
+import { Transpose } from '../../editing/transpose'
 import type { Vibrato } from '../../dom/vibrato'
+import type { Glissando } from '../../dom/glissando'
+import type { GradualTempoChange } from '../../dom/gradualtempochange'
+import { Fingering } from '../../dom/fingering'
+import { ChordLine } from '../../dom/chordline'
+import { PainterPath, PainterPathElementType } from '../../../framework/draw/types/painterpath'
 import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { BeamFragment } from '../../dom/beambase'
@@ -176,7 +182,10 @@ export class TRead {
         case ElementType.NOTE: TRead.readNote(item as Note, xml, ctx); break
         case ElementType.NOTEDOT: TRead.readItemPropertiesOnly(item, xml, ctx); break
         case ElementType.REST: TRead.readRest(item as Rest, xml, ctx); break
-        case ElementType.SLUR: TRead.readSlur(item as Slur, xml, ctx); break
+        case ElementType.SLUR:
+        case ElementType.HAMMER_ON_PULL_OFF: // C++ read(HammerOnPullOff*) reads the Slur properties
+            TRead.readSlur(item as Slur, xml, ctx)
+            break
         case ElementType.SPACER: TRead.readSpacer(item as Spacer, xml, ctx); break
         case ElementType.STEM: TRead.readStem(item as Stem, xml, ctx); break
         case ElementType.STEM_SLASH: TRead.readItemPropertiesOnly(item, xml, ctx); break
@@ -212,6 +221,8 @@ export class TRead {
         case ElementType.LYRICSLINE: TRead.readLyricsLine(item as LyricsLine, xml, ctx); break
         case ElementType.WHAMMY_BAR: TRead.readTextLineBase(item as TextLineBase, xml, ctx); break // C++ read(TextLineBase*)
         case ElementType.VIBRATO: TRead.readVibrato(item as Vibrato, xml, ctx); break
+        case ElementType.GLISSANDO: TRead.readGlissando(item as Glissando, xml, ctx); break
+        case ElementType.GRADUAL_TEMPO_CHANGE: TRead.readGradualTempoChange(item as GradualTempoChange, xml, ctx); break
         default:
             // TODO(port): element type not ported yet
             xml.skipCurrentElement()
@@ -282,8 +293,10 @@ export class TRead {
         case P_TYPE.PARENTHESES_MODE: return e.readInt()
         case P_TYPE.AUTO_CUSTOM_HIDE: return TConv.fromXmlAutoCustomHide(e.readAsciiText(), AutoCustomHide.AUTO)
         case P_TYPE.MARKER_TYPE: return TConv.fromXmlMarkerType(e.readAsciiText(), MarkerType.USER)
+        case P_TYPE.TEMPOCHANGE_TYPE: return TConv.fromXmlTempoChangeType(e.readAsciiText(), GradualTempoChangeType.Undefined)
+        case P_TYPE.CHANGE_METHOD: return TConv.fromXmlChangeMethod(e.readAsciiText(), ChangeMethod.NORMAL)
         default:
-            // TODO(port): PLAYTECH_TYPE, TEMPOCHANGE_TYPE, CHANGE_METHOD
+            // TODO(port): PLAYTECH_TYPE
             return e.readText()
         }
     }
@@ -314,7 +327,11 @@ export class TRead {
         default:
             break
         }
-        // TODO(port): hasVoiceAssignmentProperties() (PLACEMENT -> DIRECTION)
+        // read400/read410 (files < 4.6): Pre-4.4 compatibility: these items now use DIRECTION property
+        if (ctx.mscVersion() < 460 && pid === Pid.PLACEMENT && item.hasVoiceAssignmentProperties()) {
+            pid = Pid.DIRECTION
+            v = (v as PlacementV) === PlacementV.ABOVE ? DirectionV.UP : DirectionV.DOWN
+        }
         if (!ctx.shouldSkipProperty()) {
             item.setProperty(pid, v)
             if (item.isStyled(pid)) {
@@ -1027,6 +1044,140 @@ export class TRead {
 
         while (e.readNextStartElement()) {
             if (!TRead.readSLineProperties(h, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readChordLine(l: ChordLine, e: XmlReader, ctx: ReadContext): void {
+        //! NOTE Need separated "given" data and layout data
+        const ldata = l.mutldata()
+        ldata.path = new PainterPath()
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'Path') {
+                const path = new PainterPath()
+                let curveTo = new PointF()
+                let p1 = new PointF()
+                let state = 0
+                while (e.readNextStartElement()) {
+                    const nextTag = e.name()
+                    if (nextTag === 'Element') {
+                        const type = e.intAttribute('type')
+                        let x = e.doubleAttribute('x')
+                        let y = e.doubleAttribute('y')
+                        const spatium = ctx.spatium()
+                        x *= spatium
+                        y *= spatium
+                        switch (type as PainterPathElementType) {
+                        case PainterPathElementType.MoveToElement:
+                            path.moveTo(x, y)
+                            break
+                        case PainterPathElementType.LineToElement:
+                            path.lineTo(x, y)
+                            break
+                        case PainterPathElementType.CurveToElement:
+                            curveTo = new PointF(x, y)
+                            state = 1
+                            break
+                        case PainterPathElementType.CurveToDataElement:
+                            if (state === 1) {
+                                p1 = new PointF(x, y)
+                                state = 2
+                            } else if (state === 2) {
+                                path.cubicTo(curveTo, p1, new PointF(x, y))
+                                state = 0
+                            }
+                            break
+                        }
+                        e.skipCurrentElement() // needed to go to next EngravingItem in Path
+                    } else {
+                        e.unknown()
+                    }
+                }
+                ldata.path = path
+                l.setModified(true)
+            } else if (tag === 'subtype') {
+                l.setChordLineType(e.readInt() as ChordLineType)
+            } else if (tag === 'straight') {
+                l.setStraight(!!e.readInt())
+            } else if (tag === 'wavy') {
+                l.setWavy(!!e.readInt())
+            } else if (tag === 'lengthX') {
+                l.setLengthX(e.readInt())
+            } else if (tag === 'lengthY') {
+                l.setLengthY(e.readInt())
+            } else if (tag === 'play') {
+                l.setPlayChordLine(e.readBool())
+            } else if (!TRead.readItemProperties(l, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readFingering(f: Fingering, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            if (!TRead.readTextBaseProperties(f, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readGradualTempoChange(c: GradualTempoChange, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+
+            if (TRead.readPropertyIfTag(c, tag, xml, ctx, Pid.LINE_WIDTH)) {
+                c.setPropertyFlags(Pid.LINE_WIDTH, PropertyFlags.UNSTYLED)
+                continue
+            }
+            if (TRead.readPropertyIfTag(c, tag, xml, ctx, Pid.TEMPO_CHANGE_TYPE)) {
+                continue
+            }
+            if (TRead.readPropertyIfTag(c, tag, xml, ctx, Pid.TEMPO_EASING_METHOD)) {
+                continue
+            }
+            if (TRead.readPropertyIfTag(c, tag, xml, ctx, Pid.TEMPO_CHANGE_FACTOR)) {
+                continue
+            }
+            if (TRead.readPropertyIfTag(c, tag, xml, ctx, Pid.SNAP_AFTER)) {
+                continue
+            }
+            if (!TRead.readTextLineBaseProperties(c, xml, ctx)) {
+                xml.unknown()
+            }
+        }
+        if (ctx.mscVersion() < 470) {
+            CompatUtils.setTextLineTextPositionFromAlign(c)
+        }
+    }
+
+    static readGlissando(g: Glissando, e: XmlReader, ctx: ReadContext): void {
+        g.eraseSpannerSegments()
+
+        const staffIdx = track2staff(ctx.track())
+        const staff = ctx.score().staff(staffIdx)
+        if (staff) {
+            const instrId = staff.part()!.instrumentId(g.tick())
+            g.setIsHarpGliss(instrId === 'harp')
+        }
+        g.resetProperty(Pid.GLISS_STYLE)
+
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'text') {
+                TRead.readProperty(g, e, ctx, Pid.GLISS_TEXT)
+            } else if (tag === 'isHarpGliss' && ctx.pasteMode()) {
+                g.setIsHarpGliss(e.readBool())
+                g.resetProperty(Pid.GLISS_STYLE)
+            } else if (tag === 'easeInSpin') {
+                g.setEaseIn(e.readInt())
+            } else if (tag === 'easeOutSpin') {
+                g.setEaseOut(e.readInt())
+            } else if (tag === 'glissandoShift') {
+                g.setGlissandoShift(e.readBool())
+            } else if (TRead.readStyledProperty(g, tag, e, ctx)) {
+            } else if (!TRead.readSLineProperties(g, e, ctx)) {
                 e.unknown()
             }
         }
@@ -1855,6 +2006,17 @@ export class TRead {
                 sig.setConcertKey(e.readInt() as Key)
             } else if (tag === 'actualKey') {
                 sig.setKey(e.readInt() as Key)
+            } else if (tag === 'accidental') { // read400 compat: we need to guess proper concert key
+                const key = e.readInt() as Key
+                let cKey = key
+                if (p && !s.concertPitch()) {
+                    const v = p.instrument(s.tick()).transpose()
+                    if (!v.isZero()) {
+                        cKey = Transpose.transposeKey(key, v)
+                    }
+                }
+                sig.setConcertKey(cKey)
+                sig.setKey(key)
             } else if (tag === 'custom') {
                 e.readInt()
                 sig.setCustom(true)
@@ -2339,8 +2501,12 @@ export class TRead {
             ch.setTremoloTwoChord(trem, false)
         } else if (tag === 'NoteParenGroup') {
             TRead.readNoteParenGroup(ch, e, ctx)
-        } else if (tag === 'ChordBracket' || tag === 'ChordLine') {
-            // TODO(port): chord brackets, chord lines
+        } else if (tag === 'ChordLine') {
+            const cl = new ChordLine(ch)
+            TRead.readChordLine(cl, e, ctx)
+            ch.add(cl)
+        } else if (tag === 'ChordBracket') {
+            // TODO(port): chord brackets
             e.skipCurrentElement()
         } else if (tag === 'combineVoice') {
             TRead.readPropertyIfTag(ch, tag, e, ctx, Pid.COMBINE_VOICE)
@@ -2531,8 +2697,18 @@ export class TRead {
                 pt.setEndNote(n)
             }
             n.add(pt)
-        } else if (tag === 'Fingering' || tag === 'Image' || tag === 'Bend' || tag === 'Events' || tag === 'ChordLine') {
-            // TODO(port): fingering, images, bends, play events, chord lines
+        } else if (tag === 'Fingering') {
+            const f = new Fingering(n)
+            f.setTrack(n.track())
+            TRead.readFingering(f, e, ctx)
+            n.add(f)
+        } else if (tag === 'ChordLine' && n.explicitParent()) {
+            const cl = new ChordLine(n.chord())
+            TRead.readChordLine(cl, e, ctx)
+            cl.setNote(n)
+            n.chord().add(cl)
+        } else if (tag === 'Image' || tag === 'Bend' || tag === 'Events' || tag === 'ChordLine') {
+            // TODO(port): images, bends, play events
             e.skipCurrentElement()
         } else if (tag === 'offset') {
             TRead.readItemProperties(n, e, ctx)

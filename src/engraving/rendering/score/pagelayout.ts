@@ -13,6 +13,7 @@ import { PointF } from '../../../framework/draw/types/geometry'
 import { RealIsNull } from '../../../framework/global/realfn'
 import { Fraction } from '../../types/fraction'
 import { BracketType, TimeSigPlacement, track2staff } from '../../types/types'
+import type { Fingering } from '../../dom/fingering'
 import { Sid } from '../../style/styledef'
 import { LayoutMode } from '../../dom/score'
 import { Page } from '../../dom/page'
@@ -444,7 +445,23 @@ export class PageLayout {
                     }
                     ChordLayout.layoutArticulations(c, ctx)
                     ChordLayout.layoutArticulations2(c, ctx, true)
-                    // TODO(port): fingerings on the cross-beam side
+                    for (const n of c.notes()) {
+                        for (const e of n.el()) {
+                            if (!e || !e.isFingering()) {
+                                continue
+                            }
+                            const fingering = e as Fingering
+                            if (fingering.isOnCrossBeamSide()) {
+                                TLayout.layoutFingering(fingering)
+                                if (fingering.addToSkyline()) {
+                                    const nn = fingering.note()!
+                                    const r = fingering.ldata().bbox().translated(
+                                        fingering.pos().plus(nn.pos()).plus(nn.chord().pos()).plus(segment.pos()).plus(segment.measure().pos()))
+                                    system.staff(fingering.note()!.chord().vStaffIdx())!.skyline().add(r, fingering)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

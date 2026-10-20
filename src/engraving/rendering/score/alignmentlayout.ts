@@ -18,8 +18,40 @@ import type { TextBase } from '../../dom/textbase'
 import { SystemLayout } from './systemlayout'
 import type { HairpinSegment } from '../../dom/hairpin'
 import type { Text } from '../../dom/text'
+import type { HammerOnPullOff, HammerOnPullOffSegment } from '../../dom/hammeronpulloff'
 
 export class AlignmentLayout {
+    static alignHopoLetters(hopo: HammerOnPullOff, system: System): void {
+        if (hopo.segmentsEmpty()) {
+            return
+        }
+
+        const itemsToAlign: EngravingItem[] = []
+        for (const seg of hopo.spannerSegments()) {
+            if (seg.system() === system) {
+                const hopoSegment = seg as HammerOnPullOffSegment
+                for (const hopoText of hopoSegment.hopoText()) {
+                    itemsToAlign.push(hopoText)
+                }
+                break
+            }
+        }
+
+        if (itemsToAlign.length === 0) {
+            return
+        }
+
+        const above = AlignmentLayout.isAbove(itemsToAlign[0])
+        for (const item of itemsToAlign) {
+            if (AlignmentLayout.isAbove(item) !== above) {
+                return // Don't try to align items split above/below
+            }
+        }
+
+        // TODO(port): tapping articulations
+        AlignmentLayout.alignItemsGroup(itemsToAlign, system)
+    }
+
     static alignItemsGroup(elements: readonly EngravingItem[], system: System): void {
         if (elements.length === 0) {
             return

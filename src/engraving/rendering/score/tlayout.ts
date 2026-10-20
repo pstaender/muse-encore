@@ -18,7 +18,7 @@ import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
     StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff, SpannerSegmentType, LineType, PlacementV,
-    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType, ArpeggioType, GuitarBendType, VibratoType, nidx } from '../../types/types'
+    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType, ArpeggioType, GuitarBendType, ChordLineType, VibratoType, GlissandoStyle, nidx } from '../../types/types'
 import { SymNames } from '../../types/symnames'
 import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull } from '../../../framework/global/realfn'
 import { Pid, PropertyFlags } from '../../dom/property'
@@ -30,11 +30,11 @@ import { CHORD_REST_OR_TIME_TICK_TYPE, SegmentType } from '../../dom/segment'
 import { BARLINE_SPAN_1LINESTAFF_FROM, BARLINE_SPAN_1LINESTAFF_TO, type BarLine, type BarLineLayoutData } from '../../dom/barline'
 import { SpacerType } from '../../dom/spacer'
 import { TimeSigType } from '../../dom/timesig'
-import { AccidentalBracket, type Accidental } from '../../dom/accidental'
+import { Accidental, AccidentalBracket } from '../../dom/accidental'
 import { AccidentalType } from '../../dom/accidentaldata'
 import { KeySigEvent, type KeySym } from '../../dom/key'
 import { Text } from '../../dom/text'
-import { timeSigSymIdsFromString } from '../../dom/utils'
+import { timeSigSymIdsFromString, yStaffDifference } from '../../dom/utils'
 import { TConv } from '../../types/typesconv'
 import type { Articulation } from '../../dom/articulation'
 import type { Beam } from '../../dom/beam'
@@ -98,7 +98,7 @@ import type { Volta, VoltaSegment } from '../../dom/volta'
 import { Transform } from '../../../framework/draw/types/transform'
 import { Grip } from '../../editing/editdata'
 import { Spatium } from '../../types/dimension'
-import { OffsetChange } from '../../dom/engravingitem'
+import { OffsetChange, type LayoutData } from '../../dom/engravingitem'
 import { TabBeamGrid, type TabDurationSymbol } from '../../dom/tabdurationsymbol'
 import type { Marker } from '../../dom/marker'
 import type { Jump } from '../../dom/jump'
@@ -125,6 +125,12 @@ import type { MeasureRepeat } from '../../dom/measurerepeat'
 import type { GuitarBend, GuitarBendHoldSegment, GuitarBendSegment } from '../../dom/guitarbend'
 import type { Staff } from '../../dom/staff'
 import type { VibratoSegment } from '../../dom/vibrato'
+import type { Glissando, GlissandoSegment } from '../../dom/glissando'
+import type { Fingering } from '../../dom/fingering'
+import type { ChordLine } from '../../dom/chordline'
+import type { HammerOnPullOffSegment } from '../../dom/hammeronpulloff'
+import type { GradualTempoChangeSegment } from '../../dom/gradualtempochange'
+import { SkylineLine } from '../../infrastructure/skyline'
 import { GuitarBendLayout } from './guitarbendlayout'
 import { MeasureLayout } from './measurelayout'
 
@@ -238,9 +244,14 @@ export class TLayout {
         case ElementType.TRILL:
         case ElementType.WHAMMY_BAR:
         case ElementType.VIBRATO:
+        case ElementType.GRADUAL_TEMPO_CHANGE:
             TLayout.layoutLine(item as SLine, ctx)
             break
         case ElementType.TRILL_SEGMENT: TLayout.layoutTrillSegment(item as TrillSegment, ctx); break
+        case ElementType.CHORDLINE: TLayout.layoutChordLine(item as ChordLine, ctx); break
+        case ElementType.FINGERING: TLayout.layoutFingering(item as Fingering); break
+        case ElementType.GLISSANDO: TLayout.layoutGlissando(item as Glissando, ctx); break
+        case ElementType.GLISSANDO_SEGMENT: TLayout.layoutGlissandoSegment(item as GlissandoSegment); break
         case ElementType.GUITAR_BEND: TLayout.layoutGuitarBend(item as GuitarBend, ctx); break
         case ElementType.GUITAR_BEND_SEGMENT: TLayout.layoutGuitarBendSegment(item as GuitarBendSegment, ctx); break
         case ElementType.GUITAR_BEND_HOLD_SEGMENT: GuitarBendLayout.layoutHoldLine(item as GuitarBendHoldSegment); break
@@ -251,6 +262,9 @@ export class TLayout {
             TLayout.layoutChordTextLineBaseSegment(item as TextLineBaseSegment, Sid.palmMuteShowTabCommon, Sid.palmMuteShowTabSimple, ctx)
             break
         case ElementType.TEXTLINE_SEGMENT: TLayout.layoutTextLineSegment(item as TextLineSegment, ctx); break
+        case ElementType.GRADUAL_TEMPO_CHANGE_SEGMENT:
+            TLayout.layoutGradualTempoChangeSegment(item as GradualTempoChangeSegment, ctx)
+            break
         case ElementType.VIBRATO_SEGMENT: TLayout.layoutVibratoSegment(item as VibratoSegment, ctx); break
         case ElementType.WHAMMY_BAR_SEGMENT: TLayout.layoutWhammyBarSegment(item as TextLineBaseSegment, ctx); break
         case ElementType.OTTAVA_SEGMENT: TLayout.layoutOttavaSegment(item as OttavaSegment, ctx); break
@@ -258,7 +272,12 @@ export class TLayout {
         case ElementType.VOLTA_SEGMENT: TLayout.layoutVoltaSegment(item as VoltaSegment, ctx); break
         case ElementType.LYRICSLINE: LyricsLayout.layoutLyricsLine(item as LyricsLine); break
         case ElementType.LYRICSLINE_SEGMENT: LyricsLayout.layoutLyricsLineSegment(item as LyricsLineSegment, ctx); break
-        case ElementType.SLUR: TLayout.layoutSlur(item as Slur, ctx); break
+        case ElementType.SLUR:
+        case ElementType.HAMMER_ON_PULL_OFF:
+            TLayout.layoutSlur(item as Slur, ctx)
+            break
+        case ElementType.HAMMER_ON_PULL_OFF_SEGMENT: TLayout.layoutHammerOnPullOffSegment(item as HammerOnPullOffSegment, ctx); break
+        case ElementType.HAMMER_ON_PULL_OFF_TEXT: TextLayout.layoutBaseTextBase(item as TextBase, ctx); break
         case ElementType.SPACER: TLayout.layoutSpacer(item as Spacer, ctx); break
         case ElementType.STEM: TLayout.layoutStem(item as Stem, ctx); break
         case ElementType.STEM_SLASH: TLayout.layoutStemSlash(item as StemSlash, ctx); break
@@ -1066,6 +1085,71 @@ export class TLayout {
         TLayout.layoutTextLineBaseSegment(item, ctx)
 
         Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    static manageTempoChangeSnapping(item: GradualTempoChangeSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+
+        ldata.disconnectSnappedItems()
+        const tempoChangeSegmentSnappedBefore = item.findElementToSnapBefore()
+        if (tempoChangeSegmentSnappedBefore) {
+            ldata.connectItemSnappedBefore(tempoChangeSegmentSnappedBefore)
+            TLayout.doLayoutGradualTempoChangeSegment(tempoChangeSegmentSnappedBefore, ctx)
+        }
+
+        const tempoTextSnappedAfter = item.findElementToSnapAfter()
+        if (tempoTextSnappedAfter) {
+            ldata.connectItemSnappedAfter(tempoTextSnappedAfter)
+        }
+    }
+
+    static doLayoutGradualTempoChangeSegment(item: GradualTempoChangeSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+
+        const extendLineToSnappedItemAfter = (itemAfter: EngravingItem): void => {
+            if (item.tempoChange().adjustForRehearsalMark(false)
+                || itemAfter.findAncestor(ElementType.SYSTEM) !== item.system()) {
+                return
+            }
+
+            const xItemPos = itemAfter.pageX() - item.system()!.pageX()
+            const itemLeftEdge = xItemPos + itemAfter.ldata().bbox().left()
+
+            let padding = item.spatium()
+            if (itemAfter.isTempoText()) {
+                const fontSizeScaleFactor = (itemAfter as TempoText).size() / 10.0
+                padding = item.spatium() * fontSizeScaleFactor
+            } else if (itemAfter.isGradualTempoChangeSegment()) {
+                const startText = (itemAfter as GradualTempoChangeSegment).text()
+                if (startText) {
+                    const fontSizeScaleFactor = startText.size() / 10.0
+                    padding = item.spatium() * fontSizeScaleFactor
+                }
+            }
+
+            const maxTempoLineEnd = itemLeftEdge - padding
+            const xEndDiff = maxTempoLineEnd - (item.pos().x() + item.pos2().x())
+            item.rpos2().setX(item.rpos2().x() + xEndDiff)
+        }
+
+        const snappedAfter = ldata.itemSnappedAfter()
+        if (snappedAfter && (snappedAfter.isTempoText() || snappedAfter.isGradualTempoChangeSegment())) {
+            extendLineToSnappedItemAfter(snappedAfter)
+        }
+
+        TLayout.layoutTextLineBaseSegment(item, ctx)
+
+        if (item.isStyled(Pid.OFFSET)) {
+            item.setOffset(item.tempoChange().propertyDefault(Pid.OFFSET) as PointF)
+        }
+
+        Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    static layoutGradualTempoChangeSegment(item: GradualTempoChangeSegment, ctx: LayoutContext): void {
+        TLayout.manageTempoChangeSnapping(item, ctx)
+
+        TLayout.doLayoutGradualTempoChangeSegment(item, ctx)
     }
 
     static layoutVibratoSegment(item: VibratoSegment, ctx: LayoutContext): void {
@@ -3053,6 +3137,532 @@ export class TLayout {
         void NoteHeadType
     }
 
+    static layoutHammerOnPullOffSegment(item: HammerOnPullOffSegment, ctx: LayoutContext): void {
+        // The layout of the slur has already been done. Here we layout the H/P letters.
+        item.updateHopoText()
+
+        const system = item.system()!
+        const systemEndTick = system.endTick()
+        const sk = system.staff(item.staffIdx())!.skyline()
+
+        for (const hopoText of item.hopoText()) {
+            const above = hopoText.placeAbove()
+
+            const align = new Align(AlignH.HCENTER, AlignV.BASELINE)
+            hopoText.setPosition(AlignH.HCENTER)
+            hopoText.setAlign(align)
+            TLayout.layoutItem(hopoText, ctx)
+
+            const startChord = hopoText.startChord()
+            const endChord = hopoText.endChord()
+            const startX = startChord.systemPos().x() + startChord.upNote().headWidth()
+            let endX = startX
+            if (endChord.tick().lt(systemEndTick)) {
+                endX = endChord.systemPos().x()
+            } else {
+                // The last endChord of this segment is in next system. Use end barline instead.
+                const endSeg = system.lastMeasure()!.last(SegmentType.BarLineType)
+                endX = endSeg ? endSeg.systemPos().x() : endX
+            }
+            if (startChord.stem() && endChord.stem() && startChord.up() === above && endChord.up() === above) {
+                // Mid-way between centered on the notes and centered on the stems
+                endX += (above ? 0.5 : -0.5) * endChord.upNote().headWidth()
+            }
+            const centerX = 0.5 * (startX + endX)
+
+            const vertPadding = 0.5 * item.spatium()
+            const hopoTextShape = hopoText.ldata().shape().translated(new PointF(centerX, 0.0))
+            const skl = above ? sk.north() : sk.south()
+            const skyline = skl.getFilteredCopy((el) => !!el.item() && el.item()!.isArticulationFamily())
+
+            let y = above ? -skyline.minDistanceToShapeAbove(hopoTextShape) : skyline.minDistanceToShapeBelow(hopoTextShape)
+            y += above ? -vertPadding : vertPadding
+            y = above ? Math.min(y, -vertPadding) : Math.max(y, item.staff()!.staffHeight(item.tick()) + vertPadding)
+
+            const startNote = above ? startChord.upNote() : startChord.downNote()
+            const endNote = above ? endChord.upNote() : endChord.downNote()
+            const yNoteLimit = above ? Math.min(startNote.y(), endNote.y()) - 2 * vertPadding
+                : Math.max(startNote.y(), endNote.y()) + 2 * vertPadding
+            y = above ? Math.min(y, yNoteLimit) : Math.max(y, yNoteLimit)
+
+            hopoText.mutldata().setPos(centerX, y)
+
+            hopoTextShape.translateY(y)
+            skl.add(hopoTextShape)
+        }
+
+        const hopoSegmentShape = item.mutldata().shape()
+        for (const hopoText of item.hopoText()) {
+            hopoSegmentShape.add(hopoText.ldata().shape().translated(hopoText.pos()))
+        }
+
+        item.mutldata().setShape(hopoSegmentShape)
+    }
+
+    static layoutChordLine(item: ChordLine, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        if (!item.explicitParent()) {
+            return
+        }
+
+        let note: Note | null = null
+        const spatium = item.spatium()
+
+        if (item.note()) {
+            note = item.chord().findNote(item.note()!.pitch())
+        }
+
+        if (!note) {
+            note = item.chord().upNote()
+        }
+
+        const noteLD = note.ldata()
+
+        ldata.setMag(item.chord().mag())
+
+        if (!item.modified()) {
+            let x2 = 0
+            let y2 = 0
+            const baseLength = spatium * item.chord().intrinsicMag()
+            const horBaseLength = 1.2 * baseLength // let the symbols extend a bit more horizontally
+            x2 += item.isToTheLeft() ? -horBaseLength : horBaseLength
+            y2 += item.isBelow() ? baseLength : -baseLength
+            if (item.chordLineType() !== ChordLineType.NOTYPE && !item.isWavy()) {
+                const path = new PainterPath()
+                if (!item.isToTheLeft()) {
+                    if (item.isStraight()) {
+                        path.lineTo(x2, y2)
+                    } else {
+                        path.cubicTo(new PointF(x2 / 2, 0.0), new PointF(x2, y2 / 2), new PointF(x2, y2))
+                    }
+                } else {
+                    if (item.isStraight()) {
+                        path.lineTo(x2, y2)
+                    } else {
+                        path.cubicTo(new PointF(0.0, y2 / 2), new PointF(x2 / 2, y2), new PointF(x2, y2))
+                    }
+                }
+                ldata.path = path
+            }
+        }
+
+        let x = 0.0
+        let y = noteLD.pos().y()
+        const horOffset = 0.33 * spatium // one third of a space away from the note
+        const vertOffset = 0.25 * spatium // one quarter of a space from the center line
+        // Get chord shape
+        const chordShape = item.chord().shape()
+        // ...but remove from the shape items that the chordline shouldn't try to avoid
+        // (especially the chordline itself)
+        chordShape.remove_if((shapeEl) => {
+            const si = shapeEl.item()
+            if (!si) {
+                return true
+            }
+            return si.isChordLine() || si.isHarmony() || si.isLyrics()
+        })
+
+        const r = item.isWavy() ? ctx.conf().engravingFont().bbox(item.waveSym(), item.magS()) : ldata.path.boundingRect()
+
+        y += item.isBelow() ? vertOffset : -vertOffset
+
+        const yBelow = y + r.height()
+        let chordEdge = item.isToTheLeft() ? chordShape.leftMostEdgeAtHeight(y, yBelow) : chordShape.rightMostEdgeAtHeight(y, yBelow)
+
+        if (!item.isToTheLeft()) {
+            // Always place lines to the right of dots
+            let xMin = chordShape.left()
+            for (const shapeEl of chordShape.elements()) {
+                if (!shapeEl.item() || !shapeEl.item()!.isNoteDot()) {
+                    continue
+                }
+
+                xMin = Math.max(xMin, shapeEl.right())
+            }
+            chordEdge = Math.max(chordEdge, xMin)
+        }
+
+        x += item.isToTheLeft() ? chordEdge - horOffset : chordEdge + horOffset
+        ldata.setPos(x, y)
+
+        if (!item.isWavy()) {
+            // C++ converts to int
+            const x1 = Math.trunc(r.x())
+            const y1 = Math.trunc(r.y())
+            const width = Math.trunc(r.width())
+            const height = Math.trunc(r.height())
+            ldata.setBbox(new RectF(x1, y1, width, height))
+        } else {
+            // Align an eighth space above/below the centre of the note
+            if (item.isBelow()) {
+                ldata.moveY(r.height() - spatium * 0.125)
+            } else {
+                ldata.moveY(spatium * 0.075)
+            }
+
+            if (item.isToTheLeft()) {
+                ldata.moveX(-r.width())
+            }
+
+            ldata.setBbox(r)
+        }
+    }
+
+    static layoutFingering(item: Fingering): void {
+        const ldata = item.mutldata()
+        if (!item.explicitParent()) {
+            return
+        }
+
+        const tick = item.parentItem()!.tick()
+        const st = item.staff()
+        if (st && st.isTabStaff(tick)
+            && (!st.staffType(tick).showTabFingering() || item.textStyleType() === TextStyleType.STRING_NUMBER)) {
+            ldata.setIsSkipDraw(true)
+            return
+        }
+        ldata.setIsSkipDraw(false)
+
+        TextLayout.layoutBaseTextBase(item)
+        ldata.setPosY(0.0) // handle placement below
+
+        if (item.autoplace()) {
+            const note = item.note()!
+            const chord = note.chord()
+
+            const voices = chord.measure().hasVoicesInRange(chord.staffIdx(), chord.tick(), chord.actualTicks())
+            const tight = voices && chord.notes().length === 1 && !chord.beam() && item.textStyleType() !== TextStyleType.STRING_NUMBER
+
+            const headWidth = note.bboxRightPos()
+
+            // update offset after drag
+            let rebase = 0.0
+            if (ldata.offsetChanged() !== OffsetChange.NONE && !tight) {
+                rebase = Autoplace.rebaseOffset(item, ldata)
+            }
+
+            // temporarily exclude self from chord shape
+            item.setAutoplace(false)
+
+            if (item.layoutType() === ElementType.CHORD) {
+                const above = item.placeAbove()
+                const stem = chord.stem()
+                const segment = chord.segment()!
+                const measure = segment.measure()
+                const sp = item.spatium()
+                let md = item.minDistance().val() * sp
+                const ss = measure.system()!.staff(chord.vStaffIdx())!
+                const vStaff = chord.staff()! // TODO: use current height at tick
+
+                if (note.ldata().mirror) {
+                    ldata.moveX(-note.ldata().pos().x())
+                }
+                ldata.moveX(headWidth * 0.5)
+                if (above) {
+                    if (tight) {
+                        if (chord.stem()) {
+                            ldata.moveX(-0.8 * sp)
+                        }
+                        ldata.moveY(-1.5 * sp)
+                    } else {
+                        const r = ldata.bbox().translated(measure.pos().plus(segment.pos()).plus(chord.pos()).plus(note.pos()).plus(item.pos()))
+                        const sk = new SkylineLine(false)
+                        sk.add(r, item)
+                        const d = sk.minDistance(ss.skyline().north())
+                        let yd = 0.0
+                        if (d > 0.0 && item.isStyled(Pid.MIN_DISTANCE)) {
+                            yd -= d + item.ldata().bbox().height() * 0.25
+                        }
+                        // force extra space above staff & chord (but not other fingerings)
+                        let top: number
+                        if (chord.up() && chord.beam() && stem) {
+                            top = stem.y() + stem.ldata().bbox().top()
+                        } else {
+                            const un = chord.upNote()
+                            top = Math.min(0.0, un.y() + un.ldata().bbox().top())
+                        }
+                        top -= md
+                        const diff = (ldata.bbox().bottom() + ldata.pos().y() + yd + note.y()) - top
+                        if (diff > 0.0) {
+                            yd -= diff
+                        }
+                        if (ldata.offsetChanged() !== OffsetChange.NONE) {
+                            // user moved element within the skyline
+                            // we may need to adjust minDistance, yd, and/or offset
+                            const inStaff = above ? r.bottom() + rebase > 0.0 : r.top() + rebase < item.staff()!.staffHeight(item.tick())
+                            const res = Autoplace.rebaseMinDistance(item, ldata, md, yd, sp, rebase, above, inStaff)
+                            md = res.md
+                            yd = res.yd
+                        }
+                        ldata.moveY(yd)
+                    }
+                } else {
+                    if (tight) {
+                        if (chord.stem()) {
+                            ldata.moveX(0.8 * sp)
+                        }
+                        ldata.moveY(1.5 * sp)
+                    } else {
+                        const r = ldata.bbox().translated(measure.pos().plus(segment.pos()).plus(chord.pos()).plus(note.pos()).plus(item.pos()))
+                        const sk = new SkylineLine(true)
+                        sk.add(r, item)
+                        const d = ss.skyline().south().minDistance(sk)
+                        let yd = 0.0
+                        if (d > 0.0 && item.isStyled(Pid.MIN_DISTANCE)) {
+                            yd += d + item.ldata().bbox().height() * 0.25
+                        }
+                        // force extra space below staff & chord (but not other fingerings)
+                        let bottom: number
+                        if (!chord.up() && chord.beam() && stem) {
+                            bottom = stem.y() + stem.ldata().bbox().bottom()
+                        } else {
+                            const dn = chord.downNote()
+                            bottom = Math.max(vStaff.staffHeight(item.tick()), dn.y() + dn.ldata().bbox().bottom())
+                        }
+                        bottom += md
+                        const diff = bottom - (ldata.bbox().top() + ldata.pos().y() + yd + note.y())
+                        if (diff > 0.0) {
+                            yd += diff
+                        }
+                        if (ldata.offsetChanged() !== OffsetChange.NONE) {
+                            // user moved element within the skyline
+                            // we may need to adjust minDistance, yd, and/or offset
+                            const inStaff = above ? r.bottom() + rebase > 0.0 : r.top() + rebase < item.staff()!.staffHeight(item.tick())
+                            const res = Autoplace.rebaseMinDistance(item, ldata, md, yd, sp, rebase, above, inStaff)
+                            md = res.md
+                            yd = res.yd
+                        }
+                        ldata.moveY(yd)
+                    }
+                }
+            } else if (item.textStyleType() === TextStyleType.LH_GUITAR_FINGERING) {
+                // place to left of note
+                const left = note.shape().left()
+                if (left - note.x() > 0.0) {
+                    ldata.moveX(-left)
+                } else {
+                    ldata.moveX(-note.x())
+                }
+            }
+            // for other fingering styles, do not autoplace
+
+            // restore autoplace
+            item.setAutoplace(true)
+        } else if (ldata.offsetChanged() !== OffsetChange.NONE) {
+            // rebase horizontally too, as autoplace may have adjusted it
+            Autoplace.rebaseOffset(item, ldata, false)
+        }
+        Autoplace.setOffsetChanged(item, ldata, false)
+    }
+
+    static layoutGlissando(item: Glissando, ctx: LayoutContext): void {
+        if (item.startElement()) {
+            item.setTick(item.startElement()!.tick())
+        }
+
+        if (item.endElement()) {
+            item.setTick2(item.endElement()!.tick())
+        }
+
+        TLayout.layoutLine(item, ctx)
+
+        if (item.spannerSegments().length === 0) {
+            return
+        }
+        const ldata = item.mutldata()
+        ldata.setPos(0.0, 0.0)
+
+        const instrId = item.staff()!.part()!.instrumentId(item.tick())
+        const harpStaff = instrId === 'harp'
+        if (item.isHarpGliss() === null) {
+            item.setIsHarpGliss(harpStaff)
+        } else {
+            if (harpStaff !== item.isHarpGliss()) {
+                // Preserve whether this gliss has its default playback style
+                const defaultStyle = item.isStyled(Pid.GLISS_STYLE)
+                item.setIsHarpGliss(harpStaff)
+                if (defaultStyle) {
+                    item.resetProperty(Pid.GLISS_STYLE)
+                }
+
+                // Make sure harp glisses can only be diatonic and chromatic
+                const glissStyle = item.glissandoStyle()
+                if (item.isHarpGliss()
+                    && (glissStyle !== GlissandoStyle.DIATONIC
+                        && glissStyle !== GlissandoStyle.CHROMATIC)) {
+                    item.setGlissandoStyle(GlissandoStyle.DIATONIC)
+                }
+            }
+        }
+
+        TLayout.layoutNoteAnchoredLine(item, ldata, ctx)
+
+        ChordLayout.addLineAttachPoints(item)
+    }
+
+    static layoutGlissandoSegment(item: GlissandoSegment): void {
+        const ldata = item.mutldata()
+        if (item.pos2().x() <= 0) {
+            ldata.setBbox(new RectF())
+            return
+        }
+
+        if (item.staff()) {
+            ldata.setMag(item.staff()!.staffMag(item.tick()))
+        }
+        const r = new RectF(0.0, 0.0, item.pos2().x(), item.pos2().y()).normalized()
+        const lw = item.absoluteFromSpatium(item.lineWidth()) * 0.5
+        item.setbbox(r.adjusted(-lw, -lw, lw, lw))
+    }
+
+    static layoutNoteAnchoredLine(item: SLine, ldata: LayoutData, ctx: LayoutContext): void {
+        const _spatium = item.spatium()
+        const startAnchor = item.startElement() as Note
+        const endAnchor = item.endElement() as Note
+        const startChord = startAnchor.chord()
+        const endChord = endAnchor.chord()
+        const startSeg = item.frontSegment()
+        const endSeg = item.backSegment()
+
+        // Note: line segments are defined by
+        // initial point: ipos() (relative to system origin)
+        // ending point:  pos2() (relative to initial point)
+
+        // LINE ENDING POINTS TO NOTEHEAD CENTRES
+
+        // assume line goes from centre of initial note centre to centre of ending note:
+        // move first segment origin and last segment ending point from notehead origin to notehead centre
+        // For TAB: begin at the right-edge of initial note rather than centre
+        let startOffset = startChord.staff()!.isTabStaff(startChord.tick())
+            ? new PointF(startAnchor.ldata().bbox().right(), 0.0)
+            : new PointF(startAnchor.headWidth() * 0.5, 0.0)
+
+        let endOffset = new PointF(endAnchor.headWidth() * 0.5, 0.0)
+
+        // AVOID HORIZONTAL LINES
+
+        // for microtonality read tuning, or check note accidental
+        let startTune = startAnchor.tuning()
+        let endTune = endAnchor.tuning()
+        const startAcc = startAnchor.accidentalType()
+        const endAcc = endAnchor.accidentalType()
+        if (RealIsNull(startTune) && Accidental.isMicrotonal(startAcc)) {
+            startTune = Accidental.subtype2centOffset(startAcc)
+        }
+        if (RealIsNull(endTune) && Accidental.isMicrotonal(endAcc)) {
+            endTune = Accidental.subtype2centOffset(endAcc)
+        }
+
+        let upDown = Math.sign(endAnchor.ppitch() - startAnchor.ppitch())
+        // same note, so compare tunings
+        if (upDown === 0) {
+            upDown = Math.sign(endTune - startTune)
+        }
+
+        // on TAB's, glissando are by necessity on the same string, this gives an horizontal glissando line;
+        // make bottom end point lower and top ending point higher
+        if (startChord.staff()!.isTabStaff(startChord.tick())) {
+            const yOff = startChord.staff()!.lineDistance(startChord.tick()) * 0.4 * _spatium
+            startOffset.setY(startOffset.y() + yOff * upDown)
+            endOffset.setY(endOffset.y() - yOff * upDown)
+        } else {
+            // if not TAB, angle glissando between notes on the same line
+            if (startAnchor.line() === endAnchor.line()) {
+                startOffset.setY(startOffset.y() + _spatium * 0.25 * upDown)
+                endOffset.setY(endOffset.y() - _spatium * 0.25 * upDown)
+            }
+        }
+
+        // move initial point of first segment and adjust its length accordingly
+        startSeg.setPos(startSeg.ldata().pos().plus(startOffset))
+        startSeg.setPos2(startSeg.ipos2().minus(startOffset))
+        // adjust ending point of last segment
+        endSeg.setPos2(endSeg.ipos2().plus(endOffset))
+
+        // INTERPOLATION OF INTERMEDIATE POINTS
+
+        // get total x-width and total y-height of all segments
+        let xTot = 0.0
+        for (const segm of item.spannerSegments()) {
+            xTot += segm.ipos2().x()
+        }
+        const startY = startSeg.ldata().pos().y()
+        let yTot = endSeg.ldata().pos().y() + endSeg.ipos2().y() - startY
+        yTot -= yStaffDifference(endSeg.system(), startSeg.system(), track2staff(item.track2()))
+        const ratio = xTot === 0 ? 1.0 : yTot / xTot // muse::divide
+        // interpolate y-coord of intermediate points across total width and height
+        let xCurr = 0.0
+        let yCurr: number
+        for (let i = 0; i + 1 < item.spannerSegments().length; i++) {
+            let segm = item.segmentAt(i)
+            xCurr += segm.ipos2().x()
+            yCurr = startY + ratio * xCurr
+            segm.rpos2().setY(yCurr - segm.ldata().pos().y()) // position segm. end point at yCurr
+            // next segment shall start where this segment stopped
+            const nextSeg = item.segmentAt(i + 1)
+            yCurr += yStaffDifference(nextSeg.system(), segm.system(), track2staff(item.track2()))
+            segm = nextSeg
+            segm.rpos2().setY(segm.rpos2().y() + segm.ldata().pos().y() - yCurr) // adjust next segm. vertical length
+            segm.mutldata().setPosY(yCurr) // position next segm. start point at yCurr
+        }
+
+        // KEEP CLEAR OF ALL ELEMENTS OF THE CHORD
+        // Remove offset already applied
+        startOffset = startOffset.times(-1.0)
+        endOffset = endOffset.times(-1.0)
+        // Look at chord shapes (but don't consider lyrics)
+        const startCRShape = startChord.shape()
+        startCRShape.remove_if((s) => !s.item() || s.item()!.isLyrics())
+
+        const startYAbove = startAnchor.ldata().pos().y() + startAnchor.ldata().bbox().topRight().y()
+        const startYBelow = startYAbove + startAnchor.ldata().bbox().height()
+        startOffset.setX(startOffset.x() + startCRShape.rightMostEdgeAtHeight(startYAbove, startYBelow) - startAnchor.pos().x())
+        if (!endChord.staff()!.isTabStaff(endChord.tick())) {
+            let endYAbove = endAnchor.ldata().pos().y() + endAnchor.ldata().bbox().topLeft().y()
+            let endYBelow = endYAbove + endAnchor.ldata().bbox().height()
+            const noteMiddle = endYAbove + endAnchor.ldata().bbox().height() / 2
+            if (upDown !== 0) {
+                const llWidth = Math.trunc(ctx.conf().styleS(Sid.ledgerLineWidth).val() * _spatium)
+                // Only check top/bottom half of note depending on line approach direction
+                // to avoid clearing acidentals the line won't collide with
+                endYAbove = upDown === 1 ? noteMiddle - llWidth : endYAbove
+                endYBelow = upDown === 1 ? endYBelow : noteMiddle + llWidth
+            }
+
+            endOffset.setX(endOffset.x() - (endAnchor.pos().x() - endChord.shape().leftMostEdgeAtHeight(endYAbove, endYBelow)))
+        }
+        // Add note distance
+        const lineNoteDist = 0.25 * item.spatium() // TODO: style
+        startOffset.setX(startOffset.x() + lineNoteDist)
+        endOffset.setX(endOffset.x() - lineNoteDist)
+
+        // apply offsets: shorten first segment by x1 (and proportionally y) and adjust its length accordingly
+        startOffset.setY(startSeg.ipos2().y() * (startSeg.ipos2().x() === 0 ? 1.0 : startOffset.x() / startSeg.ipos2().x()))
+        startSeg.setPos(startSeg.ldata().pos().plus(startOffset))
+        startSeg.setPos2(startSeg.ipos2().minus(startOffset))
+        // adjust last segment length by x2 (and proportionally y)
+        endOffset.setY(endSeg.ipos2().y() * (endSeg.ipos2().x() === 0 ? 1.0 : endOffset.x() / endSeg.ipos2().x()))
+        endSeg.setPos2(endSeg.ipos2().plus(endOffset))
+
+        for (const segm of item.spannerSegments()) {
+            TLayout.layoutItem(segm, ctx)
+        }
+
+        // compute line bbox as the bbox of the last segment, relative to the end anchor note
+        const endAnchorPagePos = endAnchor.pagePos()
+        let endSystemPagePos: PointF
+        if (!endChord.segment()!.system()) {
+            endSystemPagePos = endSeg.pos()
+        } else {
+            endSystemPagePos = endChord.segment()!.system()!.pagePos()
+        }
+
+        const endAnchorSystPos = endAnchorPagePos.minus(endSystemPagePos)
+        const r = RectF.fromPoints(endAnchorSystPos.minus(endSeg.pos()), endAnchorSystPos.minus(endSeg.pos()).minus(endSeg.pos2())).normalized()
+        const lw = item.absoluteFromSpatium(item.lineWidth()) * 0.5
+        ldata.setBbox(r.adjusted(-lw, -lw, lw, lw))
+    }
+
     static layoutGuitarBend(item: GuitarBend, ctx: LayoutContext, system: System | null = null): void {
         item.computeBendAmount()
 
@@ -3120,8 +3730,7 @@ export class TLayout {
 
         for (const e of item.el()) {
             if (e.addToSkyline()) {
-                if (e.isFingering()) {
-                    // TODO(port): fingering layout type
+                if (e.isFingering() && (e as Fingering).layoutType() !== ElementType.NOTE) {
                     continue
                 }
                 shape.add(e.ldata().bbox().translated(e.pos()), e)

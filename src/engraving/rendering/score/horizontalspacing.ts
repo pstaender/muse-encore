@@ -12,7 +12,7 @@ import { RectF } from '../../../framework/draw/types/geometry'
 import { RealIsEqual, RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull, clamp } from '../../../framework/global/realfn'
 import { Fraction } from '../../types/fraction'
 import { SymId } from '../../types/symid'
-import { ElementType, LyricsSyllabic, TimeSigVSMargin, VOICES, staff2track, type staff_idx_t } from '../../types/types'
+import { ElementType, GlissandoType, LyricsSyllabic, TimeSigVSMargin, VOICES, staff2track, type staff_idx_t } from '../../types/types'
 import { Shape, intersects } from '../../infrastructure/shape'
 import { Sid } from '../../style/styledef'
 import { KerningType, type EngravingItem } from '../../dom/engravingitem'
@@ -27,6 +27,7 @@ import type { Measure } from '../../dom/measure'
 import type { Note } from '../../dom/note'
 import type { Rest } from '../../dom/rest'
 import type { Spanner } from '../../dom/spanner'
+import type { Glissando } from '../../dom/glissando'
 import type { StemSlash } from '../../dom/stemslash'
 import type { System } from '../../dom/system'
 import type { TimeSig } from '../../dom/timesig'
@@ -1491,8 +1492,11 @@ export class HorizontalSpacing {
                 if (laPoint1.line().isTie()) {
                     minEndPointsDistance = style.styleMM(Sid.minTieLength)
                 } else if (laPoint1.line().isGlissando()) {
-                    // TODO(port): GlissandoType::STRAIGHT check
-                    minEndPointsDistance = style.styleMM(Sid.minWigglyGlissandoLength)
+                    const straight = (laPoint1.line() as Glissando).glissandoType() === GlissandoType.STRAIGHT
+                    const minGlissandoLength = straight
+                        ? style.styleMM(Sid.minStraightGlissandoLength)
+                        : style.styleMM(Sid.minWigglyGlissandoLength)
+                    minEndPointsDistance = minGlissandoLength
                 } else if (laPoint1.line().isGuitarBend()) {
                     minEndPointsDistance = 2 * note.spatium() // TODO: style
                 } else if (laPoint1.line().isNoteLine()) {
@@ -1782,8 +1786,9 @@ export class HorizontalSpacing {
                     }
                     let minLength = 0.0
                     if (attachedLine.isGlissando()) {
-                        // TODO(port): GlissandoType::STRAIGHT check
-                        minLength = style.styleMM(Sid.minWigglyGlissandoLength)
+                        const straight = (attachedLine as Glissando).glissandoType() === GlissandoType.STRAIGHT
+                        minLength = straight ? style.styleMM(Sid.minStraightGlissandoLength)
+                            : style.styleMM(Sid.minWigglyGlissandoLength)
                     } else if (attachedLine.isNoteLine()) {
                         minLength = style.styleMM(Sid.minStraightGlissandoLength)
                     }

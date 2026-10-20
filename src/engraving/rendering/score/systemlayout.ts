@@ -66,6 +66,7 @@ import type { Ornament } from '../../dom/ornament'
 import type { Arpeggio } from '../../dom/arpeggio'
 import type { GuitarBend } from '../../dom/guitarbend'
 import type { TextLineBaseSegment } from '../../dom/textlinebase'
+import type { HammerOnPullOff, HammerOnPullOffSegment } from '../../dom/hammeronpulloff'
 import { GuitarDiveLayout } from './guitardivelayout'
 
 class MeasureState {
@@ -1144,7 +1145,13 @@ export class SystemLayout {
             if (ecr && ecr.isChord()) {
                 ChordLayout.layoutArticulations3(ecr as Chord, slur, ctx)
             }
-            // TODO(port): hammer-on/pull-off letters
+            if (slur.isHammerOnPullOff()) {
+                const staffType = slur.staff()!.staffType(slur.tick())
+                if ((staffType.isTabStaff() && ctx.conf().styleB(Sid.hopoAlignLettersTabStaves))
+                    || (!staffType.isTabStaff() && ctx.conf().styleB(Sid.hopoAlignLettersStandardStaves))) {
+                    AlignmentLayout.alignHopoLetters(slur as HammerOnPullOff, system)
+                }
+            }
         }
 
         SystemLayout.processLines(system, ctx, elementsToLayout.trills)
@@ -1771,6 +1778,9 @@ export class SystemLayout {
                     continue
                 }
                 system.staff(stfIdx)!.skyline().add(ss.shape().translate(ss.pos()))
+                if (ss.isHammerOnPullOffSegment()) {
+                    TLayout.layoutHammerOnPullOffSegment(ss as HammerOnPullOffSegment, ctx)
+                }
             }
         }
     }

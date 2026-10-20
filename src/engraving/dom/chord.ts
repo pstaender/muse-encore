@@ -559,7 +559,15 @@ export class Chord extends ChordRest {
         }
         return TremoloChordType.TremoloNone
     }
-    chordLine(): EngravingItem | null { return null }
+    chordLine(): EngravingItem | null {
+        for (const item of this.el()) {
+            if (item && item.isChordLine()) {
+                return item
+            }
+        }
+
+        return null
+    }
 
     endsNoteAnchoredLine(): boolean { return this.m_endsNoteAnchoredLine }
     setEndsNoteAnchoredLine(val: boolean): void { this.m_endsNoteAnchoredLine = val }

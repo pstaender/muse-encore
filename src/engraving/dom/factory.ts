@@ -81,6 +81,9 @@ import { MeasureRepeat } from './measurerepeat'
 import { GuitarBend } from './guitarbend'
 import { WhammyBar, WhammyBarSegment } from './whammybar'
 import { Vibrato, VibratoSegment } from './vibrato'
+import { Glissando, GlissandoSegment } from './glissando'
+import { GradualTempoChange, GradualTempoChangeSegment } from './gradualtempochange'
+import { HammerOnPullOff, HammerOnPullOffSegment } from './hammeronpulloff'
 
 type Parent = EngravingObject | null
 
@@ -124,6 +127,8 @@ export class Factory {
         case ElementType.MEASURE: return new Measure(dummy().system())
         case ElementType.TUPLET: return new Tuplet(measureOrDummy())
         case ElementType.SLUR: return new Slur(itemOrDummy())
+        case ElementType.HAMMER_ON_PULL_OFF: return new HammerOnPullOff(itemOrDummy())
+        case ElementType.HAMMER_ON_PULL_OFF_SEGMENT: return new HammerOnPullOffSegment(dummy().system())
         case ElementType.TIE: return new Tie(itemOrDummy())
         case ElementType.SPACER: return new Spacer(measureOrDummy())
         case ElementType.PARENTHESIS: return new Parenthesis(itemOrDummy())
@@ -156,6 +161,10 @@ export class Factory {
         case ElementType.LET_RING_SEGMENT: return new LetRingSegment(null, dummy().system())
         case ElementType.WHAMMY_BAR: return new WhammyBar(itemOrDummy())
         case ElementType.VIBRATO: return new Vibrato(itemOrDummy())
+        case ElementType.GLISSANDO: return new Glissando(itemOrDummy())
+        case ElementType.GRADUAL_TEMPO_CHANGE: return new GradualTempoChange(itemOrDummy())
+        case ElementType.GRADUAL_TEMPO_CHANGE_SEGMENT: return new GradualTempoChangeSegment(null, dummy().system())
+        case ElementType.GLISSANDO_SEGMENT: return new GlissandoSegment(null, dummy().system())
         case ElementType.VIBRATO_SEGMENT: return new VibratoSegment(null, dummy().system())
         case ElementType.WHAMMY_BAR_SEGMENT: return new WhammyBarSegment(null, dummy().system())
         case ElementType.PALM_MUTE: return new PalmMute(itemOrDummy())

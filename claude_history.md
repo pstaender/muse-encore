@@ -155,12 +155,24 @@
 - PassLayoutIndependentItems is no longer run: in C++ it is only compiled with MUE_ENABLE_ENGRAVING_LD_PASSES
   (OFF in release builds). It laid out accidentals of grace notes before their mag was known (full-size grace
   accidentals). guitarDive-2 8% -> 3.4%.
+- Glissandi (straight/wavy, text, dashed lines; TLayout::layoutNoteAnchoredLine, ChordLayout::addLineAttachPoints,
+  min glissando length in spacing): tablature-7 11.5% -> 3.9%, gliss-5 11% -> 3.1%.
+- Fingering (note- and chord-based layout, LH guitar fingering alignment, cross-beam fingerings, skyline):
+  offsets 32% -> 7.5%, fingeringSpacing 11.7% -> 1.9%.
+- Chord lines (falls, doits, plops, scoops; straight/curved/wavy, spacing): chordline-2/3 12%/11% -> 5%/3%.
+- Gradual tempo changes (rit./accel. lines with snapping to tempo texts and rehearsal marks): mmrest-15 63% -> 2%,
+  stacking-order 52% -> 6%, tempoChangeLines-2 15% -> 3.3%.
+- Hammer-on/pull-off slurs with H/P letters (regions, alignment of letters): hopo-1..4 10-15% -> 3.8-6.5%.
+- read400/read410 compat: `<placement>` of items with voice assignment properties (dynamics, hairpins, ...) is read
+  as DIRECTION in files < 4.6 (hairpins/cresc. lines were placed below instead of above).
+- read400 compat: key signatures with `<accidental>` (4.0 files; transposing instruments got no key signature):
+  gliss-3 11% -> 3.8%.
 - Note: files < 4.6 are read with read460 plus selected read400/read410 compat (fretFontName, harmony, fret
   diagrams, marker type from label, header clefs); C++ uses separate readers for them.
 
 ### Known differences / missing
-- Not ported (not drawn): fingering, gradual tempo changes, partial lyrics lines,
-  chord brackets, tremolo bars, glissandi, images, fret boxes, MMRestRange, excerpts, capos, string tunings.
+- Not ported (not drawn): partial lyrics lines,
+  chord brackets, tremolo bars, images, note lines, fret boxes, MMRestRange, excerpts, capos, string tunings.
 - guitarDive-2: measure widths differ slightly (~1.5%) from MuseScore.
 - harmony-35: chord symbols at size 20 are placed ~0.45sp lower than in MuseScore (10, 15 and 25 match), so a
   4th system fits on page 1.

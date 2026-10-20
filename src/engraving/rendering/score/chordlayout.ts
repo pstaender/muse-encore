@@ -9,10 +9,10 @@
  * glissandi/guitar bends/note lines, ornament cue notes
  */
 
-import { PointF } from '../../../framework/draw/types/geometry'
+import { PointF, RectF } from '../../../framework/draw/types/geometry'
 import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull, stdRound } from '../../../framework/global/realfn'
 import { BeamMode, DirectionH, DirectionV, DurationType, ElementType, track2voice, NoteHeadType, VOICES, staff2track,
-    NoteHeadGroup, type staff_idx_t, type track_idx_t, ParenthesesMode } from '../../types/types'
+    NoteHeadGroup, type staff_idx_t, type track_idx_t, ParenthesesMode, TextStyleType } from '../../types/types'
 import { Shape, ShapeType } from '../../infrastructure/shape'
 import { Sid } from '../../style/styledef'
 import { SymId } from '../../types/symid'
@@ -32,8 +32,10 @@ import type { NoteDot } from '../../dom/notedot'
 import { prevChordRest, type Chord } from '../../dom/chord'
 import type { ChordRest } from '../../dom/chordrest'
 import type { GuitarBend } from '../../dom/guitarbend'
+import type { Glissando } from '../../dom/glissando'
 import type { Measure } from '../../dom/measure'
 import type { Note } from '../../dom/note'
+import type { Spanner } from '../../dom/spanner'
 import type { Rest } from '../../dom/rest'
 import type { Slur } from '../../dom/slur'
 import type { Staff } from '../../dom/staff'
@@ -58,7 +60,8 @@ import type { MeasureRepeat } from '../../dom/measurerepeat'
 import { ParenthesisLayout } from './parenthesislayout'
 import { NoteParenthesisInfo } from '../../dom/chord'
 import type { Parenthesis } from '../../dom/parenthesis'
-import { Pid } from '../../dom/property'
+import { Pid, PropertyFlags } from '../../dom/property'
+import type { Fingering } from '../../dom/fingering'
 import { DisplayFretOption } from '../../dom/note'
 
 export class ChordPosInfo {
@@ -182,7 +185,17 @@ export class ChordLayout {
                 x -= ctx.conf().styleMM(Sid.accidentalDistance) * mag_
                 lll = Math.max(lll, -x)
             }
-            // TODO(port): fingerings
+
+            // clear layout for note-based fingerings
+            for (const e of note.el()) {
+                if (e.isFingering()) {
+                    const f = e as Fingering
+                    if (f.layoutType() === ElementType.NOTE) {
+                        f.setPos(new PointF())
+                        f.setbbox(new RectF())
+                    }
+                }
+            }
         }
 
         // A chord can have its own arpeggio and also be part of another arpeggio's span.  We need to lay out both of these arpeggios properly
@@ -315,7 +328,40 @@ export class ChordLayout {
                 continue
             }
             TLayout.layoutItem(e, ctx)
-            // TODO(port): chord lines
+            if (e.isChordLine()) {
+                const tbbox = e.ldata().bbox().translated(e.pos())
+                const lx = tbbox.left() + chordX
+                const rx = tbbox.right() + chordX
+                if (-lx > item.spaceLw()) {
+                    item.setSpaceLw(item.spaceLw() - lx)
+                }
+                if (rx > item.spaceRw()) {
+                    item.setSpaceRw(rx)
+                }
+            }
+        }
+
+        // align note-based fingerings
+        const alignNote: Fingering[] = []
+        let xNote = Number.MAX_VALUE
+        for (const note of item.notes()) {
+            let leftFound = false
+            for (const e of note.el()) {
+                if (e.isFingering() && e.autoplace()) {
+                    const f = e as Fingering
+                    if (f.layoutType() === ElementType.NOTE && f.textStyleType() === TextStyleType.LH_GUITAR_FINGERING) {
+                        alignNote.push(f)
+                        if (!leftFound) {
+                            leftFound = true
+                            const xf = f.ldata().pos().x()
+                            xNote = Math.min(xNote, xf)
+                        }
+                    }
+                }
+            }
+        }
+        for (const f of alignNote) {
+            f.mutldata().setPosX(xNote)
         }
 
         ChordLayout.layoutLvArticulation(item, ctx)
@@ -645,7 +691,17 @@ export class ChordLayout {
         }
         for (const e of item.el()) {
             TLayout.layoutItem(e, ctx)
-            // TODO(port): chord lines
+            if (e.isChordLine()) {
+                const tbbox = e.ldata().bbox().translated(e.pos())
+                const lx = tbbox.left()
+                const rx = tbbox.right()
+                if (-lx > item.spaceLw()) {
+                    item.setSpaceLw(item.spaceLw() - lx)
+                }
+                if (rx > item.spaceRw()) {
+                    item.setSpaceRw(rx)
+                }
+            }
         }
 
         for (let i = 0; i < numOfNotes; ++i) {
@@ -2699,6 +2755,31 @@ export class ChordLayout {
         }
     }
 
+    static addLineAttachPoints(spanner: Spanner): void {
+        const frontSeg = spanner.frontSegment()
+        const backSeg = spanner.backSegment()
+        let startNote: Note | null = null
+        let endNote: Note | null = null
+
+        const startElement = spanner.startElement()
+        const endElement = spanner.endElement()
+        if (startElement && startElement.isNote()) {
+            startNote = startElement as Note
+        }
+        if (endElement && endElement.isNote()) {
+            endNote = endElement as Note
+        }
+        if (!frontSeg || !backSeg || !startNote || !endNote) {
+            return
+        }
+        const startX = frontSeg.ldata().pos().x()
+        const endX = backSeg.pos2().x() + backSeg.ldata().pos().x() // because pos2 is relative to ipos
+        // Here we don't pass y() because its value is unreliable during the first stages of layout.
+        // The y() is irrelevant anyway for horizontal spacing.
+        startNote.addStartLineAttachPoint(new PointF(startX, 0.0), spanner)
+        endNote.addEndLineAttachPoint(new PointF(endX, 0.0), spanner)
+    }
+
     static clearLineAttachPoints(measure: Measure): void {
         for (let s = measure.first(); s; s = s.next()) {
             if (!s.isChordRestType()) {
@@ -2728,14 +2809,16 @@ export class ChordLayout {
         if (chord.endsNoteAnchoredLine()) {
             for (const note of chord.notes()) {
                 for (const sp of note.spannerBack()) {
-                    if (sp.isGuitarBend()) {
+                    if (sp.isGlissando()) {
+                        TLayout.layoutGlissando(sp as Glissando, ctx)
+                    } else if (sp.isGuitarBend()) {
                         const staffType = chord.staffType()
                         const isDiveOnTab = (sp as GuitarBend).isDive() && !!staffType && staffType.isTabStaff()
                         if (!isDiveOnTab) {
                             TLayout.layoutGuitarBend(sp as GuitarBend, ctx)
                         }
                     }
-                    // TODO(port): glissandi, note lines
+                    // TODO(port): note lines
                 }
             }
         }
@@ -2767,8 +2850,48 @@ export class ChordLayout {
         SlurTieLayout.layoutLaissezVibChord(chord, ctx)
     }
 
-    static layoutChordBaseFingering(_chord: Chord, _system: System, _ctx: LayoutContext): void {
-        // TODO(port): fingerings
+    static layoutChordBaseFingering(chord: Chord, system: System, _ctx: LayoutContext): void {
+        const shapesToRecreate = new Set<staff_idx_t>()
+        const notes: Note[] = []
+        const segment = chord.segment()!
+        for (const gc of chord.graceNotes()) {
+            for (const n of gc.notes()) {
+                notes.push(n)
+            }
+        }
+        for (const n of chord.notes()) {
+            notes.push(n)
+        }
+        const fingerings: Fingering[] = []
+        for (const note of notes) {
+            for (const el of note.el()) {
+                if (el.isFingering()) {
+                    const f = el as Fingering
+                    if (f.layoutType() === ElementType.CHORD && !f.isOnCrossBeamSide()) {
+                        // Fingering on top of cross-staff beams must be laid out later
+                        if (f.placeAbove()) {
+                            fingerings.push(f)
+                        } else {
+                            fingerings.unshift(f)
+                        }
+                    }
+                }
+            }
+        }
+        for (const f of fingerings) {
+            TLayout.layoutFingering(f)
+            if (f.addToSkyline()) {
+                const n = f.note()!
+                const r = f.ldata().bbox().translated(
+                    f.pos().plus(n.pos()).plus(n.chord().pos()).plus(segment.pos()).plus(segment.measure().pos()))
+                system.staff(n.chord().vStaffIdx())!.skyline().add(r, f)
+            }
+            shapesToRecreate.add(f.staffIdx())
+        }
+        // C++ std::set iterates in ascending order
+        for (const staffIdx of [...shapesToRecreate].sort((a, b) => a - b)) {
+            segment.createShape(staffIdx)
+        }
     }
 
     static crossMeasureSetup(chord: Chord, on: boolean, ctx: LayoutContext): void {
@@ -2891,7 +3014,16 @@ export class ChordLayout {
                 e.mutldata().setMag(item.mag())
                 TLayout.layoutItem(e, ctx)
             } else if (e.isFingering()) {
-                // TODO(port): fingerings
+                // don't set mag; fingerings should not scale with note
+                const f = e as Fingering
+                if (f.propertyFlags(Pid.PLACEMENT) === PropertyFlags.STYLED) {
+                    f.setPlacement(f.calculatePlacement())
+                }
+                // layout fingerings that are placed relative to notehead
+                // fingerings placed relative to chord will be laid out later
+                if (f.layoutType() === ElementType.NOTE) {
+                    TLayout.layoutFingering(f)
+                }
             } else {
                 e.mutldata().setMag(item.mag())
                 TLayout.layoutItem(e, ctx)

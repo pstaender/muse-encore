@@ -13,11 +13,13 @@
 import { Brush, BrushStyle, Pen, PenCapStyle, PenJoinStyle, PenStyle } from '../../../framework/draw/types/drawtypes'
 import { Color } from '../../../framework/draw/types/color'
 import { LineF, PointF, RectF } from '../../../framework/draw/types/geometry'
+import { Font, FontType } from '../../../framework/draw/types/font'
+import { FontMetrics } from '../../../framework/draw/fontmetrics'
 import { FillRule } from '../../../framework/draw/types/painterpath'
 import type { Painter } from '../../../framework/draw/painter'
 import { RealIsNull } from '../../../framework/global/realfn'
 import { SymId } from '../../types/symid'
-import { ArpeggioType, ArticulationTextType, BarLineType, BracketType, ElementType, GuitarBendType, HookType, LineType, Orientation, SlurStyleType, VOICES } from '../../types/types'
+import { ArpeggioType, ArticulationTextType, BarLineType, BracketType, ElementType, ChordLineType, FontStyle, GlissandoType, GuitarBendType, HookType, LineType, Orientation, SlurStyleType, VOICES } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { DefaultStyle } from '../../style/defaultstyle'
 import { CrossMeasure } from '../../dom/chordrest'
@@ -69,6 +71,8 @@ import type { LaissezVibSegment } from '../../dom/laissezvib'
 import type { MeasureRepeat } from '../../dom/measurerepeat'
 import type { GuitarBendHoldSegment, GuitarBendSegment } from '../../dom/guitarbend'
 import type { VibratoSegment } from '../../dom/vibrato'
+import type { GlissandoSegment } from '../../dom/glissando'
+import type { ChordLine } from '../../dom/chordline'
 
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
@@ -148,11 +152,14 @@ export class TDraw {
         case ElementType.LET_RING_SEGMENT:
         case ElementType.PALM_MUTE_SEGMENT:
         case ElementType.WHAMMY_BAR_SEGMENT:
+        case ElementType.GRADUAL_TEMPO_CHANGE_SEGMENT:
             TDraw.drawTextLineBaseSegment(item as TextLineBaseSegment, painter, opt)
             break
         case ElementType.LYRICSLINE_SEGMENT: TDraw.drawLyricsLineSegment(item as LyricsLineSegment, painter, opt)
             break
-        case ElementType.SLUR_SEGMENT: TDraw.drawSlurSegment(item as SlurSegment, painter, opt)
+        case ElementType.SLUR_SEGMENT:
+        case ElementType.HAMMER_ON_PULL_OFF_SEGMENT:
+            TDraw.drawSlurSegment(item as SlurSegment, painter, opt)
             break
         case ElementType.STAFF_LINES: TDraw.drawStaffLines(item as StaffLines, painter, opt)
             break
@@ -163,6 +170,10 @@ export class TDraw {
         case ElementType.SYMBOL: TDraw.drawSymbol(item as SymbolItem, painter, opt)
             break
         case ElementType.LAISSEZ_VIB_SEGMENT: TDraw.drawLaissezVibSegment(item as LaissezVibSegment, painter, opt)
+            break
+        case ElementType.CHORDLINE: TDraw.drawChordLine(item as ChordLine, painter, opt)
+            break
+        case ElementType.GLISSANDO_SEGMENT: TDraw.drawGlissandoSegment(item as GlissandoSegment, painter, opt)
             break
         case ElementType.GUITAR_BEND_SEGMENT: TDraw.drawGuitarBendSegment(item as GuitarBendSegment, painter, opt)
             break
@@ -196,6 +207,8 @@ export class TDraw {
         case ElementType.MARKER:
         case ElementType.JUMP:
         case ElementType.GUITAR_BEND_TEXT:
+        case ElementType.FINGERING:
+        case ElementType.HAMMER_ON_PULL_OFF_TEXT:
             TDraw.drawTextBase(item as TextBase, painter, opt)
             break
         default:
@@ -1316,6 +1329,88 @@ export class TDraw {
         } else {
             TDraw.drawTieSegment(item, painter, opt)
         }
+    }
+
+    static drawChordLine(item: ChordLine, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+        painter.setPen(new Pen(item.curColor(opt), item.style().styleMM(Sid.chordlineThickness) * item.mag(), PenStyle.SolidLine))
+        painter.setBrush(BrushStyle.NoBrush)
+        if (!item.isWavy()) {
+            painter.drawPath(ldata.path)
+        } else {
+            painter.save()
+            painter.rotate(item.chordLineType() === ChordLineType.FALL ? 1 : -1)
+            item.drawSymbol(item.waveSym(), painter)
+            painter.restore()
+        }
+    }
+
+    static drawGlissandoSegment(item: GlissandoSegment, painter: Painter, opt: PaintOptions): void {
+        if (item.pos2().x() <= 0) {
+            return
+        }
+
+        painter.save()
+        const _spatium = item.spatium()
+        const glissando = item.glissando()
+
+        const pen = new Pen(item.curColorWith(item.getProperty(Pid.VISIBLE) as boolean, item.getProperty(Pid.COLOR) as Color, opt))
+        pen.setWidthF(item.absoluteFromSpatium(item.lineWidth()))
+        pen.setCapStyle(PenCapStyle.FlatCap)
+        painter.setPen(pen)
+
+        // rotate painter so that the line become horizontal
+        const w = item.pos2().x()
+        const h = item.pos2().y()
+        const l = Math.sqrt(w * w + h * h)
+        const wi = Math.asin(-h / l) * 180.0 / Math.PI
+        painter.rotate(-wi)
+
+        if (glissando.glissandoType() === GlissandoType.STRAIGHT) {
+            const isNonSolid = glissando.lineStyle() !== LineType.SOLID
+            if (isNonSolid) {
+                const lineWidth = glissando.absoluteFromSpatium(glissando.lineWidth())
+                const { dash, gap } = TDraw.setDashAndGapLen(glissando, pen)
+                pen.setDashPattern(TDraw.distributedDashPattern(dash, gap, l / lineWidth))
+                painter.setPen(pen)
+            }
+
+            painter.drawLine(new PointF(0.0, 0.0), new PointF(l, 0.0))
+        } else if (glissando.glissandoType() === GlissandoType.WAVY) {
+            const b = item.symBbox(SymId.wiggleGlissando)
+            const a = item.symAdvance(SymId.wiggleGlissando)
+            const n = Math.trunc(l / a) // always round down (truncate) to avoid overlap
+            const x = (l - n * a) * 0.5 // centre line in available space
+            const ids: SymId[] = []
+            for (let i = 0; i < n; ++i) {
+                ids.push(SymId.wiggleGlissando)
+            }
+
+            item.drawSymbols(ids, painter, new PointF(x, -(b.y() + b.height() * 0.5)))
+        }
+
+        if (glissando.showText()) {
+            const f = new Font(glissando.fontFace(), FontType.Unknown)
+            f.setPointSizeF(glissando.fontSize() * _spatium / item.defaultSpatium())
+            f.setBold(!!(glissando.fontStyle() & FontStyle.Bold))
+            f.setItalic(!!(glissando.fontStyle() & FontStyle.Italic))
+            f.setUnderline(!!(glissando.fontStyle() & FontStyle.Underline))
+            f.setStrike(!!(glissando.fontStyle() & FontStyle.Strike))
+            const fm = new FontMetrics(f)
+            const r = fm.boundingRect(glissando.text())
+
+            // if text longer than available space, skip it
+            if (r.width() < l) {
+                const x = (l - r.width()) * 0.5
+                let yOffset = r.height() + r.y() // find text descender height
+                // raise text slightly above line and slightly more with WAVY than with STRAIGHT
+                yOffset += _spatium * (glissando.glissandoType() === GlissandoType.WAVY ? 0.4 : 0.1)
+
+                painter.setFont(f)
+                painter.drawText(new PointF(x, -yOffset), glissando.text())
+            }
+        }
+        painter.restore()
     }
 
     static drawGuitarBendSegment(item: GuitarBendSegment, painter: Painter, opt: PaintOptions): void {

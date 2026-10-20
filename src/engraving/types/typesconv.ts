@@ -18,7 +18,7 @@ import {
     NoteHeadType, NoteSpellingType, Orientation, OrnamentInterval, OrnamentStyle, PlacementH, PlacementV,
     RepeatPlayCountPreset, StaffGroup, TextPlace, TextStyleType, TieDotsPlacement, TiePlacement, TimeSigPlacement,
     TimeSigStyle, TimeSigVSMargin, TremoloType, TrillType, VoiceAssignment, AutoCustomHide, LyricsDashSystemStart,
-    ArpeggioType, JumpType, GlissandoType, VeloType, ArticulationTextType, VibratoType, PartialSpannerDirection,
+    ArpeggioType, JumpType, GlissandoType, VeloType, ArticulationTextType, VibratoType, PartialSpannerDirection, GradualTempoChangeType,
 } from './types'
 import * as D from './typesconvdata'
 import type { Item } from './typesconvdata'
@@ -184,6 +184,8 @@ export const TConv = {
 
     toXmlDynamicType: (v: DynamicType): string => findXmlTagByType(D.DYNAMIC_TYPES, v),
     fromXmlChangeMethod: (tag: string, def: ChangeMethod): ChangeMethod => findTypeByXmlTag(D.CHANGE_METHODS, tag, def),
+    fromXmlTempoChangeType: (tag: string, def: GradualTempoChangeType): GradualTempoChangeType =>
+        findTypeByXmlTag(D.TEMPO_CHANGE_TYPES, tag, def),
     fromXmlDynamicSpeed: (tag: string, def: DynamicSpeed): DynamicSpeed => findTypeByXmlTag(D.DYNAMIC_SPEEDS, tag, def),
     fromXmlDynamicType: (tag: string, def: DynamicType): DynamicType => findTypeByXmlTag(D.DYNAMIC_TYPES, tag, def),
 
