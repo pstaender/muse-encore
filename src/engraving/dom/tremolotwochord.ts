@@ -19,6 +19,8 @@ import { ElementFlag, type EngravingItem } from './engravingitem'
 import type { ElementStyle } from './engravingobject'
 import { Pid } from './property'
 import type { Chord } from './chord'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
+import { TConv } from '../types/typesconv'
 
 const TREMOLO_STYLE: ElementStyle = [
     { sid: Sid.tremoloStyle, pid: Pid.TREMOLO_STYLE },
@@ -297,4 +299,12 @@ export class TremoloTwoChord extends BeamBase {
 
     path(): PainterPath { return this.m_path }
     setPath(p: PainterPath): void { this.m_path = p }
+
+    override subtypeUserName(): TranslatableString {
+        return TConv.userNameTremoloType(this.tremoloType())
+    }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${this.translatedSubtypeUserName()}`
+    }
 }

@@ -265,4 +265,8 @@ export class Ottava extends TextLineBase {
     protected override doComputeEndElement(): void {
         this.setEndElement(this.score().findChordRestEndingBeforeTickInStaff(this.tick2(), track2staff(this.track())))
     }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${ottavaDefault[this.ottavaType()].name}`
+    }
 }

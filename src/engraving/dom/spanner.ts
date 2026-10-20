@@ -206,6 +206,10 @@ export abstract class SpannerSegment extends EngravingItem {
     override collectForDrawing(): boolean {
         return super.collectForDrawing() && (this.spanner().eitherEndVisible() || this.systemFlag())
     }
+
+    override accessibleInfo(): string {
+        return this.spanner()!.accessibleInfo()
+    }
 }
 
 // ---------------------------------------------------------

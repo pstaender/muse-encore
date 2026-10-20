@@ -37,6 +37,15 @@ const namesBody = stripComments(symnames.match(/s_symNames \{ \{([\s\S]*?)\} \};
 const names = [...namesBody.matchAll(/"([^"]*)"/g)].map(m => m[1])
 
 
+// s_symUserNames: TranslatableString("engraving/sym", ...) or TranslatableString::untranslatable(...)
+const userNamesBody = symnames.slice(symnames.indexOf('SymNames::s_symUserNames'))
+const userNamesList = userNamesBody.slice(0, userNamesBody.indexOf('} };'))
+const userNames = [...userNamesList.matchAll(/TranslatableString(?:\(\s*"engraving\/sym"\s*,|::untranslatable\()\s*"((?:[^"\\]|\\.)*)"\s*\)/g)]
+    .map(m => ({ str: m[1].replace(/\\"/g, '"'), translatable: !m[0].includes('untranslatable') }))
+if (userNames.length !== names.length + 1) { // + lastSym
+    throw new Error(`user names count ${userNames.length} != names count ${names.length} + 1`)
+}
+
 const oldBody = stripComments(symnames.match(/s_oldNameToSymIdHash \{([\s\S]*?)\};/)![1])
 const oldNames = [...oldBody.matchAll(/\{\s*"([^"]*)",\s*SymId::(\w+)\s*\}/g)].map(m => [m[1], m[2]])
 
@@ -89,6 +98,12 @@ export const SYM_NAMES: readonly string[] = ${JSON.stringify(names)}
 export const OLD_SYM_NAMES: ReadonlyArray<[string, SymId]> = [
 ${oldNames.map(([n, id]) => `    [${JSON.stringify(n)}, SymId.${id}],`).join('\n')}
 ]
+
+/** SymNames::s_symUserNames per SymId (context "engraving/sym") */
+export const SYM_USER_NAMES: readonly string[] = ${JSON.stringify(userNames.map(u => u.str))}
+
+/** SymIds whose user name is untranslatable (TranslatableString::untranslatable) */
+export const SYM_USER_NAMES_UNTRANSLATABLE: ReadonlySet<SymId> = new Set(${JSON.stringify(userNames.flatMap((u, i) => u.translatable ? [] : [i]))})
 
 /** SMuFL code point per SymId (0 = none) */
 export const SMUFL_CODES: readonly number[] = ${JSON.stringify(codes)}

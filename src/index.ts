@@ -28,9 +28,15 @@ import { EngravingCompat } from './engraving/compat/engravingcompat'
 import { MasterScore } from './engraving/dom/masterscore'
 import { ScoreRenderer } from './engraving/rendering/score/scorerenderer'
 import { Paint } from './engraving/rendering/score/paint'
+import { NotationInteraction } from './notation/internal/notationinteraction'
+import { NotationAccessibility } from './notation/internal/notationaccessibility'
+import { NotationViewInputController } from './notationscene/notationviewinputcontroller'
+import { ElementType } from './engraving/types/types'
+import type { EngravingItem } from './engraving/dom/engravingitem'
 
 export { initEngravingFonts, fontsInitialized, type FontFileLoader } from './engraving/engravingmodule'
 export { MscLoadError } from './engraving/rw/mscloader'
+export { setTranslator, mtrc, qtrc, arg, type Translator } from './framework/global/translation'
 export type { MasterScore } from './engraving/dom/masterscore'
 export type { Score } from './engraving/dom/score'
 export type { Canvas2D } from './framework/draw/canvaspaintprovider'
@@ -108,7 +114,10 @@ export interface DrawPageOptions {
     dpi?: number
     /** fill the page with white before drawing (default true) */
     background?: boolean
-    /** draw like printing: invisible elements are skipped (default true) */
+    /**
+     * draw like printing (default true). With false the page is drawn like MuseScore's notation view: invisible
+     * elements grey, frames, selected elements in the selection colors and the range selection frame.
+     */
     printing?: boolean
     /**
      * draw only this part of the page (in canvas pixels at `dpi`, relative to the page's top left corner); the canvas
@@ -133,19 +142,35 @@ export function drawPage(score: MasterScore, pageIdx: number, ctx: Canvas2D, opt
         const pagePos = score.pages()[pageIdx]?.pos() ?? new PointF()
         frameRect = new RectF(r.x / scale, r.y / scale, r.width / scale, r.height / scale).translated(pagePos)
     }
+    const isPrinting = options.printing ?? true
     Paint.paintScore(painter, score, {
         fromPage: pageIdx,
         toPage: pageIdx,
-        isPrinting: options.printing ?? true,
+        isPrinting,
         printPageBackground: options.background ?? true,
         frameRect,
     })
+    if (!isPrinting) {
+        drawSelectionRange(score, pageIdx, painter, scale)
+    }
+}
+
+/** the range selection rectangle (MuseScore's notation view paints it after the score) */
+function drawSelectionRange(score: MasterScore, pageIdx: number, painter: Painter, scaling: number): void {
+    const page = score.pages()[pageIdx]
+    if (!page || !score.selection().isRange()) {
+        return
+    }
+    const pagePos = page.pos()
+    painter.translate(pagePos.times(-1))
+    notationState(score).interaction.drawSelectionRange(painter, scaling)
+    painter.translate(pagePos)
 }
 
 export interface DrawPageSvgOptions {
     /** fill the page with white before drawing (default true) */
     background?: boolean
-    /** draw like printing: invisible elements are skipped (default true) */
+    /** draw like printing (default true); false: like MuseScore's notation view (see DrawPageOptions.printing) */
     printing?: boolean
     /**
      * glyph definitions shared by several pages in one HTML document: the page then only references them
@@ -153,18 +178,24 @@ export interface DrawPageSvgOptions {
      * Without it the SVG is standalone.
      */
     defs?: SvgGlyphDefs
+    /** pixels per inch the SVG is shown at (default 100); only used for the width of the range selection frame */
+    dpi?: number
 }
 
 /** Draws one page as SVG (vector graphics, size in inches, each glyph outline defined once and reused) */
 export function drawPageSvg(score: MasterScore, pageIdx: number, options: DrawPageSvgOptions = {}): string {
     const provider = new SvgPaintProvider(options.defs ?? new SvgGlyphDefs(), options.defs ? `p${pageIdx}-` : '')
     const painter = new Painter(provider, fontProvider(), 'page_' + pageIdx)
+    const isPrinting = options.printing ?? true
     Paint.paintScore(painter, score, {
         fromPage: pageIdx,
         toPage: pageIdx,
-        isPrinting: options.printing ?? true,
+        isPrinting,
         printPageBackground: options.background ?? true,
     })
+    if (!isPrinting) {
+        drawSelectionRange(score, pageIdx, painter, (options.dpi ?? 100) / DPI)
+    }
     const size = pageSize(score, pageIdx)
     const bbox = score.pages()[pageIdx]?.ldata().bbox() ?? new RectF(0, 0, size.width * DPI, size.height * DPI)
     return provider.svg(`${size.width}in`, `${size.height}in`, bbox, !options.defs)
@@ -367,4 +398,150 @@ export function isScoreOrder(orderId: string, indices: readonly number[]): boole
         return true
     }
     return repositoryOrder(orderId).isScoreOrder(indices)
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+//   selection (MuseScore's notation view: NotationInteraction, NotationViewInputController, NotationAccessibility)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** click, ctrl/cmd+click, shift+click */
+export type SelectMode = 'single' | 'add' | 'range'
+
+interface NotationState {
+    interaction: NotationInteraction
+    controller: NotationViewInputController
+    accessibility: NotationAccessibility
+}
+
+const s_notationStates = new WeakMap<MasterScore, NotationState>()
+
+function notationState(score: MasterScore): NotationState {
+    let st = s_notationStates.get(score)
+    if (!st) {
+        const interaction = new NotationInteraction(score)
+        st = {
+            interaction,
+            controller: new NotationViewInputController(interaction),
+            accessibility: new NotationAccessibility(score),
+        }
+        s_notationStates.set(score, st)
+    }
+    return st
+}
+
+/** a point of a page (inches from the page's top left) in canvas coordinates; null if there is no such page */
+function pagePointToCanvas(score: MasterScore, pageIdx: number, x: number, y: number): PointF | null {
+    const page = score.pages()[pageIdx]
+    if (!page) {
+        return null
+    }
+    return page.pos().plus(new PointF(x * DPI, y * DPI))
+}
+
+/** C++ NotationViewInputController::hitWidth(): selectionProximity (2) * 0.5 view pixels */
+function hitWidth(viewDpi: number): number {
+    return 2 * 0.5 / (viewDpi / DPI)
+}
+
+export interface HitTestOptions {
+    /** pixels per inch of the view (the dpi the page is shown at, without devicePixelRatio; default 100): the hit tolerance is one view pixel */
+    dpi?: number
+}
+
+/**
+ * The element a click at a point of a page would hit (inches from the page's top left, like drawPage's coordinates /
+ * dpi), null if none. On empty staff space inside a measure this is the measure. type: the element type (MuseScore's
+ * xml name, e.g. "Note", "Measure"), name: its translated user name.
+ */
+export function hitTest(score: MasterScore, pageIdx: number, x: number, y: number, options: HitTestOptions = {}): { type: string; name: string } | null {
+    const pos = pagePointToCanvas(score, pageIdx, x, y)
+    if (!pos) {
+        return null
+    }
+    const e = notationState(score).interaction.hitElement(pos, hitWidth(options.dpi ?? 100))
+    return e ? { type: e.typeName(), name: e.translatedTypeUserName() } : null
+}
+
+function selectionSnapshot(score: MasterScore): unknown[] {
+    const sel = score.selection()
+    return [sel.state(), sel.startSegment(), sel.endSegment(), sel.staffStart(), sel.staffEnd(), ...sel.elements()]
+}
+
+function selectionDiffers(a: unknown[], b: unknown[]): boolean {
+    return a.length !== b.length || a.some((v, i) => v !== b[i])
+}
+
+/**
+ * Selects like a click in MuseScore's notation view (a click on empty staff space selects the measure, a click outside
+ * of the staves deselects); returns true if the selection changed. No new layout is needed, only a repaint of
+ * selectionBounds() before and after.
+ */
+export function selectAt(score: MasterScore, pageIdx: number, x: number, y: number, mode: SelectMode,
+    options: HitTestOptions = {}): boolean {
+    const pos = pagePointToCanvas(score, pageIdx, x, y)
+    if (!pos) {
+        return false
+    }
+    const before = selectionSnapshot(score)
+    notationState(score).controller.leftClick(pos, hitWidth(options.dpi ?? 100), { shift: mode === 'range', ctrl: mode === 'add' })
+    return selectionDiffers(before, selectionSnapshot(score))
+}
+
+/** deselects all (Escape); returns true if there was a selection */
+export function clearSelection(score: MasterScore): boolean {
+    return notationState(score).interaction.clearSelection()
+}
+
+/** selects the whole score (Ctrl+A) */
+export function selectAll(score: MasterScore): void {
+    notationState(score).interaction.selectAll()
+}
+
+/**
+ * Keyboard navigation of the selection like MuseScore's shortcuts without note input: arrows (next/previous chord),
+ * Ctrl+arrows (measure), Shift(+Ctrl)+Left/Right and Shift+Up/Down (extend the range), Alt+Up/Down (note in chord /
+ * staff), Ctrl+Alt+Up/Down (top/bottom note), Shift(+Ctrl)+Home/End (to the start/end of the system/score),
+ * Ctrl+Home/End (first/last element), Escape, Ctrl+A. key like KeyboardEvent.key; returns true if handled.
+ */
+export function moveSelection(score: MasterScore, key: string, mods: { shift: boolean; ctrl: boolean; alt: boolean }): boolean {
+    return notationState(score).controller.keyAction(key, mods)
+}
+
+export function hasSelection(score: MasterScore): boolean {
+    return !score.selection().isNone()
+}
+
+/** status bar text of the selection (MuseScore's accessibility info, translated through mtrc), empty if none */
+export function selectionInfo(score: MasterScore): string {
+    return notationState(score).accessibility.accessibilityInfo()
+}
+
+/**
+ * The pages and rectangles (inches from the page's top left) of the selection, to repaint them and to scroll the
+ * selection into view: the range selection frames (one per system) and the bounding boxes of the selected elements.
+ */
+export function selectionBounds(score: MasterScore): { page: number; x: number; y: number; width: number; height: number }[] {
+    const res: { page: number; x: number; y: number; width: number; height: number }[] = []
+    const pages = score.pages()
+    const add = (pageIdx: number, r: RectF): void => {
+        if (pageIdx >= 0 && r.isValid()) {
+            res.push({ page: pageIdx, x: r.x() / DPI, y: r.y() / DPI, width: r.width() / DPI, height: r.height() / DPI })
+        }
+    }
+    const interaction = notationState(score).interaction
+    // range frames (canvas coordinates): the page containing the frame's center; with a margin for the frame's pen
+    const m = 0.03 * DPI
+    for (const r of interaction.rangeBoundingArea()) {
+        const page = interaction.point2page(r.center(), true)
+        if (page) {
+            add(pages.indexOf(page), r.translated(page.pos().times(-1)).adjusted(-m, -m, m, m))
+        }
+    }
+    for (const e of score.selection().elements()) {
+        const page = e.findAncestor(ElementType.PAGE) as unknown as EngravingItem | null
+        if (page) {
+            add(pages.indexOf(page as never), e.pageBoundingRect())
+        }
+    }
+    return res
 }

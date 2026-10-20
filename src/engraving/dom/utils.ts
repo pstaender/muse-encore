@@ -21,6 +21,8 @@ import type { Note } from './note'
 import type { Rest } from './rest'
 import type { Measure } from './measure'
 import type { System } from './system'
+import type { EngravingItem } from './engravingitem'
+import type { Spanner } from './spanner'
 
 const PTAB: number[][] = [
     //   c  d  e  f  g   a  b
@@ -522,4 +524,121 @@ export function segmentsAreAdjacent(firstSeg: Segment | null, secondSeg: Segment
     }
 
     return false
+}
+
+/** C++ collectElementsAnchoredToChordRest (a Set keeps the insertion order, C++ uses an unordered_set) */
+export function collectElementsAnchoredToChordRest(cr: ChordRest): Set<EngravingItem> {
+    const elems = new Set<EngravingItem>()
+    for (const lyric of cr.lyrics()) {
+        elems.add(lyric)
+    }
+    if (!cr.isChord()) {
+        return elems
+    }
+    const chord = cr as unknown as Chord
+    const arp = chord.arpeggio()
+    if (arp) {
+        elems.add(arp)
+    }
+    const tremTwo = chord.tremoloTwoChord()
+    if (tremTwo) {
+        elems.add(tremTwo)
+    }
+    const tremSing = chord.tremoloSingleChord()
+    if (tremSing) {
+        elems.add(tremSing)
+    }
+    for (const art of chord.articulations()) {
+        elems.add(art)
+    }
+    // Chord brackets and chord lines
+    for (const e of chord.el()) {
+        elems.add(e)
+    }
+    for (const grace of chord.graceNotes()) {
+        elems.add(grace)
+        for (const gArt of grace.articulations()) {
+            elems.add(gArt)
+        }
+        const gTremSing = grace.tremoloSingleChord()
+        if (gTremSing) {
+            elems.add(gTremSing)
+        }
+    }
+    return elems
+}
+
+/** C++ collectElementsAnchoredToNote */
+export function collectElementsAnchoredToNote(note: Note, includeForwardTiesSpanners: boolean,
+    includeBackwardTiesSpanners: boolean): Set<EngravingItem> {
+    const elems = new Set<EngravingItem>()
+    const lv = note.laissezVib()
+    if (lv && !lv.segmentsEmpty()) {
+        elems.add(lv)
+    }
+    const ipt = note.incomingPartialTie()
+    if (ipt && !ipt.segmentsEmpty()) {
+        elems.add(ipt)
+    }
+    const opt = note.outgoingPartialTie()
+    if (opt && !opt.segmentsEmpty()) {
+        elems.add(opt)
+    }
+    // The following is a bit of a hack - addressing properly would require a fingering rework...
+    for (const elem of note.el()) {
+        if (elem.isFingering()) {
+            elems.add(elem)
+        }
+    }
+    if (includeForwardTiesSpanners) {
+        const tieFor = note.tieFor()
+        if (tieFor && !tieFor.segmentsEmpty()) {
+            elems.add(tieFor)
+        }
+        for (const sp of note.spannerFor()) {
+            if (sp.segmentsEmpty()) {
+                continue
+            }
+            elems.add(sp)
+        }
+    }
+    if (includeBackwardTiesSpanners) {
+        const tieBack = note.tieBack()
+        if (tieBack && !tieBack.segmentsEmpty()) {
+            elems.add(tieBack)
+        }
+        for (const sp of note.spannerBack()) {
+            if (sp.segmentsEmpty()) {
+                continue
+            }
+            elems.add(sp)
+        }
+    }
+    const noteParenInfo = note.parenthesisInfo()
+    if (noteParenInfo && noteParenInfo.notes().length) {
+        elems.add(noteParenInfo.leftParen())
+        elems.add(noteParenInfo.rightParen())
+    }
+    return elems
+}
+
+/** C++ noteAnchoredSpannerIsInRange */
+export function noteAnchoredSpannerIsInRange(spanner: Spanner, rangeStart: Fraction, rangeEnd: Fraction): boolean {
+    if (!rangeStart.lt(rangeEnd)) {
+        return false
+    }
+    const startElement = spanner.startElement()
+    const endElement = spanner.endElement()
+    if (!(startElement && startElement.isNote() && endElement && endElement.isNote())) {
+        // Cannot calculate isInRange - might be a partial tie or laissez vibrer
+        return false
+    }
+    const startNote = startElement as unknown as Note
+    const startSeg = startNote.chord().segment()
+    if (startSeg.tick().lt(rangeStart)) {
+        return false
+    }
+    const endNote = endElement as unknown as Note
+    const endSeg = endNote.chord().segment()
+    return !endSeg || endSeg.tick().le(rangeEnd)
 }

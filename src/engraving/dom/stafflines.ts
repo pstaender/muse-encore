@@ -6,7 +6,8 @@
  * Port of src/engraving/dom/stafflines.h/.cpp
  */
 
-import { LineF, PointF } from '../../framework/draw/types/geometry'
+import { LineF, PointF, type RectF } from '../../framework/draw/types/geometry'
+import { Shape } from '../infrastructure/shape'
 import { ElementType } from '../types/types'
 import { EngravingItem } from './engravingitem'
 import type { Measure } from './measure'
@@ -43,6 +44,18 @@ export class StaffLines extends EngravingItem {
     measure(): Measure { return this.explicitParent() as unknown as Measure }
     lw(): number { return this.m_lw }
     setLw(w: number): void { this.m_lw = w }
+
+    override hitBBox(): RectF {
+        const clickablePadding = this.spatium()
+        if (this.m_lines.length <= 1) {
+            return this.ldata().bbox().adjusted(0.0, -clickablePadding, 0.0, clickablePadding)
+        }
+        return this.ldata().bbox()
+    }
+
+    override hitShape(): Shape {
+        return new Shape(this.hitBBox(), this)
+    }
 
     override collectForDrawing(): boolean {
         const idx = this.staffIdx()

@@ -14,6 +14,7 @@ import type { ElementStyle } from './engravingobject'
 import type { Note } from './note'
 import { Pid } from './property'
 import { TextBase } from './textbase'
+import { mtrc } from '../../framework/global/translation'
 
 const fingeringStyle: ElementStyle = [
     { sid: Sid.fingeringPlacement, pid: Pid.PLACEMENT },
@@ -79,5 +80,13 @@ export class Fingering extends TextBase {
         default:
             return super.propertyDefault(id)
         }
+    }
+
+    override accessibleInfo(): string {
+        let rez = this.translatedTypeUserName()
+        if (this.textStyleType() === TextStyleType.STRING_NUMBER) {
+            rez += ' ' + mtrc('engraving', 'String number')
+        }
+        return `${rez}: ${this.plainText()}`
     }
 }

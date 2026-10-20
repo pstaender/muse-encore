@@ -29,6 +29,8 @@ import { EngravingItem, ElementFlag, LayoutData } from './engravingitem'
 import type { ElementStyle, EngravingObject } from './engravingobject'
 import { Pid, PropertyFlags } from './property'
 import type { PaintOptions } from '../rendering/paintoptions'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
+import { TConv } from '../types/typesconv'
 
 export const SUBSCRIPT_SIZE = 0.6
 export const SUBSCRIPT_OFFSET = 0.5 // of x-height
@@ -1670,6 +1672,34 @@ export abstract class TextBase extends EngravingItem {
             this.setProperty(getTextPID(p.pid), this.styleValue(p.pid, p.sid))
         }
     }
+
+    override subtypeUserName(): TranslatableString {
+        return this.score() ? this.score().getTextStyleUserName(this.textStyleType()) : TConv.userNameTextStyleType(this.textStyleType())
+    }
+
+    override accessibleInfo(): string {
+        let rez: string
+        switch (this.textStyleType()) {
+        case TextStyleType.TITLE:
+        case TextStyleType.SUBTITLE:
+        case TextStyleType.COMPOSER:
+        case TextStyleType.LYRICIST:
+        case TextStyleType.TRANSLATOR:
+        case TextStyleType.MEASURE_NUMBER:
+        case TextStyleType.MMREST_RANGE:
+            rez = this.translatedSubtypeUserName()
+            break
+        default:
+            rez = this.translatedTypeUserName()
+            break
+        }
+        let s = simplified(this.plainText())
+        if (s.length > 20) {
+            s = s.slice(0, 20)
+            s += '…'
+        }
+        return `${rez}: ${s}`
+    }
 }
 
 function propertyValueEquals(a: PropertyValue, b: PropertyValue): boolean {
@@ -1680,4 +1710,9 @@ function propertyValueEquals(a: PropertyValue, b: PropertyValue): boolean {
         return (a as { equals(o: unknown): boolean }).equals(b)
     }
     return false
+}
+
+/** QString::simplified: whitespace trimmed, internal whitespace sequences replaced by one space */
+export function simplified(s: string): string {
+    return s.replace(/\s+/g, ' ').trim()
 }

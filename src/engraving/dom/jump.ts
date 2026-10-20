@@ -14,6 +14,8 @@ import type { ElementStyle, EngravingObject } from './engravingobject'
 import type { Measure } from './measure'
 import { Pid } from './property'
 import { TextBase } from './textbase'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
+import { TConv } from '../types/typesconv'
 
 const jumpStyle: ElementStyle = [
     { sid: Sid.repeatRightPlacement, pid: Pid.PLACEMENT },
@@ -145,5 +147,17 @@ export class Jump extends TextBase {
             break
         }
         return super.propertyDefault(propertyId)
+    }
+
+    jumpTypeUserName(): string {
+        return TConv.translatedUserNameJumpType(this.jumpType())
+    }
+
+    override subtypeUserName(): TranslatableString {
+        return TConv.userNameJumpType(this.jumpType())
+    }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${this.jumpTypeUserName()}`
     }
 }

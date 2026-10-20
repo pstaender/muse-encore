@@ -12,6 +12,7 @@ import { PointF } from '../../framework/draw/types/geometry'
 import { DPMM, ElementType } from '../types/types'
 import { P_TYPE, propertyValueEquals, type PropertyValue } from '../types/propertyvalue'
 import { TConv } from '../types/typesconv'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
 import { Sid } from '../style/styledef'
 import type { MStyle } from '../style/style'
 import { Pid, PropertyFlags, propertyType } from './property'
@@ -76,7 +77,8 @@ export abstract class EngravingObject {
     type(): ElementType { return this.m_type }
     isType(t: ElementType): boolean { return t === this.m_type }
     typeName(): string { return TConv.toXmlElementType(this.m_type) }
-    typeUserName(): string { return TConv.userNameElementType(this.m_type) }
+    typeUserName(): TranslatableString { return TConv.capitalizedUserNameElementType(this.m_type) }
+    translatedTypeUserName(): string { return this.typeUserName().translated() }
 
     protected hack_setType(t: ElementType): void { this.m_type = t }
 

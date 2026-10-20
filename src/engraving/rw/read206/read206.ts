@@ -1370,7 +1370,9 @@ export class Read206 {
 
         score.setFileDivision(480) // Constants::DIVISION
 
-        // TODO(port): tempo map, harmony channels, MIDI mapping, assignInitialPartToExcerpts
+        score.setUpTempoMap()
+
+        // TODO(port): harmony channels, MIDI mapping, assignInitialPartToExcerpts
 
         return true
     }

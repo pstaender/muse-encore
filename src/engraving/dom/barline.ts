@@ -15,6 +15,9 @@ import type { EngravingObject } from './engravingobject'
 import { Pid } from './property'
 import type { Segment } from './segment'
 import type { Measure } from './measure'
+import { TranslatableString } from '../../framework/global/types/translatablestring'
+import { SymNames } from '../types/symnames'
+import { SymId } from '../types/symid'
 
 // bar line span for 1-line staves is special: goes from 2sp above the line to 2sp below the line;
 export const BARLINE_SPAN_1LINESTAFF_FROM = -4
@@ -84,6 +87,21 @@ function nextVisibleSpannedStaff(bl: BarLine): staff_idx_t {
     }
     return staffIdx
 }
+
+/** C++ BarLine::barLineTable (user names: SymNames::userNameForSymId) */
+const BAR_LINE_TABLE: readonly { type: BarLineType; symId: SymId }[] = [
+    { type: BarLineType.NORMAL, symId: SymId.barlineSingle },
+    { type: BarLineType.DOUBLE, symId: SymId.barlineDouble },
+    { type: BarLineType.START_REPEAT, symId: SymId.repeatLeft },
+    { type: BarLineType.END_REPEAT, symId: SymId.repeatRight },
+    { type: BarLineType.BROKEN, symId: SymId.barlineDashed },
+    { type: BarLineType.END, symId: SymId.barlineFinal },
+    { type: BarLineType.END_START_REPEAT, symId: SymId.repeatRightLeft },
+    { type: BarLineType.DOTTED, symId: SymId.barlineDotted },
+    { type: BarLineType.REVERSE_END, symId: SymId.barlineReverseFinal },
+    { type: BarLineType.HEAVY, symId: SymId.barlineHeavy },
+    { type: BarLineType.DOUBLE_HEAVY, symId: SymId.barlineHeavyHeavy },
+]
 
 export class BarLine extends EngravingItem {
     private m_spanStaff = false // span barline to next staff if true
@@ -377,5 +395,27 @@ export class BarLine extends EngravingItem {
         case Pid.BARLINE_SHOW_TIPS: return false
         default: return super.propertyDefault(propertyId)
         }
+    }
+
+    static translatedUserTypeName(t: BarLineType): string {
+        for (const i of BAR_LINE_TABLE) {
+            if (i.type === t) {
+                return SymNames.userNameForSymId(i.symId).translated()
+            }
+        }
+        return ''
+    }
+
+    override subtypeUserName(): TranslatableString {
+        for (const i of BAR_LINE_TABLE) {
+            if (i.type === this.barLineType()) {
+                return SymNames.userNameForSymId(i.symId)
+            }
+        }
+        return new TranslatableString()
+    }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${BarLine.translatedUserTypeName(this.barLineType())}`
     }
 }

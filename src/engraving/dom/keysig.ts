@@ -18,6 +18,7 @@ import { KeySigEvent, type CustDef, type KeySym } from './key'
 import { Pid } from './property'
 import { SegmentType, type Segment } from './segment'
 import type { Measure } from './measure'
+import { TConv } from '../types/typesconv'
 
 export class KeySigLayoutData extends LayoutData {
     keySymbols: KeySym[] = []
@@ -204,5 +205,10 @@ export class KeySig extends EngravingItem {
         case Pid.IS_COURTESY: return false
         default: return super.propertyDefault(id)
         }
+    }
+
+    override accessibleInfo(): string {
+        const keySigType = TConv.translatedUserNameKey(this.key(), this.isAtonal(), this.isCustom())
+        return `${this.translatedTypeUserName()}: ${keySigType}`
     }
 }

@@ -167,7 +167,9 @@ export class Read460 {
         score.connectTies()
         // TODO(port): lyrics lines (dashes)
         score.setFileDivision(480)
-        // TODO(port): instrument ids, tempo map, harmony channels, midi mapping
+        // TODO(port): instrument ids
+        score.setUpTempoMap()
+        // TODO(port): harmony channels, midi mapping
         for (const staff of score.staves()) {
             staff.updateOttava()
         }

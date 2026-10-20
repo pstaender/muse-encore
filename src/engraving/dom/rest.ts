@@ -10,7 +10,7 @@ import { PointF, RectF } from '../../framework/draw/types/geometry'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import { SymId } from '../types/symid'
-import { BeamMode, DurationType, ElementType, type track_idx_t } from '../types/types'
+import { BeamMode, DurationType, ElementType, VOICES, type track_idx_t } from '../types/types'
 import { Sid } from '../style/styledef'
 import { ChordRest, ChordRestLayoutData } from './chordrest'
 import type { EngravingItem } from './engravingitem'
@@ -20,6 +20,7 @@ import { Pid } from './property'
 import { measureFactories, type Measure } from './measure'
 import type { NoteDot } from './notedot'
 import { tupletFactories } from './tuplet'
+import { arg, mtrc } from '../../framework/global/translation'
 
 /** factories registered by the corresponding modules (avoid runtime import cycles) */
 export const restFactories: {
@@ -349,6 +350,11 @@ export class Rest extends ChordRest {
             return super.setProperty(propertyId, v)
         }
         return true
+    }
+
+    override accessibleInfo(): string {
+        const voice = arg(mtrc('engraving', 'Voice: %1'), this.track() % VOICES + 1)
+        return arg(mtrc('engraving', '%1; Duration: %2; %3'), this.translatedTypeUserName(), this.durationUserName(), voice)
     }
 }
 

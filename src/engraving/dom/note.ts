@@ -14,10 +14,11 @@ import type { PropertyValue } from '../types/propertyvalue'
 import { SmuflAnchorId, SymId } from '../types/symid'
 import {
     AccidentalRole, AccidentalVal, DirectionH, DirectionV, ElementType, GuitarBendType, Key, NoteHeadGroup, NoteHeadScheme, NoteHeadType,
-    INVALID_FRET_INDEX, INVALID_STRING_INDEX, ParenthesesMode, VeloType, type track_idx_t,
+    INVALID_FRET_INDEX, INVALID_STRING_INDEX, ParenthesesMode, VeloType, VOICES, type track_idx_t,
 } from '../types/types'
 import { RealIsEqual, RealIsNull } from '../../framework/global/realfn'
 import { Sid } from '../style/styledef'
+import { TConv } from '../types/typesconv'
 import { Transpose } from '../editing/transpose'
 import { EngravingItem, ElementFlag, LayoutData } from './engravingitem'
 import { Pid } from './property'
@@ -25,7 +26,7 @@ import { Interval } from './interval'
 import { NOTE_HEADS } from './noteheadsdata'
 import {
     Prefer, STEP_DELTA_OCTAVE, TPC_DELTA_SEMITONE, Tpc, absStep2pitchByKey, clampEnharmonic, clampPitch, pitch2absStepByKey, pitch2tpc,
-    pitchIsValid, step2tpcByKey, tpc2alter, tpc2alterByKey, tpc2degree, tpc2pitch, tpc2stepName, tpcIsValid,
+    pitchIsValid, step2tpcByKey, tpc2alter, tpc2alterByKey, tpc2degree, tpc2pitch, tpc2stepName, tpcIsValid, tpcUserName as tpcUserNameOf,
 } from './pitchspelling'
 import { absStep, relStep } from './utils'
 import type { NoteType } from './chordrest'
@@ -38,6 +39,8 @@ import type { Tie } from './tie'
 import type { GuitarBend } from './guitarbend'
 import { FontMetrics } from '../../framework/draw/fontmetrics'
 import { ParenthesizeTiedFret, ShowTiedFret, type StaffType } from './stafftype'
+import { arg, mtrc } from '../../framework/global/translation'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
 
 export const INVALID_LINE = -10000
 
@@ -1756,5 +1759,88 @@ export class Note extends EngravingItem {
         const x = this.pos().x() + this.chord().pos().x() + this.chord().segment().pos().x()
                   + this.chord().measure().pos().x()
         return new PointF(x, this.pos().y())
+    }
+
+    // accessibility
+
+    override accessibleInfo(): string {
+        if (!this.chord() || !this.staff()) {
+            return ''
+        }
+
+        const duration = this.chord().durationUserName()
+        const voice = arg(mtrc('engraving', 'Voice: %1'), this.track() % VOICES + 1)
+        let pitchName: string
+        // TODO(port): onofftime (the note's play events are not ported)
+        const onofftime = ''
+
+        const drumset = this.part()!.instrument(this.chord().tick()).drumset()
+        if (this.fixed() && this.headGroup() === NoteHeadGroup.HEAD_SLASH) {
+            pitchName = this.chord().noStem() ? mtrc('engraving', 'Beat slash') : mtrc('engraving', 'Rhythm slash')
+        } else if (this.staff()!.isDrumStaff(this.tick()) && drumset) {
+            pitchName = mtrc('engraving/drumset', drumset.name(this.pitch()))
+        } else if (this.staff()!.isTabStaff(this.tick())) {
+            pitchName = arg(mtrc('engraving', '%1; String: %2; Fret: %3'), this.tpcUserName(false), String(this.string() + 1),
+                String(this.fret()))
+        } else {
+            pitchName = this.tpcUserName(false)
+        }
+
+        return arg(mtrc('engraving', '%1; Pitch: %2; Duration: %3%4%5'), this.noteTypeUserName(), pitchName, duration, onofftime,
+            this.chord().isGrace() ? '' : arg('; %1', voice))
+    }
+
+    tpcUserName(explicitAccidental: boolean, full = false): string {
+        let pitchName = tpcUserNameOf(this.tpc(), this.epitch() + this.ottaveCapoFret(), explicitAccidental, full)
+
+        pitchName = mtrc('global/pitchName', pitchName)
+
+        if (this.fixed() && this.headGroup() === NoteHeadGroup.HEAD_SLASH) {
+            // see Note::accessibleInfo(), but we return what we have
+            return pitchName
+        }
+        if (this.staff()!.isDrumStaff(this.tick()) && this.part()!.instrument().drumset()) {
+            // see Note::accessibleInfo(), but we return what we have
+            return pitchName
+        }
+        if (this.staff()!.isTabStaff(this.tick())) {
+            // no further translation
+            return pitchName
+        }
+
+        let pitchOffset = ''
+        if (this.tuning() !== 0) {
+            pitchOffset = (this.tuning() >= 0 ? '+' : '') + this.tuning().toFixed(3) // "%+.3f"
+        }
+
+        if (!this.concertPitch() && this.transposition()) {
+            let soundingPitch = tpcUserNameOf(this.tpc1(), this.ppitch(), explicitAccidental)
+            soundingPitch = mtrc('global/pitchName', soundingPitch)
+            return arg(mtrc('engraving', '%1 (sounding as %2%3)'), pitchName, soundingPitch, pitchOffset)
+        }
+        return pitchName + pitchOffset
+    }
+
+    noteTypeUserName(): string {
+        switch (this.noteType()) {
+        case 0x1: // NoteType::ACCIACCATURA
+            return mtrc('engraving', 'Acciaccatura')
+        case 0x2: // NoteType::APPOGGIATURA
+            return mtrc('engraving', 'Appoggiatura')
+        case 0x20: // NoteType::GRACE8_AFTER
+        case 0x40: // NoteType::GRACE16_AFTER
+        case 0x80: // NoteType::GRACE32_AFTER
+            return mtrc('engraving', 'Grace note after')
+        case 0x4: // NoteType::GRACE4
+        case 0x8: // NoteType::GRACE16
+        case 0x10: // NoteType::GRACE32
+            return mtrc('engraving', 'Grace note before')
+        default:
+            return mtrc('engraving', 'Note')
+        }
+    }
+
+    override subtypeUserName(): TranslatableString {
+        return TConv.userNameNoteHeadGroup(this.m_headGroup)
     }
 }

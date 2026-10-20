@@ -19,6 +19,7 @@ import { Groups, type GroupNodes } from './groups'
 import { Pid } from './property'
 import type { Segment } from './segment'
 import type { Measure } from './measure'
+import { TranslatableString } from '../../framework/global/types/translatablestring'
 
 export enum TimeSigType {
     NORMAL, // use sz/sn text
@@ -281,5 +282,24 @@ export class TimeSig extends EngravingItem {
         case Pid.IS_COURTESY: return false
         default: return super.propertyDefault(id)
         }
+    }
+
+    override subtypeUserName(): TranslatableString {
+        switch (this.timeSigType()) {
+        case TimeSigType.FOUR_FOUR:
+            return new TranslatableString('engraving/timesig', 'Common time')
+        case TimeSigType.ALLA_BREVE:
+            return new TranslatableString('engraving/timesig', 'Cut time')
+        case TimeSigType.CUT_BACH:
+            return new TranslatableString('engraving/timesig', 'Cut time (Bach)')
+        case TimeSigType.CUT_TRIPLE:
+            return new TranslatableString('engraving/timesig', 'Cut triple time (9/8)')
+        default:
+            return new TranslatableString('engraving/timesig', '%1/%2 time').arg(this.numerator(), this.denominator())
+        }
+    }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${this.translatedSubtypeUserName()}`
     }
 }

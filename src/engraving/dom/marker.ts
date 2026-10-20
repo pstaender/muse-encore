@@ -14,6 +14,8 @@ import type { ElementStyle, EngravingObject } from './engravingobject'
 import type { Measure } from './measure'
 import { Pid } from './property'
 import { TextBase } from './textbase'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
+import { TConv } from '../types/typesconv'
 
 const markerStyle: ElementStyle = [
     { sid: Sid.repeatLeftPlacement, pid: Pid.PLACEMENT },
@@ -181,5 +183,17 @@ export class Marker extends TextBase {
             break
         }
         return super.propertyDefault(propertyId)
+    }
+
+    markerTypeUserName(): string {
+        return TConv.translatedUserNameMarkerType(this.markerType())
+    }
+
+    override subtypeUserName(): TranslatableString {
+        return TConv.userNameMarkerType(this.markerType())
+    }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${this.markerTypeUserName()}`
     }
 }

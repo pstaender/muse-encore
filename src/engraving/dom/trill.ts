@@ -26,6 +26,8 @@ import { Pid } from './property'
 import type { Score } from './score'
 import type { System } from './system'
 import type { Segment } from './segment'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
+import { TConv } from '../types/typesconv'
 
 const trillStyle: ElementStyle = [
     { sid: Sid.trillPlacement, pid: Pid.PLACEMENT },
@@ -313,5 +315,17 @@ export class Trill extends SLine {
     protected override doComputeEndElement(): void {
         this.setEndElement(this.score().findChordRestEndingBeforeTickInStaffAndVoice(this.tick2(), track2staff(this.track2()), true,
             this.voice()))
+    }
+
+    trillTypeUserName(): string {
+        return TConv.translatedUserNameTrillType(this.trillType())
+    }
+
+    override subtypeUserName(): TranslatableString {
+        return TConv.userNameTrillType(this.trillType())
+    }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${this.trillTypeUserName()}`
     }
 }

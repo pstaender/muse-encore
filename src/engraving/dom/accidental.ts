@@ -17,6 +17,7 @@ import { Pid } from './property'
 import { setSym2accidentalValHook } from './key'
 import { noteFactories, type Note } from './note'
 import { ACC_LIST, AccidentalType } from './accidentaldata'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
 
 export { AccidentalType } from './accidentaldata'
 
@@ -224,6 +225,14 @@ export class Accidental extends EngravingItem {
             return super.setProperty(propertyId, v)
         }
         return true
+    }
+
+    override subtypeUserName(): TranslatableString {
+        return SymNames.userNameForSymId(this.symId())
+    }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${this.translatedSubtypeUserName()}`
     }
 }
 

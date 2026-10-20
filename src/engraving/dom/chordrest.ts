@@ -21,6 +21,8 @@ import type { Lyrics } from './lyrics'
 import type { Chord } from './chord'
 import type { TabDurationSymbol } from './tabdurationsymbol'
 import { findFollowingRepeatMeasures, findPreviousRepeatMeasures } from './utils'
+import { arg, mtrc } from '../../framework/global/translation'
+import { TConv } from '../types/typesconv'
 
 /** C++ renderer() calls from the DOM; set by the layout module */
 export const chordRestRenderer: {
@@ -391,4 +393,63 @@ export abstract class ChordRest extends DurationElement {
 
     tabDur(): TabDurationSymbol | null { return this.m_tabDur }
     setTabDur(s: TabDurationSymbol | null): void { this.m_tabDur = s }
+
+    durationUserName(): string {
+        let tupletType = ''
+        const tuplet = this.tuplet()
+        if (tuplet) {
+            switch (tuplet.ratio().numerator()) {
+            case 2:
+                tupletType = mtrc('engraving', 'Duplet')
+                break
+            case 3:
+                tupletType = mtrc('engraving', 'Triplet')
+                break
+            case 4:
+                tupletType = mtrc('engraving', 'Quadruplet')
+                break
+            case 5:
+                tupletType = mtrc('engraving', 'Quintuplet')
+                break
+            case 6:
+                tupletType = mtrc('engraving', 'Sextuplet')
+                break
+            case 7:
+                tupletType = mtrc('engraving', 'Septuplet')
+                break
+            case 8:
+                tupletType = mtrc('engraving', 'Octuplet')
+                break
+            case 9:
+                tupletType = mtrc('engraving', 'Nonuplet')
+                break
+            default:
+                //: %1 is tuplet ratio numerator (i.e. the number of notes in the tuplet)
+                tupletType = arg(mtrc('engraving', '%1 note tuplet'), tuplet.ratio().numerator())
+            }
+        }
+        let dotString = ''
+        if (tupletType.length) {
+            dotString += ' '
+        }
+
+        const durationName = TConv.translatedUserNameDurationType(this.durationType().type())
+        switch (this.dots()) {
+        case 1:
+            dotString += arg(mtrc('engraving', 'Dotted %1'), durationName)
+            break
+        case 2:
+            dotString += arg(mtrc('engraving', 'Double dotted %1'), durationName)
+            break
+        case 3:
+            dotString += arg(mtrc('engraving', 'Triple dotted %1'), durationName)
+            break
+        case 4:
+            dotString += arg(mtrc('engraving', 'Quadruple dotted %1'), durationName)
+            break
+        default:
+            dotString += durationName
+        }
+        return tupletType + dotString
+    }
 }

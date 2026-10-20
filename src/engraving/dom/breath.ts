@@ -13,6 +13,8 @@ import { EngravingItem, ElementFlag } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
 import { Pid } from './property'
 import type { Segment } from './segment'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
+import { SymNames } from '../types/symnames'
 
 export interface BreathType {
     id: SymId
@@ -84,5 +86,13 @@ export class Breath extends EngravingItem {
         case Pid.PLACEMENT: return this.track() & 1 ? PlacementV.BELOW : PlacementV.ABOVE
         default: return super.propertyDefault(id)
         }
+    }
+
+    override subtypeUserName(): TranslatableString {
+        return SymNames.userNameForSymId(this.symId())
+    }
+
+    override accessibleInfo(): string {
+        return SymNames.translatedUserNameForSymId(this.symId())
     }
 }

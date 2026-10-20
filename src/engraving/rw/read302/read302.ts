@@ -167,7 +167,8 @@ export class Read302 {
                 }
             }
         }
-        // TODO(port): tempo map, harmony channels, MIDI mapping
+        score.setUpTempoMap()
+        // TODO(port): harmony channels, MIDI mapping
 
         for (const staff of score.staves()) {
             staff.updateOttava()

@@ -17,6 +17,7 @@ import { Pid } from './property'
 import type { ChordRest } from './chordrest'
 import type { Measure } from './measure'
 import type { Segment } from './segment'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
 
 const fermataStyle: ElementStyle = [
     { sid: Sid.fermataPosAbove, pid: Pid.OFFSET },
@@ -160,5 +161,13 @@ export class Fermata extends EngravingItem {
             return this.placeAbove() ? Sid.fermataPosAbove : Sid.fermataPosBelow
         }
         return super.getPropertyStyle(pid)
+    }
+
+    override subtypeUserName(): TranslatableString {
+        return SymNames.userNameForSymId(this.symId())
+    }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${SymNames.translatedUserNameForSymId(this.symId())}`
     }
 }

@@ -44,6 +44,14 @@ export class Color {
 
     equals(o: Color): boolean { return this.r === o.r && this.g === o.g && this.b === o.b && this.a === o.a }
 
+    /** tint between 0 and 1: higher means lighter, lower means darker */
+    applyTint(tint: number): void {
+        // C++ setRgba(int, ...): the double values are truncated
+        this.r = Math.trunc(this.r + (255 - this.r) * tint)
+        this.g = Math.trunc(this.g + (255 - this.g) * tint)
+        this.b = Math.trunc(this.b + (255 - this.b) * tint)
+    }
+
     inverted(): Color { return new Color(255 - this.r, 255 - this.g, 255 - this.b, this.a) }
 
     /** "#rrggbb" */

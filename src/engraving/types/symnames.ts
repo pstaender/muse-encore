@@ -7,7 +7,8 @@
  */
 
 import { SymId } from './symid'
-import { OLD_SYM_NAMES, SYM_NAMES } from './symnamesdata'
+import { OLD_SYM_NAMES, SYM_NAMES, SYM_USER_NAMES, SYM_USER_NAMES_UNTRANSLATABLE } from './symnamesdata'
+import { TranslatableString } from '../../framework/global/types/translatablestring'
 
 let s_nameToSymIdHash: Map<string, SymId> | null = null
 let s_oldNameToSymIdHash: Map<string, SymId> | null = null
@@ -15,6 +16,15 @@ let s_oldNameToSymIdHash: Map<string, SymId> | null = null
 export class SymNames {
     static nameForSymId(id: SymId): string {
         return SYM_NAMES[id] ?? ''
+    }
+
+    static userNameForSymId(id: SymId): TranslatableString {
+        const str = SYM_USER_NAMES[id] ?? ''
+        return SYM_USER_NAMES_UNTRANSLATABLE.has(id) ? TranslatableString.untranslatable(str) : new TranslatableString('engraving/sym', str)
+    }
+
+    static translatedUserNameForSymId(id: SymId): string {
+        return SymNames.userNameForSymId(id).translated()
     }
 
     static symIdByName(name: string, def: SymId = SymId.noSym): SymId {

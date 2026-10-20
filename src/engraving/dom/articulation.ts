@@ -23,6 +23,8 @@ import type { Page } from './page'
 import type { Segment } from './segment'
 import type { System } from './system'
 import type { Text } from './text'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
+import { TConv } from '../types/typesconv'
 
 export enum ArticulationCategory {
     NONE = 0x0,
@@ -454,5 +456,17 @@ export class Articulation extends EngravingItem {
         if (isGolpeThumb) {
             this.setAnchor(ArticulationAnchor.BOTTOM)
         }
+    }
+
+    override subtypeUserName(): TranslatableString {
+        if (this.textType() !== ArticulationTextType.NO_TEXT) {
+            return TConv.userNameArticulationTextType(this.textType())
+        }
+
+        return SymNames.userNameForSymId(this.symId())
+    }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${this.translatedSubtypeUserName()}`
     }
 }

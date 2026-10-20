@@ -7,6 +7,7 @@
  */
 
 import { AccidentalVal, Key, NoteSpellingType, PreferSharpFlat } from '../types/types'
+import { mtrc } from '../../framework/global/translation'
 
 // C++: declared in types/types.h, re-exported for convenience
 export { NoteSpellingType }
@@ -221,8 +222,7 @@ export function tpc2degree(tpc: number, key: Key): number {
     return (names.indexOf(stepName) - names.indexOf(scale) + 28) % 7
 }
 
-// TConv::userName(AccidentalVal, full) (types/typesconv.cpp, untranslated)
-// TODO(port): translation (muse::mtrc)
+// TConv::userName(AccidentalVal, full) (types/typesconv.cpp, untranslated; tpc2name translates it)
 const ACCIDENTALS_NAMES: { accidental: AccidentalVal, name: string, fullName: string }[] = [
     { accidental: AccidentalVal.SHARP3, name: 'triple \u266f', fullName: 'triple sharp' },
     { accidental: AccidentalVal.SHARP2, name: 'double \u266f', fullName: 'double sharp' },
@@ -233,9 +233,22 @@ const ACCIDENTALS_NAMES: { accidental: AccidentalVal, name: string, fullName: st
     { accidental: AccidentalVal.FLAT3, name: 'triple \u266d', fullName: 'triple flat' },
 ]
 
+/** muse::mtrc("engraving", TConv::userName(accidental, full)) */
 function accidentalUserName(accidental: AccidentalVal, full: boolean): string {
     const it = ACCIDENTALS_NAMES.find(i => i.accidental === accidental)
-    return it ? (full ? it.fullName : it.name) : ''
+    return mtrc('engraving', it ? (full ? it.fullName : it.name) : '')
+}
+
+/** C++ tpcUserName(int tpc, int pitch, bool explicitAccidental, bool full) */
+export function tpcUserName(tpc: number, pitch: number, explicitAccidental: boolean, full = false): string {
+    let pitchStr = tpc2name(tpc, NoteSpellingType.STANDARD, NoteCaseType.AUTO, explicitAccidental, full)
+    if (!explicitAccidental) {
+        pitchStr = pitchStr.replaceAll('b', '♭').replaceAll('#', '♯')
+    }
+
+    const octaveStr = String(Math.trunc((pitch - tpc2alter(tpc)) / PITCH_DELTA_OCTAVE) - 1)
+
+    return pitchStr + octaveStr
 }
 
 //---------------------------------------------------------

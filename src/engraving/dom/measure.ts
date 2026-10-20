@@ -567,6 +567,42 @@ export class Measure extends MeasureBase {
         return null
     }
 
+    searchSegment(x: number, st: SegmentType, strack: track_idx_t, etrack: track_idx_t, preferredSegment: Segment | null = null,
+        spacingFactor = 0.5): Segment | null {
+        const lastTrack = etrack - 1
+        for (let segment = this.first(st); segment; segment = segment.next(st)) {
+            if (!segment.hasElementsInRange(strack, lastTrack)) {
+                continue
+            }
+            if (segment.isTimeTickType() && segment.rtick().eq(this.ticks())) {
+                continue
+            }
+            let ns = segment.next(st)
+            for (; ns; ns = ns.next(st)) {
+                if (ns.hasElementsInRange(strack, lastTrack)) {
+                    break
+                }
+            }
+            if (!ns) {
+                return segment
+            }
+            if (preferredSegment === segment) {
+                if (x < (segment.x() + (ns.x() - segment.x()))) {
+                    return segment
+                }
+            } else if (preferredSegment === ns) {
+                if (x <= segment.x()) {
+                    return segment
+                }
+            } else {
+                if (x < (segment.x() + (ns.x() - segment.x()) * spacingFactor)) {
+                    return segment
+                }
+            }
+        }
+        return null
+    }
+
     findSegmentR(st: SegmentType, t: Fraction): Segment | null {
         let s: Segment | null
         if (t.gt(this.ticks().times(new Fraction(1, 2)))) {
@@ -1672,4 +1708,8 @@ export class Measure extends MeasureBase {
     }
 
     // a Measure must not be used as an int-indexed iterator in TS; segments() is iterable
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${this.no() + 1}`
+    }
 }

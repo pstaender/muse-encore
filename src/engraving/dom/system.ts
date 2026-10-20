@@ -522,6 +522,47 @@ export class System extends EngravingItem {
         return nidx
     }
 
+    /** y: system relative; preferredStaff gets the whole space to the next staff (C++ default: invalid) */
+    searchStaff(y: number, preferredStaff: staff_idx_t = nidx, spacingFactor = 0.5): staff_idx_t {
+        let i = 0
+        const nstaves = this.score().nstaves()
+        for (; i < nstaves;) {
+            const stff = this.m_staves[i]
+            if (!stff.show() || !this.score().staff(i)!.show()) {
+                ++i
+                continue
+            }
+            let ni = i
+            for (;;) {
+                ++ni
+                if (ni === nstaves || (this.m_staves[ni].show() && this.score().staff(ni)!.show())) {
+                    break
+                }
+            }
+
+            let sy2: number
+            if (ni !== nstaves) {
+                const nstaff = this.m_staves[ni]
+                const s1y2 = stff.bbox().y() + stff.bbox().height()
+                if (i === preferredStaff) {
+                    sy2 = s1y2 + (nstaff.bbox().y() - s1y2)
+                } else if (ni === preferredStaff) {
+                    sy2 = s1y2
+                } else {
+                    sy2 = s1y2 + (nstaff.bbox().y() - s1y2) * spacingFactor
+                }
+            } else {
+                sy2 = this.page()!.height() - this.pos().y()
+            }
+            if (y > sy2) {
+                i = ni
+                continue
+            }
+            break
+        }
+        return i
+    }
+
     firstVisibleStaff(): staff_idx_t { return this.firstVisibleStaffFrom(0) }
     nextVisibleStaff(staffIdx: staff_idx_t): staff_idx_t { return this.firstVisibleStaffFrom(staffIdx + 1) }
 

@@ -951,4 +951,8 @@ export class Harmony extends TextBase {
     override setSize(val: number): void { this.m_fontSize = val }
 
     isMisspelled(): boolean { return this.m_isMisspelled }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${this.harmonyName()}`
+    }
 }

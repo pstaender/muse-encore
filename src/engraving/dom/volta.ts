@@ -260,4 +260,8 @@ export class Volta extends TextLineBase {
         }
         return { pos: new PointF(x, 0.0), system }
     }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${this.text()}`
+    }
 }

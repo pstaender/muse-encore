@@ -22,6 +22,8 @@ import type { Measure } from './measure'
 import type { Segment } from './segment'
 import type { Spanner } from './spanner'
 import { TextBase } from './textbase'
+import { TranslatableString } from '../../framework/global/types/translatablestring'
+import { simplified } from './textbase'
 
 export interface Dyn {
     type: DynamicType
@@ -246,5 +248,22 @@ export class Dynamic extends TextBase {
         case Pid.PLACEMENT: return Sid.dynamicsPlacement
         default: return super.getPropertyStyle(pid)
         }
+    }
+
+    override subtypeUserName(): TranslatableString {
+        if (this.dynamicType() === DynamicType.OTHER) {
+            let s = simplified(this.plainText())
+            if (s.length > 20) {
+                s = s.slice(0, 20)
+                s += '…'
+            }
+            return TranslatableString.untranslatable(s)
+        } else {
+            return TConv.userNameDynamicType(this.dynamicType())
+        }
+    }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${this.translatedSubtypeUserName()}`
     }
 }

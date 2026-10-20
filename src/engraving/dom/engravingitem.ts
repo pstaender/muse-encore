@@ -32,6 +32,11 @@ import type { Measure } from './measure'
 import type { System } from './system'
 import type { Page } from './page'
 import type { PaintOptions } from '../rendering/paintoptions'
+import { EngravingConfiguration } from '../internal/engravingconfiguration'
+import { TranslatableString } from '../../framework/global/types/translatablestring'
+import { arg, mtrc } from '../../framework/global/translation'
+import { RealIsNull } from '../../framework/global/realfn'
+import { ticks_beat } from './sig'
 
 export enum ElementFlag {
     NOTHING = 0x00000000,
@@ -101,9 +106,6 @@ export const ldataShapeHooks: Partial<Record<ElementType, (item: EngravingItem, 
 // Segment::CHORD_REST_OR_TIME_TICK_TYPE (SegmentType::ChordRest | SegmentType::TimeTick); segment.ts can't be imported here
 const CHORD_REST_OR_TIME_TICK_TYPE = 0x2000 | 0x1000
 
-// EngravingConfiguration defaults
-const INVISIBLE_COLOR = new Color(0x80, 0x80, 0x80)
-const SCORE_INVERSION_COLOR = new Color(220, 220, 220)
 
 export class LayoutData {
     autoplace: Autoplace = { offsetChanged: OffsetChange.NONE, changedPos: new PointF() }
@@ -421,6 +423,72 @@ export abstract class EngravingItem extends EngravingObject {
     added(): void {}
     removed(): void {}
     subtype(): number { return -1 }
+
+    subtypeUserName(): TranslatableString { return new TranslatableString() }
+    translatedSubtypeUserName(): string { return this.subtypeUserName().translated() }
+
+    // accessibility (the status bar text; TODO(port): screenReaderInfo, accessibleExtraInfo)
+
+    accessibleInfo(): string {
+        return this.translatedTypeUserName()
+    }
+
+    /** bar and displayed bar 1-based, beat 1-based with the fraction of the beat (C++ float) */
+    barbeat(): { bar: number; displayedBar: number; beat: number } {
+        let parent: EngravingItem | null = this
+        while (parent && !parent.isSegment() && !parent.isMeasure()) {
+            parent = parent.parentItem()
+        }
+
+        if (!parent) {
+            return { bar: 0, displayedBar: 0, beat: 0 }
+        }
+
+        let bar = 0
+        let displayedBar = 0
+        let beat = 0
+        let ticks = 0
+
+        const timeSigMap = this.score().sigmap()
+        let ticksB = ticks_beat(timeSigMap.timesig(0).timesig().denominator())
+
+        if (parent.isSegment()) {
+            const segment = parent as unknown as Segment
+            ;[bar, beat, ticks] = timeSigMap.tickValues(segment.tick().ticks())
+            ticksB = ticks_beat(timeSigMap.timesig(segment.tick().ticks()).timesig().denominator())
+            const measure = segment.findMeasure()
+            if (measure) {
+                displayedBar = measure.no()
+            }
+        } else if (parent.isMeasure()) {
+            const measure = parent as unknown as Measure
+            bar = measure.no()
+            displayedBar = bar
+            beat = -1
+            ticks = 0
+        }
+
+        return { bar: bar + 1, displayedBar: displayedBar + 1, beat: Math.fround(beat + 1 + ticks / Math.fround(ticksB)) }
+    }
+
+    formatBarsAndBeats(): string {
+        let result = ''
+        const barbeat = this.barbeat()
+
+        if (barbeat.bar !== 0) {
+            result = arg(mtrc('engraving', 'Measure: %1'), barbeat.bar)
+
+            if (barbeat.displayedBar !== barbeat.bar) {
+                result += '; ' + arg(mtrc('engraving', 'Displayed measure: %1'), barbeat.displayedBar)
+            }
+
+            if (!RealIsNull(barbeat.beat)) {
+                result += '; ' + arg(mtrc('engraving', 'Beat: %1'), stringNumber(barbeat.beat))
+            }
+        }
+
+        return result
+    }
 
     spatium(): number {
         const pi = this.explicitParent() ? this.parentItem() : null
@@ -788,18 +856,32 @@ export abstract class EngravingItem extends EngravingObject {
         return this.curColorWith(this.getProperty(Pid.VISIBLE) as boolean, this.color(), opt)
     }
 
-    /** C++ curColor(bool isVisible, Color normalColor, const PaintOptions&) (no selection/drop target states here) */
+    /** C++ curColor(bool isVisible, Color normalColor, const PaintOptions&) */
     curColorWith(isVisible: boolean, normalColor: Color, opt: PaintOptions = {}): Color {
         // the default element color is always interpreted as black in printing
         if (opt.isPrinting) {
-            return normalColor.equals(Color.BLACK) ? Color.BLACK : normalColor
+            return normalColor.equals(EngravingConfiguration.defaultColor()) ? Color.BLACK : normalColor
         }
+
+        // TODO(port): DROP_TARGET (highlightSelectionColor), Note::mark()
+        if (this.selected()) {
+            let voiceForColorChoice = this.track() === nidx ? 0 : this.voice()
+            if (this.hasVoiceAssignmentProperties()) {
+                const voiceAssignment = this.getProperty(Pid.VOICE_ASSIGNMENT) as VoiceAssignment
+                if (voiceAssignment !== VoiceAssignment.CURRENT_VOICE_ONLY) {
+                    voiceForColorChoice = VOICES
+                }
+            }
+            // TODO(port): isUnlinkedFromMaster() (excerpts)
+            return EngravingConfiguration.selectionColor(voiceForColorChoice, isVisible, false)
+        }
+
         if (!isVisible) {
-            return INVISIBLE_COLOR
+            return EngravingConfiguration.invisibleColor()
         }
         if (opt.invertColors) {
-            if (normalColor.equals(Color.BLACK)) {
-                return SCORE_INVERSION_COLOR
+            if (normalColor.equals(EngravingConfiguration.defaultColor())) {
+                return EngravingConfiguration.scoreInversionColor()
             }
             return normalColor.inverted()
         }
@@ -1005,6 +1087,18 @@ export abstract class EngravingItem extends EngravingObject {
 
     intersects(rr: RectF): boolean {
         return this.shape().intersects(rr.translated(this.pagePos().neg()))
+    }
+
+    hitBBox(): RectF { return this.ldata().bbox() }
+    hitShape(): Shape { return this.shape() }
+    canvasHitShape(): Shape { return this.hitShape().translated(this.canvasPos()) }
+
+    hitShapeContains(p: PointF): boolean {
+        return this.hitShape().contains(p.minus(this.pagePos()))
+    }
+
+    hitShapeIntersects(rr: RectF): boolean {
+        return this.hitShape().intersects(rr.translated(this.pagePos().neg()))
     }
 
     // children
@@ -1323,4 +1417,13 @@ export abstract class EngravingItem extends EngravingObject {
 
     /** for debugging */
     override toString(): string { return `${this.typeName()}` }
+}
+
+/** muse::String::number(double, prec = 6): fixed precision without trailing zeros */
+export function stringNumber(n: number, prec = 6): string {
+    let s = n.toFixed(prec)
+    if (s.includes('.')) {
+        s = s.replace(/0+$/, '').replace(/\.$/, '')
+    }
+    return s === '-0' ? '0' : s
 }

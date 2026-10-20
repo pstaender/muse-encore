@@ -6,7 +6,7 @@
  * Port of src/engraving/dom/page.h/.cpp
  */
 
-import { PointF } from '../../framework/draw/types/geometry'
+import { PointF, type RectF } from '../../framework/draw/types/geometry'
 import { Fraction } from '../types/fraction'
 import { DPI, ElementType, MAX_FOOTERS, MAX_HEADERS } from '../types/types'
 import { Sid } from '../style/styledef'
@@ -95,6 +95,20 @@ export class Page extends EngravingItem {
             }
         })
         return el
+    }
+
+    /**
+     * Page::items(rect): the visible elements whose page bounding rectangle intersects rect (page coordinates).
+     * C++ finds the candidates with a BSP tree (bsp.cpp) and filters them the same way; this is the linear equivalent
+     * (TODO(port): BspTree, if hit testing gets too slow for large pages).
+     */
+    items(rect: RectF): EngravingItem[] {
+        return this.elements().filter(e => e.pageBoundingRect().intersects(rect))
+    }
+
+    /** Page::items(point): the visible elements whose shape contains the point (page coordinates) */
+    itemsAt(point: PointF): EngravingItem[] {
+        return this.elements().filter(e => e.contains(point))
     }
 
     endTick(): Fraction {

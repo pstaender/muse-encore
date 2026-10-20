@@ -83,4 +83,8 @@ export class Symbol extends BSymbol {
             return super.propertyDefault(propertyId)
         }
     }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${SymNames.userNameForSymId(this.m_sym).translated()}`
+    }
 }

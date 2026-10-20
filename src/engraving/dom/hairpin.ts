@@ -25,6 +25,7 @@ import type { LineSegment } from './line'
 import type { System } from './system'
 import type { TextBase } from './textbase'
 import { TextLineBase, TextLineBaseSegment } from './textlinebase'
+import { TranslatableString } from '../../framework/global/types/translatablestring'
 
 export enum HairpinType {
     INVALID = -1,
@@ -521,5 +522,24 @@ export class Hairpin extends TextLineBase {
             x -= this.spatium()
         }
         return { pos: new PointF(x, 0.0), system }
+    }
+
+    override subtypeUserName(): TranslatableString {
+        switch (this.hairpinType()) {
+        case HairpinType.CRESC_HAIRPIN:
+            return new TranslatableString('engraving/hairpintype', 'Crescendo hairpin')
+        case HairpinType.DIM_HAIRPIN:
+            return new TranslatableString('engraving/hairpintype', 'Diminuendo hairpin')
+        case HairpinType.CRESC_LINE:
+            return new TranslatableString('engraving/hairpintype', 'Crescendo line')
+        case HairpinType.DIM_LINE:
+            return new TranslatableString('engraving/hairpintype', 'Diminuendo line')
+        default:
+            return new TranslatableString('engraving/hairpintype', 'Custom')
+        }
+    }
+
+    override accessibleInfo(): string {
+        return `${super.accessibleInfo()}: ${this.translatedSubtypeUserName()}`
     }
 }

@@ -18,8 +18,35 @@ const typesTs = readFileSync('src/engraving/types/types.ts', 'utf8')
 const knownEnums = new Set([...typesTs.matchAll(/export enum (\w+)/g)].map(m => m[1]))
 const RENAME: Record<string, string> = { 'CapoParams::TransposeMode': 'CapoTransposeMode' }
 
+/** TranslatableString(context, str, disambiguation, n) / TranslatableString::untranslatable(str) */
+interface TStr { context: string; str: string; disambiguation?: string; n?: number }
+
+function unescape(s: string): string {
+    return s.replace(/\\"/g, '"')
+}
+
+function translatableStrings(s: string): TStr[] {
+    const re = /TranslatableString(?:\(\s*"([^"]*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*(?:,\s*(nullptr|"[^"]*")\s*(?:,\s*(-?\d+))?)?\s*\)|::untranslatable\(\s*"((?:[^"\\]|\\.)*)"\s*\))/g
+    const res: TStr[] = []
+    for (const m of s.matchAll(re)) {
+        if (m[5] !== undefined) {
+            res.push({ context: '', str: unescape(m[5]) })
+            continue
+        }
+        const t: TStr = { context: m[1], str: unescape(m[2]) }
+        if (m[3] && m[3] !== 'nullptr') {
+            t.disambiguation = m[3].slice(1, -1)
+        }
+        if (m[4] !== undefined) {
+            t.n = Number(m[4])
+        }
+        res.push(t)
+    }
+    return res
+}
+
 const tableRe = /(?:static\s+)?const\s+std::(?:vector|array)[^\n]*?\s(\w+)\s*(?:=\s*)?\{/g
-const tables: { name: string; type: string; items: { value: string; xml: string; user: string }[] }[] = []
+const tables: { name: string; type: string; items: { value: string; xml: string; user: string; names: TStr[] }[] }[] = []
 const skipped: string[] = []
 let m: RegExpExecArray | null
 while ((m = tableRe.exec(cpp)) !== null) {
@@ -27,12 +54,15 @@ while ((m = tableRe.exec(cpp)) !== null) {
     const end = cpp.indexOf('};', m.index)
     const body = cpp.slice(m.index + m[0].length, end)
     const itemRe = /\{\s*((?:\w+::)+)(\w+)\s*,\s*"([^"]*)"\s*(?:,\s*TranslatableString\(\s*"[^"]*"\s*,\s*"((?:[^"\\]|\\.)*)")?/g
-    const items: { value: string; xml: string; user: string }[] = []
+    const items: { value: string; xml: string; user: string; names: TStr[] }[] = []
     let type = ''
     let im: RegExpExecArray | null
     while ((im = itemRe.exec(body)) !== null) {
         type = im[1].slice(0, -2)
-        items.push({ value: im[2], xml: im[3], user: im[4] ?? '' })
+        // the translatable strings of the item (up to the next item)
+        const next = body.slice(im.index + im[0].length).search(/\{\s*(?:\w+::)+\w+\s*,\s*"/)
+        const rest = body.slice(im.index, next < 0 ? body.length : im.index + im[0].length + next)
+        items.push({ value: im[2], xml: im[3], user: im[4] ?? '', names: translatableStrings(rest) })
     }
     if (!items.length) {
         continue
@@ -58,17 +88,32 @@ import {
 ${types.map(t => `    ${t},`).join('\n')}
 } from './types'
 
+/** C++ TranslatableString (an empty context: untranslatable) */
+export interface TStr {
+    context: string
+    str: string
+    disambiguation?: string
+    n?: number
+}
+
 export interface Item<T> {
     type: T
     xml: string
     userName: string
+    /** C++ Item::userName (only set by the constructor with two translatable strings) */
+    tUserName?: TStr
+    /** C++ Item::capitalizedUserName */
+    tCapitalizedUserName?: TStr
 }
 
 `
 for (const t of tables) {
     out += `export const ${t.name}: readonly Item<${t.type}>[] = [\n`
     for (const it of t.items) {
-        out += `    { type: ${t.type}.${it.value}, xml: ${JSON.stringify(it.xml)}, userName: ${JSON.stringify(it.user.replace(/\\"/g, '"'))} },\n`
+        // C++ Item constructors: (type, xml, capitalizedUserName) or (type, xml, userName, capitalizedUserName)
+        const names = it.names.length >= 2 ? `, tUserName: ${JSON.stringify(it.names[0])}, tCapitalizedUserName: ${JSON.stringify(it.names[1])}`
+            : it.names.length === 1 ? `, tCapitalizedUserName: ${JSON.stringify(it.names[0])}` : ''
+        out += `    { type: ${t.type}.${it.value}, xml: ${JSON.stringify(it.xml)}, userName: ${JSON.stringify(it.user.replace(/\\"/g, '"'))}${names} },\n`
     }
     out += ']\n\n'
 }

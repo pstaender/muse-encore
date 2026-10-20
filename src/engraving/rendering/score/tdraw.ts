@@ -63,6 +63,7 @@ import { ChordSymbolParen, TextSegment, type Harmony } from '../../dom/harmony'
 import type { Parenthesis } from '../../dom/parenthesis'
 import { FretDotType, FretMarkerType, type FretDiagram } from '../../dom/fret'
 import { AlignmentFlag } from '../../../framework/draw/types/drawtypes'
+import { EngravingConfiguration } from '../../internal/engravingconfiguration'
 import type { TrillSegment } from '../../dom/trill'
 import type { Ambitus } from '../../dom/ambitus'
 import type { Arpeggio } from '../../dom/arpeggio'
@@ -446,11 +447,28 @@ export class TDraw {
         }
     }
 
-    static drawBox(_item: Box, _painter: Painter, opt: PaintOptions): void {
+    static drawBox(item: Box, painter: Painter, opt: PaintOptions): void {
         if (opt.isPrinting) {
             return
         }
-        // TODO(port): frames are only drawn when selected or "show frames" is on (editing only)
+
+        const ldata = item.ldata()
+
+        // TODO(port): item->dropTarget()
+        const showHighlightedFrame = item.selected()
+        const showFrame = showHighlightedFrame || (item.score() ? item.score().showFrames() : false)
+
+        if (showFrame) {
+            let lineWidth = item.defaultSpatium() * 0.10
+            const pen = new Pen(showHighlightedFrame ? EngravingConfiguration.selectionColor() : EngravingConfiguration.frameColor(),
+                lineWidth, PenStyle.SolidLine, PenCapStyle.RoundCap, PenJoinStyle.RoundJoin)
+            pen.setDashPattern([5, 5])
+
+            painter.setBrush(BrushStyle.NoBrush)
+            painter.setPen(pen)
+            lineWidth *= 0.5
+            painter.drawRect(ldata.bbox().adjusted(lineWidth, lineWidth, -lineWidth, -lineWidth))
+        }
     }
 
     static drawBracket(item: Bracket, painter: Painter, opt: PaintOptions): void {

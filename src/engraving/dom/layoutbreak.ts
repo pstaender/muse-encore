@@ -13,6 +13,8 @@ import { EngravingItem, ElementFlag } from './engravingitem'
 import type { ElementStyle } from './engravingobject'
 import { Pid } from './property'
 import type { MeasureBase } from './measurebase'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
+import { TConv } from '../types/typesconv'
 
 const sectionBreakStyle: ElementStyle = [
     { sid: Sid.sectionPause, pid: Pid.PAUSE },
@@ -119,5 +121,13 @@ export class LayoutBreak extends EngravingItem {
         case Pid.SHOW_COURTESY: return false
         default: return super.propertyDefault(id)
         }
+    }
+
+    override subtypeUserName(): TranslatableString {
+        return TConv.userNameLayoutBreakType(this.layoutBreakType())
+    }
+
+    override accessibleInfo(): string {
+        return this.translatedSubtypeUserName()
     }
 }

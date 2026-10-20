@@ -126,9 +126,9 @@ export class Paint {
         score.setPrinting(wasPrinting)
     }
 
-    /** Page::items(rect) without the BSP tree */
+    /** Page::items(rect) */
     static pageItems(page: Page, rect: RectF): EngravingItem[] {
-        return page.elements().filter(e => e.pageBoundingRect().intersects(rect))
+        return page.items(rect)
     }
 
     static pageSizeInch(score: Score): SizeF {

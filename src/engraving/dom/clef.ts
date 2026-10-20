@@ -15,6 +15,8 @@ import { ClefTypeList } from './clefinfo'
 import { Pid } from './property'
 import { SegmentType, type Segment } from './segment'
 import type { Measure } from './measure'
+import { arg, mtrc } from '../../framework/global/translation'
+import { TConv } from '../types/typesconv'
 
 export class ClefLayoutData extends LayoutData {
     symId: SymId = SymId.noSym
@@ -204,5 +206,13 @@ export class Clef extends EngravingItem {
         case Pid.IS_COURTESY: return false
         default: return super.propertyDefault(id)
         }
+    }
+
+    override accessibleInfo(): string {
+        const type = this.clefType()
+        if (type === ClefType.INVALID) {
+            return ''
+        }
+        return mtrc('engraving', TConv.translatedUserNameClefType(this.clefType()))
     }
 }

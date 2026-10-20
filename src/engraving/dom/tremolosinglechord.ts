@@ -17,6 +17,8 @@ import { TDuration } from './durationtype'
 import { EngravingItem, ElementFlag } from './engravingitem'
 import { Pid } from './property'
 import type { Chord } from './chord'
+import type { TranslatableString } from '../../framework/global/types/translatablestring'
+import { TConv } from '../types/typesconv'
 
 export class TremoloSingleChord extends EngravingItem {
     private m_tremoloType = TremoloType.INVALID_TREMOLO
@@ -182,5 +184,13 @@ export class TremoloSingleChord extends EngravingItem {
             return
         }
         super.scanElements(func)
+    }
+
+    override subtypeUserName(): TranslatableString {
+        return TConv.userNameTremoloType(this.tremoloType())
+    }
+
+    override accessibleInfo(): string {
+        return `${this.translatedTypeUserName()}: ${this.translatedSubtypeUserName()}`
     }
 }

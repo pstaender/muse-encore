@@ -29,7 +29,8 @@ import type { Staff } from './staff'
 import type { Part } from './part'
 import type { System } from './system'
 import type { Page } from './page'
-import type { Spanner } from './spanner'
+import type { Spanner, SpannerSegment } from './spanner'
+import type { Note } from './note'
 import type { Text } from './text'
 import { SystemLocks, type SystemLock } from './systemlock'
 import { ChordList } from './chordlist'
@@ -38,6 +39,14 @@ import type { TimeSig } from './timesig'
 import { KeyList, KeySigEvent } from './key'
 import { Transpose } from '../editing/transpose'
 import { Interval } from './interval'
+import { Selection, SelectType, SelState } from './select'
+import { SelectionFilter } from './selectionfilter'
+import { PointF } from '../../framework/draw/types/geometry'
+import { nidx } from '../types/types'
+import { CHORD_REST_OR_TIME_TICK_TYPE } from './segment'
+import { y2pitch } from './utils'
+import { TranslatableString } from '../../framework/global/types/translatablestring'
+import { TConv } from '../types/typesconv'
 
 export enum LayoutMode {
     PAGE, FLOAT, LINE, SYSTEM, HORIZONTAL_FIXED,
@@ -120,12 +129,16 @@ export class Score extends EngravingObject {
     protected m_showInstrumentNames = true
     protected m_printing = false
     protected m_scoreOrder = new ScoreOrder()
+    private m_selection: Selection
+    private m_selectionFilter = new SelectionFilter()
+    private m_selectionChanged = false // C++ m_updateState.selectionChanged
 
     constructor() {
         super(ElementType.SCORE, null)
         this.m_score = this
         this.m_style = DefaultStyle.defaultStyle().clone()
         this.m_style.precomputeValues()
+        this.m_selection = new Selection(this)
     }
 
     override score(): Score { return this }
@@ -197,6 +210,523 @@ export class Score extends EngravingObject {
     setShowInstrumentNames(v: boolean): void { this.m_showInstrumentNames = v }
     printing(): boolean { return this.m_printing }
     setPrinting(v: boolean): void { this.m_printing = v }
+
+    // selection (score.cpp; TODO(port): InputState (m_is), accessibility focus, refresh rectangles)
+
+    selection(): Selection { return this.m_selection }
+    selectionFilter(): SelectionFilter { return this.m_selectionFilter }
+    selectionEmpty(): boolean { return this.m_selection.staffStart() === this.m_selection.staffEnd() }
+    selectionChanged(): boolean { return this.m_selectionChanged }
+    setSelectionChanged(val: boolean): void { this.m_selectionChanged = val }
+    deselectAll(): void { this.m_selection.deselectAll() }
+    updateSelection(): void { this.m_selection.update() }
+    getSelectedElement(): EngravingItem | null { return this.m_selection.element() }
+
+    deselect(el: EngravingItem): void {
+        this.m_selection.remove(el)
+        this.setSelectionChanged(true)
+        this.m_selection.update()
+    }
+
+    /** staffIdx is valid, if element is of type MEASURE */
+    select(item: EngravingItem | null | readonly (EngravingItem | null)[], type = SelectType.SINGLE, staffIdx: staff_idx_t = 0): void {
+        const items = Array.isArray(item) ? item : [item as EngravingItem | null]
+        for (const it of items) {
+            this.doSelect(it, type, staffIdx)
+        }
+        // C++: onFocusedItemChanged(m_selection.elements().back()) (accessibility)
+    }
+
+    private doSelect(e: EngravingItem | null, type: SelectType, staffIdx: staff_idx_t): void {
+        switch (type) {
+        case SelectType.SINGLE:
+            this.selectSingle(e, staffIdx)
+            break
+        case SelectType.ADD:
+            this.selectAdd(e!)
+            break
+        case SelectType.RANGE:
+            this.selectRange(e!, staffIdx)
+            break
+        case SelectType.REPLACE:
+            break
+        }
+        this.setSelectionChanged(true)
+    }
+
+    /** staffIdx is valid, if element is of type MEASURE */
+    private selectSingle(e: EngravingItem | null, staffIdx: staff_idx_t): void {
+        let selState = this.m_selection.state()
+        this.deselectAll()
+        if (!e) {
+            selState = SelState.NONE
+        } else {
+            if (e.isMeasure()) {
+                this.doSelect((e as unknown as Measure).coveringMMRestOrThis(), SelectType.RANGE, staffIdx)
+                return
+            }
+            this.m_selection.add(e)
+            // TODO(port): m_is.setTrack(e->track()), m_is.setLastSegment/setSegment (no input state yet)
+            selState = SelState.LIST
+        }
+        this.m_selection.setActiveSegment(null)
+        this.m_selection.setActiveTrack(0)
+
+        this.m_selection.setState(selState)
+    }
+
+    private selectAdd(e: EngravingItem): void {
+        let selState = this.m_selection.state()
+
+        if (this.m_selection.isRange()) {
+            this.doSelect(e, SelectType.SINGLE, 0)
+            return
+        }
+
+        if (e.isMeasure()) {
+            const m = (e as unknown as Measure).coveringMMRestOrThis()
+            const tick = m.tick()
+            if (this.m_selection.isNone()) {
+                this.m_selection.setRange(m.tick2segment(tick), m === this.lastMeasureMM() ? null : m.last(), 0, this.nstaves())
+                selState = SelState.RANGE
+                this.m_selection.updateSelectedElements()
+            }
+        } else if (!this.m_selection.elements().includes(e)) {
+            selState = SelState.LIST
+            this.m_selection.add(e)
+        }
+
+        this.m_selection.setState(selState)
+    }
+
+    /** staffIdx is valid, if element is of type MEASURE */
+    private selectRange(e: EngravingItem, staffIdx: staff_idx_t): void {
+        if (this.m_selection.isSingle()) {
+            if (!e.isMeasureBase() && !e.isNote() && !e.isChordRest()) {
+                // Try to select similar in range
+                if (this.trySelectSimilarInRange(e)) {
+                    return
+                }
+            }
+
+            // Try to extend single selection into range selection
+            if (this.tryExtendSingleSelectionToRange(e, staffIdx)) {
+                return
+            }
+        }
+
+        if (e.isMeasure()) {
+            const m = (e as unknown as Measure).coveringMMRestOrThis()
+            const startSegment = m.first(SegmentType.ChordRest)
+            const endSegment = m === this.lastMeasureMM() ? null : m.last()
+            const tick = m.tick()
+            const etick = tick.plus(m.ticks())
+
+            if (this.m_selection.isRange()) {
+                // Extend existing range selection
+                this.m_selection.extendRangeSelection(startSegment, endSegment, staffIdx, tick, etick)
+            } else {
+                // Create new range selection
+                if (!this.m_selection.isNone()) {
+                    this.deselectAll()
+                }
+                this.m_selection.setRange(startSegment, endSegment, staffIdx, staffIdx + 1)
+            }
+
+            this.m_selection.updateSelectedElements()
+            this.m_selection.setActiveTrack(staffIdx * VOICES)
+            return
+        }
+
+        if (this.m_selection.isRange()) {
+            // Extend existing range selection
+            const startSegment = findElementStartSegment(this, e)
+            if (startSegment) {
+                const endSegment = findElementEndSegment(this, e, this.m_selection.endSegment())
+                const elementStaffIdx = e.staffIdx()
+                if (endSegment && elementStaffIdx !== nidx) {
+                    const tick = startSegment.tick()
+                    const etick = endSegment.tick()
+
+                    this.m_selection.extendRangeSelection(startSegment, endSegment, elementStaffIdx, tick, etick)
+                    this.m_selection.updateSelectedElements()
+
+                    this.m_selection.setActiveTrack(e.track())
+                    return
+                }
+            }
+        }
+
+        if (e.isNote() || e.isChordRest()) {
+            // Create new range selection
+            if (!this.m_selection.isNone()) {
+                this.deselectAll()
+            }
+
+            const cr = (e.isNote() ? e.parentItem() : e) as unknown as ChordRest
+
+            const st = SegmentType.ChordRest | SegmentType.EndBarLine | SegmentType.Clef
+            this.m_selection.setRange(cr.segment(), cr.nextSegmentAfterCR(st), cr.staffIdx(), cr.staffIdx() + 1)
+            this.m_selection.updateSelectedElements()
+
+            this.m_selection.setActiveTrack(cr.track())
+            return
+        }
+
+        // Nothing worked; just select the new element
+        this.doSelect(e, SelectType.SINGLE, staffIdx)
+    }
+
+    private trySelectSimilarInRange(e: EngravingItem): boolean {
+        const selectedElement = this.m_selection.element()
+        if (!selectedElement || e.type() !== selectedElement.type()) {
+            return false
+        }
+
+        let idx1 = selectedElement.staffIdx()
+        let idx2 = e.staffIdx()
+
+        if (idx1 === nidx || idx2 === nidx) {
+            return false
+        }
+
+        if (idx2 < idx1) {
+            [idx1, idx2] = [idx2, idx1]
+        }
+
+        let t1 = selectedElement.tick()
+        let t2 = e.tick()
+        if (t1.gt(t2)) {
+            [t1, t2] = [t2, t1]
+        }
+
+        const s1 = this.tick2segmentMM(t1, true, SegmentType.ChordRest)
+        let s2 = this.tick2segmentMM(t2, true, SegmentType.ChordRest)
+        if (s2) {
+            s2 = s2.next1MM(SegmentType.ChordRest)
+        }
+
+        if (!s1) {
+            return false
+        }
+
+        this.m_selection.setRange(s1, s2, idx1, idx2 + 1)
+        this.selectSimilarInRange(e)
+        if (selectedElement.track() === e.track()) {
+            // limit to this voice only
+            const list = [...this.m_selection.elements()]
+            for (const el of list) {
+                if (el.track() !== e.track()) {
+                    this.m_selection.remove(el)
+                }
+            }
+        }
+
+        return true
+    }
+
+    private tryExtendSingleSelectionToRange(newElement: EngravingItem, staffIdx: staff_idx_t): boolean {
+        const selectedElement = this.m_selection.element()
+        if (!selectedElement) {
+            return false
+        }
+
+        let startSegment = findElementStartSegment(this, selectedElement)
+        if (!startSegment) {
+            return false
+        }
+
+        let endSegment = findElementEndSegment(this, selectedElement, startSegment)
+
+        let startStaffIdx = selectedElement.staffIdx()
+        if (startStaffIdx === nidx) {
+            return false
+        }
+
+        let endStaffIdx = startStaffIdx + 1
+        let activeTrack = newElement.track()
+        let activeSegmentIsStart = false
+
+        if (newElement.isMeasure()) {
+            const m = (newElement as unknown as Measure).coveringMMRestOrThis()
+            const tick = m.tick()
+
+            if (tick.lt(startSegment.tick())) {
+                startSegment = m.first(SegmentType.ChordRest)!
+                activeSegmentIsStart = true
+            }
+            if (m === this.lastMeasureMM()) {
+                endSegment = null
+            } else if (endSegment && tick.plus(m.ticks()).gt(endSegment.tick())) {
+                endSegment = m.last()
+            }
+
+            startStaffIdx = Math.min(startStaffIdx, staffIdx)
+            endStaffIdx = Math.max(endStaffIdx, staffIdx + 1)
+
+            activeTrack = staffIdx * VOICES
+        } else {
+            const newStartSegment = findElementStartSegment(this, newElement)
+            if (newStartSegment && newStartSegment.tick().lt(startSegment.tick())) {
+                startSegment = newStartSegment
+                activeSegmentIsStart = true
+            }
+
+            const newEndSegment = findElementEndSegment(this, newElement, newStartSegment)
+            if (endSegment && (!newEndSegment || newEndSegment.tick().gt(endSegment.tick()))) {
+                endSegment = newEndSegment
+            }
+
+            const newStaffIdx = newElement.staffIdx()
+            if (newStaffIdx !== nidx) {
+                startStaffIdx = Math.min(startStaffIdx, newStaffIdx)
+                endStaffIdx = Math.max(endStaffIdx, newStaffIdx + 1)
+            }
+        }
+
+        this.m_selection.setRange(startSegment, endSegment, startStaffIdx, endStaffIdx)
+        this.m_selection.updateSelectedElements()
+
+        this.m_selection.setActiveTrack(activeTrack)
+        this.m_selection.setActiveSegment(activeSegmentIsStart ? startSegment : endSegment)
+
+        return true
+    }
+
+    /** C++ collectMatch (ElementPattern without beat and duration, which selectSimilarInRange does not set) */
+    private collectMatch(p: { type: ElementType; subtype: number; subtypeValid: boolean; staffStart: staff_idx_t;
+        staffEnd: staff_idx_t; voice: number; el: EngravingItem[] }, e: EngravingItem): void {
+        if (p.type !== ElementType.INVALID && p.type !== e.type()) {
+            return
+        }
+
+        if (p.type === ElementType.NOTE) {
+            const isGrace = (e as unknown as Note).chord().isGrace()
+            if (p.subtype < 0) {
+                if (!isGrace) {
+                    return
+                }
+            } else if (isGrace || p.subtype !== e.subtype()) {
+                return
+            }
+        } else if (p.subtypeValid && p.subtype !== e.subtype()) {
+            return
+        }
+
+        if (p.staffStart !== nidx && (p.staffStart > e.staffIdx() || p.staffEnd <= e.staffIdx())) {
+            return
+        }
+
+        if (p.voice !== nidx && p.voice !== e.voice()) {
+            return
+        }
+
+        p.el.push(e)
+    }
+
+    selectSimilarInRange(e: EngravingItem): void {
+        const score = e.score()
+
+        const pattern = {
+            type: e.type(), subtype: 0, subtypeValid: false, staffStart: this.selection().staffStart(),
+            staffEnd: this.selection().staffEnd(), voice: nidx, el: [] as EngravingItem[],
+        }
+        if (e.isNote()) {
+            if ((e as unknown as Note).chord().isGrace()) {
+                pattern.subtype = -1 // hack
+            } else {
+                pattern.subtype = e.subtype()
+            }
+            pattern.subtypeValid = true
+        } else if (e.isHairpinSegment() || e.isHarmony()) {
+            pattern.subtype = e.subtype()
+            pattern.subtypeValid = true
+        }
+
+        score.scanElementsInRange(item => this.collectMatch(pattern, item))
+
+        score.select(null, SelectType.SINGLE, 0)
+        score.select(pattern.el, SelectType.ADD, 0)
+    }
+
+    scanElementsInRange(func: (item: EngravingItem) => void): void {
+        const startSeg = this.m_selection.startSegment()
+        for (let s = startSeg; s && s !== this.m_selection.endSegment(); s = s.next1()) {
+            s.scanElements(func)
+            const m = s.measure()
+            if (m && s === m.first()) {
+                const mmr = m.mmRest()
+                if (mmr) {
+                    mmr.scanElements(func)
+                }
+            }
+        }
+
+        const handledSpanners = new Set<Spanner>()
+        for (const e of this.m_selection.elements()) {
+            if (!e.isSpannerSegment()) {
+                continue
+            }
+            const spanner = (e as unknown as SpannerSegment).spanner()!
+            if (!handledSpanners.has(spanner)) {
+                handledSpanners.add(spanner)
+                for (const ss of spanner.spannerSegments()) {
+                    ss.scanElements(func)
+                }
+            }
+        }
+    }
+
+    cmdSelectAll(): void {
+        if (this.m_measures.size() === 0) {
+            return
+        }
+        this.deselectAll()
+        const first = this.firstMeasureMM()
+        if (!first) {
+            return
+        }
+        const last = this.lastMeasureMM()!
+        this.selectRange(first, 0)
+        this.selectRange(last, this.nstaves() - 1)
+    }
+
+    getTextStyleUserName(tid: TextStyleType): TranslatableString {
+        if (tid >= TextStyleType.USER1 && tid <= TextStyleType.USER12) {
+            const idx = tid - TextStyleType.USER1
+            const sid = [Sid.user1Name, Sid.user2Name, Sid.user3Name, Sid.user4Name, Sid.user5Name, Sid.user6Name,
+                Sid.user7Name, Sid.user8Name, Sid.user9Name, Sid.user10Name, Sid.user11Name, Sid.user12Name]
+            const userName = this.style().styleSt(sid[idx])
+            if (userName) {
+                return TranslatableString.untranslatable(userName)
+            }
+        }
+        return TConv.userNameTextStyleType(tid)
+    }
+
+    // position -> score (score.cpp)
+
+    /**
+     * Return measure for canvas relative position p (C++ out parameters: rst, pitch, seg, offset are returned).
+     */
+    pos2measure(p: PointF): { measure: Measure; staffIdx: staff_idx_t; pitch: number; segment: Segment; offset: PointF } | null {
+        const m = this.searchMeasure(p)
+        if (!m) {
+            return null
+        }
+
+        const s = m.system()!
+        const y = p.y() - s.canvasPos().y()
+
+        const i = s.searchStaff(y)
+
+        // search for segment + offset
+        const pppp = p.minus(m.canvasPos())
+        const strack = i * VOICES
+        if (!this.staff(i)) {
+            return null
+        }
+        const etrack = VOICES + strack
+
+        const segment = m.searchSegment(pppp.x(), SegmentType.ChordRest, strack, etrack)
+        if (segment) {
+            const sstaff = m.system()!.staves()[i]
+            const s1 = this.m_staves[i]
+            const tick = segment.tick()
+            const clef = s1.clef(tick)
+            const pitch = y2pitch(pppp.y() - sstaff.bbox().y(), clef, s1.spatium(tick))
+            const offset = pppp.minus(new PointF(segment.x(), sstaff.bbox().y()))
+            return { measure: m, staffIdx: i, pitch, segment, offset }
+        }
+
+        return null
+    }
+
+    /** p is in canvas coordinates */
+    searchPage(p: PointF): Page | null {
+        if (this.layoutMode() === LayoutMode.LINE) {
+            return this.m_pages.length ? this.m_pages[0] : null
+        }
+
+        for (const page of this.m_pages) {
+            const r = page.ldata().bbox().translated(page.pos())
+            if (r.contains(p)) {
+                return page
+            }
+        }
+
+        return null
+    }
+
+    /**
+     * Returns list of systems as there may be more than one system in a row
+     * pos: Position in canvas coordinates; preferredSystem: if not null, will give more space to the given system
+     * when searching it by its coordinate.
+     */
+    searchSystem(pos: PointF, preferredSystem: System | null = null, spacingFactor = 0.5, preferredSpacingFactor = 0.75): System[] {
+        const systems: System[] = []
+        const page = this.searchPage(pos)
+        if (!page) {
+            return systems
+        }
+        const y = pos.y() - page.pos().y() // transform to page relative
+        const sl = page.systems()
+        let y2: number
+        const n = sl.length
+        for (let i = 0; i < n; ++i) {
+            const s = sl[i]
+            if (!s.firstMeasure()) {
+                continue
+            }
+            let ns: System | null = null // next system row
+            let ii = i + 1
+            for (; ii < n; ++ii) {
+                ns = sl[ii]
+                if (ns.y() !== s.y()) {
+                    break
+                }
+            }
+            if (ii === n || !ns) {
+                y2 = page.height()
+            } else {
+                let currentSpacingFactor: number
+                const sy2 = s.y() + s.ldata().bbox().height()
+                if (s === preferredSystem) {
+                    currentSpacingFactor = preferredSpacingFactor
+                } else if (ns === preferredSystem) {
+                    currentSpacingFactor = 1.0 - preferredSpacingFactor
+                } else {
+                    currentSpacingFactor = spacingFactor
+                }
+                y2 = sy2 + (ns.y() - sy2) * currentSpacingFactor
+            }
+            if (y < y2) {
+                systems.push(s)
+                for (let iii = i + 1; iii < n; ++iii) {
+                    if (sl[iii].y() !== s.y()) {
+                        break
+                    }
+                    systems.push(sl[iii])
+                }
+                return systems
+            }
+        }
+        return systems
+    }
+
+    /** p: Position in canvas coordinates; preferredSystem: if not null, will give more space to measures in this system */
+    searchMeasure(p: PointF, preferredSystem: System | null = null, spacingFactor = 0.5, preferredSpacingFactor = 0.75): Measure | null {
+        const systems = this.searchSystem(p, preferredSystem, spacingFactor, preferredSpacingFactor)
+        for (const system of systems) {
+            const x = p.x() - system.canvasPos().x()
+            for (const mb of system.measures()) {
+                if (mb.isMeasure() && x < (mb.x() + mb.ldata().bbox().width())) {
+                    return mb as unknown as Measure
+                }
+            }
+        }
+        return null
+    }
 
     // meta tags
 
@@ -1040,4 +1570,73 @@ export class Score extends EngravingObject {
             break
         }
     }
+}
+
+function findElementStartSegment(score: Score, e: EngravingItem): Segment | null {
+    const ancestor = e.findAncestor(ElementType.SEGMENT) as Segment | null
+    if (ancestor) {
+        if (ancestor.isSegType(CHORD_REST_OR_TIME_TICK_TYPE)) {
+            return ancestor
+        }
+    }
+
+    return score.tick2segmentMM(e.tick(), true, CHORD_REST_OR_TIME_TICK_TYPE)
+}
+
+/**
+ * Returns `null` when the end segment is the end of the score; returns `def` if no end segment is found.
+ */
+function findElementEndSegment(score: Score, e: EngravingItem, def: Segment | null): Segment | null {
+    let cr: ChordRest | null = null
+
+    if (e.isNote()) {
+        cr = e.parentItem() as unknown as ChordRest
+    } else if (e.isChordRest()) {
+        cr = e as unknown as ChordRest
+    } else {
+        const c = e.findAncestor(ElementType.CHORD)
+        if (c) {
+            cr = c as unknown as ChordRest
+        } else {
+            const r = e.findAncestor(ElementType.REST)
+            if (r) {
+                cr = r as unknown as ChordRest
+            }
+        }
+    }
+
+    if (cr) {
+        return cr.nextSegmentAfterCR(SegmentType.ChordRest | SegmentType.EndBarLine | SegmentType.Clef)
+    }
+
+    if (e.isSpanner() || e.isSpannerSegment()) {
+        const sp = e.isSpanner() ? e as unknown as Spanner : (e as unknown as SpannerSegment).spanner()!
+        return score.tick2segmentMM(sp.tick2(), true, CHORD_REST_OR_TIME_TICK_TYPE)
+    }
+
+    const seg = e.findAncestor(ElementType.SEGMENT) as Segment | null
+    if (seg) {
+        if (seg.isSegType(CHORD_REST_OR_TIME_TICK_TYPE)) {
+            // https://github.com/musescore/MuseScore/pull/25821#issuecomment-2617369881
+            return seg.nextCR(e.track(), true)
+        } else {
+            // Strictly speaking redundant, but more efficient than `tick2segmentMM`
+            const crSegAtSameTick = seg.measure().findSegmentR(CHORD_REST_OR_TIME_TICK_TYPE, seg.rtick())
+            if (crSegAtSameTick) {
+                return crSegAtSameTick
+            }
+        }
+    }
+
+    const tick = e.tick()
+    if (tick.eq(score.endTick())) {
+        return null
+    }
+
+    const seg2 = score.tick2segmentMM(tick, true, CHORD_REST_OR_TIME_TICK_TYPE)
+    if (seg2) {
+        return seg2
+    }
+
+    return def
 }

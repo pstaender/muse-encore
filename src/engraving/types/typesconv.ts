@@ -22,16 +22,36 @@ import {
 } from './types'
 import * as D from './typesconvdata'
 import type { Item } from './typesconvdata'
+import { TranslatableString } from '../../framework/global/types/translatablestring'
 
 function findXmlTagByType<T>(cont: readonly Item<T>[], v: T): string {
     const it = cont.find(i => i.type === v)
     return it ? it.xml : ''
 }
 
-function findUserNameByType<T>(cont: readonly Item<T>[], v: T): string {
-    const it = cont.find(i => i.type === v)
-    return it ? it.userName : ''
+/** C++ findUserNameByType (the Item's userName) */
+function findTUserNameByType<T>(cont: readonly Item<T>[], v: T): TranslatableString {
+    return TranslatableString.from(cont.find(i => i.type === v)?.tUserName)
 }
+
+/** C++ findCapitalizedUserNameByType */
+function findCapitalizedUserNameByType<T>(cont: readonly Item<T>[], v: T): TranslatableString {
+    return TranslatableString.from(cont.find(i => i.type === v)?.tCapitalizedUserName)
+}
+
+/** tables of other structs than Item (e.g. DynamicItem) with only one translatable string */
+function findSingleUserNameByType<T>(cont: readonly Item<T>[], v: T): TranslatableString {
+    const it = cont.find(i => i.type === v)
+    return TranslatableString.from(it?.tCapitalizedUserName ?? it?.tUserName)
+}
+
+/** C++ KEY_NAMES */
+const KEY_NAMES: readonly TranslatableString[] = [
+    'C♭ major / A♭ minor', 'G♭ major / E♭ minor', 'D♭ major / B♭ minor', 'A♭ major / F minor', 'E♭ major / C minor',
+    'B♭ major / G minor', 'F major / D minor', 'C major / A minor', 'G major / E minor', 'D major / B minor',
+    'A major / F♯ minor', 'E major / C♯ minor', 'B major / G♯ minor', 'F♯ major / D♯ minor', 'C♯ major / A♯ minor',
+    'Open / Atonal', 'Custom',
+].map(s => new TranslatableString('engraving', s))
 
 const ARTICULATION_TEXTS: Partial<Record<ArticulationTextType, string>> = {
     [ArticulationTextType.SLAP]: 'S',
@@ -127,7 +147,31 @@ export const TConv = {
     // ElementType
     toXmlElementType: (v: ElementType): string => findXmlTagByType(D.ELEMENT_TYPES, v),
     fromXmlElementType: (tag: string, def: ElementType = ElementType.INVALID): ElementType => findTypeByXmlTag(D.ELEMENT_TYPES, tag, def),
-    userNameElementType: (v: ElementType): string => findUserNameByType(D.ELEMENT_TYPES, v),
+    userNameElementType: (v: ElementType): TranslatableString => findTUserNameByType(D.ELEMENT_TYPES, v),
+    capitalizedUserNameElementType: (v: ElementType): TranslatableString => findCapitalizedUserNameByType(D.ELEMENT_TYPES, v),
+
+    // user names (C++ TConv::userName / translatedUserName overloads)
+    userNameClefType: (v: ClefType): TranslatableString => findCapitalizedUserNameByType(D.CLEF_TYPES, v),
+    translatedUserNameClefType: (v: ClefType): string => findCapitalizedUserNameByType(D.CLEF_TYPES, v).translated(),
+    translatedUserNameDurationType: (v: DurationType): string => findCapitalizedUserNameByType(D.DURATION_TYPES, v).translated(),
+    userNameNoteHeadGroup: (v: NoteHeadGroup): TranslatableString => findCapitalizedUserNameByType(D.NOTEHEAD_GROUPS, v),
+    userNameDynamicType: (v: DynamicType): TranslatableString => findSingleUserNameByType(D.DYNAMIC_TYPES, v),
+    translatedUserNameDynamicType: (v: DynamicType): string => findSingleUserNameByType(D.DYNAMIC_TYPES, v).translated(),
+    userNameTextStyleType: (v: TextStyleType): TranslatableString => findCapitalizedUserNameByType(D.TEXTSTYLE_TYPES, v),
+    userNameLayoutBreakType: (v: LayoutBreakType): TranslatableString => findCapitalizedUserNameByType(D.LAYOUTBREAK_TYPES, v),
+    userNameJumpType: (v: JumpType): TranslatableString => findCapitalizedUserNameByType(D.JUMP_TYPES, v),
+    translatedUserNameJumpType: (v: JumpType): string => findCapitalizedUserNameByType(D.JUMP_TYPES, v).translated(),
+    userNameMarkerType: (v: MarkerType): TranslatableString => findCapitalizedUserNameByType(D.MARKER_TYPES, v),
+    translatedUserNameMarkerType: (v: MarkerType): string => findCapitalizedUserNameByType(D.MARKER_TYPES, v).translated(),
+    userNameTrillType: (v: TrillType): TranslatableString => findCapitalizedUserNameByType(D.TRILL_TYPES, v),
+    translatedUserNameTrillType: (v: TrillType): string => findCapitalizedUserNameByType(D.TRILL_TYPES, v).translated(),
+    userNameTremoloType: (v: TremoloType): TranslatableString => findCapitalizedUserNameByType(D.TREMOLO_TYPES, v),
+    userNameArticulationTextType: (v: ArticulationTextType): TranslatableString =>
+        findCapitalizedUserNameByType(D.ARTICULATIONTEXT_TYPES, v),
+    userNameKey: (v: number, isAtonal: boolean, isCustom: boolean): TranslatableString =>
+        isAtonal ? KEY_NAMES[15] : isCustom ? KEY_NAMES[16] : KEY_NAMES[v + 7],
+    translatedUserNameKey: (v: number, isAtonal: boolean, isCustom: boolean): string =>
+        (isAtonal ? KEY_NAMES[15] : isCustom ? KEY_NAMES[16] : KEY_NAMES[v + 7]).translated(),
 
     // Align
     fromXmlAlignH: (tag: string, def: AlignH): AlignH => findTypeByXmlTag(D.ALIGN_H, tag, def),

@@ -18,6 +18,7 @@ import type { Measure } from './measure'
 import { Pid } from './property'
 import { Rest, RestLayoutData } from './rest'
 import { timeSigSymIdsFromString } from './utils'
+import { arg, mtrc } from '../../framework/global/translation'
 
 const measureRepeatStyle: ElementStyle = [
     { sid: Sid.measureRepeatNumberPos, pid: Pid.MEASURE_REPEAT_NUMBER_POS },
@@ -143,5 +144,11 @@ export class MeasureRepeat extends Rest {
             return Sid.measureRepeatNumberPos
         }
         return super.getPropertyStyle(propertyId)
+    }
+
+    override accessibleInfo(): string {
+        // C++ QCoreApplication::translate replaces %Ln (localized %n) too
+        return arg(mtrc('engraving', '%1; Duration: %Ln measure(s)', '', this.numMeasures()).replaceAll('%Ln', String(this.numMeasures())),
+            this.translatedTypeUserName())
     }
 }
