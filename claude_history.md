@@ -293,3 +293,6 @@
 - Library API: isTwoSided(score), scoreTitle(score).
 - High zoom: pages whose bitmap would exceed 16 Mpx are drawn as tiles (visible part plus half a viewport) instead
   of a downscaled page bitmap, so the view stays sharp at any zoom; drawPage() got a `region` option for this.
+- Font fallback: characters missing in the loaded fonts (e.g. CJK text) are measured and drawn with a system font
+  like Qt does (FallbackFontEngine; in browsers a canvas, generic serif/sans-serif chosen from the font's PANOSE/name).
+  Node has no fallback engine (setFallbackFontEngine), there such characters still show the .notdef glyph.

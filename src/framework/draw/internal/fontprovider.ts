@@ -29,6 +29,93 @@ interface FaceEntry {
     otf: opentypeNs.Font
     glyphPaths: Map<number, PainterPath>   // in font units, y down
     glyphBBoxes: Map<number, RectF>        // in font units, y down
+    serif?: boolean
+}
+
+/** A font of the platform used for characters that the loaded fonts do not have */
+export interface FallbackFont {
+    /** in pixels, like the font sizes of the layout */
+    pixelSize: number
+    bold: boolean
+    italic: boolean
+    /** generic family: Qt falls back to a font of the same kind (e.g. Songti for a serif font on macOS) */
+    serif: boolean
+}
+
+/**
+ * Qt draws characters missing in a font with a system font (font fallback). The loaded fonts are
+ * drawn from their outlines here, so the fallback needs the platform: it measures text in a FallbackFont
+ * and the paint provider draws it (IPaintProvider.drawFallbackText).
+ */
+export interface FallbackFontEngine {
+    /** advance and ink box (origin at the baseline, y down) in pixels, null if the text cannot be measured */
+    measure(text: string, font: FallbackFont): { advance: number; bbox: RectF } | null
+}
+
+/** CSS font string of a fallback font, for canvas measuring and drawing */
+export function fallbackCssFont(font: FallbackFont): string {
+    return `${font.italic ? 'italic ' : ''}${font.bold ? 'bold ' : ''}${font.pixelSize}px ${font.serif ? 'serif' : 'sans-serif'}`
+}
+
+/** Measures with a canvas 2D context (browsers), null if there is no canvas */
+export function createCanvasFallbackFontEngine(): FallbackFontEngine | null {
+    let ctx: { font: string; measureText(t: string): TextMetrics } | null = null
+    try {
+        if (typeof OffscreenCanvas !== 'undefined') {
+            ctx = new OffscreenCanvas(1, 1).getContext('2d')
+        } else if (typeof document !== 'undefined') {
+            ctx = document.createElement('canvas').getContext('2d')
+        }
+    } catch {
+        ctx = null
+    }
+    if (!ctx) {
+        return null
+    }
+    const c = ctx
+    const cache = new Map<string, { advance: number; bbox: RectF } | null>()
+    return {
+        measure(text: string, font: FallbackFont): { advance: number; bbox: RectF } | null {
+            const css = fallbackCssFont(font)
+            const k = css + '\n' + text
+            let r = cache.get(k)
+            if (r === undefined) {
+                c.font = css
+                const m = c.measureText(text)
+                r = {
+                    advance: m.width,
+                    bbox: new RectF(-m.actualBoundingBoxLeft, -m.actualBoundingBoxAscent,
+                        m.actualBoundingBoxLeft + m.actualBoundingBoxRight, m.actualBoundingBoxAscent + m.actualBoundingBoxDescent),
+                }
+                cache.set(k, r)
+            }
+            return r
+        },
+    }
+}
+
+// undefined: not decided yet, a canvas engine is created on first use if the platform has a canvas
+let s_fallbackEngine: FallbackFontEngine | null | undefined
+
+/** Sets the engine for characters missing in the loaded fonts (null disables the fallback) */
+export function setFallbackFontEngine(engine: FallbackFontEngine | null): void {
+    s_fallbackEngine = engine
+}
+
+function fallbackEngine(): FallbackFontEngine | null {
+    if (s_fallbackEngine === undefined) {
+        s_fallbackEngine = createCanvasFallbackFontEngine()
+    }
+    return s_fallbackEngine
+}
+
+/** text drawn with a fallback font, x relative to the start of the run */
+export interface FallbackSegment {
+    text: string
+    x: number
+    advance: number
+    bbox: RectF
+    font: FallbackFont
 }
 
 export interface GlyphRun {
@@ -41,6 +128,8 @@ export interface GlyphRun {
     advance: number
     /** scale: font units -> pixels */
     scale: number
+    /** parts of the text that are not in the font */
+    fallbacks: FallbackSegment[]
 }
 
 function key(family: string): string {
@@ -261,6 +350,12 @@ export class FontProvider {
             x1 = Math.max(x1, gx + bb.width() * run.scale)
             y1 = Math.max(y1, gy + bb.height() * run.scale)
         }
+        for (const fb of run.fallbacks) {
+            x0 = Math.min(x0, fb.x + fb.bbox.left())
+            y0 = Math.min(y0, fb.bbox.top())
+            x1 = Math.max(x1, fb.x + fb.bbox.right())
+            y1 = Math.max(y1, fb.bbox.bottom())
+        }
         // logical width at least the advance
         x1 = Math.max(x1, run.advance)
         return new RectF(x0, y0, x1 - x0, y1 - y0)
@@ -282,17 +377,58 @@ export class FontProvider {
             r = r.united(new RectF(run.xs[i] + bb.x() * run.scale, bb.y() * run.scale,
                 bb.width() * run.scale, bb.height() * run.scale))
         }
+        for (const fb of run.fallbacks) {
+            if (fb.bbox.isValid()) {
+                r = r.united(fb.bbox.translated(new PointF(fb.x, 0)))
+            }
+        }
         return r
     }
 
-    /** Shapes a string: glyph lookup with standard ligatures and pair kerning (like HarfBuzz in Qt would do) */
+    /**
+     * Shapes a string: glyph lookup with standard ligatures and pair kerning (like HarfBuzz in Qt would do).
+     * Characters that are not in the font are measured with the fallback engine (if any), like Qt's font fallback.
+     */
     glyphRun(f: Font, text: string): GlyphRun | null {
         const face = this.m_db.face(f)
         if (!face) {
             return null
         }
         const scale = this.scale(face, f)
-        const otf = face.otf
+        const run: GlyphRun = { face, glyphs: [], xs: [], advance: 0, scale, fallbacks: [] }
+        const isSymbol = f.type() === FontType.MusicSymbol
+        const engine = isSymbol ? null : fallbackEngine()
+        if (!engine) {
+            this.shapeInto(run, f, text)
+            return run
+        }
+        // split into parts that are in the font and parts that are not
+        const chars = Array.from(text)
+        let i = 0
+        while (i < chars.length) {
+            const missing = !face.otf.charToGlyphIndex(chars[i])
+            let j = i + 1
+            while (j < chars.length && !face.otf.charToGlyphIndex(chars[j]) === missing) {
+                ++j
+            }
+            const part = chars.slice(i, j).join('')
+            const fbFont: FallbackFont = { pixelSize: FontProvider.pixelSize(f), bold: f.bold(), italic: f.italic(), serif: this.isSerif(face) }
+            const m = missing ? engine.measure(part, fbFont) : null
+            if (m) {
+                run.fallbacks.push({ text: part, x: run.advance, advance: m.advance, bbox: m.bbox, font: fbFont })
+                run.advance += m.advance
+            } else {
+                this.shapeInto(run, f, part)
+            }
+            i = j
+        }
+        return run
+    }
+
+    /** appends the shaped glyphs of `text` (all in the run's face) to the run */
+    private shapeInto(run: GlyphRun, f: Font, text: string): void {
+        const scale = run.scale
+        const otf = run.face.otf
         const isSymbol = f.type() === FontType.MusicSymbol
         let glyphs: opentypeNs.Glyph[]
         if (isSymbol) {
@@ -314,11 +450,11 @@ export class FontProvider {
             }
         }
 
-        const xs: number[] = []
-        let x = 0
+        let x = run.advance
         for (let i = 0; i < glyphs.length; ++i) {
             const g = glyphs[i]
-            xs.push(x)
+            run.glyphs.push(g.index)
+            run.xs.push(x)
             x += (g.advanceWidth ?? 0) * scale
             if (!isSymbol && i < glyphs.length - 1) {
                 let kern = 0
@@ -332,11 +468,24 @@ export class FontProvider {
                 x += kern * scale
             }
         }
-        return { face, glyphs: glyphs.map(g => g.index), xs, advance: x, scale }
+        run.advance = x
     }
 
-    /** Path of a shaped string, with origin at the baseline start, in pixels */
-    textPath(f: Font, text: string, pos: PointF = new PointF()): PainterPath {
+    /** sans serif if PANOSE or the name say so (Edwin has no PANOSE data) */
+    private isSerif(face: FaceEntry): boolean {
+        if (face.serif === undefined) {
+            const panose = face.otf.tables.os2?.panose
+            const sansPanose = !!panose && panose[0] === 2 && panose[1] >= 11 && panose[1] <= 13
+            face.serif = !sansPanose && !/sans/i.test(face.family)
+        }
+        return face.serif
+    }
+
+    /**
+     * Path of a shaped string, with origin at the baseline start, in pixels.
+     * Parts drawn with a fallback font are not in the path, they are added to `fallbacks` (positions absolute).
+     */
+    textPath(f: Font, text: string, pos: PointF = new PointF(), fallbacks?: FallbackSegment[]): PainterPath {
         const path = new PainterPath()
         const run = this.glyphRun(f, text)
         if (!run) {
@@ -344,6 +493,9 @@ export class FontProvider {
         }
         for (let i = 0; i < run.glyphs.length; ++i) {
             this.appendGlyph(path, run.face, run.glyphs[i], run.scale, pos.x() + run.xs[i], pos.y())
+        }
+        for (const fb of run.fallbacks) {
+            fallbacks?.push({ ...fb, x: pos.x() + fb.x })
         }
         return path
     }

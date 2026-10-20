@@ -26,6 +26,9 @@ export { MscLoadError } from './engraving/rw/mscloader'
 export type { MasterScore } from './engraving/dom/masterscore'
 export type { Score } from './engraving/dom/score'
 export type { Canvas2D } from './framework/draw/canvaspaintprovider'
+export {
+    setFallbackFontEngine, createCanvasFallbackFontEngine, type FallbackFontEngine, type FallbackFont,
+} from './framework/draw/internal/fontprovider'
 
 /** Reads a .mscz (zip) or .mscx (xml) file. Fonts must be initialized before (initEngravingFonts). */
 export function loadScore(data: Uint8Array | ArrayBuffer): MasterScore {

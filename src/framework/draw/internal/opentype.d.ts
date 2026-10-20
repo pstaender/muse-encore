@@ -72,6 +72,7 @@ declare module 'opentype.js' {
                 usWinAscent: number
                 usWinDescent: number
                 fsSelection: number
+                panose?: number[]
             }
             head?: { unitsPerEm: number }
             [key: string]: unknown

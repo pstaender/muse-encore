@@ -14,6 +14,8 @@ import { PointF, RectF } from './types/geometry'
 import { FillRule, PainterPath, PainterPathElementType } from './types/painterpath'
 import { Transform } from './types/transform'
 import type { IPaintProvider, PaintState } from './painter'
+import type { Color } from './types/color'
+import { fallbackCssFont, type FallbackFont } from './internal/fontprovider'
 
 /** The subset of CanvasRenderingContext2D that is used */
 export interface Canvas2D {
@@ -36,6 +38,9 @@ export interface Canvas2D {
     lineCap: CanvasLineCap
     lineJoin: CanvasLineJoin
     imageSmoothingEnabled?: boolean
+    // for text in fallback fonts (missing in node canvas implementations: such text is not drawn)
+    font?: string
+    fillText?(text: string, x: number, y: number): void
 }
 
 export class CanvasPaintProvider implements IPaintProvider {
@@ -138,6 +143,20 @@ export class CanvasPaintProvider implements IPaintProvider {
         if (this.setupPen(state)) {
             ctx.stroke()
         }
+        ctx.restore()
+    }
+
+    drawFallbackText(text: string, pos: PointF, font: FallbackFont, color: Color, state: PaintState): void {
+        const ctx = this.ctx
+        if (!ctx.fillText) {
+            return
+        }
+        ctx.save()
+        this.applyMask(state)
+        this.applyTransform(state.transform)
+        ctx.font = fallbackCssFont(font)
+        ctx.fillStyle = color.toCss()
+        ctx.fillText(text, pos.x(), pos.y())
         ctx.restore()
     }
 

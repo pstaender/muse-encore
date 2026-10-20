@@ -17,7 +17,7 @@ import { Font, FontType } from './types/font'
 import { LineF, PointF, PolygonF, RectF } from './types/geometry'
 import { FillRule, PainterPath } from './types/painterpath'
 import { Transform } from './types/transform'
-import type { FontProvider } from './internal/fontprovider'
+import type { FallbackFont, FallbackSegment, FontProvider } from './internal/fontprovider'
 
 /** clip region "background minus rects" (QPainter clip path set by Painter::setMask), in coordinates of `transform` */
 export interface PaintMask {
@@ -41,6 +41,8 @@ export interface IPaintProvider {
     drawPath(path: PainterPath, state: PaintState): void
     drawPolygon(points: readonly PointF[], mode: PolygonMode, state: PaintState): void
     setClipRect?(rect: RectF | null, state: PaintState): void
+    /** text in a platform font (characters missing in the loaded fonts), `pos` is the baseline origin */
+    drawFallbackText?(text: string, pos: PointF, font: FallbackFont, color: Color, state: PaintState): void
 }
 
 export class Painter {
@@ -234,8 +236,13 @@ export class Painter {
             return
         }
         const f = this.st.font
-        const path = this.m_fontProvider.textPath(f, s, p)
+        const fallbacks: FallbackSegment[] = []
+        const path = this.m_fontProvider.textPath(f, s, p, fallbacks)
         this.fillGlyphs(path)
+        for (const fb of fallbacks) {
+            const color = this.st.pen.style() === PenStyle.NoPen ? this.st.brush.color() : this.st.pen.color()
+            this.m_provider.drawFallbackText?.(fb.text, new PointF(fb.x, p.y()), fb.font, color, this.st)
+        }
 
         if (f.underline() || f.strike()) {
             const w = this.m_fontProvider.horizontalAdvance(f, s)
