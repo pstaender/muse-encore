@@ -195,7 +195,11 @@ function buildPages(): void {
     updateControls()
     updatePan()
     applyZoom(computeZoom())
-    centerPage(0)
+    if (score) {
+        centerPage(0)
+    } else {
+        viewport.scrollTo(0, 0)
+    }
     viewport.focus({ preventScroll: true })
 }
 
@@ -583,10 +587,11 @@ let pan = { x: 0, y: 0 }
 
 /** sets the space around the pages; the view keeps showing the same part of the pages */
 function updatePan(): void {
-    const next = {
+    // without a score nothing can be moved (the drop target must stay in view)
+    const next = score ? {
         x: Math.max(0, viewport.clientWidth - MIN_VISIBLE - pageGap()),
         y: Math.max(0, viewport.clientHeight - MIN_VISIBLE - pageGap()),
-    }
+    } : { x: 0, y: 0 }
     if (next.x === pan.x && next.y === pan.y) {
         return
     }
