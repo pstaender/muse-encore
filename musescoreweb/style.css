@@ -6,6 +6,13 @@
     font-display: block;
 }
 
+/* the music font for time signatures and notes in the New Score dialog (from the fonts directory) */
+@font-face {
+    font-family: "Leland";
+    src: url("/leland/Leland.otf") format("opentype");
+    font-display: block;
+}
+
 :root {
     color-scheme: light dark;
     --bg: #eceef1;
@@ -20,6 +27,8 @@
     --radius: 6px;
     --page-gap: 24px;
     --backdrop: rgba(15, 23, 42, .18);
+    --danger: #d33a2c;
+    --selected: #d5e2fb;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -34,6 +43,8 @@
         --accent: #6c9cf2;
         --page-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .35);
         --backdrop: rgba(0, 0, 0, .45);
+        --danger: #e5574a;
+        --selected: #2f4670;
     }
 }
 
@@ -114,7 +125,7 @@ button.icon[aria-pressed="true"], button.icon[aria-checked="true"] { background:
 
 main:focus { outline: none; }
 
-button:focus-visible, select:focus-visible {
+button:focus-visible, select:focus-visible, input:focus-visible, li[tabindex]:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
 }
@@ -181,32 +192,15 @@ main.hand.dragging { cursor: grabbing; user-select: none; }
 
 .page.placeholder { visibility: hidden; }
 
-/* ---- empty state ---- */
+/* ---- views: the home screen replaces the score view ---- */
 
-.empty {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-}
+body[data-view="home"] > #toolbar,
+body[data-view="home"] > #toolbar-trigger,
+body[data-view="home"] > #viewport,
+body[data-view="home"] > .statusbar { display: none; }
 
-.empty[hidden] { display: none; }
-
-.drop-target {
-    width: min(440px, 100%);
-    padding: 40px 24px;
-    text-align: center;
-    border: 2px dashed var(--border);
-    border-radius: 12px;
-    background: var(--panel);
-    transition: border-color .15s, background .15s;
-}
-
-.drop-target p { margin: 4px 0; }
-.drop-icon { font-family: "MusescoreIcon"; font-size: 40px; color: var(--muted); margin-bottom: 8px; }
-body.dragover .drop-target { border-color: var(--accent); background: var(--active); }
-body.dragover main::after {
+body.dragover main::after,
+body.dragover .home::after {
     content: "";
     position: absolute;
     inset: 8px;
@@ -217,7 +211,6 @@ body.dragover main::after {
 
 .muted { color: var(--muted); }
 
-button.link { padding: 0; color: var(--accent); text-decoration: underline; }
 
 /* ---- full screen: the toolbar is collapsed and slides in at the top edge ---- */
 
@@ -352,12 +345,494 @@ kbd {
     text-align: center;
 }
 
-button.primary {
-    padding: 6px 16px;
+button.primary, button.secondary {
+    min-height: 30px;
+    padding: 5px 16px;
     border-radius: var(--radius);
     background: var(--accent);
     color: #fff;
+    white-space: nowrap;
 }
+
+button.secondary { background: var(--hover); color: var(--fg); border: 1px solid var(--border); }
+button.secondary:hover:not(:disabled) { background: var(--active); }
+button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+button.primary.danger { background: var(--danger); }
+button.primary:disabled, button.secondary:disabled { opacity: .45; cursor: default; }
+
+/* ---- form controls ---- */
+
+input[type="text"], input[type="search"], input[type="number"] {
+    height: 30px;
+    padding: 0 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--fg);
+    font: inherit;
+    min-width: 0;
+}
+
+input[type="number"] { width: 72px; font-variant-numeric: tabular-nums; }
+input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); margin: 0; }
+
+.icon-glyph { font-family: "MusescoreIcon"; font-size: 16px; line-height: 1; }
+.icon-glyph.big { font-size: 24px; }
+.smufl { font-family: "Leland"; font-size: 22px; line-height: 1; }
+
+.search {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search .icon-glyph {
+    position: absolute;
+    left: 8px;
+    color: var(--muted);
+    pointer-events: none;
+}
+
+.search input { width: 100%; padding-left: 30px; }
+
+.segmented.text button {
+    padding: 4px 14px;
+    border-radius: var(--radius);
+}
+
+.segmented.text button[aria-checked="true"] { background: var(--active); color: var(--accent); }
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
+/* ---- tabs Home / Score ---- */
+
+#app-root { display: contents; }
+
+.app-tabs {
+    display: flex;
+    align-items: stretch;
+    height: 34px;
+    padding: 0 8px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.app-tabs [role="tablist"] { display: flex; gap: 2px; }
+
+.app-tabs [role="tab"] {
+    padding: 0 14px;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    font-weight: 500;
+}
+
+.app-tabs [role="tab"]:hover:not(:disabled) { color: var(--fg); }
+.app-tabs [role="tab"][aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+.app-tabs [role="tab"]:disabled { opacity: .4; cursor: default; }
+
+body.fullscreen .app-tabs { display: none; }
+
+/* ---- home screen ---- */
+
+.home {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--panel);
+}
+
+.home-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px 24px;
+    padding: 24px 32px 12px;
+}
+
+.home-header h1 { margin: 0; font-size: 24px; font-weight: 600; }
+.home-tools { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.home-tools .search { width: min(260px, 50vw); }
+
+.home-error {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 32px 8px;
+    padding: 6px 6px 6px 12px;
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
+    color: var(--fg);
+}
+
+.home-error span { flex: 1; }
+
+.home-body {
+    flex: 1;
+    overflow: auto;
+    padding: 12px 32px 24px;
+}
+
+.home-hint { max-width: 60ch; margin: 24px 0 0; }
+.no-results { margin: 24px 0; }
+
+.score-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(172px, 1fr));
+    gap: 28px 24px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.score-grid li { position: relative; }
+
+.score-card {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+    padding: 0;
+    text-align: left;
+    border-radius: var(--radius);
+}
+
+.score-card .thumb {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    aspect-ratio: 172 / 224;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, .08);
+    transition: box-shadow .15s, border-color .15s;
+}
+
+.score-card .thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+.score-card:hover .thumb { border-color: var(--accent); box-shadow: 0 4px 14px rgba(15, 23, 42, .16); }
+
+.score-card.new .thumb { aspect-ratio: 172 / 224; background: var(--bg); border-style: dashed; box-shadow: none; }
+.new-plus { font-family: "MusescoreIcon"; font-size: 36px; color: var(--accent); }
+
+.thumb-placeholder { font-family: "MusescoreIcon"; font-size: 40px; color: #c4c9d1; }
+
+.card-name {
+    margin-top: 8px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.card-time { font-size: 12px; }
+
+.score-grid .remove {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 28px;
+    height: 28px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    opacity: 0;
+    transition: opacity .15s;
+}
+
+.score-grid li:hover .remove, .score-grid .remove:focus-visible { opacity: 1; }
+
+@media (hover: none) {
+    .score-grid .remove { opacity: 1; }
+}
+
+.score-list { width: 100%; border-collapse: collapse; }
+.score-list th { text-align: left; font-weight: 500; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.score-list td { padding: 4px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.score-list td:first-child { width: 100%; max-width: 0; }
+.score-list tr:hover td { background: var(--hover); }
+
+.list-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 2px 0;
+    text-align: left;
+    overflow: hidden;
+}
+
+.list-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.list-thumb {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 32px;
+    height: 42px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    background: #fff;
+}
+
+.list-thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.list-thumb .thumb-placeholder { font-size: 18px; }
+.list-thumb.new { background: var(--bg); border-style: dashed; font-family: "MusescoreIcon"; color: var(--accent); }
+
+.home-footer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 32px;
+    border-top: 1px solid var(--border);
+}
+
+.home-footer .spacer { flex: 1; }
+
+/* ---- dialogs ---- */
+
+dialog.confirm { width: min(420px, calc(100vw - 32px)); }
+dialog.confirm p { margin: 0; color: var(--muted); }
+
+.dialog-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+dialog.new-score {
+    width: min(1040px, calc(100vw - 32px));
+    height: min(700px, calc(100vh - 32px));
+    padding: 0;
+    overflow: hidden;
+}
+
+dialog.new-score[open] { display: flex; flex-direction: column; }
+
+.dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 12px 4px 24px;
+}
+
+.dialog-header h2 { margin: 0; }
+
+.dialog-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--border);
+}
+
+.dialog-tabs [role="tab"] {
+    padding: 8px 12px;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    font-weight: 500;
+}
+
+.dialog-tabs [role="tab"][aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+
+.dialog-page {
+    flex: 1;
+    min-height: 0;
+    padding: 16px 24px;
+    overflow: auto;
+}
+
+dialog.new-score .dialog-buttons {
+    padding: 12px 24px;
+    border-top: 1px solid var(--border);
+}
+
+.column {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    min-height: 0;
+}
+
+.column h3, .score-info h3 { margin: 0; font-size: 13px; font-weight: 600; }
+
+.list {
+    flex: 1;
+    min-height: 0;
+    margin: 0;
+    padding: 4px;
+    overflow: auto;
+    list-style: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+}
+
+.list li {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 30px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: default;
+    user-select: none;
+}
+
+.list li[role="option"]:hover { background: var(--hover); }
+.list li[aria-selected="true"] { background: var(--selected); }
+.list li:focus-visible { outline-offset: -2px; }
+.list .item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list li select { height: 24px; max-width: 45%; }
+.list .empty-item { white-space: normal; }
+
+.badge {
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: var(--active);
+    color: var(--accent);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.choose-instruments {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) minmax(200px, 1.6fr) auto minmax(200px, 1.6fr);
+    gap: 12px;
+    height: 100%;
+}
+
+.add-column { display: flex; align-items: center; }
+.add-column .icon { border: 1px solid var(--border); }
+.description { min-height: 3.6em; margin: 0; font-size: 12px; overflow: auto; }
+.list-actions { display: flex; justify-content: flex-end; gap: 2px; }
+
+.choose-template {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.2fr) minmax(260px, 2fr);
+    gap: 12px;
+    height: 100%;
+}
+
+.preview-column { min-height: 0; }
+
+.template-preview {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    overflow: auto;
+    border-radius: var(--radius);
+    background: var(--bg);
+}
+
+.preview-page { display: block; flex-shrink: 0; background: #fff; box-shadow: var(--page-shadow); }
+
+.spinner.small { width: 24px; height: 24px; margin: 24px; }
+
+/* ---- score information ---- */
+
+.score-info { display: flex; flex-direction: column; gap: 16px; }
+
+.score-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.dropdown { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.field-label { color: var(--muted); font-size: 12px; }
+
+.dropdown-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 56px;
+    padding: 0 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+    text-align: left;
+}
+
+.dropdown-button:hover { background: var(--hover); }
+.dropdown-button[aria-expanded="true"] { border-color: var(--accent); }
+.dropdown-value { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.value-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chevron { font-family: "MusescoreIcon"; color: var(--muted); }
+
+svg.timesig { flex-shrink: 0; overflow: visible; font-family: "Leland"; fill: currentColor; }
+.tempo-value { display: inline-flex; align-items: baseline; gap: 4px; }
+.tempo-value .smufl { font-size: 20px; line-height: 1; position: relative; top: -2px; }
+
+.dropdown-panel {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 100%;
+    margin-top: 4px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .18);
+}
+
+.score-options > .dropdown:nth-child(n+3) .dropdown-panel { left: auto; right: 0; }
+
+.key-grid {
+    display: grid;
+    grid-template-columns: repeat(8, 76px);
+    gap: 4px;
+}
+
+.key-grid button {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 8px 2px;
+    border-radius: var(--radius);
+}
+
+.key-grid button:hover { background: var(--hover); }
+.key-grid button[aria-checked="true"] { background: var(--selected); }
+.key-name { font-size: 11px; text-align: center; }
+
+.radio-rows { display: flex; flex-direction: column; gap: 10px; }
+.radio-rows label, label.check { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.fraction-input { display: inline-flex; align-items: center; gap: 6px; }
+.fraction-input input { width: 60px; }
+.tempo-row { display: flex; align-items: center; gap: 8px; }
+.indent { padding-left: 24px; }
+.hint { margin: 0; font-size: 12px; max-width: 32ch; }
+
+label.field { display: flex; flex-direction: column; gap: 4px; }
+label.field > span { color: var(--muted); font-size: 12px; }
+
+.general-info {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 16px;
+}
+
+.general-info .wide { grid-column: 1 / -1; }
 
 /* ---- small screens ---- */
 
@@ -367,6 +842,16 @@ button.primary {
     .title { max-width: 14ch; }
     #print, #help { display: none; }
     :root { --page-gap: 12px; }
+    .home-header, .home-body, .home-footer { padding-left: 16px; padding-right: 16px; }
+    .score-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 20px 16px; }
+    .choose-instruments, .choose-template { grid-template-columns: 1fr; height: auto; }
+    .choose-instruments .list, .choose-template .list { min-height: 160px; max-height: 40vh; }
+    .add-column { justify-content: center; }
+    .template-preview { min-height: 300px; }
+    .general-info { grid-template-columns: 1fr; }
+    .key-grid { grid-template-columns: repeat(4, 72px); }
+    .score-options > .dropdown .dropdown-panel { left: 0; right: auto; }
+    dialog.new-score { height: calc(100vh - 32px); }
 }
 
 /* ---- printing: the SVG pages of #print-pages, one per sheet (@page size is set by the script) ---- */

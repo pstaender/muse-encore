@@ -348,3 +348,52 @@
   dynamics. Known difference: "sff" (Bravura) is kerned s-f-f here, MuseScore (HarfBuzz) does not kern f-f after
   a pair that also adjusts its second glyph (GPOS PairPos with ValueFormat2); opentype.js has no such information.
 
+
+## 2026-10-20 — New scores (from instruments or templates)
+
+- Ported the "New Score" path: `NotationProject::createNew/loadTemplate` (src/project/internal/notationproject.ts),
+  `MasterNotation::setupNewScore/applyOptions` incl. createMeasures/clearMeasures (src/notation/internal/masternotation.ts),
+  `NotationParts::setParts` (insertNewParts, appendStaves, initStaff, resolveNewInstrumentNumber, ...;
+  src/notation/internal/notationparts.ts), `ScoreOrder` (dom/scoreorder.ts: read, setBracketsAndBarlines,
+  instrumentSortingIndex, isScoreOrder, ...; also read from 3.x/4.x files), `EditPart::setScoreOrder`.
+- editing/edit.ts adds the needed edit.cpp functions to Score/MasterScore/Measure (module augmentation, must be
+  imported): insertMeasure/insertBox, MasterScore::insertMeasure (as `insertMeasureInMaster`, appending only),
+  restoreInitialKeySigAndTimeSig, cmdAddTimeSig (no rewriteMeasures), undoChangeKeySig, undoAddCR, undoInsertTime,
+  undoAddBracket, addText (title frame texts), adjustKeySigs, Measure::adjustToLen (measures with only a rest).
+  No undo stack: the commands' redo() is done directly (`TODO(port): undo`); editing/editmeasures.ts has
+  InsertMeasures/ChangeMeasureLen/InsertTime. Score got insertPart/insertStaff/insertTime/setUpTempoMap (time
+  signature map only)/autoUpdateSpatium/keyList/scoreOrder; Staff init/insertTime/changeBracketColumn, Part
+  insertTime/insertStaff, toRhythmicDurationList (durationtype.ts), Interval(int chromatic).
+- Instrument templates: gen-instrumenttemplates.ts now generates everything InstrumentTemplate::read reads except
+  MIDI actions/articulations (staves, clefs, brackets, barline spans, transposition, staff type presets, custom
+  drumsets and string data as xml read at runtime, traits, genres, families, group names, descriptions,
+  sequenceOrder); `Instrument::fromTemplate`, `Trait`. Score orders: tools/gen/gen-scoreorders.ts embeds orders.xml.
+- Public API (src/index.ts): createScore(NewScoreOptions), defaultNewScoreOptions, KEY_ATONAL, instrumentGroupList,
+  instrumentGenres, scoreOrders, instrumentSortingIndex, isScoreOrder. Templates need their score_style.mss
+  (`templateStyle`): MuseScore reads the template directory as a container.
+- PropertyValue equality of Fractions is `identical` like C++ (4/4 != 2/2); no change of the compare scores.
+- Verified against MuseScore: every share/templates file, turned into the equivalent score (title frame only with a
+  title, 32 rest measures, default page styles/autoUpdateSpatium spatium, concert-C key signatures) and rendered by
+  mscore, matches the createScore() output at 0.03-0.06 (same level as the reader).
+- Missing: instrument changes/excerpts/linked staves, inserting measures before others, time signature changes
+  that rewrite measures, removing/sorting existing parts, playback data (tempo map, swing, capo, MIDI mapping).
+- loadTemplate(mscx, style) loads a template as it is (preview). InstrumentTemplate.staffTypePreset is looked up
+  when used (the presets need the tablature fonts, which are not loaded when the UI first reads the instrument
+  list); instrumentGroups() assigns its cache only when complete.
+
+## 2026-10-20 — Editor: home screen, New Score dialog, stored scores
+
+- musescoreweb/ is a React app around the score view of the viewer (scoreview.ts, plain DOM): tabs Home / Score,
+  home screen "Scores" (grid/list, search, New, Open other…, remove from list, clear list) like MuseScore's
+  ScoresPage; New Score dialog (newscore/, after NewScoreDialog/ChooseInstrumentsPage/CreateFromTemplatePage/
+  ScoreInfoPage.qml): genres, families, search, instruments combined by name with their traits, order with
+  "(Customized)", soloist, up/down/remove; 41 templates of share/templates (bundled with import.meta.glob) with a
+  rendered preview; key/time signature/tempo/measures/pickup and title/subtitle/composer/lyricist/copyright.
+- Storage: db.ts (Dexie, database "musescoreweb-scores"): every opened file (deduplicated by SHA-256) and every new
+  score with its content, a thumbnail of page 1 and the last opened time; at most 100. There is no writer yet,
+  so a new score is stored as its NewScoreOptions and created again when opened. The open score's id is in
+  localStorage and reopened at startup. The first version's "last file" is taken over once.
+- Settings: settings.ts (localStorage "musescoreweb:settings"): view (zoom, orientation, spread), home layout,
+  preferred creation mode of the New Score dialog.
+- e2e: test/e2e/musescoreweb.e2e.ts; webapps.e2e.ts runs the score view tests for both apps.
+- Missing: saving/downloading scores (needs the writer), editing, multiple open scores.

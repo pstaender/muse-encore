@@ -31,6 +31,8 @@ src/
                         rw/compat (chord list hook, CompatUtils incl. doCompatibilityConversions = compatconversions.ts)
   engraving/compat      EngravingCompat (pre/post layout conversions of old files), page format, dummy element
   engraving/rendering/score  layout (ScoreLayout, SystemLayout, ChordLayout, ...) and painting (TDraw)
+  engraving/editing     score changes (edit.cpp etc.; no undo stack yet: commands are applied directly)
+  notation, project     MasterNotation / NotationParts / NotationProject: creating new scores (createScore)
   index.ts              public library API
 fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore, Gonville/Gootville, Petaluma,
                         Finale Maestro/Broadway, MuseJazz, Edwin, FreeSerif/FreeSans) with their licenses,
@@ -38,7 +40,9 @@ fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore,
 tools/gen/              generators for tables derived from the C++ sources (re-run on MuseScore updates)
 tools/                  node scripts: render to PNG, compare with MuseScore output
 webviewer/              Vite web viewer app (MuseScore icon font in webviewer/assets)
-musescoreweb/           Vite score editor app "MuseScore Web" (started as a copy of the viewer; separate app)
+musescoreweb/           Vite score editor app "MuseScore Web": React home screen and dialogs (App.tsx, home/, newscore/
+                        mirror MuseScore's QML pages), score view (scoreview.ts, DOM code from the viewer),
+                        session.ts (open/create scores), db.ts (scores in IndexedDB via Dexie), settings.ts (localStorage)
 test/                   vitest tests
 ```
 
@@ -71,6 +75,7 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - `npm run dev` - web viewer (Vite; `?url=<score>` opens a score, fonts are served from ./fonts);
   `npm run build:webviewer` builds it into dist-webviewer/
 - `npm run dev:musescoreweb` - the editor (same options); `npm run build:musescoreweb` builds it into dist-musescoreweb/
+  (it bundles MuseScore's templates from `MuseScore/share/templates`, so the submodule is needed)
 - `npm run render -- <file.mscz> <out-prefix> [dpi | svg]` - render pages to PNG (or SVG) in node
 - `npm run compare -- <file.mscz> [out-dir] [dpi]` - render with MuseScore and with this port and diff the PNGs
   (red = only MuseScore, blue = only port). For exact numbers compare with MuseScore's SVG export, which uses
@@ -78,7 +83,7 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - `npm run compare:all` - compare all vtest scores and `mscz-test-files/` with MuseScore against
   `test/compare-baseline.csv` (regressions fail); `-- --update-baseline` after intended changes
 - `npx tsx tools/gen/<gen-*.ts> MuseScore` - regenerate tables from the reference sources (symids, styledef,
-  property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates)
+  property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates, scoreorders)
 
 ## Progress tracking
 

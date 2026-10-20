@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Web viewer in headless Chrome: npm run test:e2e (needs Google Chrome; CHROME_PATH=<binary> to use another one).
+// Web viewer and editor (MuseScore Web, started as a copy of the viewer) in headless Chrome: npm run test:e2e
+// (needs Google Chrome; CHROME_PATH=<binary> to use another one).
 import { existsSync, readFileSync } from 'node:fs'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
 import { createServer, type ViteDevServer } from 'vite'
@@ -76,9 +77,9 @@ async function spaceDrag(page: Page, dx: number, dy: number): Promise<void> {
     await page.keyboard.up(' ')
 }
 
-describe.skipIf(!CHROME || !hasSubmodule)('web viewer', () => {
+describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%s', (app) => {
     beforeAll(async () => {
-        server = await createServer({ configFile: `${ROOT}webviewer/vite.config.ts`, root: `${ROOT}webviewer`, server: { port: 0 }, logLevel: 'error' })
+        server = await createServer({ configFile: `${ROOT}${app}/vite.config.ts`, root: `${ROOT}${app}`, server: { port: 0 }, logLevel: 'error' })
         await server.listen()
         base = server.resolvedUrls!.local[0]
         browser = await chromium.launch({ executablePath: CHROME, headless: true })
@@ -89,7 +90,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('web viewer', () => {
         await server?.close()
     })
 
-    it('shows the centered drop target without a file and nothing to scroll', async () => {
+    it.runIf(app === 'webviewer')('shows the centered drop target without a file and nothing to scroll', async () => {
         const { page, context } = await newPage()
         await page.goto(base)
         await page.waitForFunction(() => document.getElementById('status')!.textContent === 'Ready')
@@ -125,6 +126,10 @@ describe.skipIf(!CHROME || !hasSubmodule)('web viewer', () => {
 
     it('opens a score centered, remembers it and forgets it when closed', async () => {
         const { page, context } = await newPage()
+        // the viewer shows its drop target without a score, the editor its home screen
+        const noScore = (): Promise<boolean> => page.evaluate((a) => a === 'webviewer'
+            ? !document.getElementById('empty')!.hidden
+            : !!document.querySelector('.home') && document.body.dataset.view === 'home', app)
         await openScore(page, 'amazing.mscz')
         expect(await text(page, 'title')).toBe('amazing')
         expect(await text(page, 'page-info')).toBe('1 / 2')
@@ -135,10 +140,10 @@ describe.skipIf(!CHROME || !hasSubmodule)('web viewer', () => {
         expect(await text(page, 'title')).toBe('amazing')
 
         await page.click('#clear')
-        expect(await page.evaluate(() => document.getElementById('empty')!.hidden)).toBe(false)
+        expect(await noScore()).toBe(true)
         await page.reload() // at once: the file must not come back
         await page.waitForTimeout(1500)
-        expect(await page.evaluate(() => document.getElementById('empty')!.hidden)).toBe(false)
+        expect(await noScore()).toBe(true)
         await context.close()
     }, 120000)
 

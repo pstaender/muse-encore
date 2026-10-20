@@ -21,20 +21,30 @@ Test scores come from the MuseScore submodule (`git submodule update --init`): t
 - `regressions.test.ts` — bugs found in real-world scores (e.g. Note.clone sharing the accidental).
 - `chordlist.test.ts`, `style.test.ts` — chord symbol descriptions, style reading.
 
-## Web viewer (`npm run test:e2e`, `test/e2e/webviewer.e2e.ts`)
+## Web viewer and editor (`npm run test:e2e`, `test/e2e/webapps.e2e.ts`)
 
-Starts the Vite dev server and serves the scores from a fake host. Covers:
+Starts the Vite dev server and serves the scores from a fake host. The score view is shared by both apps, so
+these tests run for the viewer and the editor. Covers:
 
-- empty state: drop target centered, nothing to scroll
+- empty state (viewer): drop target centered, nothing to scroll
 - loading window while a file is downloaded/laid out; input blocked meanwhile
 - opening via `?url=`, page centered, last file remembered across reloads, close button forgets it (also when
-  reloading immediately)
+  reloading immediately; the editor then shows its home screen)
 - pages side by side / vertical; two-page spreads only for two-sided layouts ([1], [2, 3], …), spread navigation
 - MuseScore shortcuts (Ctrl +/-/0, Home/End, Ctrl+PgDn), Ctrl+wheel zoom at the pointer
 - space + drag beyond the pages (a 48 px strip stays visible), "Center page"
 - high zoom: tiles of the visible part at full resolution, at most 16 Mpx
 - full screen: toolbar collapsed, shown at the top edge
 - printing: vector pages (no bitmaps) on sheets of the score's page size (portrait and landscape), page count
+
+## Editor (`test/e2e/musescoreweb.e2e.ts`)
+
+- home screen at the first start; opened scores listed with thumbnails (IndexedDB), no duplicate entry for the
+  same file, reopening from the list
+- New Score dialog from instruments (search, add, order) with title/composer; the new score is created again after
+  a reload; removing a created score asks first
+- New Score dialog from a template with a rendered preview (Ctrl+N)
+- settings (grid/list view) kept across reloads
 
 ## Comparison with MuseScore (`npm run compare:all`)
 
@@ -53,3 +63,5 @@ Not automated (need a real display or device):
 - printing on paper and "Save as PDF" in Safari and Firefox
 - the spinner keeps turning during the layout of a large score (e.g. goldberg.mscz)
 - dark mode appearance; fallback fonts for CJK text on other platforms
+- editor: New Score dialog with the keyboard (lists, dropdown panels, Escape), on a phone-sized screen; storage
+  in a private window (nothing is kept, no errors)

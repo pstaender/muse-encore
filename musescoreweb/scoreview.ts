@@ -1,15 +1,24 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * MuseScore Web: the score editor (work in progress). Started as a copy of the web viewer (../webviewer), which stays
- * a separate app: opens a .mscz/.mscx file and shows its pages (horizontally, vertically or as two-page spreads).
+ * MuseScore Web: the score view (plain DOM code taken over from the web viewer, ../webviewer): shows the pages of
+ * the open score (horizontally, vertically or as two-page spreads), zoom, navigation, printing. The app (app.tsx)
+ * opens and closes scores through showScore() / clearScore() and gets the user's commands through the handlers.
  * Keyboard shortcuts follow MuseScore Studio (src/app/configs/data/shortcuts.xml) where they make sense.
  */
 /// <reference types="vite/client" />
 import {
-    drawPage, drawPageSvg, initEngravingFonts, isTwoSided, layoutScore, loadScore, pageCount, pageSize, scoreTitle,
-    SvgGlyphDefs, type MasterScore,
+    drawPage, drawPageSvg, initEngravingFonts, isTwoSided, pageCount, pageSize, scoreTitle, SvgGlyphDefs,
+    type MasterScore,
 } from '../src/index'
-import { clearLastFile, loadLastFile, loadSettings, saveLastFile, saveSettings, type ViewSettings } from './storage'
+import { settings as appSettings, updateSettings, type ViewSettings } from './settings'
+
+/** commands of the score view that the app handles */
+export const handlers = {
+    openFile: (_file: File): void => {},
+    chooseFile: (): void => {},
+    newScore: (): void => {},
+    closeScore: (): void => {},
+}
 
 // ---------------------------------------------------------------------------------
 //   elements
@@ -19,15 +28,13 @@ const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) 
 
 const viewport = $<HTMLElement>('viewport')
 const pagesDiv = $<HTMLDivElement>('pages')
-const emptyDiv = $<HTMLDivElement>('empty')
 const statusEl = $<HTMLSpanElement>('status')
 const titleEl = $<HTMLSpanElement>('title')
-const fileInput = $<HTMLInputElement>('file')
 const zoomSelect = $<HTMLSelectElement>('zoom')
 const pageInfo = $<HTMLSpanElement>('page-info')
 const btn = {
+    new: $<HTMLButtonElement>('new'),
     open: $<HTMLButtonElement>('open'),
-    open2: $<HTMLButtonElement>('open2'),
     clear: $<HTMLButtonElement>('clear'),
     prev: $<HTMLButtonElement>('prev'),
     next: $<HTMLButtonElement>('next'),
@@ -59,7 +66,8 @@ type FitMode = typeof FIT_MODES[number]
 
 let score: MasterScore | null = null
 let fileName = ''
-let settings: ViewSettings = loadSettings({ zoom: 'whole-page', orientation: 'horizontal', spread: false })
+const settings: ViewSettings = { ...appSettings().view }
+const saveSettings = (s: ViewSettings): void => updateSettings('view', s)
 let zoom = 100 // current zoom in percent
 let pages: HTMLDivElement[] = []
 const visible = new Set<HTMLDivElement>()
@@ -73,7 +81,7 @@ function spreadActive(): boolean {
     return !!score && settings.spread && isTwoSided(score)
 }
 
-function setStatus(text: string, error = false): void {
+export function setStatus(text: string, error = false): void {
     statusEl.textContent = text
     statusEl.parentElement!.classList.toggle('error', error)
 }
@@ -84,12 +92,12 @@ function setStatus(text: string, error = false): void {
 
 const busyEl = $<HTMLDivElement>('busy')
 
-function isBusy(): boolean {
+export function isBusy(): boolean {
     return !busyEl.hidden
 }
 
 /** shows the overlay and waits until it is painted */
-async function showBusy(title: string, detail = ''): Promise<void> {
+export async function showBusy(title: string, detail = ''): Promise<void> {
     $('busy-title').textContent = title
     $('busy-title').title = title
     $('busy-detail').textContent = detail
@@ -101,60 +109,51 @@ async function showBusy(title: string, detail = ''): Promise<void> {
     await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve)))
 }
 
-function hideBusy(): void {
+export function hideBusy(): void {
     busyEl.hidden = true
     document.body.removeAttribute('aria-busy')
     viewport.removeAttribute('inert')
 }
 
 // ---------------------------------------------------------------------------------
-//   fonts and files
+//   fonts and the open score
 // ---------------------------------------------------------------------------------
 
-const fontsReady = initEngravingFonts(async (path) => {
+/** resolves when the engraving fonts are loaded (rejects if they cannot be loaded) */
+export const fontsReady = initEngravingFonts(async (path) => {
     const res = await fetch(`${import.meta.env.BASE_URL}${path}`)
     if (!res.ok) {
         throw new Error(`could not load font ${path}`)
     }
     return res.arrayBuffer()
-}).then(() => setStatus('Ready'), (e: Error) => setStatus(`Error: ${e.message}`, true))
+})
+fontsReady.then(() => setStatus('Ready'), (e: Error) => setStatus(`Error: ${e.message}`, true))
 
-async function openData(name: string, data: ArrayBuffer, remember: boolean): Promise<void> {
-    await showBusy(`Opening ${name}`, 'Loading fonts…')
-    await fontsReady
-    setStatus(`Loading ${name}…`)
-    // the overlay must be painted before the (synchronous) layout
-    await showBusy(`Opening ${name}`, 'Laying out the score…')
-    try {
-        const t0 = performance.now()
-        const s = loadScore(data)
-        layoutScore(s)
-        const t1 = performance.now()
-        score = s
-        fileName = name
-        buildPages()
-        setStatus(`${name} · ${pageCount(s)} ${pageCount(s) === 1 ? 'page' : 'pages'} · layout ${Math.round(t1 - t0)} ms`)
-        if (remember) {
-            void saveLastFile({ name, data })
-        }
-    } catch (e) {
-        console.error(e)
-        setStatus(`Could not open ${name}: ${(e as Error).message}`, true)
-    } finally {
-        hideBusy()
-    }
+/** shows a laid out score; `name` is the file name (or the title of a new score) */
+export function showScore(s: MasterScore, name: string): void {
+    score = s
+    fileName = name
+    printPagesDiv.replaceChildren()
+    buildPages()
 }
 
-async function openFile(file: File): Promise<void> {
-    await openData(file.name, await file.arrayBuffer(), true)
-}
-
-function closeFile(): void {
+export function clearScore(): void {
     score = null
     fileName = ''
-    void clearLastFile()
+    printPagesDiv.replaceChildren()
     buildPages()
     setStatus('Ready')
+}
+
+/** called when the score view becomes visible again (its size was 0 while hidden) */
+export function viewShown(): void {
+    updatePan()
+    if (score) {
+        const page = currentPage()
+        applyZoom(computeZoom())
+        centerPage(page)
+    }
+    viewport.focus({ preventScroll: true })
 }
 
 // ---------------------------------------------------------------------------------
@@ -191,9 +190,7 @@ function buildPages(): void {
     pagesDiv.replaceChildren()
     pages = []
 
-    const hasScore = !!score
-    emptyDiv.hidden = hasScore
-    btn.clear.hidden = !hasScore
+    btn.clear.hidden = !score
     // like MuseScore's tab: the file name without extension; the score title as tooltip
     titleEl.textContent = score ? fileName.replace(/\.mscx?z?$/i, '') : 'MuseScore Web'
     titleEl.title = score ? [scoreTitle(score), fileName].filter(Boolean).join(' – ') : ''
@@ -847,11 +844,25 @@ document.addEventListener('keydown', (e) => {
         e.preventDefault()
         return
     }
-    if (helpDialog.open) {
+    if (document.querySelector('dialog[open]')) {
         return
     }
     const mod = e.ctrlKey || e.metaKey
     const key = e.key
+    // on the home screen only the file commands
+    const scoreShown = !!score && document.body.dataset.view === 'score'
+
+    if (mod && key.toLowerCase() === 'o') {
+        e.preventDefault()
+        handlers.chooseFile()
+        return
+    } else if (mod && key.toLowerCase() === 'n') {
+        e.preventDefault()
+        handlers.newScore()
+        return
+    } else if (!scoreShown) {
+        return
+    }
 
     if (key === ' ' && !mod && !isTextInput(e.target)) {
         // Space starts playback in MuseScore; there is no playback here, so it is the hand tool
@@ -870,13 +881,11 @@ document.addEventListener('keydown', (e) => {
         zoomStep(-1)
     } else if (mod && key === '0') {
         zoomAt(100)
-    } else if (mod && key.toLowerCase() === 'o') {
-        fileInput.click()
     } else if (mod && key.toLowerCase() === 'p') {
         void print()
     } else if (key === 'F11') {
         toggleFullscreen()
-    } else if (!score || isTextInput(e.target)) {
+    } else if (isTextInput(e.target)) {
         handled = false
     } else if (key === 'PageDown') {
         stepPage(1)
@@ -913,12 +922,12 @@ window.addEventListener('blur', () => {
 })
 
 // ---------------------------------------------------------------------------------
-//   buttons, file input, drag and drop
+//   buttons, drag and drop
 // ---------------------------------------------------------------------------------
 
-btn.open.addEventListener('click', () => fileInput.click())
-btn.open2.addEventListener('click', () => fileInput.click())
-btn.clear.addEventListener('click', closeFile)
+btn.new.addEventListener('click', () => handlers.newScore())
+btn.open.addEventListener('click', () => handlers.chooseFile())
+btn.clear.addEventListener('click', () => handlers.closeScore())
 btn.prev.addEventListener('click', () => stepPage(-1))
 btn.next.addEventListener('click', () => stepPage(1))
 btn.layoutH.addEventListener('click', () => setOrientation('horizontal'))
@@ -941,14 +950,7 @@ for (const b of document.querySelectorAll('header button')) {
     })
 }
 
-fileInput.addEventListener('change', () => {
-    const f = fileInput.files?.[0]
-    if (f) {
-        void openFile(f)
-    }
-    fileInput.value = ''
-})
-
+// a file can be dropped anywhere (also on the home screen)
 let dragDepth = 0
 document.addEventListener('dragenter', (e) => {
     if (e.dataTransfer?.types.includes('Files')) {
@@ -968,37 +970,9 @@ document.addEventListener('drop', (e) => {
     dragDepth = 0
     document.body.classList.remove('dragover')
     const f = e.dataTransfer?.files[0]
-    if (f && !isBusy()) {
-        void openFile(f)
+    if (f && !isBusy() && !document.querySelector('dialog[open]')) {
+        handlers.openFile(f)
     }
 })
 
-// ---------------------------------------------------------------------------------
-//   startup: ?url=<score url>, otherwise the last opened file
-// ---------------------------------------------------------------------------------
-
 updateControls()
-
-const initialUrl = new URLSearchParams(location.search).get('url')
-if (initialUrl) {
-    const name = decodeURIComponent(initialUrl.split('/').pop() ?? 'score.mscz')
-    void showBusy(`Opening ${name}`, 'Downloading…')
-    void fetch(initialUrl)
-        .then(res => {
-            if (!res.ok) {
-                throw new Error(`${res.status} ${res.statusText}`)
-            }
-            return res.arrayBuffer()
-        })
-        .then(data => openData(name, data, true))
-        .catch((e: Error) => {
-            hideBusy()
-            setStatus(`Could not load ${initialUrl}: ${e.message}`, true)
-        })
-} else {
-    void loadLastFile().then(f => {
-        if (f) {
-            void openData(f.name, f.data, false)
-        }
-    })
-}
