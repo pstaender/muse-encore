@@ -11,6 +11,7 @@
 import { clamp, RealIsEqual } from '../../../framework/global/realfn'
 import { AlignV, ElementType } from '../../types/types'
 import type { Articulation } from '../../dom/articulation'
+import type { FretDiagram } from '../../dom/fret'
 import type { Dynamic } from '../../dom/dynamic'
 import type { EngravingItem } from '../../dom/engravingitem'
 import type { System } from '../../dom/system'
@@ -199,8 +200,17 @@ export class AlignmentLayout {
             }
             break
         }
+        case ElementType.FRET_DIAGRAM:
+            curY += (item as FretDiagram).ldata().gridHeight
+            break
+        case ElementType.HARMONY: {
+            const parentItem = item.parentItem()
+            if (parentItem && parentItem.isFretDiagram()) {
+                curY += parentItem.pos().y()
+            }
+            break
+        }
         default:
-            // TODO(port): FRET_DIAGRAM, HARMONY
             break
         }
         return curY
