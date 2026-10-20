@@ -223,6 +223,9 @@
   chord brackets, tremolo bars, images, note lines, fret boxes, MMRestRange, excerpts, capos, string tunings,
   play technique annotations, harp diagrams, system dividers, sticking, figured bass, old Bend.
 - harmony-15 (3.x, jazz chord symbols with a custom chord list) still differs (~17%).
+- gonville-text-2: a staff text is ~1.7% wider than in MuseScore and collides with a segno marker, which is then
+  autoplaced higher (29%).
+- Full vtest run at 855e6c1: mean 4.42% over 862 pages (4.x, 3.x and 2.x files).
 - guitarDive-2: measure widths differ slightly (~1.5%) from MuseScore.
 - harmony-35: chord symbols at size 20 are placed ~0.45sp lower than in MuseScore (10, 15 and 25 match), so a
   4th system fits on page 1.

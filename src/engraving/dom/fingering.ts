@@ -21,7 +21,7 @@ const fingeringStyle: ElementStyle = [
 ]
 
 export class Fingering extends TextBase {
-    constructor(parent: Note | null, tid: TextStyleType = TextStyleType.FINGERING, ef: number = ElementFlag.NOTHING) {
+    constructor(parent: Note | null, tid: TextStyleType = TextStyleType.FINGERING, ef: number = ElementFlag.ON_STAFF) {
         super(ElementType.FINGERING, parent, tid, ef)
         this.setPlacement(PlacementV.ABOVE)
         this.initElementStyle(fingeringStyle)
