@@ -58,6 +58,15 @@
     </div>
 </main>
 
+<!-- shown while a file is opened (the layout blocks the page for a moment) -->
+<div id="busy" class="busy" hidden>
+    <div class="busy-card" role="status" aria-live="polite">
+        <div class="spinner" aria-hidden="true"></div>
+        <div id="busy-title" class="busy-title">Loading…</div>
+        <div id="busy-detail" class="muted"></div>
+    </div>
+</div>
+
 <!-- vector pages, only while printing -->
 <div id="print-pages" aria-hidden="true"></div>
 

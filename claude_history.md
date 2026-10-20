@@ -305,3 +305,6 @@
 - Web viewer: the view can be moved beyond the pages (space of almost a viewport around them, 48 px of a page stay
   visible); "Center page" button (icon ALIGN_HORIZONTAL_CENTER) centers the current page/spread in both directions;
   opening a score, changing layout/spread and choosing a fit zoom also center it.
+- Web viewer: busy overlay (spinner, file name, step) while a file is downloaded/laid out and while printing is
+  prepared; it blocks input (overlay, inert viewport, shortcuts and drops ignored). The spinner is a CSS transform
+  animation, so it keeps turning during the synchronous layout. Fades in after 150 ms (no flash for small files).

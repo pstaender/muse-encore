@@ -78,6 +78,35 @@ function setStatus(text: string, error = false): void {
 }
 
 // ---------------------------------------------------------------------------------
+//   busy overlay: the layout is synchronous, the UI is blocked while a file is opened
+// ---------------------------------------------------------------------------------
+
+const busyEl = $<HTMLDivElement>('busy')
+
+function isBusy(): boolean {
+    return !busyEl.hidden
+}
+
+/** shows the overlay and waits until it is painted */
+async function showBusy(title: string, detail = ''): Promise<void> {
+    $('busy-title').textContent = title
+    $('busy-title').title = title
+    $('busy-detail').textContent = detail
+    if (busyEl.hidden) {
+        busyEl.hidden = false
+        document.body.setAttribute('aria-busy', 'true')
+        viewport.setAttribute('inert', '')
+    }
+    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve)))
+}
+
+function hideBusy(): void {
+    busyEl.hidden = true
+    document.body.removeAttribute('aria-busy')
+    viewport.removeAttribute('inert')
+}
+
+// ---------------------------------------------------------------------------------
 //   fonts and files
 // ---------------------------------------------------------------------------------
 
@@ -90,10 +119,11 @@ const fontsReady = initEngravingFonts(async (path) => {
 }).then(() => setStatus('Ready'), (e: Error) => setStatus(`Error: ${e.message}`, true))
 
 async function openData(name: string, data: ArrayBuffer, remember: boolean): Promise<void> {
+    await showBusy(`Opening ${name}`, 'Loading fonts…')
     await fontsReady
     setStatus(`Loading ${name}…`)
-    // let the browser paint the status before the (synchronous) layout
-    await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve)))
+    // the overlay must be painted before the (synchronous) layout
+    await showBusy(`Opening ${name}`, 'Laying out the score…')
     try {
         const t0 = performance.now()
         const s = loadScore(data)
@@ -109,6 +139,8 @@ async function openData(name: string, data: ArrayBuffer, remember: boolean): Pro
     } catch (e) {
         console.error(e)
         setStatus(`Could not open ${name}: ${(e as Error).message}`, true)
+    } finally {
+        hideBusy()
     }
 }
 
@@ -341,11 +373,12 @@ async function print(): Promise<void> {
         return
     }
     if (!printPagesDiv.childElementCount) {
-        const status = statusEl.textContent ?? ''
-        setStatus('Preparing pages for printing…')
-        await new Promise(requestAnimationFrame)
-        preparePrint()
-        setStatus(status)
+        await showBusy('Preparing pages for printing…', `${pageCount(score)} ${pageCount(score) === 1 ? 'page' : 'pages'}`)
+        try {
+            preparePrint()
+        } finally {
+            hideBusy()
+        }
     }
     window.print()
 }
@@ -746,6 +779,10 @@ function toggleFullscreen(): void {
 }
 
 document.addEventListener('keydown', (e) => {
+    if (isBusy()) {
+        e.preventDefault()
+        return
+    }
     if (helpDialog.open) {
         return
     }
@@ -867,7 +904,7 @@ document.addEventListener('drop', (e) => {
     dragDepth = 0
     document.body.classList.remove('dragover')
     const f = e.dataTransfer?.files[0]
-    if (f) {
+    if (f && !isBusy()) {
         void openFile(f)
     }
 })
@@ -880,6 +917,8 @@ updateControls()
 
 const initialUrl = new URLSearchParams(location.search).get('url')
 if (initialUrl) {
+    const name = decodeURIComponent(initialUrl.split('/').pop() ?? 'score.mscz')
+    void showBusy(`Opening ${name}`, 'Downloading…')
     void fetch(initialUrl)
         .then(res => {
             if (!res.ok) {
@@ -887,8 +926,11 @@ if (initialUrl) {
             }
             return res.arrayBuffer()
         })
-        .then(data => openData(decodeURIComponent(initialUrl.split('/').pop() ?? 'score.mscz'), data, true))
-        .catch((e: Error) => setStatus(`Could not load ${initialUrl}: ${e.message}`, true))
+        .then(data => openData(name, data, true))
+        .catch((e: Error) => {
+            hideBusy()
+            setStatus(`Could not load ${initialUrl}: ${e.message}`, true)
+        })
 } else {
     void loadLastFile().then(f => {
         if (f) {
