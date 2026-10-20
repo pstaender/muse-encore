@@ -138,12 +138,30 @@
 - Note parentheses on chords (NoteParenGroup reading, generated parentheses for ghost notes/tab tie-backs with a
   simplified EditChord, ParenthesisLayout chord values, TAB masks) and parenthesis padding in HorizontalSpacing:
   paren-chords 63% -> 4%.
+- Guitar bends and dives: GuitarBend/GuitarBendSegment/GuitarBendHold/GuitarBendText (reading incl. hold lines and
+  bend texts), GuitarBendLayout (angular/slight bends on standard staves, TAB bends with arrows, texts and hold lines,
+  conflicts between bends), GuitarDiveLayout (dive sequences/levels, on-staff and above-staff dives, dips, scoops),
+  bend line attach points, Note::bendFor/bendBack/diveFor/diveBack, continuation of bends (hidden frets and ties on
+  TAB), tab grace size exception, slight-bend/scoop note shapes, avoidPreBendsOnTab, drawing. The bend shape is
+  refilled on access like C++ LayoutData::shape() (ldataShapeHooks). guitarBend-* 10-43% -> 2.6-6%.
+- Whammy bar lines (centered between a notation staff and its linked TAB staff).
+- Vibrato lines (symbol lines like trills): vibrato-1/2 21%/27% -> 4%/4.5%, guitarDive-3 5.3% -> 0.5%.
+- StringData (fretChords via Chord::cmdUpdateNotes: TAB frets are recomputed from the pitch), Staff::updateOttava /
+  pitchOffset (ottava pitch offsets), Note::linkedOttavaPitchOffset.
+- Links: `<linkedTo>` is read (EID register; staff numbers for files < 4.6), EngravingObject::isLinked,
+  findLinkedInStaff; TAB grace notes are aligned to the linked notation staff (alignTabGraceNotesToMainStave).
+  Element links of 4.0-4.5 files (`<linked>`/`<linkedMain>`, read410 ReadContext::addLink/getLink with LinksIndexer).
+  guitarDive-2 36% -> 8%.
+- PassLayoutIndependentItems is no longer run: in C++ it is only compiled with MUE_ENABLE_ENGRAVING_LD_PASSES
+  (OFF in release builds). It laid out accidentals of grace notes before their mag was known (full-size grace
+  accidentals). guitarDive-2 8% -> 3.4%.
 - Note: files < 4.6 are read with read460 plus selected read400/read410 compat (fretFontName, harmony, fret
   diagrams, marker type from label, header clefs); C++ uses separate readers for them.
 
 ### Known differences / missing
-- Not ported (not drawn): fingering, vibrato, gradual tempo changes, partial lyrics lines,
-  chord brackets, tremolo bars, glissandi, guitar bends, images, fret boxes, MMRestRange, excerpts.
+- Not ported (not drawn): fingering, gradual tempo changes, partial lyrics lines,
+  chord brackets, tremolo bars, glissandi, images, fret boxes, MMRestRange, excerpts, capos, string tunings.
+- guitarDive-2: measure widths differ slightly (~1.5%) from MuseScore.
 - harmony-35: chord symbols at size 20 are placed ~0.45sp lower than in MuseScore (10, 15 and 25 match), so a
   4th system fits on page 1.
 - ornament-9: hairpins on vocal staves (4.2 file) are placed above the staff, MuseScore places them below; with a

@@ -18,7 +18,7 @@ import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
     StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff, SpannerSegmentType, LineType, PlacementV,
-    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType, ArpeggioType, nidx } from '../../types/types'
+    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType, ArpeggioType, GuitarBendType, VibratoType, nidx } from '../../types/types'
 import { SymNames } from '../../types/symnames'
 import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull } from '../../../framework/global/realfn'
 import { Pid, PropertyFlags } from '../../dom/property'
@@ -122,6 +122,10 @@ import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { StaffTypeChange } from '../../dom/stafftypechange'
 import type { LaissezVib } from '../../dom/laissezvib'
 import type { MeasureRepeat } from '../../dom/measurerepeat'
+import type { GuitarBend, GuitarBendHoldSegment, GuitarBendSegment } from '../../dom/guitarbend'
+import type { Staff } from '../../dom/staff'
+import type { VibratoSegment } from '../../dom/vibrato'
+import { GuitarBendLayout } from './guitarbendlayout'
 import { MeasureLayout } from './measurelayout'
 
 function barLineWidth(item: BarLine, ctx: LayoutContext, dotWidth: number): number {
@@ -232,9 +236,14 @@ export class TLayout {
         case ElementType.LET_RING:
         case ElementType.PALM_MUTE:
         case ElementType.TRILL:
+        case ElementType.WHAMMY_BAR:
+        case ElementType.VIBRATO:
             TLayout.layoutLine(item as SLine, ctx)
             break
         case ElementType.TRILL_SEGMENT: TLayout.layoutTrillSegment(item as TrillSegment, ctx); break
+        case ElementType.GUITAR_BEND: TLayout.layoutGuitarBend(item as GuitarBend, ctx); break
+        case ElementType.GUITAR_BEND_SEGMENT: TLayout.layoutGuitarBendSegment(item as GuitarBendSegment, ctx); break
+        case ElementType.GUITAR_BEND_HOLD_SEGMENT: GuitarBendLayout.layoutHoldLine(item as GuitarBendHoldSegment); break
         case ElementType.LET_RING_SEGMENT:
             TLayout.layoutChordTextLineBaseSegment(item as TextLineBaseSegment, Sid.letRingShowTabCommon, Sid.letRingShowTabSimple, ctx)
             break
@@ -242,6 +251,8 @@ export class TLayout {
             TLayout.layoutChordTextLineBaseSegment(item as TextLineBaseSegment, Sid.palmMuteShowTabCommon, Sid.palmMuteShowTabSimple, ctx)
             break
         case ElementType.TEXTLINE_SEGMENT: TLayout.layoutTextLineSegment(item as TextLineSegment, ctx); break
+        case ElementType.VIBRATO_SEGMENT: TLayout.layoutVibratoSegment(item as VibratoSegment, ctx); break
+        case ElementType.WHAMMY_BAR_SEGMENT: TLayout.layoutWhammyBarSegment(item as TextLineBaseSegment, ctx); break
         case ElementType.OTTAVA_SEGMENT: TLayout.layoutOttavaSegment(item as OttavaSegment, ctx); break
         case ElementType.PEDAL_SEGMENT: TLayout.layoutPedalSegment(item as PedalSegment, ctx); break
         case ElementType.VOLTA_SEGMENT: TLayout.layoutVoltaSegment(item as VoltaSegment, ctx); break
@@ -1052,6 +1063,48 @@ export class TLayout {
         }
         ldata.setIsSkipDraw(false)
 
+        TLayout.layoutTextLineBaseSegment(item, ctx)
+
+        Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    static layoutVibratoSegment(item: VibratoSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        if (item.staff()) {
+            ldata.setMag(item.staff()!.staffMag(item.tick()))
+        }
+        if (item.spanner().placeBelow()) {
+            ldata.setPosY(item.staff() ? item.staff()!.staffHeight(item.tick()) : 0.0)
+        }
+
+        ldata.moveY(item.staffOffsetY())
+
+        switch (item.vibrato().vibratoType()) {
+        case VibratoType.GUITAR_VIBRATO:
+            item.symbolLine(SymId.guitarVibratoStroke, SymId.guitarVibratoStroke)
+            break
+        case VibratoType.GUITAR_VIBRATO_WIDE:
+            item.symbolLine(SymId.guitarWideVibratoStroke, SymId.guitarWideVibratoStroke)
+            break
+        case VibratoType.VIBRATO_SAWTOOTH:
+            item.symbolLine(SymId.wiggleSawtooth, SymId.wiggleSawtooth)
+            break
+        case VibratoType.VIBRATO_SAWTOOTH_WIDE:
+            item.symbolLine(SymId.wiggleSawtoothWide, SymId.wiggleSawtoothWide)
+            break
+        default:
+            break
+        }
+
+        if (item.isStyled(Pid.OFFSET)) {
+            item.setOffset(item.vibrato().propertyDefault(Pid.OFFSET) as PointF)
+        }
+
+        Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    static layoutWhammyBarSegment(item: TextLineBaseSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
         TLayout.layoutTextLineBaseSegment(item, ctx)
 
         Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
@@ -2374,11 +2427,35 @@ export class TLayout {
         }
     }
 
+    static alignTabGraceNotesToMainStave(graceNotes: GraceNotesGroup, notationStaff: Staff): void {
+        for (let i = 0; i < graceNotes.size(); ++i) {
+            const grace = graceNotes.at(i)
+            const linkedGrace = grace.findLinkedInStaff(notationStaff)
+            if (linkedGrace) {
+                grace.setPos(linkedGrace.ldata().pos())
+            }
+        }
+    }
+
     static layoutGraceNotesGroup(item: GraceNotesGroup, ctx: LayoutContext): void {
         const parent = item.chordParent()
         const staffType = parent.staffType()
         if (staffType && staffType.isTabStaff() && !item.empty()) {
-            // TODO(port): alignTabGraceNotesToMainStave (linked staves)
+            const staff = parent.staff()!
+            const links = staff.links()
+            if (links) {
+                for (const linkedSt of links) {
+                    const linkedStaff = linkedSt as Staff
+                    if (linkedStaff.score() === staff.score() && !linkedStaff.staffType(new Fraction(0, 1)).isTabStaff()
+                        && linkedStaff.idx() < staff.idx()) {
+                        // HACK: align grace notes in TAB to their linked notation staff.
+                        // CAUTION: Works only if notation staff is above the TAB.
+                        // TODO: refactor grace notes to allow doing this properly.
+                        TLayout.alignTabGraceNotesToMainStave(item, linkedStaff)
+                        return
+                    }
+                }
+            }
         }
         const _shape = new Shape()
         for (let i = item.size() - 1; i >= 0; --i) {
@@ -2976,6 +3053,43 @@ export class TLayout {
         void NoteHeadType
     }
 
+    static layoutGuitarBend(item: GuitarBend, ctx: LayoutContext, system: System | null = null): void {
+        item.computeBendAmount()
+
+        GuitarBendLayout.updateSegmentsAndLayout(item, ctx, system)
+
+        item.updateHoldLine()
+        if (item.holdLine()) {
+            GuitarBendLayout.updateSegmentsAndLayout(item.holdLine()!, ctx, system)
+        }
+    }
+
+    static layoutGuitarBendSegment(item: GuitarBendSegment, ctx: LayoutContext): void {
+        const tabStaff = item.staffType()!.isTabStaff()
+        if (tabStaff) {
+            GuitarBendLayout.layoutTabStaff(item, ctx)
+        } else {
+            GuitarBendLayout.layoutStandardStaff(item, ctx)
+        }
+
+        const staff = item.system()!.staff(item.staffIdx())!
+        const skyline = staff.skyline()
+        const skylineLine = tabStaff ? skyline.north() : (item.guitarBend().ldata().up ? skyline.north() : skyline.south())
+        skylineLine.add(item.shape().translated(item.pos()))
+
+        TLayout.fillGuitarBendSegmentShape(item)
+    }
+
+    static fillGuitarBendSegmentShape(item: GuitarBendSegment): void {
+        const ldata = item.mutldata()
+        const shape = new Shape()
+        shape.add(ldata.bbox(), item)
+        if (!item.bendText().empty()) {
+            shape.add(item.bendText().shape().translated(item.bendText().pos()))
+        }
+        ldata.setShape(shape)
+    }
+
     static fillNoteShape(item: Note): void {
         const ldata = item.mutldata()
         const noteBBox = ldata.bbox()
@@ -3003,7 +3117,6 @@ export class TLayout {
             const pos = lvSeg.ldata().posRelativeToNote.minus(cornerClosestToNote)
             shape.add(lvSeg.shape().translate(pos))
         }
-        // TODO(port): guitar bends
 
         for (const e of item.el()) {
             if (e.addToSkyline()) {
@@ -3012,6 +3125,26 @@ export class TLayout {
                     continue
                 }
                 shape.add(e.ldata().bbox().translated(e.pos()), e)
+            }
+        }
+
+        // This method is also called from SingleLayout, where `part` may be nullptr
+        const part = item.part()
+        if (part && part.instrument().hasStrings()) {
+            const bend = item.bendFor()
+            if (bend && bend.addToSkyline() && bend.bendType() === GuitarBendType.SLIGHT_BEND && !bend.segmentsEmpty()) {
+                const bendSeg = bend.frontSegment() as GuitarBendSegment
+                // Semi-hack: the relative position of note and bend
+                // isn't fully known yet, so we use an approximation
+                const sp = item.spatium()
+                const approxRelPos = new PointF(noteBBox.width() + 0.25 * sp, -0.25 * sp)
+                shape.add(bendSeg.shape().translated(approxRelPos))
+            }
+            const bendBack = item.bendBack()
+            if (bendBack && bendBack.bendType() === GuitarBendType.SCOOP && !bendBack.segmentsEmpty()
+                && item.findAncestor(ElementType.SYSTEM)) {
+                const seg = bendBack.frontSegment() as GuitarBendSegment
+                shape.add(seg.shape().translated(seg.pos().minus(item.systemPos())))
             }
         }
 

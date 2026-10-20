@@ -918,6 +918,26 @@ export enum StaffGroup {
     TAB,
 }
 
+// C++ dom/guitarbend.h
+export enum GuitarBendType {
+    BEND,
+    PRE_BEND,
+    GRACE_NOTE_BEND,
+    SLIGHT_BEND,
+
+    DIVE,
+    PRE_DIVE,
+    DIP,
+    SCOOP,
+}
+
+// C++ dom/guitarbend.h
+export enum GuitarBendShowHoldLine {
+    AUTO,
+    SHOW,
+    HIDE,
+}
+
 export enum TrillType {
     TRILL_LINE,
     UPPRALL_LINE,

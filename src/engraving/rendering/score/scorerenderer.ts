@@ -13,7 +13,9 @@ import { LayoutMode, type Score } from '../../dom/score'
 import type { Beam } from '../../dom/beam'
 import type { Chord } from '../../dom/chord'
 import { chordRestRenderer } from '../../dom/chordrest'
-import type { EngravingItem } from '../../dom/engravingitem'
+import { ldataShapeHooks, type EngravingItem } from '../../dom/engravingitem'
+import type { GuitarBendSegment } from '../../dom/guitarbend'
+import { ElementType } from '../../types/types'
 import { LayoutContext } from './layoutcontext'
 import { ScoreLayout, ScorePageViewLayout } from './scorelayout'
 import { TLayout } from './tlayout'
@@ -47,3 +49,6 @@ export class ScoreRenderer {
 
 chordRestRenderer.layoutBeam1 = (b) => ScoreRenderer.layoutBeam1(b)
 chordRestRenderer.layoutStem = (c) => ScoreRenderer.layoutStem(c)
+
+// C++ EngravingItem::LayoutData::shape(): "Temporary fix" refilling shapes on access
+ldataShapeHooks[ElementType.GUITAR_BEND_SEGMENT] = (item) => TLayout.fillGuitarBendSegmentShape(item as GuitarBendSegment)

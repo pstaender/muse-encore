@@ -78,6 +78,9 @@ import { StaffTypeChange } from './stafftypechange'
 import { LaissezVib, LaissezVibSegment } from './laissezvib'
 import { PartialTie, PartialTieSegment } from './partialtie'
 import { MeasureRepeat } from './measurerepeat'
+import { GuitarBend } from './guitarbend'
+import { WhammyBar, WhammyBarSegment } from './whammybar'
+import { Vibrato, VibratoSegment } from './vibrato'
 
 type Parent = EngravingObject | null
 
@@ -101,6 +104,7 @@ export class Factory {
         case ElementType.LAISSEZ_VIB: return new LaissezVib(parent as Note)
         case ElementType.MEASURE_REPEAT: return new MeasureRepeat(parent)
         case ElementType.PARTIAL_TIE: return new PartialTie(parent as Note)
+        case ElementType.GUITAR_BEND: return new GuitarBend(parent && parent.isNote() ? parent : dummy().note())
         case ElementType.PARTIAL_TIE_SEGMENT: return new PartialTieSegment(null)
         case ElementType.LAISSEZ_VIB_SEGMENT: return new LaissezVibSegment(null)
         case ElementType.TREMOLO_SINGLECHORD: return new TremoloSingleChord(chordOrDummy())
@@ -150,6 +154,10 @@ export class Factory {
         case ElementType.OTTAVA_SEGMENT: return new OttavaSegment(null, dummy().system())
         case ElementType.LET_RING: return new LetRing(itemOrDummy())
         case ElementType.LET_RING_SEGMENT: return new LetRingSegment(null, dummy().system())
+        case ElementType.WHAMMY_BAR: return new WhammyBar(itemOrDummy())
+        case ElementType.VIBRATO: return new Vibrato(itemOrDummy())
+        case ElementType.VIBRATO_SEGMENT: return new VibratoSegment(null, dummy().system())
+        case ElementType.WHAMMY_BAR_SEGMENT: return new WhammyBarSegment(null, dummy().system())
         case ElementType.PALM_MUTE: return new PalmMute(itemOrDummy())
         case ElementType.PALM_MUTE_SEGMENT: return new PalmMuteSegment(null, dummy().system())
         case ElementType.PEDAL: return new Pedal(itemOrDummy())

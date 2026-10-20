@@ -18,6 +18,23 @@ import type { Score } from '../../dom/score'
 import type { Staff } from '../../dom/staff'
 import type { ConnectorInfoReader } from './connectorinforeader'
 
+/** C++ rw/linksindexer.h */
+class LinksIndexer {
+    private m_lastLocalIndex = -1
+    private m_lastLinkedElementLoc = Location.absolute()
+
+    assignLocalIndex(mainElementLocation: Location): number {
+        if (this.m_lastLinkedElementLoc.equals(mainElementLocation)) {
+            return ++this.m_lastLocalIndex
+        }
+
+        this.m_lastLocalIndex = 0
+        this.m_lastLinkedElementLoc = mainElementLocation.clone()
+
+        return 0
+    }
+}
+
 export class ReadContext {
     private m_score: Score
     private m_pasteMode = false // modifies read behaviour on paste operation
@@ -36,8 +53,63 @@ export class ReadContext {
     private m_tracks = new Map<number, number>()
     private m_timeSigForNextMeasure = new Fraction(0, 1)
 
+    // read410 compat: elements linked with <linked>/<linkedMain> (one list per staff)
+    private m_staffLinkedElements = new Map<number, [EngravingObject[], Location][]>()
+    private m_linksIndexer = new LinksIndexer()
+
     constructor(score: Score) {
         this.m_score = score
+    }
+
+    /** read410 ReadContext::addLink (master score only) */
+    addLink(staff: Staff, link: EngravingObject[], location: Location): void {
+        const staffIndex = staff.idx()
+        let staffLinks = this.m_staffLinkedElements.get(staffIndex)
+        if (!staffLinks) {
+            staffLinks = []
+            this.m_staffLinkedElements.set(staffIndex, staffLinks)
+        }
+        this.m_linksIndexer.assignLocalIndex(location)
+        staffLinks.push([link, location])
+    }
+
+    /** read410 ReadContext::getLink (master score only) */
+    getLink(location: Location, localIndexDiff: number): EngravingObject[] | null {
+        const staffIndex = location.staff()
+        const localIndex = this.m_linksIndexer.assignLocalIndex(location) + localIndexDiff
+        let staffLinks = this.m_staffLinkedElements.get(staffIndex)
+        if (!staffLinks) {
+            staffLinks = []
+            this.m_staffLinkedElements.set(staffIndex, staffLinks)
+        }
+
+        if (staffLinks.length && staffLinks[staffLinks.length - 1][1].equals(location)) {
+            // This element potentially affects local index for "main"
+            // elements that may go afterwards at the same tick, so
+            // append it to staffLinks as well.
+            staffLinks.push(staffLinks[staffLinks.length - 1]) // nothing should reference exactly this local index, so it shouldn't matter what to append
+        }
+
+        for (let i = 0; i < staffLinks.length; ++i) {
+            if (staffLinks[i][1].equals(location)) {
+                if (localIndex === 0) {
+                    return staffLinks[i][0]
+                }
+
+                i += localIndex
+                if (i < 0 || i >= staffLinks.length) { // C++ size_t wraps around for negative values
+                    return null
+                }
+
+                if (staffLinks[i][1].equals(location)) {
+                    return staffLinks[i][0]
+                }
+
+                return null
+            }
+        }
+
+        return null
     }
 
     score(): Score { return this.m_score }

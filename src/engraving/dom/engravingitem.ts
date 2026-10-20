@@ -218,6 +218,7 @@ export class LayoutData {
         case ElementType.TUPLET:
         case ElementType.HAIRPIN_SEGMENT:
         case ElementType.TRILL_SEGMENT:
+        case ElementType.GUITAR_BEND_SEGMENT:
             return sh
         default:
             break
@@ -848,6 +849,19 @@ export abstract class EngravingItem extends EngravingObject {
     move(s: PointF): void { this.mutldata().move(s) }
 
     setbbox(r: RectF): void { this.mutldata().setBbox(r) }
+
+    findLinkedInStaff(staff: Staff): EngravingItem | null {
+        const links = this.links()
+        if (!links || links.length === 0) {
+            return null
+        }
+        for (const linked of links) {
+            if ((linked as EngravingItem).staff() === staff) {
+                return linked as EngravingItem
+            }
+        }
+        return null
+    }
     height(): number { return this.ldata().bbox().height() }
     setHeight(v: number): void { this.mutldata().setHeight(v) }
     width(): number { return this.ldata().bbox().width() }

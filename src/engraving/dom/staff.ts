@@ -28,6 +28,7 @@ import type { BracketItem } from './bracketitem'
 import type { Clef } from './clef'
 import type { TimeSig } from './timesig'
 import type { Groups } from './groups'
+import type { Ottava } from './ottava'
 
 /** set by bracketitem.ts (avoids a module cycle) */
 export let createBracketItemHook: (staff: Staff) => BracketItem = () => { throw new Error('BracketItem not registered') }
@@ -57,6 +58,7 @@ export class Staff extends EngravingItem {
     private m_staffTypeList = new StaffTypeList()
     private m_showMeasureNumbers: AutoOnOff = AutoOnOff.AUTO
     private m_visibilityVoices = [true, true, true, true]
+    private m_pitchOffsetMap = new Map<number, number>()
 
     constructor(part: Part) {
         super(ElementType.STAFF, null)
@@ -518,9 +520,32 @@ export class Staff extends EngravingItem {
 
     isPrimaryStaff(): boolean { return true }
 
-    pitchOffset(_tick: Fraction): number {
-        // TODO(port): ottava pitch offsets
-        return 0
+    updateOttava(): void {
+        const staffIdx = this.idx()
+        this.m_pitchOffsetMap.clear()
+        for (const s of this.score().spanner()) {
+            if (s.isOttava() && s.staffIdx() === staffIdx && s.playSpanner()) {
+                const o = s as Ottava
+                this.m_pitchOffsetMap.set(o.tick().ticks(), o.pitchShift())
+                this.m_pitchOffsetMap.set(o.tick2().ticks(), 0)
+            }
+        }
+    }
+
+    pitchOffset(tick: Fraction): number {
+        if (this.m_pitchOffsetMap.size === 0) {
+            return 0
+        }
+        // C++ muse::findLessOrEqual
+        let best = -1
+        let val = 0
+        for (const [t, v] of this.m_pitchOffsetMap) {
+            if (t <= tick.ticks() && t > best) {
+                best = t
+                val = v
+            }
+        }
+        return val
     }
 
     override getProperty(id: Pid): PropertyValue {

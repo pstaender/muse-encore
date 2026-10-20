@@ -23,7 +23,7 @@ import {
     LineType, LyricsSyllabic, NoteHeadGroup, NoteHeadScheme, NoteHeadType, Orientation, OrnamentStyle, PartialSpannerDirection,
     PlacementH, PlacementV, PreferSharpFlat, SlurStyleType, StaffGroup, TextPlace, TextStyleType, TiePlacement,
     VeloType, VoiceAssignment, AccidentalRole, DynamicType, AutoCustomHide, MarkerType, GlissandoType,
-    ElementType, OrnamentInterval, ParenthesesMode, TrillType, type track_idx_t,
+    ElementType, OrnamentInterval, ParenthesesMode, TrillType, GuitarBendType, VibratoType, type track_idx_t,
     ChangeMethod, DynamicSpeed, SpannerSegmentType, VOICES,
     TremoloType, TremoloStyle, isTremoloTwoChord,
 } from '../../types/types'
@@ -109,6 +109,9 @@ import type { NoteCaseType } from '../../dom/pitchspelling'
 import { FretItem, FretMarkerType, type FretDiagram } from '../../dom/fret'
 import { Ornament } from '../../dom/ornament'
 import type { Trill } from '../../dom/trill'
+import { GuitarBendHold, GuitarBendText, type GuitarBend, type GuitarBendSegment } from '../../dom/guitarbend'
+import { InstrString, type StringData } from '../../dom/stringdata'
+import type { Vibrato } from '../../dom/vibrato'
 import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { BeamFragment } from '../../dom/beambase'
@@ -201,11 +204,14 @@ export class TRead {
         case ElementType.OTTAVA: TRead.readOttava(item as Ottava, xml, ctx); break
         case ElementType.PEDAL: TRead.readPedal(item as Pedal, xml, ctx); break
         case ElementType.TRILL: TRead.readTrill(item as Trill, xml, ctx); break
+        case ElementType.GUITAR_BEND: TRead.readGuitarBend(item as GuitarBend, xml, ctx); break
         case ElementType.LET_RING:
         case ElementType.PALM_MUTE:
             TRead.readChordTextLineBase(item as ChordTextLineBase, xml, ctx)
             break
         case ElementType.LYRICSLINE: TRead.readLyricsLine(item as LyricsLine, xml, ctx); break
+        case ElementType.WHAMMY_BAR: TRead.readTextLineBase(item as TextLineBase, xml, ctx); break // C++ read(TextLineBase*)
+        case ElementType.VIBRATO: TRead.readVibrato(item as Vibrato, xml, ctx); break
         default:
             // TODO(port): element type not ported yet
             xml.skipCurrentElement()
@@ -334,6 +340,76 @@ export class TRead {
         }
     }
 
+    static readItemLink(item: EngravingItem, xml: XmlReader, ctx: ReadContext): void {
+        const s = xml.readAsciiText()
+        const mainElement = ctx.score().masterScore().eidRegister().get(s)
+        if (!mainElement) {
+            // C++ logs "Link failed: Main linked element not found"
+            return
+        }
+        if (mainElement.type() !== item.type()) {
+            // C++ logs "Link failed: Main element type does not match linked item type"
+            return
+        }
+
+        item.linkTo(mainElement)
+    }
+
+    /** read410 compat: <linked>/<linkedMain> of EngravingItem::readProperties (master score only) */
+    static readItemLink410(item: EngravingItem, tag: string, e: XmlReader, ctx: ReadContext): void {
+        let s = item.staff()
+        if (!s) {
+            s = ctx.score().staff(Math.trunc(ctx.track() / VOICES))
+            if (!s) {
+                e.skipCurrentElement()
+                return
+            }
+        }
+        if (tag === 'linkedMain') {
+            const links: EngravingObject[] = [item]
+            item.setLinks(links)
+
+            ctx.addLink(s, links, ctx.location(true))
+
+            e.skipCurrentElement()
+        } else {
+            const sLinks = s.links()
+            const ls = sLinks ? sLinks[0] as Staff : null
+            const loc = ctx.location(true)
+            if (ls) {
+                loc.setStaff(ls.idx())
+            }
+            let mainLoc = Location.relative()
+            let locationRead = false
+            let localIndexDiff = 0
+            while (e.readNextStartElement()) {
+                const ntag = e.name()
+
+                if (ntag === 'score') {
+                    e.readText() // parts (excerpts) are not read
+                } else if (ntag === 'location') {
+                    TRead.readLocation(mainLoc, e, ctx)
+                    mainLoc.toAbsolute(loc)
+                    locationRead = true
+                } else if (ntag === 'indexDiff') {
+                    localIndexDiff = e.readInt()
+                } else {
+                    e.unknown()
+                }
+            }
+            if (!locationRead) {
+                mainLoc = loc
+            }
+            const link = ctx.getLink(mainLoc, localIndexDiff)
+            if (link) {
+                const linked = link[0]
+                if (linked.type() === item.type()) {
+                    item.linkTo(linked)
+                }
+            }
+        }
+    }
+
     static readSystemLocks(score: Score, e: XmlReader): void {
         while (e.readNextStartElement()) {
             if (e.name() === 'systemLock') {
@@ -379,7 +455,9 @@ export class TRead {
         } else if (tag === 'visible') {
             item.setVisible(e.readInt() !== 0)
         } else if (tag === 'linkedTo') {
-            e.skipCurrentElement() // links are not ported
+            TRead.readItemLink(item, e, ctx)
+        } else if ((tag === 'linked' || tag === 'linkedMain') && ctx.mscVersion() < 460) {
+            TRead.readItemLink410(item, tag, e, ctx)
         } else if (TRead.readPropertyIfTag(item, tag, e, ctx, Pid.POSITION_LINKED_TO_MASTER)) {
         } else if (TRead.readPropertyIfTag(item, tag, e, ctx, Pid.APPEARANCE_LINKED_TO_MASTER)) {
         } else if (TRead.readPropertyIfTag(item, tag, e, ctx, Pid.EXCLUDE_FROM_OTHER_PARTS)) {
@@ -916,6 +994,78 @@ export class TRead {
         }
     }
 
+    static readGuitarBend(g: GuitarBend, e: XmlReader, ctx: ReadContext): void {
+        g.eraseSpannerSegments()
+
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'guitarBendType') {
+                g.setBendType(e.readInt() as GuitarBendType)
+            } else if (tag === 'GuitarBendHold') {
+                const hold = new GuitarBendHold(g)
+                TRead.readGuitarBendHold(hold, e, ctx)
+                hold.setParent(g)
+                g.setHoldLine(hold)
+            } else if (TRead.readPropertyIfTag(g, tag, e, ctx, Pid.DIRECTION)) {
+            } else if (TRead.readPropertyIfTag(g, tag, e, ctx, Pid.BEND_SHOW_HOLD_LINE)) {
+            } else if (TRead.readPropertyIfTag(g, tag, e, ctx, Pid.BEND_START_TIME_FACTOR)) {
+            } else if (TRead.readPropertyIfTag(g, tag, e, ctx, Pid.BEND_TARGET_TIME_FACTOR)) {
+            } else if (TRead.readPropertyIfTag(g, tag, e, ctx, Pid.BEND_END_TIME_FACTOR)) {
+            } else if (TRead.readPropertyIfTag(g, tag, e, ctx, Pid.GUITAR_DIVE_TAB_POS)) {
+            } else if (TRead.readPropertyIfTag(g, tag, e, ctx, Pid.GUITAR_BEND_AMOUNT)) {
+            } else if (TRead.readPropertyIfTag(g, tag, e, ctx, Pid.VIBRATO_LINE_TYPE)) {
+            } else if (TRead.readPropertyIfTag(g, tag, e, ctx, Pid.GUITAR_DIVE_IS_SLACK)) {
+            } else if (TRead.readStyledProperty(g, tag, e, ctx)) {
+            } else if (!TRead.readSLineProperties(g, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readGuitarBendHold(h: GuitarBendHold, e: XmlReader, ctx: ReadContext): void {
+        h.eraseSpannerSegments()
+
+        while (e.readNextStartElement()) {
+            if (!TRead.readSLineProperties(h, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readVibrato(v: Vibrato, e: XmlReader, ctx: ReadContext): void {
+        v.eraseSpannerSegments()
+
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'subtype') {
+                v.setVibratoType(TConv.fromXmlVibratoType(e.readAsciiText(), VibratoType.GUITAR_VIBRATO))
+            } else if (!TRead.readSLineProperties(v, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readStringData(item: StringData, e: XmlReader): void {
+        item.stringList().length = 0
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'frets') {
+                item.setFrets(e.readInt())
+            } else if (tag === 'string') {
+                const strg = new InstrString()
+                strg.open = !!e.intAttribute('open', 0)
+                strg.useFlat = !!e.intAttribute('useFlat', 0)
+                strg.pitch = e.readInt()
+                item.stringList().push(strg)
+            } else {
+                e.unknown()
+            }
+        }
+        if (item.isFiveStringBanjo()) {
+            item.configBanjo5thString()
+        }
+    }
+
     static readTrill(t: Trill, e: XmlReader, ctx: ReadContext): void {
         t.eraseSpannerSegments()
 
@@ -1202,10 +1352,26 @@ export class TRead {
                 l.setSpannerSegmentType(e.readInt() as SpannerSegmentType)
             } else if (tag === 'off2') {
                 l.setUserOff2(e.readPoint().times(l.style().spatium()))
+            } else if (l.isGuitarBendSegment() && TRead.readGuitarBendSegmentProperties(l as GuitarBendSegment, tag, e, ctx)) {
             } else if (!TRead.readItemProperties(l, e, ctx)) {
                 e.unknown()
             }
         }
+    }
+
+    static readGuitarBendSegmentProperties(g: GuitarBendSegment, tag: string, xml: XmlReader, ctx: ReadContext): boolean {
+        if (tag === 'bendVertexOffset') {
+            g.setVertexPointOff(xml.readPoint().times(g.style().spatium()))
+        } else if (tag === 'GuitarBendText') {
+            const bendText = new GuitarBendText(g)
+            bendText.setParent(g)
+            TRead.readTextBase(bendText, xml, ctx)
+            g.setBendText(bendText)
+        } else {
+            return false
+        }
+
+        return true
     }
 
     static readText(t: Text, e: XmlReader, ctx: ReadContext): void {
@@ -1354,7 +1520,9 @@ export class TRead {
             } else {
                 item.drumset()!.setPercussionPanelColumns(e.readInt())
             }
-        } else if (tag === 'Tablature' || tag === 'StringData'
+        } else if (tag === 'StringData') {
+            TRead.readStringData(item.stringData(), e)
+        } else if (tag === 'Tablature'
                    || tag === 'MidiAction' || tag === 'Articulation' || tag === 'Channel' || tag === 'channel') {
             // TODO(port): drumsets, string data, MIDI data
             e.skipCurrentElement()
@@ -1592,8 +1760,18 @@ export class TRead {
             s.setUserDist(new Spatium(e.readDouble()))
         } else if (tag === 'mag') {
             e.readDouble() // _userMag = ...
-        } else if (tag === 'eid' || tag === 'linkedTo') {
-            e.skipCurrentElement()
+        } else if (tag === 'eid') {
+            TRead.readItemEID(s, e, ctx)
+        } else if (tag === 'linkedTo') {
+            if (ctx.mscVersion() < 460) {
+                // read410: <linkedTo> is the staff number
+                const st = s.score().masterScore().staff(e.readInt() - 1)
+                if (st && st !== s && !s.isLinked(st)) {
+                    s.linkTo(st)
+                }
+            } else {
+                TRead.readItemLink(s, e, ctx)
+            }
         } else if (tag === 'color') {
             s.staffType(new Fraction(0, 1)).setColor(e.readColor())
         } else if (tag === 'transposeDiatonic') {
@@ -2359,7 +2537,7 @@ export class TRead {
         } else if (tag === 'offset') {
             TRead.readItemProperties(n, e, ctx)
         } else if (tag === 'overrideBendVisibilityRules') {
-            e.readBool()
+            n.setOverrideBendVisibilityRules(e.readBool())
         } else if (TRead.readPropertyIfTag(n, tag, e, ctx, Pid.HIDE_GENERATED_PARENTHESES)) {
         } else if (TRead.readItemProperties(n, e, ctx)) {
         } else {

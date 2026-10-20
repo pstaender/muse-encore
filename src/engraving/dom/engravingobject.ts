@@ -127,9 +127,22 @@ export abstract class EngravingObject {
     // ---------------------------------------------------------------------------------
 
     links(): readonly EngravingObject[] | null { return this.m_links }
+    /** C++ setLinks(LinkedObjects*): the list is shared, not copied */
+    setLinks(le: EngravingObject[] | null): void { this.m_links = le }
 
     /** all linked objects, or only this object if it is not linked */
     linkList(): readonly EngravingObject[] { return this.m_links ?? [this] }
+
+    /** return true if se is different and linked to this element (C++ mainElement() is the first linked object) */
+    isLinked(se: EngravingObject | null = null): boolean {
+        if (se === this || !this.m_links) {
+            return false
+        }
+        if (se === null) {
+            return this.m_links.length > 0 && this.m_links[0] !== this
+        }
+        return this.m_links.includes(se)
+    }
 
     linkTo(other: EngravingObject): void {
         if (other.m_links) {

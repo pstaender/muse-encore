@@ -14,7 +14,7 @@ import { PointF, RectF } from '../../../framework/draw/types/geometry'
 import { RealIsEqual, RealIsNull } from '../../../framework/global/realfn'
 import { Fraction } from '../../types/fraction'
 import { AlignH, AutoOnOff, nidx, BracketType, DPI, ElementType, InstrumentLabelVisibility, TimeSigPlacement,
-    VOICES, staff2track, track2staff, type staff_idx_t } from '../../types/types'
+    VOICES, GuitarBendType, staff2track, track2staff, type staff_idx_t } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { DefaultStyle } from '../../style/defaultstyle'
 import { LayoutMode } from '../../dom/score'
@@ -64,6 +64,9 @@ import type { FretDiagram } from '../../dom/fret'
 import type { Harmony } from '../../dom/harmony'
 import type { Ornament } from '../../dom/ornament'
 import type { Arpeggio } from '../../dom/arpeggio'
+import type { GuitarBend } from '../../dom/guitarbend'
+import type { TextLineBaseSegment } from '../../dom/textlinebase'
+import { GuitarDiveLayout } from './guitardivelayout'
 
 class MeasureState {
     measure: Measure | null = null
@@ -128,6 +131,7 @@ class ElementsToLayout {
     voltas: Spanner[] = []
     tempoChangeLines: Spanner[] = []
     partialLyricsLines: Spanner[] = []
+    guitarBends: GuitarBend[] = []
     allOtherSpanners: Spanner[] = []
 
     constructor(public system: System) {}
@@ -1352,7 +1356,36 @@ export class SystemLayout {
                         elements.chordRests.push(cr)
                         if (cr.isChord()) {
                             elements.chords.push(cr as Chord)
-                            // TODO(port): guitar bends
+
+                            const collectBends = (chord: Chord): void => {
+                                for (const note of chord.notes()) {
+                                    for (const sp of note.spannerBack()) {
+                                        if (sp.isGuitarBend()) {
+                                            elements.guitarBends.push(sp as GuitarBend)
+                                        }
+                                    }
+
+                                    for (const sp of note.spannerFor()) {
+                                        if (sp.isGuitarBend()) {
+                                            const bend = sp as GuitarBend
+                                            const endNote = bend.endNote()
+                                            if (bend.bendType() === GuitarBendType.SLIGHT_BEND
+                                                || (endNote && endNote.tick().ge(system.endTick()))) {
+                                                elements.guitarBends.push(bend)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            const chord = cr as Chord
+                            for (const grace of chord.graceNotesBefore()) {
+                                collectBends(grace)
+                            }
+                            collectBends(chord)
+                            for (const grace of chord.graceNotesAfter()) {
+                                collectBends(grace)
+                            }
                         }
                     }
                     ++track
@@ -1642,7 +1675,14 @@ export class SystemLayout {
                 SystemLayout.layoutTies(grace, system, stick, ctx)
             }
         }
-        // TODO(port): guitar bends
+
+        GuitarDiveLayout.updateDiveSequences(elementsToLayout.guitarBends, ctx)
+
+        for (const bend of elementsToLayout.guitarBends) {
+            /* Bends which cross a system break are collected by both systems they touch, so we
+             * lay out only the segment which belongs to this one: */
+            TLayout.layoutGuitarBend(bend, ctx, system)
+        }
     }
 
     private static layoutNoteAnchoredSpanners(system: System, chord: Chord): void {
@@ -2778,8 +2818,11 @@ export class SystemLayout {
             if (spannerSeg.isHairpinSegment() && SystemLayout.elementShouldBeCenteredBetweenStaves(spannerSeg, system)) {
                 SystemLayout.centerElementBetweenStaves(spannerSeg, system)
                 centeredItems.push(spannerSeg)
+            } else if (spannerSeg.isWhammyBarSegment()
+                     && SystemLayout.whammyBarShouldBeCenteredBetweenStaves(spannerSeg as TextLineBaseSegment, system)) {
+                SystemLayout.centerElementBetweenStaves(spannerSeg, system)
+                centeredItems.push(spannerSeg)
             }
-            // TODO(port): whammy bar segments
         }
 
         for (const mb of system.measures()) {
@@ -2802,6 +2845,20 @@ export class SystemLayout {
         }
 
         AlignmentLayout.alignStaffCenteredItems(centeredItems, system)
+    }
+
+    private static whammyBarShouldBeCenteredBetweenStaves(wbar: TextLineBaseSegment, system: System): boolean {
+        if (wbar.offset().y() !== (wbar.propertyDefault(Pid.OFFSET) as PointF).y()) {
+            // NOTE: because of current limitations of the offset system, we can't center an element that's been manually moved.
+            return false
+        }
+
+        const staffIdx = wbar.staffIdx()
+        const thisStaff = wbar.staff()!
+        const nextStaff = wbar.score().staff(staffIdx + 1)
+        const nextIsLinkedTab = !!nextStaff && nextStaff.isTabStaff(wbar.tick()) && thisStaff.isLinked(nextStaff)
+        const nextSysStaff = system.staff(staffIdx + 1)
+        return wbar.placeBelow() && nextIsLinkedTab && !!nextSysStaff && nextSysStaff.show()
     }
 
     private static elementShouldBeCenteredBetweenStaves(item: EngravingItem, system: System): boolean {

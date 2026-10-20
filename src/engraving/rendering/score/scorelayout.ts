@@ -13,7 +13,7 @@ import { LayoutMode, type Score } from '../../dom/score'
 import type { MeasureBase } from '../../dom/measurebase'
 import type { Measure } from '../../dom/measure'
 import { LayoutContext } from './layoutcontext'
-import { PassLayoutIndependentItems, PassResetLayoutData } from './passes'
+import { PassResetLayoutData } from './passes'
 import { MeasureLayout } from './measurelayout'
 import { SystemLayout } from './systemlayout'
 import { PageLayout } from './pagelayout'
@@ -72,9 +72,7 @@ export class ScorePageViewLayout {
         ScorePageViewLayout.prepareScore(score, ctx)
 
         new PassResetLayoutData().run(score, ctx)
-        if (ctx.state().isLayoutAll()) {
-            new PassLayoutIndependentItems().run(score, ctx)
-        }
+        // PassLayoutIndependentItems only runs with MUE_ENABLE_ENGRAVING_LD_PASSES, which is off in release builds
 
         ScorePageViewLayout.doLayout(ctx)
         ScorePageViewLayout.layoutFinished(score, ctx)

@@ -31,6 +31,7 @@ import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { NoteDot } from '../../dom/notedot'
 import { prevChordRest, type Chord } from '../../dom/chord'
 import type { ChordRest } from '../../dom/chordrest'
+import type { GuitarBend } from '../../dom/guitarbend'
 import type { Measure } from '../../dom/measure'
 import type { Note } from '../../dom/note'
 import type { Rest } from '../../dom/rest'
@@ -711,6 +712,11 @@ export class ChordLayout {
             }
             for (const sp of n.spannerBack()) {
                 TLayout.layoutSpanner(sp, ctx)
+            }
+            for (const sp of n.spannerFor()) {
+                if ((sp.isGlissando() || sp.isGuitarBend()) && ctx.state().page() && sp.tick2().ge(ctx.state().page()!.endTick())) {
+                    TLayout.layoutSpanner(sp, ctx)
+                }
             }
         }
     }
@@ -2719,7 +2725,20 @@ export class ChordLayout {
      * the notes of the chord. Will be needed for spacing calculation, particularly to
      * enforce minTieLength. The true layout of ties and glissandi is done much later. */
     static updateLineAttachPoints(chord: Chord, isFirstInMeasure: boolean, ctx: LayoutContext): void {
-        // TODO(port): glissandi, guitar bends, note lines (chord.endsNoteAnchoredLine())
+        if (chord.endsNoteAnchoredLine()) {
+            for (const note of chord.notes()) {
+                for (const sp of note.spannerBack()) {
+                    if (sp.isGuitarBend()) {
+                        const staffType = chord.staffType()
+                        const isDiveOnTab = (sp as GuitarBend).isDive() && !!staffType && staffType.isTabStaff()
+                        if (!isDiveOnTab) {
+                            TLayout.layoutGuitarBend(sp as GuitarBend, ctx)
+                        }
+                    }
+                    // TODO(port): glissandi, note lines
+                }
+            }
+        }
         if (isFirstInMeasure) {
             for (const note of chord.notes()) {
                 const tieBack = note.tieBack()

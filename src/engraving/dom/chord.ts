@@ -13,7 +13,7 @@ import { Fraction } from '../types/fraction'
 import { Spatium } from '../types/dimension'
 import type { PropertyValue } from '../types/propertyvalue'
 import {
-    AccidentalRole, AutoOnOff, DirectionV, DurationType, ElementType, StaffGroup, TremoloChordType, TremoloType,
+    AccidentalRole, AutoOnOff, DirectionV, DurationType, ElementType, GuitarBendType, StaffGroup, TremoloChordType, TremoloType,
     type staff_idx_t, type track_idx_t,
 } from '../types/types'
 import { Sid } from '../style/styledef'
@@ -214,8 +214,11 @@ export class Chord extends ChordRest {
             m *= this.style().styleD(Sid.smallNoteMag)
         }
         if (this.m_noteType !== NoteType.NORMAL) {
-            // TODO(port): tab grace bend size exception
-            m *= this.style().styleD(Sid.graceNoteMag)
+            const tabGraceSizeException = this.staffType()!.isTabStaff() && this.isPreBendOrGraceBendStart()
+                                          && !this.style().styleB(Sid.useCueSizeFretForGraceBends)
+            if (!tabGraceSizeException) {
+                m *= this.style().styleD(Sid.graceNoteMag)
+            }
         }
         return m
     }
@@ -324,8 +327,64 @@ export class Chord extends ChordRest {
         return result
     }
 
-    upLine(): number { return this.upNote().line() }
-    downLine(): number { return this.downNote().line() }
+    upLine(): number { return this.onTabStaff() ? this.upString() * 2 : this.upNote().line() }
+    downLine(): number { return this.onTabStaff() ? this.downString() * 2 : this.downNote().line() }
+
+    // ---------------------------------------------------------
+    //   upString / downString
+    //
+    //    return the topmost / bottommost string used by chord
+    //    Top and bottom refer to the DRAWN position, not the position in the instrument
+    //    (i.e., upside-down TAB are taken into account)
+    //
+    //    If no staff, always return 0
+    //    If staff is not a TAB, always returns TOP and BOTTOM staff lines
+    // ---------------------------------------------------------
+
+    upString(): number {
+        // if no staff or staff not a TAB, return 0 (=topmost line)
+        const st = this.staff()
+        if (!st) {
+            return 0
+        }
+
+        const tab = st.staffTypeForElement(this)
+        if (!tab.isTabStaff()) {
+            return 0
+        }
+
+        let line = tab.lines() - 1 // start at bottom line
+        // scan each note: if TAB strings are not in sequential order,
+        // visual order of notes might not correspond to pitch order
+        for (const note of this.m_notes) {
+            const noteLine = tab.physStringToVisual(note.string())
+            if (noteLine < line) {
+                line = noteLine
+            }
+        }
+        return line
+    }
+
+    downString(): number {
+        const st = this.staff()
+        if (!st) { // if no staff, return 0
+            return 0
+        }
+
+        const tab = st.staffTypeForElement(this)
+        if (!tab.isTabStaff()) { // if staff not a TAB, return bottom line
+            return st.lines(this.tick()) - 1
+        }
+
+        let line = 0 // start at top line
+        for (const note of this.m_notes) {
+            const noteLine = tab.physStringToVisual(note.string())
+            if (noteLine > line) {
+                line = noteLine
+            }
+        }
+        return line
+    }
 
     line(up?: boolean): number {
         if (up === undefined) {
@@ -748,7 +807,12 @@ export class Chord extends ChordRest {
         const st = this.staff()!
         let staffGroup = st.staffTypeForElement(this).group()
         if (staffGroup === StaffGroup.TAB) {
-            // TODO(port): StringData::fretChords
+            const tick = this.tick()
+            const stringData = this.part()!.stringData(tick, st.idx())
+            for (const ch of this.graceNotes()) {
+                stringData.fretChords(ch)
+            }
+            stringData.fretChords(this)
             return
         } else {
             staffGroup = st.part().instrument(this.tick()).useDrumset() ? StaffGroup.PERCUSSION : StaffGroup.STANDARD
@@ -827,8 +891,36 @@ export class Chord extends ChordRest {
         return (this.m_noteType & (NoteType.GRACE8_AFTER | NoteType.GRACE16_AFTER | NoteType.GRACE32_AFTER)) !== 0
     }
 
-    isPreBendOrGraceBendStart(): boolean { return false }
-    isGraceBendEnd(): boolean { return false }
+    isPreBendOrGraceBendStart(): boolean {
+        if (!this.isGrace()) {
+            return false
+        }
+
+        for (const note of this.m_notes) {
+            const gb = note.bendFor()
+            if (gb && (gb.bendType() === GuitarBendType.PRE_BEND || gb.bendType() === GuitarBendType.GRACE_NOTE_BEND
+                       || gb.bendType() === GuitarBendType.PRE_DIVE)) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    isGraceBendEnd(): boolean {
+        if (this.isGrace() || this.m_graceNotes.length === 0) {
+            return false
+        }
+
+        for (const note of this.m_notes) {
+            const bendBack = note.bendBack()
+            if (bendBack && bendBack.bendType() === GuitarBendType.GRACE_NOTE_BEND) {
+                return true
+            }
+        }
+
+        return false
+    }
     isTrillCueNote(): boolean { return this.m_isTrillCueNote }
     setIsTrillCueNote(v: boolean): void { this.m_isTrillCueNote = v }
 

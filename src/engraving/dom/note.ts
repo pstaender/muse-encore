@@ -13,7 +13,7 @@ import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import { SmuflAnchorId, SymId } from '../types/symid'
 import {
-    AccidentalRole, AccidentalVal, DirectionH, DirectionV, ElementType, Key, NoteHeadGroup, NoteHeadScheme, NoteHeadType,
+    AccidentalRole, AccidentalVal, DirectionH, DirectionV, ElementType, GuitarBendType, Key, NoteHeadGroup, NoteHeadScheme, NoteHeadType,
     INVALID_FRET_INDEX, INVALID_STRING_INDEX, ParenthesesMode, VeloType, type track_idx_t,
 } from '../types/types'
 import { RealIsEqual, RealIsNull } from '../../framework/global/realfn'
@@ -35,6 +35,7 @@ import type { Accidental, AccidentalType } from './accidental'
 import type { AccidentalState } from './key'
 import type { Spanner } from './spanner'
 import type { Tie } from './tie'
+import type { GuitarBend } from './guitarbend'
 import { FontMetrics } from '../../framework/draw/fontmetrics'
 import { ParenthesizeTiedFret, ShowTiedFret, type StaffType } from './stafftype'
 
@@ -97,6 +98,7 @@ export class NoteLayoutData extends LayoutData {
 
 export class Note extends EngravingItem {
     private m_ghost = false
+    private m_overrideBendVisibilityRules = false
     private m_deadNote = false
     private m_isTrillCueNote = false
     private m_hidden = false // marks this note as the hidden one if there are overlapping notes
@@ -496,7 +498,21 @@ export class Note extends EngravingItem {
         return this.staff()!.pitchOffset(this.chord().segment().tick())
     }
 
-    linkedOttavaPitchOffset(): number { return 0 } // links are not ported
+    /** if an ottava exists in another part but has been excluded from this one, this returns the corresponding pitch offset */
+    linkedOttavaPitchOffset(): number {
+        let linkedOttavaPitchOffset = 0
+        const links = this.links()
+        if (links && this.staff()!.pitchOffset(this.tick()) === 0) {
+            for (const link of links) {
+                const offset = (link as Note).staff()!.pitchOffset(this.tick())
+                if (offset !== 0) {
+                    linkedOttavaPitchOffset = offset
+                    break
+                }
+            }
+        }
+        return linkedOttavaPitchOffset
+    }
 
     /** playback pitch */
     ppitch(): number {
@@ -626,15 +642,160 @@ export class Note extends EngravingItem {
     setFretString(s: string): void { this.m_fretString = s }
     string(): number { return this.m_string }
     setString(val: number): void { this.m_string = val }
-    /** TODO(port): guitar bends */
-    isContinuationOfBend(): boolean { return false }
+    isContinuationOfBend(): boolean {
+        if (this.bendBack()) {
+            return true
+        }
+
+        let tie = this.tieBack()
+        let note: Note | null = null
+        while (tie && tie.startNote()) {
+            note = tie.startNote()!
+            if (note.bendBack()) {
+                return true
+            }
+
+            if (tie === note.tieBack()) {
+                return false
+            }
+
+            tie = note.tieBack()
+        }
+
+        return false
+    }
+
+    isPreBendOrDiveStart(): boolean {
+        if (!this.isGrace()) {
+            return false
+        }
+
+        const bend = this.bendFor()
+        if (!bend) {
+            return false
+        }
+
+        const bendType = bend.bendType()
+        return bendType === GuitarBendType.PRE_BEND || bendType === GuitarBendType.PRE_DIVE
+    }
+
+    isGraceBendStart(): boolean {
+        if (!this.isGrace()) {
+            return false
+        }
+
+        const bend = this.bendFor()
+
+        return !!bend && bend.bendType() === GuitarBendType.GRACE_NOTE_BEND
+    }
+
+    /** Returns bend or dive going forward from this note. In the edge case of having both, returns the bend. */
+    bendFor(): GuitarBend | null {
+        let diveFor: GuitarBend | null = null
+
+        for (const sp of this.m_spannerFor) {
+            if (!sp.isGuitarBend()) {
+                continue
+            }
+
+            const bend = sp as GuitarBend
+            if (bend.bendType() === GuitarBendType.SCOOP) {
+                continue
+            }
+
+            if (!bend.isDive()) {
+                return bend
+            } else {
+                diveFor = bend
+            }
+        }
+
+        return diveFor
+    }
+
+    /** Returns bend or dive going back from this note. In the edge case of having both, returns the bend. */
+    bendBack(): GuitarBend | null {
+        let diveBack: GuitarBend | null = null
+
+        for (const sp of this.m_spannerBack) {
+            if (!sp.isGuitarBend()) {
+                continue
+            }
+
+            const bend = sp as GuitarBend
+            if (bend.bendType() === GuitarBendType.SLIGHT_BEND || bend.bendType() === GuitarBendType.DIP) {
+                continue
+            }
+
+            if (!bend.isDive()) {
+                return bend
+            } else {
+                diveBack = bend
+            }
+        }
+
+        return diveBack
+    }
+
+    diveFor(): GuitarBend | null {
+        for (const sp of this.m_spannerFor) {
+            if (sp.isGuitarBend() && (sp as GuitarBend).isDive() && (sp as GuitarBend).bendType() !== GuitarBendType.SCOOP) {
+                return sp as GuitarBend
+            }
+        }
+
+        return null
+    }
+
+    diveBack(): GuitarBend | null {
+        for (const sp of this.m_spannerBack) {
+            if (sp.isGuitarBend() && (sp as GuitarBend).isDive() && (sp as GuitarBend).bendType() !== GuitarBendType.DIP) {
+                return sp as GuitarBend
+            }
+        }
+
+        return null
+    }
+
+    override setVisible(v: boolean): void {
+        super.setVisible(v)
+        if (!this.explicitParent() || this.chord().noteParentheses().length === 0) {
+            return
+        }
+
+        const noteParenInfo = this.chord().findNoteParenthesisInfo(this)
+
+        if (!noteParenInfo) {
+            return
+        }
+
+        let visible = false
+        for (const note of noteParenInfo.notes()) {
+            if (note.visible()) {
+                visible = true
+                break
+            }
+        }
+
+        if (noteParenInfo.leftParen()) {
+            noteParenInfo.leftParen().setVisible(visible)
+        }
+        if (noteParenInfo.rightParen()) {
+            noteParenInfo.rightParen().setVisible(visible)
+        }
+    }
+
+    overrideBendVisibilityRules(): boolean { return this.m_overrideBendVisibilityRules }
+    setOverrideBendVisibilityRules(v: boolean): void { this.m_overrideBendVisibilityRules = v }
 
     shouldHideFret(): boolean {
         if (!this.tieBack() || this.shouldForceShowFret() || !this.staffType()!.isTabStaff()) {
             return false
         }
 
-        // TODO(port): isContinuationOfBend() (guitar bends)
+        if (this.isContinuationOfBend() && !this.rtick().isZero()) {
+            return true
+        }
 
         const showTiedFret = this.style().styleI(Sid.tabShowTiedFret) as ShowTiedFret
         if (showTiedFret === ShowTiedFret.TIE_AND_FRET) {
@@ -684,15 +845,37 @@ export class Note extends EngravingItem {
             return false
         }
 
-        // TODO(port): guitar bends (bendFor, dips)
-        const startsNonBendSpanner = this.spannerFor().length > 0
+        const bendF = this.bendFor()
+        const startUnconnectedBend = !!bendF && !bendF.findPrecedingBend()
+        const startsNonBendSpanner = this.spannerFor().length > 0 && !bendF
 
-        return ch.articulations().length > 0 || !!ch.chordLine() || startsNonBendSpanner || hasTremoloBar() || hasVibratoLine()
+        let chordHasDip = false
+        for (const note of ch.notes()) {
+            for (const sp of note.spannerFor()) {
+                if (sp.isGuitarBend() && (sp as GuitarBend).bendType() === GuitarBendType.DIP) {
+                    chordHasDip = true
+                    break
+                }
+            }
+            if (chordHasDip) {
+                break
+            }
+        }
+
+        return ch.articulations().length > 0 || !!ch.chordLine() || startsNonBendSpanner || startUnconnectedBend || hasTremoloBar()
+               || hasVibratoLine() || chordHasDip
     }
 
     updateFrettingForTiesAndBends(): void {
-        // TODO(port): bendBack() (guitar bends)
-        const prevNote = this.m_tieBack ? this.m_tieBack.startNote() : null
+        let prevNote: Note | null = null
+        if (this.m_tieBack) {
+            prevNote = this.m_tieBack.startNote()
+        } else {
+            const bend = this.bendBack()
+            if (bend) {
+                prevNote = bend.startNote()
+            }
+        }
 
         if (!prevNote) {
             return
@@ -839,7 +1022,12 @@ export class Note extends EngravingItem {
     private addSpanner(l: Spanner): void {
         const e = l.endElement()
         if (e && e.isNote()) {
-            (e as Note).addSpannerBack(l)
+            const note = e as Note
+            note.addSpannerBack(l)
+            // TODO(port): NoteLine::enforceMinLength()
+            if (l.isGlissando() || l.isGuitarBend()) {
+                note.chord().setEndsNoteAnchoredLine(true)
+            }
         }
         this.addSpannerFor(l)
     }
@@ -1498,6 +1686,14 @@ export class Note extends EngravingItem {
         case Pid.PITCH:
         case Pid.TPC1:
             return undefined
+        case Pid.VISIBLE:
+            if (this.staffType() && this.staffType()!.isTabStaff()) {
+                const bend = this.bendBack()
+                if (bend && !bend.isFullRelease()) {
+                    return false
+                }
+            }
+            return super.propertyDefault(propertyId)
         case Pid.HIDE_GENERATED_PARENTHESES: return false
         default:
             return super.propertyDefault(propertyId)

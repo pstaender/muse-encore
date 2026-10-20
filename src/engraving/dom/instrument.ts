@@ -11,6 +11,7 @@ import { SortedMap } from '../../framework/global/sortedmap'
 import { ClefType } from '../types/types'
 import { ClefTypeList } from './clefinfo'
 import { Interval } from './interval'
+import { StringData } from './stringdata'
 import { type Drumset, smDrumset } from './drumset'
 import { INSTRUMENT_FAMILIES } from './instrumentfamilies'
 
@@ -44,11 +45,14 @@ export class Instrument {
     private m_musicXmlId = ''
     private m_soundId = ''
     private m_drumset: Drumset | null = null
-    // TODO(port): StringData, channels, articulations
+    // TODO(port): channels, articulations
+    private m_stringData = new StringData()
 
     constructor(private m_id = '') {}
 
     id(): string { return this.m_id }
+    stringData(): StringData { return this.m_stringData }
+    hasStrings(): boolean { return this.m_stringData.strings() > 0 }
     setId(id: string): void { this.m_id = id }
     instrumentId(): string { return this.m_instrumentId }
     setInstrumentId(id: string): void { this.m_instrumentId = id }

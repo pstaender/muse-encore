@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/slurtielayout.h/.cpp
  *
- * TODO(port): tapping half slurs, guitar bends on tab
+ * TODO(port): tapping half slurs
  */
 
 import { PointF, RectF } from '../../../framework/draw/types/geometry'
@@ -15,7 +15,7 @@ import { RealIsEqualOrMore, RealIsNull, clamp, stdRound } from '../../../framewo
 import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { DirectionV, ElementType, NoteHeadGroup, SlurStyleType, SpannerSegmentType, TieDotsPlacement, TiePlacement, TimeSigPlacement, VOICES, isUpVoice,
-    staff2track, BarLineType, type staff_idx_t } from '../../types/types'
+    staff2track, BarLineType, GuitarBendType, type staff_idx_t } from '../../types/types'
 import { Shape, ShapeType, type ShapeElement } from '../../infrastructure/shape'
 import { Sid } from '../../style/styledef'
 import { Grip } from '../../editing/editdata'
@@ -26,6 +26,7 @@ import type { Accidental } from '../../dom/accidental'
 import type { Articulation } from '../../dom/articulation'
 import type { Chord } from '../../dom/chord'
 import type { ChordRest } from '../../dom/chordrest'
+import type { GuitarBend } from '../../dom/guitarbend'
 import type { EngravingItem } from '../../dom/engravingitem'
 import type { Measure } from '../../dom/measure'
 import type { Note } from '../../dom/note'
@@ -792,7 +793,51 @@ export class SlurTieLayout {
             }
         }
 
-        // TODO(port): avoidPreBendsOnTab, tapping half slurs
+        if (item.staffType()!.isTabStaff()) {
+            SlurTieLayout.avoidPreBendsOnTab(sc, ec, sp)
+        }
+
+        // TODO(port): tapping half slurs
+    }
+
+    private static avoidPreBendsOnTab(sc: Chord | null, ec: Chord | null, sp: SlurTiePos): void {
+        let bendOnStart: GuitarBend | null = null
+        let bendOnEnd: GuitarBend | null = null
+        if (sc) {
+            for (const note of sc.notes()) {
+                const bf = note.bendFor()
+                const bb = note.bendBack()
+                if (bf && !bf.segmentsEmpty() && bf.bendType() === GuitarBendType.PRE_BEND && !bf.angledPreBend()) {
+                    bendOnStart = bf
+                } else if (bb && !bb.segmentsEmpty() && bb.bendType() === GuitarBendType.PRE_BEND && !bb.angledPreBend()) {
+                    bendOnStart = bb
+                }
+                if (bendOnStart) {
+                    break
+                }
+            }
+        }
+        if (ec) {
+            for (const note of ec.notes()) {
+                const bf = note.bendFor()
+                const bb = note.bendBack()
+                if (bf && !bf.segmentsEmpty() && bf.bendType() === GuitarBendType.PRE_BEND && !bf.angledPreBend()) {
+                    bendOnEnd = bf
+                } else if (bb && !bb.segmentsEmpty() && bb.bendType() === GuitarBendType.PRE_BEND && !bb.angledPreBend()) {
+                    bendOnEnd = bb
+                }
+                if (bendOnEnd) {
+                    break
+                }
+            }
+        }
+
+        if (bendOnStart) {
+            sp.p1.setX(Math.max(sp.p1.x(), bendOnStart.frontSegment().pos().x() + 0.33 * sc!.spatium()))
+        }
+        if (bendOnEnd) {
+            sp.p2.setX(Math.min(sp.p2.x(), bendOnEnd.frontSegment().pos().x() - 0.33 * ec!.spatium()))
+        }
     }
 
     /** returns the adjusted point (C++ passes pt by reference) */
@@ -1360,7 +1405,10 @@ export class SlurTieLayout {
         if (!st || !st.isTabStaff()) {
             return false
         }
-        // TODO(port): continuation of bends
+        if (startNote && startNote.isContinuationOfBend()) {
+            return true
+        }
+
         const showTiedFret = item.style().styleI(Sid.tabShowTiedFret) as ShowTiedFret
         return showTiedFret === ShowTiedFret.NONE
     }

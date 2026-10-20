@@ -8,12 +8,13 @@
 
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
-import { AutoOnOff, ElementType, PreferSharpFlat, VOICES, nidx, type track_idx_t } from '../types/types'
+import { AutoOnOff, ElementType, PreferSharpFlat, VOICES, nidx, type staff_idx_t, type track_idx_t } from '../types/types'
 import { EngravingObject } from './engravingobject'
 import { Instrument, InstrumentList, type StaffNameList } from './instrument'
 import { Pid } from './property'
 import type { Score } from './score'
 import type { Staff } from './staff'
+import type { StringData } from './stringdata'
 
 export class Part extends EngravingObject {
     static readonly MAIN_INSTRUMENT_TICK = new Fraction(-1, 1)
@@ -56,6 +57,11 @@ export class Part extends EngravingObject {
             return nidx
         }
         return this.m_staves[this.m_staves.length - 1].idx() * VOICES + VOICES
+    }
+
+    /** TODO(port): StringTunings */
+    stringData(tick: Fraction, _staffIdx: staff_idx_t): StringData {
+        return this.instrument(tick).stringData()
     }
 
     instrument(tick: Fraction = new Fraction(-1, 1)): Instrument {

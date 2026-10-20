@@ -17,7 +17,7 @@ import { FillRule } from '../../../framework/draw/types/painterpath'
 import type { Painter } from '../../../framework/draw/painter'
 import { RealIsNull } from '../../../framework/global/realfn'
 import { SymId } from '../../types/symid'
-import { ArpeggioType, ArticulationTextType, BarLineType, BracketType, ElementType, HookType, LineType, Orientation, SlurStyleType, VOICES } from '../../types/types'
+import { ArpeggioType, ArticulationTextType, BarLineType, BracketType, ElementType, GuitarBendType, HookType, LineType, Orientation, SlurStyleType, VOICES } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { DefaultStyle } from '../../style/defaultstyle'
 import { CrossMeasure } from '../../dom/chordrest'
@@ -67,6 +67,8 @@ import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
 import type { LaissezVibSegment } from '../../dom/laissezvib'
 import type { MeasureRepeat } from '../../dom/measurerepeat'
+import type { GuitarBendHoldSegment, GuitarBendSegment } from '../../dom/guitarbend'
+import type { VibratoSegment } from '../../dom/vibrato'
 
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
@@ -131,6 +133,12 @@ export class TDraw {
             ts.drawSymbols(ts.symbols(), painter)
             break
         }
+        case ElementType.VIBRATO_SEGMENT: {
+            const vs = item as VibratoSegment
+            painter.setPen(vs.spanner().curColor(opt))
+            vs.drawSymbols(vs.symbols(), painter)
+            break
+        }
         case ElementType.HAIRPIN_SEGMENT: TDraw.drawHairpinSegment(item as HairpinSegment, painter, opt)
             break
         case ElementType.TEXTLINE_SEGMENT:
@@ -139,6 +147,7 @@ export class TDraw {
         case ElementType.PEDAL_SEGMENT:
         case ElementType.LET_RING_SEGMENT:
         case ElementType.PALM_MUTE_SEGMENT:
+        case ElementType.WHAMMY_BAR_SEGMENT:
             TDraw.drawTextLineBaseSegment(item as TextLineBaseSegment, painter, opt)
             break
         case ElementType.LYRICSLINE_SEGMENT: TDraw.drawLyricsLineSegment(item as LyricsLineSegment, painter, opt)
@@ -154,6 +163,10 @@ export class TDraw {
         case ElementType.SYMBOL: TDraw.drawSymbol(item as SymbolItem, painter, opt)
             break
         case ElementType.LAISSEZ_VIB_SEGMENT: TDraw.drawLaissezVibSegment(item as LaissezVibSegment, painter, opt)
+            break
+        case ElementType.GUITAR_BEND_SEGMENT: TDraw.drawGuitarBendSegment(item as GuitarBendSegment, painter, opt)
+            break
+        case ElementType.GUITAR_BEND_HOLD_SEGMENT: TDraw.drawGuitarBendHoldSegment(item as GuitarBendHoldSegment, painter, opt)
             break
         case ElementType.TIE_SEGMENT:
         case ElementType.PARTIAL_TIE_SEGMENT: TDraw.drawTieSegment(item as TieSegment, painter, opt)
@@ -182,6 +195,7 @@ export class TDraw {
         case ElementType.REHEARSAL_MARK:
         case ElementType.MARKER:
         case ElementType.JUMP:
+        case ElementType.GUITAR_BEND_TEXT:
             TDraw.drawTextBase(item as TextBase, painter, opt)
             break
         default:
@@ -1302,6 +1316,74 @@ export class TDraw {
         } else {
             TDraw.drawTieSegment(item, painter, opt)
         }
+    }
+
+    static drawGuitarBendSegment(item: GuitarBendSegment, painter: Painter, opt: PaintOptions): void {
+        const tabStaff = item.staff()!.isTabStaff(item.tick())
+        const bend = item.guitarBend()
+
+        const pen = new Pen(item.curColor(opt))
+        if (bend.bendType() === GuitarBendType.SCOOP) {
+            painter.setPen(pen)
+            item.drawSymbol(SymId.guitarVibratoBarScoop, painter)
+            return
+        }
+
+        pen.setWidthF(item.bendLineWidth())
+        pen.setCapStyle(PenCapStyle.FlatCap)
+        pen.setJoinStyle(bend.bendType() === GuitarBendType.DIP ? PenJoinStyle.BevelJoin : PenJoinStyle.MiterJoin)
+        pen.setColor(item.curColor(opt))
+        if (tabStaff && bend.bendType() === GuitarBendType.PRE_DIVE) {
+            const path = item.ldata().path
+            if (path.elementCount() > 1) {
+                const lineLength = Math.abs(item.ldata().path.elementAt(1).y)
+                pen.setDashPattern(TDraw.distributedDashPattern(3, 3, lineLength / pen.widthF()))
+            } else {
+                pen.setDashPattern([3, 3])
+            }
+        }
+        painter.setPen(pen)
+
+        painter.setBrush(BrushStyle.NoBrush)
+
+        painter.drawPath(item.ldata().path)
+
+        if (tabStaff) {
+            painter.setBrush(new Brush(item.curColor(opt)))
+            painter.setNoPen()
+            painter.drawPolygon(item.ldata().arrow)
+        }
+    }
+
+    static drawGuitarBendHoldSegment(item: GuitarBendHoldSegment, painter: Painter, opt: PaintOptions): void {
+        const pen = new Pen(item.curColorWith(item.visible(), item.color(), opt))
+        if (item.ldata().symIds.length) {
+            painter.setPen(pen)
+            item.drawSymbols(item.ldata().symIds, painter)
+            return
+        }
+
+        pen.setWidthF(item.bendLineWidth())
+        pen.setCapStyle(PenCapStyle.FlatCap)
+
+        switch (item.getProperty(Pid.LINE_STYLE) as LineType) {
+        case LineType.DASHED: {
+            const dash = item.dashLength()
+            pen.setDashPattern(TDraw.distributedDashPattern(dash, dash, item.pos2().x() / pen.widthF()))
+            break
+        }
+        case LineType.DOTTED:
+            pen.setCapStyle(PenCapStyle.RoundCap) // True dots
+            pen.setDashPattern([0.01, 1.99])
+            break
+        default:
+            break
+        }
+
+        pen.setJoinStyle(PenJoinStyle.MiterJoin)
+        painter.setPen(pen)
+
+        painter.drawLine(new PointF(), item.pos2())
     }
 
     static drawTieSegment(item: TieSegment, painter: Painter, opt: PaintOptions): void {
