@@ -19,11 +19,13 @@ export interface SessionState {
     /** the open score; id is null if it could not be stored */
     current: { id: string | null; name: string } | null
     newScoreDialog: boolean
+    /** another dialog of the app */
+    dialog: 'preferences' | 'about' | 'clearRecent' | 'revertFactory' | null
     /** the last error, shown on the home screen */
     error: string | null
 }
 
-let state: SessionState = { view: 'home', current: null, newScoreDialog: false, error: null }
+let state: SessionState = { view: 'home', current: null, newScoreDialog: false, dialog: null, error: null }
 const listeners = new Set<() => void>()
 
 function setState(patch: Partial<SessionState>): void {
@@ -32,6 +34,11 @@ function setState(patch: Partial<SessionState>): void {
     for (const l of listeners) {
         l()
     }
+}
+
+export function onSessionChanged(listener: () => void): () => void {
+    listeners.add(listener)
+    return () => listeners.delete(listener)
 }
 
 export function useSession(): SessionState {
@@ -60,6 +67,14 @@ export function dismissError(): void {
 
 export function showNewScoreDialog(open: boolean): void {
     setState({ newScoreDialog: open })
+}
+
+export function showDialog(dialog: SessionState['dialog']): void {
+    setState({ dialog })
+}
+
+export function session(): SessionState {
+    return state
 }
 
 // ---------------------------------------------------------------------------------
@@ -243,9 +258,6 @@ export function chooseFile(): void {
 }
 
 handlers.openFile = (f) => void openFile(f)
-handlers.chooseFile = chooseFile
-handlers.newScore = () => showNewScoreDialog(true)
-handlers.closeScore = closeScore
 
 // ---------------------------------------------------------------------------------
 //   startup: ?url=<score url>, otherwise the score that was open

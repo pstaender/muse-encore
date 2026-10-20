@@ -20,12 +20,27 @@ export interface AppSettings {
         /** the page the New Score dialog starts with (IProjectConfiguration::preferredScoreCreationMode) */
         mode: 'instruments' | 'template'
     }
+    ui: {
+        /** 'system' or a language code of MuseScore's translations (e.g. "de", "pt_BR") */
+        language: string
+    }
+    /** the toolbars: their docks and order (toolbars.ts checks the ids), hidden ones, the status bar */
+    layout: {
+        docks: Record<string, string[]>
+        hidden: string[]
+        statusBar: boolean
+    }
+    /** the items of the note input toolbar (MuseScore's ToolConfig "noteInput"); null = the default */
+    noteInputBar: { action: string; show: boolean }[] | null
 }
 
 const DEFAULTS: AppSettings = {
     view: { zoom: 'whole-page', orientation: 'horizontal', spread: false },
     home: { layout: 'grid' },
     newScore: { mode: 'instruments' },
+    ui: { language: 'system' },
+    layout: { docks: {}, hidden: [], statusBar: true },
+    noteInputBar: null,
 }
 
 const SETTINGS_KEY = 'musescoreweb:settings'
@@ -34,6 +49,8 @@ const LEGACY_VIEW_KEY = 'musescoreweb:view'
 function oneOf<T extends string>(v: unknown, values: readonly T[], def: T): T {
     return values.includes(v as T) ? v as T : def
 }
+
+const isStringArray = (v: unknown): v is string[] => Array.isArray(v) && v.every(x => typeof x === 'string')
 
 function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]> }>): AppSettings {
     const view = s.view ?? {}
@@ -45,6 +62,17 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
         },
         home: { layout: oneOf(s.home?.layout, ['grid', 'list'], DEFAULTS.home.layout) },
         newScore: { mode: oneOf(s.newScore?.mode, ['instruments', 'template'], DEFAULTS.newScore.mode) },
+        ui: { language: typeof s.ui?.language === 'string' ? s.ui.language : DEFAULTS.ui.language },
+        layout: {
+            docks: s.layout?.docks && typeof s.layout.docks === 'object'
+                ? Object.fromEntries(Object.entries(s.layout.docks).filter(([, v]) => isStringArray(v)))
+                : {},
+            hidden: isStringArray(s.layout?.hidden) ? s.layout.hidden : [],
+            statusBar: typeof s.layout?.statusBar === 'boolean' ? s.layout.statusBar : true,
+        },
+        noteInputBar: Array.isArray(s.noteInputBar)
+            && s.noteInputBar.every(i => typeof i?.action === 'string' && typeof i?.show === 'boolean')
+            ? s.noteInputBar as AppSettings['noteInputBar'] : null,
     }
 }
 
@@ -69,11 +97,24 @@ export function settings(): AppSettings {
     return current
 }
 
-export function updateSettings<K extends keyof AppSettings>(key: K, patch: Partial<AppSettings[K]>): void {
-    current = { ...current, [key]: { ...current[key], ...patch } }
+export function updateSettings<K extends keyof AppSettings>(key: K, patch: Partial<AppSettings[K]> | null): void {
+    current = { ...current, [key]: patch === null || Array.isArray(patch) ? patch : { ...current[key], ...patch } }
     try {
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(current))
         localStorage.removeItem(LEGACY_VIEW_KEY)
+    } catch {
+        // not persisted
+    }
+    for (const l of listeners) {
+        l()
+    }
+}
+
+/** "Revert to factory settings" */
+export function resetSettings(): void {
+    current = sanitize({})
+    try {
+        localStorage.setItem(SETTINGS_KEY, JSON.stringify(current))
     } catch {
         // not persisted
     }

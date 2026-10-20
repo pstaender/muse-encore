@@ -40,9 +40,12 @@ fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore,
 tools/gen/              generators for tables derived from the C++ sources (re-run on MuseScore updates)
 tools/                  node scripts: render to PNG, compare with MuseScore output
 webviewer/              Vite web viewer app (MuseScore icon font in webviewer/assets)
-musescoreweb/           Vite score editor app "MuseScore Web": React home screen and dialogs (App.tsx, home/, newscore/
-                        mirror MuseScore's QML pages), score view (scoreview.ts, DOM code from the viewer),
-                        session.ts (open/create scores), db.ts (scores in IndexedDB via Dexie), settings.ts (localStorage)
+musescoreweb/           Vite score editor app "MuseScore Web": React UI (App.tsx, home/, newscore/, dialogs/ mirror MuseScore's
+                        QML pages), menu bar (menus/appmenu.ts = AppMenuModel), toolbars (toolbars/: docks, note input bar),
+                        actions (actions/: MuseScore's UiActions + shortcuts, generated uiactiondata.ts; appactions.ts =
+                        the handlers), i18n.ts (MuseScore's translations via vite-plugin-locales.ts), score view
+                        (scoreview.ts, DOM code from the viewer), session.ts (open/create scores), db.ts (IndexedDB via
+                        Dexie), settings.ts (localStorage)
 test/                   vitest tests
 ```
 
@@ -61,6 +64,9 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - Every file starts with the GPL SPDX header.
 - The web UI is built with React (the viewer still uses plain DOM code; new UI, e.g. the editor, uses React).
   The engraving library itself stays framework independent.
+- UI texts are MuseScore's English source strings with MuseScore's translation context (`qtrc("project", "New score")`,
+  see share/locale/*.ts), so MuseScore's translations apply; commands are MuseScore's actions (codes, titles, icons,
+  shortcuts from the generated table) registered with `registerAction`. Strings MuseScore does not have stay English.
 - TypeScript 7 (native compiler); `npm run typecheck` / `npm run build` use it.
 - C++ destructors with side effects must be emulated explicitly (e.g. ~LayoutContext -> end of ScoreLayout.layoutRange).
 - DOM -> rendering calls (C++ `renderer()->...`) go through hooks set in `rendering/score/scorerenderer.ts`.
@@ -83,7 +89,7 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - `npm run compare:all` - compare all vtest scores and `mscz-test-files/` with MuseScore against
   `test/compare-baseline.csv` (regressions fail); `-- --update-baseline` after intended changes
 - `npx tsx tools/gen/<gen-*.ts> MuseScore` - regenerate tables from the reference sources (symids, styledef,
-  property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates, scoreorders)
+  property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates, scoreorders, uiactions [-> musescoreweb/actions])
 
 ## Progress tracking
 

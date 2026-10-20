@@ -397,3 +397,71 @@
   preferred creation mode of the New Score dialog.
 - e2e: test/e2e/musescoreweb.e2e.ts; webapps.e2e.ts runs the score view tests for both apps.
 - Missing: saving/downloading scores (needs the writer), editing, multiple open scores.
+
+## 2026-10-20 — Selection (first step of editing)
+
+- `Selection` (dom/select.ts: SelState, SelectType, range/list, updateSelectedElements incl. anchored elements, tuplets,
+  spanners, extendRangeSelection, activeCR/currentCR, setRangeTicks) and a default `SelectionFilter` (everything
+  selectable; TODO: filter types). Score: selection(), select(item|items, SelectType, staffIdx) with
+  selectSingle/selectAdd/selectRange (trySelectSimilarInRange, tryExtendSingleSelectionToRange, selectSimilarInRange,
+  scanElementsInRange), deselect/deselectAll, cmdSelectAll, pos2measure/searchPage/searchSystem/searchMeasure,
+  getTextStyleUserName; System::searchStaff, Measure::searchSegment. No InputState yet (TODO(port) where C++ uses m_is).
+- dom/navigate.ts (module augmentation): upAlt/downAlt(+Ctrl), first/lastElement, upStaff/downStaff,
+  nextTrack/prevTrack, nextMeasure/prevMeasure, first/lastSegmentMM. editing/cmd.ts: Score::move (next/prev chord,
+  measure, track) and Score::selectMove. Missing: Score::nextElement/prevElement (Alt+Left/Right with a selection),
+  next/prev system/frame/section, note entry mode.
+- Hit testing: EngravingItem hitShape/hitBBox/canvasHitShape/hitShapeContains/Intersects (StaffLines' larger hit
+  box), Page::items(rect)/itemsAt(point) as the linear equivalent of the BSP tree (same filter; Paint uses it too).
+  notation/internal/notationinteraction.ts: hitElements/hitElement/hitMeasure/elementIsLess/elementAt, select
+  (ctrl toggle, key/time signatures of all staves), selectAll, clearSelection, moveSelection, addToSelection,
+  expandSelection, moveChordNoteSelection, selectTopOrBottomOfChord, the range part of moveElementSelection (restore
+  the previous selection), NotationSelectionRange (boundingArea via notation/utilities/scorerangeutilities.ts,
+  containsItem/containsPoint) and drawSelectionRange.
+  notationscene/notationviewinputcontroller.ts: a left click (press + release logic of mousePress_considerSelect,
+  cycleOverlappingHitElements, select on release inside a range, deselect on empty space) and the selection
+  shortcuts of shortcuts.xml.
+- Drawing: EngravingItem::curColor with the selected state and engraving/internal/engravingconfiguration.ts (voice
+  colors #0065BF/#007F00/#C53F00/#C31989, all voices #6038FC, tint 0.6 for invisible items, invisible #808080,
+  frame #A0A0A4). Frames (Box) are drawn dashed when not printing (showFrames, like the notation view); the range
+  selection frame is drawn by drawPage/drawPageSvg when not printing. Printing output is unchanged (selected items are
+  only painted last, like C++ elementLessThan). Verified: drawPageSvg hashes of all compare-baseline pages identical
+  before/after for printing:true; printing:false differs only on the 31 pages with frames.
+- The readers now call Score::setUpTempoMap() like C++ (the time signature map was empty for loaded files; needed
+  for the measure/beat of the status text). No rendering change.
+- Status text: notation/internal/notationaccessibility.ts (single element / range / list) and accessibleInfo of
+  EngravingItem (type name, formatBarsAndBeats, barbeat), Note (tpcUserName, noteTypeUserName), Rest/MMRest,
+  ChordRest::durationUserName, Clef, KeySig, TimeSig, BarLine, TextBase, Dynamic, SpannerSegment, Measure, Accidental,
+  Articulation, Breath, Fermata, Hairpin, Jump, Marker, Volta, Ottava, Trill, LayoutBreak, Symbol, Fingering,
+  MeasureRepeat, tremolos, Harmony. Translated through mtrc with MuseScore's contexts:
+  framework/global/types/translatablestring.ts; gen-typesconv now keeps the TranslatableStrings (context, n) of the
+  tables, gen-symids the symbol user names (SymNames::userNameForSymId). Type names are plural forms ("Note(s)",
+  n = 1): without MuseScore's en_US translation they show as "Note(s)".
+- Public API: hitTest, selectAt, clearSelection, selectAll, moveSelection, hasSelection, selectionInfo,
+  selectionBounds (test/selection.test.ts).
+- Missing: Note::mark/drop targets, unlinked colors (excerpts), screenReaderInfo/accessibleExtraInfo, note play
+  events in the info, layout break/spacer symbols in the view, lasso, dragging, editing.
+
+## 2026-10-20 — Editor: translations, menu bar, toolbars, selection in the view
+
+- Translations: MuseScore's Qt .ts files (share/locale, musescore_* + instruments_*) are served per language by
+  musescoreweb/vite-plugin-locales.ts (converted on request, only finished translations, plural forms in CLDR
+  order); i18n.ts sets the library's translator (src/framework/global/translation.ts: mtrc/qtrc/arg, %n/%Ln).
+  English uses musescore_en_US.ts (plural type names like "Note(s)"). UI strings are MuseScore's source strings with
+  their contexts; instrument names use the template id as disambiguation ("flute trackName"). Language in
+  Preferences > General ("System default" = browser languages).
+- Actions: tools/gen/gen-uiactions.ts generates musescoreweb/actions/uiactiondata.ts from all *uiactions.cpp (code,
+  title, description, icon, checkable; static TranslatableString constants and .arg() resolved), iconcodes.h and
+  shortcuts.xml/shortcuts_mac.xml (incl. Qt standard keys). actions.ts: registry, enabled/checked state, shortcut
+  dispatch (macOS: Qt Ctrl = Cmd); actions without a handler are disabled.
+- Menu bar = AppMenuModel without plugins, playback/sounds/mixer/MIDI, cloud/publishing/imports, updates,
+  diagnostics, workspaces; keyboard: F10/Alt, arrows, Home/End, letters, Enter, Escape. Open recent = stored scores.
+- Toolbars: Notation toolbar (Parts), Undo/redo, Note input (default ToolConfig, customisation popup with
+  show/hide, order, separators, reset; note input methods as one button with a menu, tuplet/cross-staff menus,
+  "Add" menu), and the viewer's page view toolbar. Three docks (beside the Home/Score tabs, below, above the status
+  bar); toolbars are moved by dragging the handle (or Alt+arrows on it, or its menu), hidden via View > Toolbars;
+  "Restore the default layout". Layout and note input configuration in the settings.
+- Score view: drawn like MuseScore's view (printing: false: selection colors, range frame, frames dashed, invisible
+  items grey). Click selects, Ctrl/Cmd+click adds, Shift+click extends to a range, a click on empty staff selects
+  the measure; arrows/Ctrl/Shift/Alt navigation, Escape, Ctrl+A; the status bar shows the selection's
+  accessibility info (markup of instrument names removed for display).
+- Missing: editing commands (no undo stack), note input, palettes/inspector panels, saving.

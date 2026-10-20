@@ -8,20 +8,39 @@
 import {
     instrumentGenres, instrumentGroupList, instrumentSortingIndex, isScoreOrder, scoreOrders, type InstrumentTemplateInfo,
 } from '../../src/index'
+import { arg, qtrc } from '../i18n'
 
 export const COMMON_GENRE_ID = 'common'
 export const ALL_INSTRUMENTS_GENRE_ID = 'ALL_INSTRUMENTS'
 
 type Trait = InstrumentTemplateInfo['trait']
 
-/** formatInstrumentTitle (notationtypes.h) */
+/** formatInstrumentTitle (notationtypes.h); the names are translated */
 export function formatInstrumentTitle(instrumentName: string, trait: Trait): string {
     switch (trait.type) {
-        case 'tuning': return `${trait.name} ${instrumentName}`
-        case 'transposition': return `${instrumentName} in ${trait.name}`
-        case 'course': return `${instrumentName} (${trait.name})`
+        case 'tuning': return arg(qtrc('notation', '%1 %2', 'Tuned instrument displayed in the UI'), trait.name, instrumentName)
+        case 'transposition': return arg(qtrc('notation', '%1 in %2', 'Transposing instrument displayed in the UI'), instrumentName, trait.name)
+        case 'course': return arg(qtrc('notation', '%1 (%2)', 'String instrument displayed in the UI'), instrumentName, trait.name)
         default: return instrumentName
     }
+}
+
+/** the translated names of a template (InstrumentTemplate: TranslatableStrings with the id as disambiguation) */
+export function trackName(t: InstrumentTemplateInfo): string {
+    return qtrc('engraving/instruments', t.trackName, `${t.id} trackName`)
+}
+
+export function traitName(t: InstrumentTemplateInfo): string {
+    return t.trait.name ? qtrc('engraving/instruments', t.trait.name, `${t.id} traitName`) : ''
+}
+
+export function templateDescription(t: InstrumentTemplateInfo): string {
+    return t.description ? qtrc('engraving/instruments', t.description, `${t.id} description`) : ''
+}
+
+/** the title of a template in the lists (with its trait) */
+export function templateTitle(t: InstrumentTemplateInfo): string {
+    return formatInstrumentTitle(trackName(t), { ...t.trait, name: traitName(t) })
 }
 
 let s_templates: { all: InstrumentTemplateInfo[]; byId: Map<string, InstrumentTemplateInfo> } | null = null
@@ -43,12 +62,13 @@ export function templateById(id: string): InstrumentTemplateInfo | undefined {
 
 /** InstrumentListModel::loadGenres: "Common" first, then "All instruments", then the others */
 export function genreList(): { id: string; name: string }[] {
-    const list = [{ id: ALL_INSTRUMENTS_GENRE_ID, name: 'All instruments' }]
+    const list = [{ id: ALL_INSTRUMENTS_GENRE_ID, name: qtrc('instruments', 'All instruments') }]
     for (const g of instrumentGenres()) {
+        const genre = { id: g.id, name: qtrc('engraving/instruments/genre', g.name) }
         if (g.id === COMMON_GENRE_ID) {
-            list.unshift(g)
+            list.unshift(genre)
         } else {
-            list.push(g)
+            list.push(genre)
         }
     }
     return list
@@ -57,7 +77,7 @@ export function genreList(): { id: string; name: string }[] {
 /** InstrumentListModel::isInstrumentAccepted */
 function isInstrumentAccepted(t: InstrumentTemplateInfo, genreId: string, groupId: string | null, search: string): boolean {
     if (search) {
-        return t.trackName.toLowerCase().includes(search.toLowerCase())
+        return trackName(t).toLowerCase().includes(search.toLowerCase())
     }
     if (groupId !== null && t.groupId !== groupId) {
         return false
@@ -69,11 +89,13 @@ function isInstrumentAccepted(t: InstrumentTemplateInfo, genreId: string, groupI
 export function groupList(genreId: string): { id: string; name: string }[] {
     return instrumentGroupList()
         .filter(g => g.templates.some(t => isInstrumentAccepted(t, genreId, null, '')))
-        .map(g => ({ id: g.id, name: g.name }))
+        .map(g => ({ id: g.id, name: qtrc('engraving/instruments/group', g.name) }))
 }
 
 export interface CombinedInstrument {
-    /** the track name; with the trait if there is only one template */
+    /** the track name (the key of the combined templates) */
+    key: string
+    /** the translated track name; with the trait if there is only one template */
     name: string
     /** the templates with this track name, the default trait first */
     templates: InstrumentTemplateInfo[]
@@ -94,8 +116,9 @@ export function instrumentList(genreId: string, groupId: string | null, search: 
         }
         byName.set(t.trackName, list)
     }
-    const instruments = [...byName].map(([name, list]) => ({
-        name: list.length === 1 ? formatInstrumentTitle(name, list[0].trait) : name,
+    const instruments = [...byName].map(([key, list]) => ({
+        key,
+        name: list.length === 1 ? templateTitle(list[0]) : trackName(list[0]),
         templates: list,
     }))
     const s = search.toLowerCase()
@@ -126,9 +149,9 @@ export interface OrderChoice {
 
 /** the score orders and "Custom" (InstrumentsOnScoreListModel::loadOrders); the first one is the default */
 export function orderList(): { id: string; name: string }[] {
-    const list = [...scoreOrders()]
+    const list = scoreOrders().map(o => ({ id: o.id, name: qtrc('engraving/scoreorder', o.name) }))
     if (!list.some(o => o.id === 'custom')) {
-        list.push({ id: 'custom', name: 'Custom' })
+        list.push({ id: 'custom', name: qtrc('engraving/scoreorder', 'Custom') })
     }
     return list
 }

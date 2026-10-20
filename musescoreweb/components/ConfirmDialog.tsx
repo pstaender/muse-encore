@@ -2,6 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  */
 import { useEffect, useRef } from 'react'
+import { qtrc } from '../i18n'
 
 /** a modal question with "Cancel" and a confirm button; onClose(true) if confirmed */
 export function ConfirmDialog({ title, message, confirmLabel, onClose }: {
@@ -19,7 +20,7 @@ export function ConfirmDialog({ title, message, confirmLabel, onClose }: {
             <h2 id="confirm-title">{title}</h2>
             <p>{message}</p>
             <form method="dialog" className="dialog-buttons">
-                <button className="secondary" value="cancel" autoFocus>Cancel</button>
+                <button className="secondary" value="cancel" autoFocus>{qtrc('global', 'Cancel')}</button>
                 <button className="primary danger" value="ok">{confirmLabel}</button>
             </form>
         </dialog>

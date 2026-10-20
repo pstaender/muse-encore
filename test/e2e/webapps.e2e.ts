@@ -45,8 +45,8 @@ async function newPage(opts: { colorScheme?: 'light' | 'dark'; delayMs?: number 
 
 async function openScore(page: Page, name: string): Promise<void> {
     await page.goto(`${base}?url=${encodeURIComponent(SCORE_HOST + name)}`)
-    await page.waitForFunction(() => /pages?$/.test(document.getElementById('status')!.textContent ?? '')
-        || /\d+ ms$/.test(document.getElementById('status')!.textContent ?? ''), null, { timeout: 120000 })
+    await page.waitForFunction(() => /pages?$/.test(document.getElementById('status')?.textContent ?? '')
+        || /\d+ ms$/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 120000 })
     await page.waitForFunction(() => document.getElementById('busy')!.hidden)
 }
 
@@ -54,7 +54,7 @@ const text = (page: Page, id: string): Promise<string> => page.evaluate(i => doc
 
 /** waits until the page indicator shows `info` (navigation scrolls smoothly) */
 const pageInfoIs = (page: Page, info: string): Promise<unknown> =>
-    page.waitForFunction(i => document.getElementById('page-info')!.textContent === i, info, { timeout: 10000 })
+    page.waitForFunction(i => (document.getElementById('page-info') ?? document.querySelector('.page-info'))!.textContent === i, info, { timeout: 10000 })
 
 /** offset of the page's center from the view's center */
 function pageCenterOffset(page: Page, idx = 0): Promise<[number, number]> {
@@ -78,6 +78,16 @@ async function spaceDrag(page: Page, dx: number, dy: number): Promise<void> {
 }
 
 describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%s', (app) => {
+    // the viewer's toolbar has ids; the editor's toolbars are made of MuseScore's actions
+    const editor = app === 'musescoreweb'
+    const sel = editor ? {
+        layoutV: '[data-action="view-pages-vertical"]', spread: '[data-action="view-two-pages"]', zoom: '.zoom-select',
+        center: '[data-action="view-center-page"]', fullscreen: '[data-action="fullscreen"]', pageInfo: '.page-info',
+    } : {
+        layoutV: '#layout-v', spread: '#spread', zoom: '#zoom', center: '#center', fullscreen: '#fullscreen', pageInfo: '#page-info',
+    }
+    // MuseScore's full screen shortcut on macOS is Ctrl+Cmd+F
+    const fullscreenKey = editor && process.platform === 'darwin' ? 'Control+Meta+f' : 'F11'
     beforeAll(async () => {
         server = await createServer({ configFile: `${ROOT}${app}/vite.config.ts`, root: `${ROOT}${app}`, server: { port: 0 }, logLevel: 'error' })
         await server.listen()
@@ -132,11 +142,11 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
             : !!document.querySelector('.home') && document.body.dataset.view === 'home', app)
         await openScore(page, 'amazing.mscz')
         expect(await text(page, 'title')).toBe('amazing')
-        expect(await text(page, 'page-info')).toBe('1 / 2')
+        expect(await page.textContent(sel.pageInfo)).toBe('1 / 2')
         expect(await pageCenterOffset(page)).toEqual([0, 0])
 
         await page.goto(base) // no ?url: the last file is opened again
-        await page.waitForFunction(() => /2 pages/.test(document.getElementById('status')!.textContent ?? ''), null, { timeout: 60000 })
+        await page.waitForFunction(() => /2 pages/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 60000 })
         expect(await text(page, 'title')).toBe('amazing')
 
         await page.click('#clear')
@@ -154,43 +164,43 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
         await openScore(page, 'twosided.mscz')
         let r = await rects()
         expect(r[1].left).toBeGreaterThan(r[0].right) // side by side (default)
-        await page.click('#layout-v')
+        await page.click(sel.layoutV)
         r = await rects()
         expect(r[1].top).toBeGreaterThan(r[0].bottom)
-        expect(await page.isDisabled('#spread')).toBe(false)
-        await page.click('#spread')
+        expect(await page.isDisabled(sel.spread)).toBe(false)
+        await page.click(sel.spread)
         // page 1 is a right-hand page: [placeholder, 1], [2, 3], [4]
         const spreads = await page.evaluate(() => [...document.querySelectorAll('.spread')].map(s =>
             [...s.children].map(c => c.classList.contains('placeholder') ? '-' : Number((c as HTMLElement).dataset.page) + 1).join(',')))
         expect(spreads).toEqual(['-,1', '2,3', '4'])
         r = await rects()
         expect(Math.round(r[2].left)).toBe(Math.round(r[1].right)) // facing pages without gap
-        expect(await text(page, 'page-info')).toBe('1 / 4')
-        await page.keyboard.press('Control+PageDown')
+        expect(await page.textContent(sel.pageInfo)).toBe('1 / 4')
+        await page.keyboard.press('ControlOrMeta+PageDown')
         await pageInfoIs(page, '2–3 / 4')
 
         await openScore(page, 'onesided.mscz')
-        expect(await page.isDisabled('#spread')).toBe(true)
+        expect(await page.isDisabled(sel.spread)).toBe(true)
         await context.close()
     }, 120000)
 
     it('navigates and zooms with MuseScore shortcuts and the mouse wheel', async () => {
         const { page, context } = await newPage()
         await openScore(page, 'goldberg.mscz')
-        const zoom = (): Promise<string> => page.evaluate(() => (document.getElementById('zoom') as HTMLSelectElement).selectedOptions[0].textContent ?? '')
-        await page.keyboard.press('Control+0')
+        const zoom = (): Promise<string> => page.evaluate(z => (document.querySelector(z) as HTMLSelectElement).selectedOptions[0].textContent ?? '', sel.zoom)
+        await page.keyboard.press('ControlOrMeta+0')
         expect(await zoom()).toBe('100%')
-        await page.keyboard.press('Control+=')
+        await page.keyboard.press('ControlOrMeta+=')
         expect(await zoom()).toBe('150%')
-        await page.keyboard.press('Control+-')
-        await page.keyboard.press('Control+-')
+        await page.keyboard.press('ControlOrMeta+-')
+        await page.keyboard.press('ControlOrMeta+-')
         expect(await zoom()).toBe('75%')
 
         await page.keyboard.press('End')
         await pageInfoIs(page, '119 / 119')
         await page.keyboard.press('Home')
         await pageInfoIs(page, '1 / 119')
-        await page.keyboard.press('Control+PageDown')
+        await page.keyboard.press('ControlOrMeta+PageDown')
         await pageInfoIs(page, '2 / 119')
 
         // mouse wheel zoom keeps the point under the pointer in place
@@ -216,7 +226,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
             return [Math.round(v.right - p.left), Math.round(v.bottom - p.top)]
         })
         expect(moved).toEqual([48, 48]) // only a strip of the page stays visible
-        await page.click('#center')
+        await page.click(sel.center)
         expect(await pageCenterOffset(page)).toEqual([0, 0])
         await context.close()
     }, 120000)
@@ -224,7 +234,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
     it('draws zoomed-in pages as sharp tiles of bounded size', async () => {
         const { page, context } = await newPage()
         await openScore(page, 'amazing.mscz')
-        await page.selectOption('#zoom', '800')
+        await page.selectOption(sel.zoom, '800')
         await page.waitForTimeout(1500)
         const c = await page.evaluate(() => {
             const canvas = document.querySelector('.page canvas') as HTMLCanvasElement
@@ -240,7 +250,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
         const { page, context } = await newPage()
         await openScore(page, 'amazing.mscz')
         const shown = (): Promise<boolean> => page.evaluate(() => document.body.classList.contains('toolbar-shown'))
-        await page.click('#fullscreen')
+        await page.click(sel.fullscreen)
         await page.waitForTimeout(400)
         expect(await page.evaluate(() => document.body.classList.contains('fullscreen'))).toBe(true)
         expect(await shown()).toBe(true) // the pointer is still on it
@@ -253,7 +263,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
         await page.mouse.move(640, 400)
         await page.waitForTimeout(700)
         expect(await shown()).toBe(false)
-        await page.keyboard.press('F11')
+        await page.keyboard.press(fullscreenKey)
         await page.waitForTimeout(300)
         expect(await page.evaluate(() => document.body.classList.contains('fullscreen'))).toBe(false)
         await context.close()

@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { defaultNewScoreOptions, type NewScoreOptions } from '../../src/index'
+import { qtrc, useLanguage } from '../i18n'
 import { createNewScore, showNewScoreDialog } from '../session'
 import { updateSettings, useSettings } from '../settings'
 import { loadTemplate, type TemplateInfo } from '../templates'
@@ -14,6 +15,7 @@ import { orderList, type OrderChoice, type ScoreInstrument } from './instrumentm
 import { ScoreInfoPage, type ScoreInfo } from './ScoreInfoPage'
 
 export function NewScoreDialog(): React.JSX.Element {
+    useLanguage()
     const ref = useRef<HTMLDialogElement>(null)
     const { newScore } = useSettings()
     const [mode, setMode] = useState(newScore.mode)
@@ -62,17 +64,17 @@ export function NewScoreDialog(): React.JSX.Element {
                 }
             }}>
             <header className="dialog-header">
-                <h2 id="new-score-title">New score</h2>
-                <button className="icon" aria-label="Close" title="Close" onClick={() => ref.current?.close()}>{''}</button>
+                <h2 id="new-score-title">{qtrc('project', 'New score')}</h2>
+                <button className="icon" aria-label={qtrc('global', 'Close')} title={qtrc('global', 'Close')} onClick={() => ref.current?.close()}>{''}</button>
             </header>
 
             {page === 'choose' ? (
                 <>
-                    <div className="dialog-tabs" role="tablist" aria-label="Score creation">
+                    <div className="dialog-tabs" role="tablist" >
                         <button role="tab" id="tab-instruments" aria-selected={mode === 'instruments'} aria-controls="page-choose"
-                            onClick={() => setMode('instruments')}>Choose instruments</button>
+                            onClick={() => setMode('instruments')}>{qtrc('project/newscore', 'Choose instruments')}</button>
                         <button role="tab" id="tab-template" aria-selected={mode === 'template'} aria-controls="page-choose"
-                            onClick={() => setMode('template')}>Create from template</button>
+                            onClick={() => setMode('template')}>{qtrc('project/newscore', 'Create from template')}</button>
                     </div>
                     <div className="dialog-page" id="page-choose" role="tabpanel"
                         aria-labelledby={mode === 'instruments' ? 'tab-instruments' : 'tab-template'}>
@@ -88,11 +90,11 @@ export function NewScoreDialog(): React.JSX.Element {
             )}
 
             <footer className="dialog-buttons">
-                <button className="secondary" onClick={() => ref.current?.close()}>Cancel</button>
+                <button className="secondary" onClick={() => ref.current?.close()}>{qtrc('global', 'Cancel')}</button>
                 {page === 'info'
-                    ? <button className="secondary" onClick={() => setPage('choose')}>Back</button>
-                    : <button className="secondary" disabled={!canCreate} onClick={() => setPage('info')}>Next</button>}
-                <button className="primary" disabled={!canCreate || creating} onClick={() => void done()}>Done</button>
+                    ? <button className="secondary" onClick={() => setPage('choose')}>{qtrc('global', 'Back')}</button>
+                    : <button className="secondary" disabled={!canCreate} onClick={() => setPage('info')}>{qtrc('global', 'Next')}</button>}
+                <button className="primary" disabled={!canCreate || creating} onClick={() => void done()}>{qtrc('global', 'Done')}</button>
             </footer>
         </dialog>
     )

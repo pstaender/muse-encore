@@ -1,26 +1,152 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * The app frame: the tabs "Home" and "Score" (like MuseScore's top bar), the home screen and the New Score dialog.
+ * The app frame (like MuseScore's main window): menu bar, the tabs "Home" and "Score" with the main toolbars,
+ * the toolbar rows, the home screen or the score (with its tab), the status bar and the dialogs.
  */
+import { useEffect, useLayoutEffect, useRef } from 'react'
+import { actionsChanged, registerAction, useActions } from './actions/actions'
+import { clearRecentScores } from './actions/appactions'
+import { ConfirmDialog } from './components/ConfirmDialog'
+import { MenuBar } from './components/Menu'
+import { AboutDialog } from './dialogs/AboutDialog'
+import { PreferencesDialog } from './dialogs/PreferencesDialog'
+import { useScores } from './db'
 import { ScoresPage } from './home/ScoresPage'
+import { qtrc, useLanguage } from './i18n'
+import { appMenu, setRecentScoresProvider, type MenuItem } from './menus/appmenu'
 import { NewScoreDialog } from './newscore/NewScoreDialog'
-import { setView, useSession } from './session'
+import { setChrome, useScoreView, viewport, viewShown } from './scoreview'
+import { closeScore, openStored, setView, showDialog, useSession } from './session'
+import { resetSettings } from './settings'
+import { ToolBarDock, toolbarMenuItems } from './toolbars/ToolBars'
+import { restoreDefaultLayout, useToolBarLayout } from './toolbars/layout'
+
+const MAX_RECENT_IN_MENU = 20
+
+/** MuseScore's status bar shows the accessibility info as rich text: instrument names may contain markup */
+function plainText(s: string): string {
+    return new DOMParser().parseFromString(s, 'text/html').body.textContent ?? s
+}
+
+function StatusBar(): React.JSX.Element {
+    const v = useScoreView()
+    return (
+        <footer className={`statusbar${v.statusError ? ' error' : ''}`}>
+            <span id="status" aria-live="polite">{v.selection ? plainText(v.selection) : v.status}</span>
+        </footer>
+    )
+}
+
+/** the tab of the open score above the score (MuseScore's NotationSwitchPanel) */
+function NotationTab(): React.JSX.Element | null {
+    useLanguage()
+    const v = useScoreView()
+    if (!v.hasScore) {
+        return null
+    }
+    return (
+        <div className="notation-tabs" role="tablist" aria-label={qtrc('notation', 'Scores')}>
+            <div className="notation-tab" role="tab" aria-selected="true" title={v.tooltip}>
+                <span id="title" className="notation-tab-title">{v.title}</span>
+                <button id="clear" className="icon" title={qtrc('global', 'Close')} aria-label={qtrc('global', 'Close')} onClick={closeScore}>
+                    {''}
+                </button>
+            </div>
+        </div>
+    )
+}
 
 export function App(): React.JSX.Element {
+    useLanguage()
+    useActions()
     const session = useSession()
+    const layout = useToolBarLayout()
+    const scores = useScores()
+    const chromeRef = useRef<HTMLDivElement>(null)
+    const viewportHost = useRef<HTMLDivElement>(null)
+
+    // the score view (plain DOM, scoreview.ts) lives in this frame
+    useLayoutEffect(() => {
+        viewportHost.current?.appendChild(viewport)
+        if (chromeRef.current) {
+            setChrome(chromeRef.current)
+        }
+    }, [])
+
+    // File > Open recent
+    useEffect(() => {
+        const recent = (scores ?? []).slice(0, MAX_RECENT_IN_MENU)
+        for (const e of recent) {
+            registerAction(`file-open-recent:${e.id}`, { run: () => void openStored(e.id) }, { title: [null, e.name] })
+        }
+        setRecentScoresProvider(() => recent.map((e): MenuItem => ({ kind: 'action', code: `file-open-recent:${e.id}` })))
+        actionsChanged()
+    }, [scores])
+
+    // the layout of the toolbars changes the height of the score view
+    useEffect(() => {
+        if (session.view === 'score') {
+            viewShown()
+        }
+    }, [layout, session.view])
+
+    const score = session.view === 'score'
     return (
         <>
-            <nav className="app-tabs" aria-label="Views">
-                <div role="tablist">
-                    <button role="tab" aria-selected={session.view === 'home'} onClick={() => setView('home')}>Home</button>
-                    <button role="tab" aria-selected={session.view === 'score'} disabled={!session.current}
-                        title={session.current ? session.current.name : 'No score is open'} onClick={() => setView('score')}>
-                        Score
-                    </button>
+            <div id="chrome" ref={chromeRef} className="chrome">
+                <MenuBar menus={appMenu(toolbarMenuItems)} />
+                <div className="tabs-row">
+                    <nav className="app-tabs" aria-label={qtrc('appshell', 'Main toolbar')}>
+                        <div role="tablist">
+                            <button role="tab" aria-selected={session.view === 'home'} onClick={() => setView('home')}>
+                                {qtrc('appshell', 'Home')}
+                            </button>
+                            <button role="tab" aria-selected={score} disabled={!session.current}
+                                title={session.current?.name} onClick={() => setView('score')}>
+                                {qtrc('appshell', 'Score')}
+                            </button>
+                        </div>
+                    </nav>
+                    {score && <ToolBarDock dock="main" />}
                 </div>
-            </nav>
+                {score && <ToolBarDock dock="top" />}
+            </div>
             {session.view === 'home' && <ScoresPage />}
+            <div className="score-area" hidden={!score}>
+                <NotationTab />
+                <div ref={viewportHost} className="viewport-host" />
+            </div>
+            {score && <ToolBarDock dock="bottom" />}
+            {score && layout.statusBar && <StatusBar />}
+
             {session.newScoreDialog && <NewScoreDialog />}
+            {session.dialog === 'preferences' && <PreferencesDialog onClose={() => showDialog(null)} />}
+            {session.dialog === 'about' && <AboutDialog onClose={() => showDialog(null)} />}
+            {session.dialog === 'clearRecent' && (
+                <ConfirmDialog
+                    title={qtrc('appshell/menu/file', 'Clear recent')}
+                    message="All scores are removed from this browser. Scores created here cannot be restored, they are not saved anywhere else."
+                    confirmLabel={qtrc('global', 'Remove')}
+                    onClose={(ok) => {
+                        showDialog(null)
+                        if (ok) {
+                            void clearRecentScores()
+                        }
+                    }} />
+            )}
+            {session.dialog === 'revertFactory' && (
+                <ConfirmDialog
+                    title={qtrc('appshell', 'Are you sure you want to revert to factory settings?')}
+                    message={qtrc('appshell', 'This action will reset all your app preferences and delete all custom palettes and custom shortcuts. The list of recent scores will also be cleared.') + ' (Scores stored in this browser are kept.)'}
+                    confirmLabel={qtrc('appshell', 'Revert')}
+                    onClose={(ok) => {
+                        showDialog(null)
+                        if (ok) {
+                            resetSettings()
+                            restoreDefaultLayout()
+                        }
+                    }} />
+            )}
         </>
     )
 }

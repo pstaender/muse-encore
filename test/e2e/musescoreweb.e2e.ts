@@ -60,7 +60,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.goto(base)
         await page.waitForSelector('.home')
         expect(await view(page)).toBe('home')
-        expect(await page.isVisible('#toolbar')).toBe(false)
+        expect(await page.locator('.toolbar-dock').count()).toBe(0) // the toolbars are on the score page
         expect(await page.isDisabled('.app-tabs [role="tab"]:nth-child(2)')).toBe(true)
         expect(await cardNames(page)).toEqual([])
 
@@ -91,9 +91,9 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.waitForSelector('dialog.new-score[open]')
         expect(await page.isDisabled('dialog.new-score .dialog-buttons button:has-text("Done")')).toBe(true)
 
-        await page.fill('input[aria-label="Search instruments"]', 'flute')
+        await page.fill('.instruments input[type="search"]', 'flute')
         await page.dblclick('.instruments [role="option"] >> text=Flute')
-        await page.fill('input[aria-label="Search instruments"]', 'piano')
+        await page.fill('.instruments input[type="search"]', 'piano')
         await page.dblclick('.instruments [role="option"] >> text=Piano')
         const onScore = await page.$$eval('.on-score [role="option"] .item-name', els => els.map(e => e.textContent))
         expect(onScore).toEqual(['Flute', 'Piano'])
@@ -123,7 +123,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
     it('creates a score from a template with a preview', async () => {
         const { page, context } = await newPage()
         await page.goto(base)
-        await page.keyboard.press('Control+N')
+        await page.keyboard.press('ControlOrMeta+n')
         await page.waitForSelector('dialog.new-score[open]')
         await page.click('[role="tab"]:has-text("Create from template")')
         await page.click('.choose-template [role="option"]:has-text("Chamber Music")')
@@ -134,6 +134,131 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         expect(await page.textContent('#title')).toBe('Untitled score')
         await context.close()
     }, 180000)
+
+    it('has MuseScore\'s menus, operable with the mouse and the keyboard', async () => {
+        const { page, context } = await newPage()
+        await page.goto(base)
+        await page.waitForSelector('.home')
+        const menus = await page.$$eval('.menubar > button', b => b.map(x => x.textContent))
+        expect(menus).toEqual(['File', 'Edit', 'View', 'Add', 'Format', 'Tools', 'Help'])
+        await page.click('.menubar > button:has-text("File")')
+        const items = await page.$$eval('.menu-popup [role^="menuitem"] .menu-title', e => e.map(x => x.textContent))
+        expect(items.slice(0, 4)).toEqual(['New…', 'Open…', 'Open recent', 'Close'])
+        await page.click('.menu-popup [role="menuitem"]:has-text("New…")')
+        await page.waitForSelector('dialog.new-score[open]')
+        await page.keyboard.press('Escape')
+        await page.waitForFunction(() => !document.querySelector('dialog[open]'))
+
+        // F10 focuses the menu bar; arrows and Enter open a menu and run an item
+        await page.keyboard.press('F10')
+        await page.keyboard.press('ArrowRight') // Edit
+        await page.keyboard.press('ArrowDown')
+        expect(await page.textContent('.menu-popup .menu-item.active .menu-title')).toBe('Undo')
+        await page.keyboard.press('End') // Preferences…
+        await page.keyboard.press('Enter')
+        await page.waitForSelector('dialog.preferences[open]')
+        await context.close()
+    })
+
+    it('moves, hides and customizes toolbars and keeps their layout', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const docks = (): Promise<Record<string, string[]>> => page.evaluate(() => Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-dock]')]
+            .map(d => [d.dataset.dock!, [...d.querySelectorAll<HTMLElement>('[data-toolbar]')].map(t => t.dataset.toolbar!)])))
+        expect(await docks()).toEqual({ main: ['notationToolBar', 'undoRedoToolBar'], top: ['noteInputBar', 'viewToolBar'] })
+
+        // drag the page view toolbar before the note input toolbar
+        const grip = page.locator('[data-toolbar="viewToolBar"] .toolbar-grip')
+        const target = await page.locator('[data-toolbar="noteInputBar"]').boundingBox()
+        const g = await grip.boundingBox()
+        await page.mouse.move(g!.x + 5, g!.y + 10)
+        await page.mouse.down()
+        await page.mouse.move(target!.x + 10, target!.y + 15, { steps: 8 })
+        await page.mouse.up()
+        expect((await docks()).top).toEqual(['viewToolBar', 'noteInputBar'])
+
+        // hide the note input toolbar (View > Toolbars) and remove a button from it
+        await page.click('[data-toolbar="noteInputBar"] button[aria-label="Customize toolbar"]')
+        await page.click('.customise-list li[data-action="pad-note-4"] input[type="checkbox"]')
+        await page.keyboard.press('Escape')
+        expect(await page.locator(".tool-button[data-action=\"pad-note-4\"]").count()).toBe(0)
+        await page.click('.menubar > button:has-text("View")')
+        await page.hover('.menu-item:has-text("Toolbars")')
+        await page.click('.menu-item:has-text("Note input")')
+        await page.waitForFunction(() => !document.querySelector('[data-toolbar="noteInputBar"]')) // menu actions run after the menu closed
+
+        await page.reload()
+        await scoreShown(page)
+        expect((await docks()).top).toEqual(['viewToolBar'])
+        await page.click('.menubar > button:has-text("View")')
+        await page.click('.menu-item:has-text("Restore the default layout")')
+        await page.waitForSelector('[data-toolbar="noteInputBar"]')
+        expect(await docks()).toEqual({ main: ['notationToolBar', 'undoRedoToolBar'], top: ['noteInputBar', 'viewToolBar'] })
+        expect(await page.locator(".tool-button[data-action=\"pad-note-4\"]").count()).toBe(1)
+        await context.close()
+    }, 120000)
+
+    it('uses MuseScore\'s translations', async () => {
+        const { page, context } = await newPage()
+        await page.goto(base)
+        await page.waitForSelector('.home')
+        await page.click('.menubar > button:has-text("Edit")')
+        await page.click('.menu-item:has-text("Preferences")')
+        await page.selectOption('dialog.preferences select', 'de')
+        await page.waitForFunction(() => document.documentElement.lang === 'de')
+        await page.click('dialog.preferences .dialog-buttons button')
+        expect(await page.$$eval('.menubar > button', b => b.map(x => x.textContent))).toEqual(
+            ['Datei', 'Bearbeiten', 'Ansicht', 'Hinzufügen', 'Formatierung', 'Werkzeuge', 'Hilfe'])
+        expect(await page.textContent('#home-title')).toBe('Partituren')
+        await page.reload()
+        await page.waitForFunction(() => document.querySelector('.menubar > button')?.textContent === 'Datei')
+        // instruments in the New Score dialog
+        await page.click('.home-footer .primary')
+        await page.fill('dialog.new-score input[type="search"]', 'Flöte')
+        expect(await page.locator('.instruments [role="option"]:has-text("Flöte")').count()).toBeGreaterThan(0)
+        await context.close()
+    })
+
+    it('selects elements with the mouse and the keyboard and shows them in the status bar', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const status = (): Promise<string> => page.textContent('#status').then(t => t ?? '')
+        const p = (await page.locator('.page').first().boundingBox())!
+        // the rest at the start of the soprano staff
+        await page.mouse.click(p.x + p.width * 0.22, p.y + p.height * 0.155)
+        await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Rest;'))
+        expect(await status()).toContain('Measure: 1; Beat: 1; Staff 1 (Soprano)')
+        // MuseScore's selection color (the page is redrawn after the selection change)
+        const blue = await page.waitForFunction(() => {
+            const c = document.querySelector<HTMLCanvasElement>('.page canvas')!
+            const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data
+            for (let i = 0; i < d.length; i += 4) {
+                if (d[i + 2] - d[i] > 100 && d[i + 2] > d[i + 1] + 40) { // #0065BF, antialiased
+                    return true
+                }
+            }
+            return false
+        }).then(() => true)
+        expect(blue).toBe(true)
+        const before = await status()
+        await page.keyboard.press('ArrowRight') // the next chord or rest
+        await page.waitForFunction(b => document.getElementById('status')!.textContent !== b, before)
+        expect(await status()).toMatch(/^(Note|Rest|Chord);.*Measure: 1; Beat: [^1]/)
+        // shift+click on the staff in measure 3: a range
+        await page.keyboard.down('Shift')
+        await page.mouse.click(p.x + p.width * 0.45, p.y + p.height * 0.155)
+        await page.keyboard.up('Shift')
+        await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Range selection'))
+        expect(await status()).toContain('Start measure: 1')
+        expect(await status()).toContain('End measure: 3')
+        await page.keyboard.press('Escape')
+        await page.waitForFunction(() => /\d+ ms$/.test(document.getElementById('status')!.textContent!))
+        await page.keyboard.press('ControlOrMeta+a')
+        await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Range selection'))
+        await context.close()
+    }, 120000)
 
     it('keeps the settings of the home screen', async () => {
         const { page, context } = await newPage()

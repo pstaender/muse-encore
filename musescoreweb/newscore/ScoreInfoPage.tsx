@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { DEFAULT_NEW_SCORE_PICKUP, DEFAULT_NEW_SCORE_TEMPO, KEY_ATONAL, type NewScoreOptions } from '../../src/index'
+import { qtrc, useLanguage } from '../i18n'
 
 export type ScoreInfo = Omit<NewScoreOptions, 'instruments' | 'order' | 'orderCustomized' | 'templateMscx' | 'templateStyle'>
 type Tempo = NonNullable<NewScoreOptions['tempo']>
@@ -145,6 +146,7 @@ function FractionInput({ value, onChange, label }: { value: Fraction; onChange: 
 }
 
 export function ScoreInfoPage({ info, setInfo }: { info: ScoreInfo; setInfo: (i: ScoreInfo) => void }): React.JSX.Element {
+    useLanguage()
     const [minor, setMinor] = useState(false)
     // the values stay while the tempo or the pickup measure is switched off
     const lastTempo = useRef<Tempo>(info.tempo ?? { ...DEFAULT_NEW_SCORE_TEMPO })
@@ -153,7 +155,7 @@ export function ScoreInfoPage({ info, setInfo }: { info: ScoreInfo; setInfo: (i:
     const set = (patch: Partial<ScoreInfo>): void => setInfo({ ...info, ...patch })
 
     const key = KEYS.find(k => k.key === info.key) ?? KEYS[0]
-    const keyName = minor ? key.minor : key.major
+    const keyName = qtrc('project/newscore', minor ? key.minor : key.major)
     const tempo = info.tempo ?? lastTempo.current
     const pickup = info.pickup ?? lastPickup.current
 
@@ -174,60 +176,61 @@ export function ScoreInfoPage({ info, setInfo }: { info: ScoreInfo; setInfo: (i:
         })
     }
 
-    const timeSigLabel = info.timesigType === 'common' ? 'Common time' : info.timesigType === 'cut' ? 'Cut time'
+    const timeSigLabel = info.timesigType === 'common' ? qtrc('engraving/timesig', 'Common time') : info.timesigType === 'cut' ? qtrc('engraving/timesig', 'Cut time')
         : `${info.timesig.numerator}/${info.timesig.denominator}`
     const timeSigValue = info.timesigType === 'common' ? <TimeSigView symbol={SMUFL.common} />
         : info.timesigType === 'cut' ? <TimeSigView symbol={SMUFL.cut} />
         : <TimeSigView numerator={info.timesig.numerator} denominator={info.timesig.denominator} />
     const tempoNote = TEMPO_NOTES.find(n => n.duration === tempo.duration && n.dot === tempo.dot) ?? TEMPO_NOTES[4]
-    const measuresLabel = `${info.measures} ${info.measures === 1 ? 'measure' : 'measures'}, `
-        + (info.pickup ? `pickup: ${info.pickup.numerator}/${info.pickup.denominator}` : 'no pickup')
+    // MeasuresSettings.qml
+    const measuresLabel = `${qtrc('project/newscore', '%Ln measure(s),', '', info.measures)} `
+        + (info.pickup ? `${qtrc('project/newscore', 'pickup:')} ${info.pickup.numerator}/${info.pickup.denominator}` : qtrc('project/newscore', 'no pickup'))
 
     return (
         <div className="score-info">
-            <h3>Additional score information</h3>
-            <div className="score-options" role="group" aria-label="Score options">
-                <Dropdown label="Key signature" valueLabel={keyName}
+            <h3>{qtrc('project/newscore', 'Additional score information')}</h3>
+            <div className="score-options" role="group" aria-label={qtrc('project/newscore', 'Score options')}>
+                <Dropdown label={qtrc('project/newscore', 'Key signature')} valueLabel={keyName}
                     value={<><span className="icon-glyph big" aria-hidden="true">{key.icon}</span><span className="value-text">{keyName}</span></>}>
-                    <div className="segmented text" role="radiogroup" aria-label="Mode">
-                        <button role="radio" aria-checked={!minor} onClick={() => setMinor(false)}>Major</button>
-                        <button role="radio" aria-checked={minor} onClick={() => setMinor(true)}>Minor</button>
+                    <div className="segmented text" role="radiogroup">
+                        <button role="radio" aria-checked={!minor} onClick={() => setMinor(false)}>{qtrc('project/newscore', 'Major', 'key signature mode')}</button>
+                        <button role="radio" aria-checked={minor} onClick={() => setMinor(true)}>{qtrc('project/newscore', 'Minor', 'key signature mode')}</button>
                     </div>
-                    <div className="key-grid" role="radiogroup" aria-label="Key signature">
+                    <div className="key-grid" role="radiogroup" aria-label={qtrc('project/newscore', 'Key signature')}>
                         {KEYS.map(k => (
-                            <button key={k.key} role="radio" aria-checked={k.key === info.key} title={minor ? k.minor : k.major}
+                            <button key={k.key} role="radio" aria-checked={k.key === info.key} title={qtrc('project/newscore', minor ? k.minor : k.major)}
                                 onClick={() => set({ key: k.key })}>
                                 <span className="icon-glyph big" aria-hidden="true">{k.icon}</span>
-                                <span className="key-name">{minor ? k.minor : k.major}</span>
+                                <span className="key-name">{qtrc('project/newscore', minor ? k.minor : k.major)}</span>
                             </button>
                         ))}
                     </div>
                 </Dropdown>
 
-                <Dropdown label="Time signature" valueLabel={timeSigLabel} value={timeSigValue}>
-                    <div className="radio-rows" role="radiogroup" aria-label="Time signature">
+                <Dropdown label={qtrc('project/newscore', 'Time signature')} valueLabel={timeSigLabel} value={timeSigValue}>
+                    <div className="radio-rows" role="radiogroup" aria-label={qtrc('project/newscore', 'Time signature')}>
                         <label>
                             <input type="radio" name="timesig" checked={info.timesigType === 'normal'} onChange={() => setTimeSig('normal')} />
-                            <FractionInput label="Time signature" value={fraction} onChange={f => setTimeSig('normal', f)} />
+                            <FractionInput label={qtrc('project/newscore', 'Time signature')} value={fraction} onChange={f => setTimeSig('normal', f)} />
                         </label>
                         <label>
                             <input type="radio" name="timesig" checked={info.timesigType === 'common'} onChange={() => setTimeSig('common')} />
-                            <TimeSigView symbol={SMUFL.common} /> Common time
+                            <TimeSigView symbol={SMUFL.common} /> {qtrc('engraving/timesig', 'Common time')}
                         </label>
                         <label>
                             <input type="radio" name="timesig" checked={info.timesigType === 'cut'} onChange={() => setTimeSig('cut')} />
-                            <TimeSigView symbol={SMUFL.cut} /> Cut time
+                            <TimeSigView symbol={SMUFL.cut} /> {qtrc('engraving/timesig', 'Cut time')}
                         </label>
                     </div>
                 </Dropdown>
 
-                <Dropdown label="Tempo" valueLabel={info.tempo ? `${tempoNote.label} = ${tempo.bpm}` : 'None'}
+                <Dropdown label={qtrc('project/newscore', 'Tempo')} valueLabel={info.tempo ? `${qtrc('project/newscore', tempoNote.label)} = ${tempo.bpm}` : qtrc('EditStaffBase', 'None')}
                     value={info.tempo
                         ? <span className="tempo-value"><span className="smufl" aria-hidden="true">{noteSymbol(tempo.duration, tempo.dot)}</span> = {tempo.bpm}</span>
-                        : <span className="value-text muted">None</span>}>
+                        : <span className="value-text muted">{qtrc('EditStaffBase', 'None')}</span>}>
                     <label className="check">
                         <input type="checkbox" checked={!!info.tempo} onChange={e => set({ tempo: e.target.checked ? tempo : null })} />
-                        Show tempo marking on my score
+                        {qtrc('project/newscore', 'Show tempo marking on my score')}
                     </label>
                     <div className="tempo-row">
                         <select aria-label="Note value" disabled={!info.tempo} value={TEMPO_NOTES.indexOf(tempoNote)}
@@ -235,7 +238,7 @@ export function ScoreInfoPage({ info, setInfo }: { info: ScoreInfo; setInfo: (i:
                                 const n = TEMPO_NOTES[Number(e.target.value)]
                                 setTempo({ duration: n.duration, dot: n.dot })
                             }}>
-                            {TEMPO_NOTES.map((n, i) => <option key={i} value={i}>{n.label}</option>)}
+                            {TEMPO_NOTES.map((n, i) => <option key={i} value={i}>{qtrc('project/newscore', n.label)}</option>)}
                         </select>
                         <span aria-hidden="true">=</span>
                         <input type="number" min={20} max={400} aria-label="Beats per minute" disabled={!info.tempo} value={tempo.bpm}
@@ -243,44 +246,44 @@ export function ScoreInfoPage({ info, setInfo }: { info: ScoreInfo; setInfo: (i:
                     </div>
                 </Dropdown>
 
-                <Dropdown label="Measures" valueLabel={measuresLabel} value={<span className="value-text">{measuresLabel}</span>}>
+                <Dropdown label={qtrc('project/newscore', 'Measures')} valueLabel={measuresLabel} value={<span className="value-text">{measuresLabel}</span>}>
                     <label className="check">
                         <input type="checkbox" checked={!!info.pickup} onChange={e => set({ pickup: e.target.checked ? pickup : null })} />
-                        Create pickup measure
+                        {qtrc('project/newscore', 'Create pickup measure')}
                     </label>
                     <div className="indent">
                         <FractionInput label="Pickup measure duration" value={pickup} onChange={setPickup} />
                     </div>
                     <label className="field">
-                        <span>Initial number of measures</span>
+                        <span>{qtrc('project/newscore', 'Initial number of measures')}</span>
                         <input type="number" min={1} max={9999} value={info.measures}
                             onChange={e => set({ measures: clampInt(e.target.value, 1, 9999, info.measures) })} />
                     </label>
-                    <p className="muted hint">Hint: You can also add &amp; delete measures after you have created your score</p>
+                    <p className="muted hint">{qtrc('project/newscore', 'Hint: You can also add & delete measures after you have created your score')}</p>
                 </Dropdown>
             </div>
 
-            <div className="general-info" role="group" aria-label="General score info">
+            <div className="general-info" role="group" aria-label={qtrc('project/newscore', 'General score info')}>
                 <label className="field">
-                    <span>Title</span>
-                    <input type="text" placeholder="Untitled score" value={info.title ?? ''} autoFocus
+                    <span>{qtrc('project', 'Title')}</span>
+                    <input type="text" placeholder={qtrc('project', 'Untitled score')} value={info.title ?? ''} autoFocus
                         onChange={e => set({ title: e.target.value })} />
                 </label>
                 <label className="field">
-                    <span>Composer</span>
-                    <input type="text" placeholder="Composer / arranger" value={info.composer ?? ''}
+                    <span>{qtrc('project', 'Composer')}</span>
+                    <input type="text" placeholder={qtrc('project', 'Composer / arranger')} value={info.composer ?? ''}
                         onChange={e => set({ composer: e.target.value })} />
                 </label>
                 <label className="field">
-                    <span>Subtitle</span>
+                    <span>{qtrc('project', 'Subtitle')}</span>
                     <input type="text" value={info.subtitle ?? ''} onChange={e => set({ subtitle: e.target.value })} />
                 </label>
                 <label className="field">
-                    <span>Lyricist</span>
+                    <span>{qtrc('project', 'Lyricist')}</span>
                     <input type="text" value={info.lyricist ?? ''} onChange={e => set({ lyricist: e.target.value })} />
                 </label>
                 <label className="field wide">
-                    <span>Copyright</span>
+                    <span>{qtrc('project', 'Copyright')}</span>
                     <input type="text" value={info.copyright ?? ''} onChange={e => set({ copyright: e.target.value })} />
                 </label>
             </div>

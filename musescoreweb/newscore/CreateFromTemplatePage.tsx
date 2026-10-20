@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { drawPage, layoutScore, loadTemplate as loadTemplateScore, pageCount, pageSize, type MasterScore } from '../../src/index'
+import { qtrc, useLanguage } from '../i18n'
 import { fontsReady } from '../scoreview'
 import { loadTemplate, templateCategories, type TemplateInfo } from '../templates'
 
@@ -50,7 +51,7 @@ function TemplatePreview({ template }: { template: TemplateInfo }): React.JSX.El
 
     const pages = state.score ? pageCount(state.score) : 0
     return (
-        <div className="template-preview" ref={box} aria-label={`Preview of ${template.title}`} role="img">
+        <div className="template-preview" ref={box} aria-label={qtrc('project/template', template.title)} role="img">
             {state.error && <p className="muted">Could not show the template: {state.error}</p>}
             {state.score && width > 0 && Array.from({ length: pages }, (_, i) => (
                 <PreviewPage key={i} score={state.score!} idx={i} width={width - 32} />
@@ -81,6 +82,7 @@ export function CreateFromTemplatePage({ template, setTemplate }: {
     template: TemplateInfo | null
     setTemplate: (t: TemplateInfo) => void
 }): React.JSX.Element {
+    useLanguage()
     const [category, setCategory] = useState(() => template?.category ?? templateCategories[0]?.title ?? '')
     const templates = templateCategories.find(c => c.title === category)?.templates ?? []
 
@@ -100,8 +102,8 @@ export function CreateFromTemplatePage({ template, setTemplate }: {
     return (
         <div className="choose-template">
             <section className="column" aria-labelledby="category-title">
-                <h3 id="category-title">Category</h3>
-                <ul className="list" role="listbox" aria-label="Categories">
+                <h3 id="category-title">{qtrc('project/newscore', 'Category')}</h3>
+                <ul className="list" role="listbox" aria-label={qtrc('project/newscore', 'Category')}>
                     {templateCategories.map(c => {
                         const select = (): void => {
                             setCategory(c.title)
@@ -109,21 +111,21 @@ export function CreateFromTemplatePage({ template, setTemplate }: {
                         }
                         return (
                             <li key={c.title} role="option" aria-selected={c.title === category} tabIndex={0}
-                                onClick={select} onKeyDown={keyActivate(select)}>{c.title}</li>
+                                onClick={select} onKeyDown={keyActivate(select)}>{qtrc('project/templatecategory', c.title)}</li>
                         )
                     })}
                 </ul>
             </section>
             <section className="column" aria-labelledby="template-title">
-                <h3 id="template-title">Template</h3>
-                <ul className="list" role="listbox" aria-label="Templates">
+                <h3 id="template-title">{qtrc('project/newscore', 'Template')}</h3>
+                <ul className="list" role="listbox" aria-label={qtrc('project/newscore', 'Template')}>
                     {templates.map(t => (
                         <li key={t.path} role="option" aria-selected={t.path === template?.path} tabIndex={0}
-                            onClick={() => setTemplate(t)} onKeyDown={keyActivate(() => setTemplate(t))}>{t.title}</li>
+                            onClick={() => setTemplate(t)} onKeyDown={keyActivate(() => setTemplate(t))}>{qtrc('project/template', t.title)}</li>
                     ))}
                 </ul>
             </section>
-            <section className="column preview-column" aria-label="Preview">
+            <section className="column preview-column" aria-label={qtrc('project/newscore', 'Preview')}>
                 {template && <TemplatePreview template={template} />}
             </section>
         </div>

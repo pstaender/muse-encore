@@ -8,47 +8,10 @@
     <link rel="stylesheet" href="./style.css">
 </head>
 <body data-view="home">
-<!-- the React app: tab bar, home screen, dialogs -->
+<!-- the React app: menu bar, toolbars, home screen, status bar, dialogs; the score view (#viewport) is moved into it -->
 <div id="app-root"></div>
 <div id="toolbar-trigger" aria-hidden="true"></div>
-<header id="toolbar" class="toolbar" role="toolbar" aria-label="Score controls">
-    <div class="group">
-        <button id="new" class="icon" title="New score… (Ctrl+N)" aria-label="New score">&#xEF22;</button>
-        <button id="open" class="icon" title="Open… (Ctrl+O)" aria-label="Open file">&#xEF23;</button>
-        <span id="title" class="title">MuseScore Web</span>
-        <button id="clear" class="icon" title="Close score" aria-label="Close score" hidden>&#xEF14;</button>
-    </div>
 
-    <div class="group" id="nav-group">
-        <button id="prev" class="icon" title="Previous page (Ctrl+PgUp)" aria-label="Previous page">&#xF39C;</button>
-        <span id="page-info" class="page-info" aria-live="polite">–</span>
-        <button id="next" class="icon" title="Next page (Ctrl+PgDn)" aria-label="Next page">&#xF39B;</button>
-    </div>
-
-    <div class="group">
-        <div class="segmented" role="radiogroup" aria-label="Page layout">
-            <button id="layout-h" class="icon" role="radio" title="Pages side by side" aria-label="Pages side by side">&#xEF1C;</button>
-            <button id="layout-v" class="icon" role="radio" title="Pages vertically" aria-label="Pages vertically">&#xF3AF;</button>
-        </div>
-        <button id="spread" class="icon toggle" title="Two pages (two-sided page layout)" aria-label="Two pages" aria-pressed="false">&#xEF7F;</button>
-    </div>
-
-    <div class="group">
-        <button id="zoom-out" class="icon" title="Zoom out (Ctrl+−)" aria-label="Zoom out">&#xEF16;</button>
-        <select id="zoom" title="Zoom" aria-label="Zoom">
-            <option value="page-width">Page width</option>
-            <option value="whole-page">Whole page</option>
-        </select>
-        <button id="zoom-in" class="icon" title="Zoom in (Ctrl++)" aria-label="Zoom in">&#xEF18;</button>
-        <button id="center" class="icon" title="Center page" aria-label="Center page">&#xF48C;</button>
-    </div>
-
-    <div class="group end">
-        <button id="print" class="icon" title="Print (Ctrl+P)" aria-label="Print">&#xF3B7;</button>
-        <button id="fullscreen" class="icon" title="Full screen (F11)" aria-label="Full screen">&#xEF15;</button>
-        <button id="help" class="icon text" title="Keyboard shortcuts" aria-label="Keyboard shortcuts" aria-expanded="false">?</button>
-    </div>
-</header>
 
 <main id="viewport" tabindex="0" aria-label="Score">
     <div id="pages"></div>
@@ -66,9 +29,7 @@
 <!-- vector pages, only while printing -->
 <div id="print-pages" aria-hidden="true"></div>
 
-<footer class="statusbar">
-    <span id="status">Loading fonts…</span>
-</footer>
+
 
 <dialog id="help-dialog" aria-label="Keyboard shortcuts">
     <h2>Keyboard shortcuts</h2>

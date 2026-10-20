@@ -6,18 +6,16 @@
  * Keyboard shortcuts follow MuseScore Studio (src/app/configs/data/shortcuts.xml) where they make sense.
  */
 /// <reference types="vite/client" />
+import { useSyncExternalStore } from 'react'
 import {
-    drawPage, drawPageSvg, initEngravingFonts, isTwoSided, pageCount, pageSize, scoreTitle, SvgGlyphDefs,
-    type MasterScore,
+    clearSelection, drawPage, drawPageSvg, hasSelection, initEngravingFonts, isTwoSided, moveSelection, pageCount, pageSize,
+    scoreTitle, selectAll, selectAt, selectionBounds, selectionInfo, SvgGlyphDefs, type MasterScore, type SelectMode,
 } from '../src/index'
 import { settings as appSettings, updateSettings, type ViewSettings } from './settings'
 
 /** commands of the score view that the app handles */
 export const handlers = {
     openFile: (_file: File): void => {},
-    chooseFile: (): void => {},
-    newScore: (): void => {},
-    closeScore: (): void => {},
 }
 
 // ---------------------------------------------------------------------------------
@@ -26,43 +24,82 @@ export const handlers = {
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 
-const viewport = $<HTMLElement>('viewport')
+export const viewport = $<HTMLElement>('viewport')
 const pagesDiv = $<HTMLDivElement>('pages')
-const statusEl = $<HTMLSpanElement>('status')
-const titleEl = $<HTMLSpanElement>('title')
-const zoomSelect = $<HTMLSelectElement>('zoom')
-const pageInfo = $<HTMLSpanElement>('page-info')
-const btn = {
-    new: $<HTMLButtonElement>('new'),
-    open: $<HTMLButtonElement>('open'),
-    clear: $<HTMLButtonElement>('clear'),
-    prev: $<HTMLButtonElement>('prev'),
-    next: $<HTMLButtonElement>('next'),
-    layoutH: $<HTMLButtonElement>('layout-h'),
-    layoutV: $<HTMLButtonElement>('layout-v'),
-    spread: $<HTMLButtonElement>('spread'),
-    zoomIn: $<HTMLButtonElement>('zoom-in'),
-    zoomOut: $<HTMLButtonElement>('zoom-out'),
-    print: $<HTMLButtonElement>('print'),
-    center: $<HTMLButtonElement>('center'),
-    fullscreen: $<HTMLButtonElement>('fullscreen'),
-    help: $<HTMLButtonElement>('help'),
-}
 const helpDialog = $<HTMLDialogElement>('help-dialog')
+
+// ---------------------------------------------------------------------------------
+//   the state shown by the React UI (toolbar, tabs, status bar)
+// ---------------------------------------------------------------------------------
+
+export interface ScoreViewState {
+    hasScore: boolean
+    /** file name without extension (like MuseScore's tab) and the score title as tooltip */
+    title: string
+    tooltip: string
+    /** "1 / 4", "2–3 / 4" */
+    pageText: string
+    canPrev: boolean
+    canNext: boolean
+    zoom: number
+    fitMode: FitMode | null
+    orientation: 'horizontal' | 'vertical'
+    spread: boolean
+    spreadAvailable: boolean
+    fullscreen: boolean
+    status: string
+    statusError: boolean
+    /** the selection's accessibility info (MuseScore's status bar); '' without a selection */
+    selection: string
+}
+
+let viewState: ScoreViewState = {
+    hasScore: false, title: '', tooltip: '', pageText: '–', canPrev: false, canNext: false, zoom: 100, fitMode: null,
+    orientation: 'horizontal', spread: false, spreadAvailable: false, fullscreen: false, status: '', statusError: false,
+    selection: '',
+}
+const viewListeners = new Set<() => void>()
+
+function publish(patch: Partial<ScoreViewState>): void {
+    if (Object.entries(patch).every(([k, v]) => viewState[k as keyof ScoreViewState] === v)) {
+        return
+    }
+    viewState = { ...viewState, ...patch }
+    for (const l of viewListeners) {
+        l()
+    }
+}
+
+export function scoreViewState(): ScoreViewState {
+    return viewState
+}
+
+export function onScoreViewChanged(listener: () => void): () => void {
+    viewListeners.add(listener)
+    return () => viewListeners.delete(listener)
+}
+
+export function useScoreView(): ScoreViewState {
+    return useSyncExternalStore(onScoreViewChanged, scoreViewState)
+}
+
+export function currentScore(): MasterScore | null {
+    return score
+}
 
 // ---------------------------------------------------------------------------------
 //   state
 // ---------------------------------------------------------------------------------
 
 /** MuseScore's zoom steps (NotationViewInputController::ZOOM_LEVELS) */
-const ZOOM_LEVELS = [5, 10, 15, 25, 50, 75, 100, 150, 200, 400, 800, 1600]
+export const ZOOM_LEVELS = [5, 10, 15, 25, 50, 75, 100, 150, 200, 400, 800, 1600]
 const MIN_ZOOM = ZOOM_LEVELS[0]
 const MAX_ZOOM = ZOOM_LEVELS[ZOOM_LEVELS.length - 1]
 const CSS_DPI = 96 // CSS pixels per inch at 100%
 const MAX_CANVAS_PIXELS = 16 * 1024 * 1024 // larger pages are drawn as tiles of the visible part
 
 const FIT_MODES = ['page-width', 'whole-page'] as const
-type FitMode = typeof FIT_MODES[number]
+export type FitMode = typeof FIT_MODES[number]
 
 let score: MasterScore | null = null
 let fileName = ''
@@ -82,8 +119,7 @@ function spreadActive(): boolean {
 }
 
 export function setStatus(text: string, error = false): void {
-    statusEl.textContent = text
-    statusEl.parentElement!.classList.toggle('error', error)
+    publish({ status: text, statusError: error })
 }
 
 // ---------------------------------------------------------------------------------
@@ -132,6 +168,7 @@ fontsReady.then(() => setStatus('Ready'), (e: Error) => setStatus(`Error: ${e.me
 /** shows a laid out score; `name` is the file name (or the title of a new score) */
 export function showScore(s: MasterScore, name: string): void {
     score = s
+    publish({ selection: '' })
     fileName = name
     printPagesDiv.replaceChildren()
     buildPages()
@@ -139,6 +176,7 @@ export function showScore(s: MasterScore, name: string): void {
 
 export function clearScore(): void {
     score = null
+    publish({ selection: '' })
     fileName = ''
     printPagesDiv.replaceChildren()
     buildPages()
@@ -190,11 +228,10 @@ function buildPages(): void {
     pagesDiv.replaceChildren()
     pages = []
 
-    btn.clear.hidden = !score
     // like MuseScore's tab: the file name without extension; the score title as tooltip
-    titleEl.textContent = score ? fileName.replace(/\.mscx?z?$/i, '') : 'MuseScore Web'
-    titleEl.title = score ? [scoreTitle(score), fileName].filter(Boolean).join(' – ') : ''
-    document.title = score ? `${titleEl.textContent} – MuseScore Web` : 'MuseScore Web'
+    const title = score ? fileName.replace(/\.mscx?z?$/i, '') : ''
+    publish({ hasScore: !!score, title, tooltip: score ? [scoreTitle(score), fileName].filter(Boolean).join(' – ') : '' })
+    document.title = score ? `${title} – MuseScore Web` : 'MuseScore Web'
 
     if (score) {
         const n = pageCount(score)
@@ -318,7 +355,8 @@ function renderPage(el: HTMLDivElement, cssDpi: number): void {
     c.style.top = `${y / fullH * 100}%`
     c.style.width = `${w / fullW * 100}%`
     c.style.height = `${h / fullH * 100}%`
-    drawPage(score!, idx, c.getContext('2d')!, { dpi, region })
+    // like MuseScore's notation view (not printing): selection colors, the range frame, frames, invisible items grey
+    drawPage(score!, idx, c.getContext('2d')!, { dpi, region, printing: false })
     Object.assign(d, { dpi: dpi.toFixed(4), tile: region ? '1' : '0', x: String(x), y: String(y), w: String(w), h: String(h) })
 }
 
@@ -366,7 +404,7 @@ function preparePrint(): void {
     printPagesDiv.innerHTML = defs.svg() + html
 }
 
-async function print(): Promise<void> {
+export async function print(): Promise<void> {
     if (!score) {
         return
     }
@@ -409,38 +447,11 @@ function computeZoom(): number {
 }
 
 function updateZoomSelect(): void {
-    const custom = zoomSelect.querySelector<HTMLOptionElement>('option[data-custom]')
-    const label = `${Math.round(zoom)}%`
-    for (const o of zoomSelect.querySelectorAll<HTMLOptionElement>('option[data-level]')) {
-        o.selected = false
-    }
-    const mode = fitMode()
-    if (mode) {
-        zoomSelect.value = mode
-        if (custom) {
-            custom.remove()
-        }
-        return
-    }
-    const level = ZOOM_LEVELS.find(l => Math.abs(l - zoom) < 0.5)
-    if (level !== undefined) {
-        custom?.remove()
-        zoomSelect.value = String(level)
-        return
-    }
-    let opt = custom
-    if (!opt) {
-        opt = document.createElement('option')
-        opt.dataset.custom = '1'
-        zoomSelect.prepend(opt)
-    }
-    opt.value = String(zoom)
-    opt.textContent = label
-    zoomSelect.value = opt.value
+    publish({ zoom, fitMode: fitMode() })
 }
 
 /** zooms keeping the score point under (clientX, clientY) in place */
-function zoomAt(z: number, clientX?: number, clientY?: number): void {
+export function zoomAt(z: number, clientX?: number, clientY?: number): void {
     if (!score) {
         return
     }
@@ -476,36 +487,18 @@ function zoomAt(z: number, clientX?: number, clientY?: number): void {
     }
 }
 
-function zoomStep(dir: 1 | -1): void {
+export function zoomStep(dir: 1 | -1): void {
     const next = dir > 0 ? ZOOM_LEVELS.find(l => l > zoom + 0.5) : [...ZOOM_LEVELS].reverse().find(l => l < zoom - 0.5)
     zoomAt(next ?? (dir > 0 ? MAX_ZOOM : MIN_ZOOM))
 }
 
-function setFitMode(mode: FitMode): void {
+export function setFitMode(mode: FitMode): void {
     const page = currentPage()
     settings.zoom = mode
     saveSettings(settings)
     applyZoom(computeZoom())
     centerPage(page)
 }
-
-for (const level of ZOOM_LEVELS) {
-    const o = document.createElement('option')
-    o.value = String(level)
-    o.textContent = `${level}%`
-    o.dataset.level = '1'
-    zoomSelect.appendChild(o)
-}
-
-zoomSelect.addEventListener('change', () => {
-    const v = zoomSelect.value
-    if ((FIT_MODES as readonly string[]).includes(v)) {
-        setFitMode(v as FitMode)
-    } else {
-        zoomAt(Number(v))
-    }
-    viewport.focus({ preventScroll: true })
-})
 
 new ResizeObserver(() => {
     updatePan()
@@ -522,23 +515,13 @@ new ResizeObserver(() => {
 // ---------------------------------------------------------------------------------
 
 function updateControls(): void {
-    const has = !!score
     const horizontal = settings.orientation === 'horizontal'
     pagesDiv.className = horizontal ? 'horizontal' : 'vertical'
-    btn.layoutH.setAttribute('aria-checked', String(horizontal))
-    btn.layoutV.setAttribute('aria-checked', String(!horizontal))
-    const twoSided = !!score && isTwoSided(score)
-    btn.spread.disabled = !twoSided
-    btn.spread.setAttribute('aria-pressed', String(spreadActive()))
-    btn.spread.title = twoSided ? 'Two pages' : 'Two pages (only for scores with a two-sided page layout)'
-    for (const b of [btn.prev, btn.next, btn.zoomIn, btn.zoomOut, btn.center, btn.print, btn.layoutH, btn.layoutV]) {
-        b.disabled = !has
-    }
-    zoomSelect.disabled = !has
+    publish({ orientation: settings.orientation, spread: spreadActive(), spreadAvailable: !!score && isTwoSided(score) })
     updatePageInfo()
 }
 
-function setOrientation(o: 'horizontal' | 'vertical'): void {
+export function setOrientation(o: 'horizontal' | 'vertical'): void {
     const page = currentPage()
     settings.orientation = o
     saveSettings(settings)
@@ -549,7 +532,7 @@ function setOrientation(o: 'horizontal' | 'vertical'): void {
     centerPage(page)
 }
 
-function toggleSpread(): void {
+export function toggleSpread(): void {
     const page = currentPage()
     settings.spread = !settings.spread
     saveSettings(settings)
@@ -581,7 +564,7 @@ function currentPage(): number {
     return best
 }
 
-function goToPage(idx: number, behavior: ScrollBehavior = 'smooth'): void {
+export function goToPage(idx: number, behavior: ScrollBehavior = 'smooth'): void {
     if (!pages.length) {
         return
     }
@@ -599,7 +582,7 @@ function goToPage(idx: number, behavior: ScrollBehavior = 'smooth'): void {
 }
 
 /** shows the page (in a spread: the spread) in the middle of the view, horizontally and vertically */
-function centerPage(idx = currentPage()): void {
+export function centerPage(idx = currentPage()): void {
     if (!pages.length) {
         return
     }
@@ -613,6 +596,10 @@ function centerPage(idx = currentPage()): void {
 
 function pageGap(): number {
     return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--page-gap')) || 24
+}
+
+export function lastPage(): number {
+    return pages.length - 1
 }
 
 // the pages can be moved beyond their edges (like MuseScore's canvas) until this much of them is visible
@@ -636,7 +623,7 @@ function updatePan(): void {
     pan = next
 }
 
-function stepPage(dir: 1 | -1): void {
+export function stepPage(dir: 1 | -1): void {
     const cur = currentPage()
     if (!spreadActive()) {
         goToPage(cur + dir)
@@ -650,17 +637,14 @@ function stepPage(dir: 1 | -1): void {
 
 function updatePageInfo(): void {
     if (!score) {
-        pageInfo.textContent = '–'
-        btn.prev.disabled = btn.next.disabled = true
+        publish({ pageText: '–', canPrev: false, canNext: false })
         return
     }
     const n = pages.length
     const cur = currentPage()
     const partner = spreadActive() && cur > 0 ? (cur % 2 === 1 ? cur + 1 : cur - 1) : -1
     const shown = partner >= 0 && partner < n ? `${Math.min(cur, partner) + 1}–${Math.max(cur, partner) + 1}` : `${cur + 1}`
-    pageInfo.textContent = `${shown} / ${n}`
-    btn.prev.disabled = cur <= 0
-    btn.next.disabled = Math.max(cur, partner) >= n - 1
+    publish({ pageText: `${shown} / ${n}`, canPrev: cur > 0, canNext: Math.max(cur, partner) < n - 1 })
 }
 
 viewport.addEventListener('scroll', () => {
@@ -730,6 +714,85 @@ viewport.addEventListener('touchend', (e) => {
     }
 })
 
+// ---------------------------------------------------------------------------------
+//   selection (MuseScore's NotationViewInputController: click, ctrl/cmd+click adds, shift+click extends)
+// ---------------------------------------------------------------------------------
+
+/** redraws the pages after a selection change (no new layout) and updates the status bar */
+export function selectionChanged(scrollIntoView = false): void {
+    if (!score) {
+        return
+    }
+    for (const el of pages) {
+        delete el.querySelector('canvas')!.dataset.dpi
+    }
+    scheduleRender(0)
+    publish({ selection: hasSelection(score) ? selectionInfo(score) : '' })
+    if (scrollIntoView) {
+        const b = selectionBounds(score)[0]
+        const el = b ? pages[b.page] : null
+        if (el && b) {
+            const pr = el.getBoundingClientRect()
+            const vr = viewport.getBoundingClientRect()
+            const f = pr.width / pageSize(score, b.page).width
+            const x = pr.left + b.x * f
+            const y = pr.top + b.y * f
+            const m = 24
+            viewport.scrollBy({
+                left: x < vr.left + m ? x - vr.left - m : x + b.width * f > vr.right - m ? x + b.width * f - vr.right + m : 0,
+                top: y < vr.top + m ? y - vr.top - m : y + b.height * f > vr.bottom - m ? y + b.height * f - vr.bottom + m : 0,
+            })
+        }
+    }
+}
+
+export function selectAllElements(): void {
+    if (score) {
+        selectAll(score)
+        selectionChanged()
+    }
+}
+
+export function deselect(): boolean {
+    if (score && clearSelection(score)) {
+        selectionChanged()
+        return true
+    }
+    return false
+}
+
+let press: { x: number; y: number; id: number } | null = null
+
+viewport.addEventListener('pointerdown', (e) => {
+    if (score && e.button === 0 && !spaceDown) {
+        press = { x: e.clientX, y: e.clientY, id: e.pointerId }
+    }
+})
+
+viewport.addEventListener('pointerup', (e) => {
+    const p = press
+    press = null
+    if (!score || !p || p.id !== e.pointerId || Math.hypot(e.clientX - p.x, e.clientY - p.y) > 4) {
+        return
+    }
+    // the page under the pointer and the point on it in inches
+    const el = (e.target as Element).closest<HTMLDivElement>('.page:not(.placeholder)')
+    const mode: SelectMode = e.shiftKey ? 'range' : (e.ctrlKey || e.metaKey) ? 'add' : 'single'
+    if (!el) {
+        if (mode === 'single') {
+            deselect()
+        }
+        return
+    }
+    const idx = Number(el.dataset.page)
+    const r = el.getBoundingClientRect()
+    const size = pageSize(score, idx)
+    const cssDpi = r.width / size.width
+    if (selectAt(score, idx, (e.clientX - r.left) / cssDpi, (e.clientY - r.top) / cssDpi, mode, { dpi: cssDpi })) {
+        selectionChanged()
+    }
+})
+
 // hand tool: hold space (or use the middle mouse button) and drag
 let spaceDown = false
 let drag: { x: number; y: number; left: number; top: number; id: number } | null = null
@@ -771,9 +834,9 @@ function isTextInput(t: EventTarget | null): boolean {
     return t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement
 }
 
-// in full screen the toolbar is collapsed; it is shown while the pointer is at the top edge or on it,
-// or while it has the keyboard focus
-const toolbar = $<HTMLElement>('toolbar')
+// in full screen the app's chrome (menu bar, toolbars) is collapsed; it is shown while the pointer is at the top
+// edge or on it, or while it has the keyboard focus
+let chrome: HTMLElement | null = null
 let toolbarHideTimer = 0
 
 function showToolbar(autoHideMs = 0): void {
@@ -786,8 +849,8 @@ function showToolbar(autoHideMs = 0): void {
 
 function hideToolbar(): void {
     clearTimeout(toolbarHideTimer)
-    if (toolbar.matches(':hover') || toolbar.matches(':has(:focus-visible)')) {
-        return // pointer on it or keyboard navigation in it
+    if (chrome && (chrome.matches(':hover') || chrome.matches(':has(:focus-visible)') || chrome.matches(':has([aria-expanded="true"])'))) {
+        return // pointer on it, keyboard navigation or an open menu in it
     }
     document.body.classList.remove('toolbar-shown')
 }
@@ -795,8 +858,7 @@ function hideToolbar(): void {
 document.addEventListener('fullscreenchange', () => {
     const fs = !!document.fullscreenElement
     document.body.classList.toggle('fullscreen', fs)
-    btn.fullscreen.title = fs ? 'Exit full screen (F11)' : 'Full screen (F11)'
-    btn.fullscreen.setAttribute('aria-label', fs ? 'Exit full screen' : 'Full screen')
+    publish({ fullscreen: fs })
     if (fs) {
         // briefly, so it is clear where it went
         showToolbar(1200)
@@ -805,33 +867,38 @@ document.addEventListener('fullscreenchange', () => {
     }
 })
 
+/** the element that is collapsed in full screen (set by the React app) */
+export function setChrome(el: HTMLElement): void {
+    chrome = el
+    el.addEventListener('pointerenter', () => clearTimeout(toolbarHideTimer))
+    el.addEventListener('focusin', () => {
+        if (document.body.classList.contains('fullscreen')) {
+            showToolbar()
+        }
+    })
+    el.addEventListener('focusout', () => {
+        if (document.body.classList.contains('fullscreen') && !el.matches(':hover')) {
+            toolbarHideTimer = window.setTimeout(hideToolbar, 300)
+        }
+    })
+}
+
 $('toolbar-trigger').addEventListener('pointerenter', () => showToolbar())
 $('toolbar-trigger').addEventListener('pointerdown', () => showToolbar(3000)) // touch: tap at the top edge
-toolbar.addEventListener('pointerenter', () => clearTimeout(toolbarHideTimer))
-toolbar.addEventListener('focusin', () => {
-    if (document.body.classList.contains('fullscreen')) {
-        showToolbar()
-    }
-})
-toolbar.addEventListener('focusout', () => {
-    if (document.body.classList.contains('fullscreen') && !toolbar.matches(':hover')) {
-        toolbarHideTimer = window.setTimeout(hideToolbar, 300)
-    }
-})
-// hidden when the pointer is clearly below it (not on leaving it: an open zoom list is outside of it)
+// hidden when the pointer is clearly below it (not on leaving it: an open menu or list is outside of it)
 document.addEventListener('pointermove', (e) => {
-    if (!document.body.classList.contains('toolbar-shown') || !document.body.classList.contains('fullscreen')) {
+    if (!chrome || !document.body.classList.contains('toolbar-shown') || !document.body.classList.contains('fullscreen')) {
         return
     }
-    if (e.clientY > toolbar.getBoundingClientRect().bottom + 24) {
+    if (e.clientY > chrome.getBoundingClientRect().bottom + 24) {
         clearTimeout(toolbarHideTimer)
         toolbarHideTimer = window.setTimeout(hideToolbar, 300)
-    } else if (e.clientY <= toolbar.getBoundingClientRect().bottom) {
+    } else if (e.clientY <= chrome.getBoundingClientRect().bottom) {
         clearTimeout(toolbarHideTimer)
     }
 })
 
-function toggleFullscreen(): void {
+export function toggleFullscreen(): void {
     if (document.fullscreenElement) {
         void document.exitFullscreen()
     } else {
@@ -849,18 +916,9 @@ document.addEventListener('keydown', (e) => {
     }
     const mod = e.ctrlKey || e.metaKey
     const key = e.key
-    // on the home screen only the file commands
-    const scoreShown = !!score && document.body.dataset.view === 'score'
-
-    if (mod && key.toLowerCase() === 'o') {
-        e.preventDefault()
-        handlers.chooseFile()
-        return
-    } else if (mod && key.toLowerCase() === 'n') {
-        e.preventDefault()
-        handlers.newScore()
-        return
-    } else if (!scoreShown) {
+    // the commands of the menus and toolbars are actions (actions/actions.ts) with MuseScore's shortcuts;
+    // here only the keys of the view itself
+    if (!score || document.body.dataset.view !== 'score') {
         return
     }
 
@@ -875,33 +933,28 @@ document.addEventListener('keydown', (e) => {
     }
 
     let handled = true
-    if (mod && (key === '+' || key === '=')) {
-        zoomStep(1)
-    } else if (mod && (key === '-' || key === '_')) {
-        zoomStep(-1)
-    } else if (mod && key === '0') {
-        zoomAt(100)
-    } else if (mod && key.toLowerCase() === 'p') {
-        void print()
-    } else if (key === 'F11') {
-        toggleFullscreen()
-    } else if (isTextInput(e.target)) {
+    if (isTextInput(e.target) || e.target instanceof HTMLButtonElement) {
         handled = false
     } else if (key === 'PageDown') {
         stepPage(1)
     } else if (key === 'PageUp') {
         stepPage(-1)
-    } else if (key === 'Home') {
-        goToPage(0)
-    } else if (key === 'End') {
-        goToPage(pages.length - 1)
-    } else if (!mod && key.startsWith('Arrow') && document.activeElement !== viewport) {
-        // arrow keys scroll natively when the score has the focus
-        const d = 60
-        viewport.scrollBy({
-            left: key === 'ArrowLeft' ? -d : key === 'ArrowRight' ? d : 0,
-            top: key === 'ArrowUp' ? -d : key === 'ArrowDown' ? d : 0,
-        })
+    } else if (key.startsWith('Arrow') || ((key === 'Home' || key === 'End') && (e.shiftKey || mod))) {
+        // MuseScore's selection navigation; without a selection the arrows scroll
+        const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+        if (moveSelection(score, key, { shift: e.shiftKey, ctrl: isMac ? e.metaKey : e.ctrlKey, alt: e.altKey })) {
+            selectionChanged(true)
+        } else if (!mod && document.activeElement !== viewport && key.startsWith('Arrow')) {
+            const d = 60
+            viewport.scrollBy({
+                left: key === 'ArrowLeft' ? -d : key === 'ArrowRight' ? d : 0,
+                top: key === 'ArrowUp' ? -d : key === 'ArrowDown' ? d : 0,
+            })
+        } else {
+            handled = document.activeElement !== viewport
+        }
+    } else if (key === 'Escape') {
+        handled = deselect()
     } else {
         handled = false
     }
@@ -922,33 +975,21 @@ window.addEventListener('blur', () => {
 })
 
 // ---------------------------------------------------------------------------------
-//   buttons, drag and drop
+//   help, drag and drop
 // ---------------------------------------------------------------------------------
 
-btn.new.addEventListener('click', () => handlers.newScore())
-btn.open.addEventListener('click', () => handlers.chooseFile())
-btn.clear.addEventListener('click', () => handlers.closeScore())
-btn.prev.addEventListener('click', () => stepPage(-1))
-btn.next.addEventListener('click', () => stepPage(1))
-btn.layoutH.addEventListener('click', () => setOrientation('horizontal'))
-btn.layoutV.addEventListener('click', () => setOrientation('vertical'))
-btn.spread.addEventListener('click', toggleSpread)
-btn.zoomIn.addEventListener('click', () => zoomStep(1))
-btn.zoomOut.addEventListener('click', () => zoomStep(-1))
-btn.print.addEventListener('click', () => void print())
-btn.center.addEventListener('click', () => centerPage())
-btn.fullscreen.addEventListener('click', toggleFullscreen)
-btn.help.addEventListener('click', () => helpDialog.showModal())
+export function showShortcutsHelp(): void {
+    helpDialog.showModal()
+}
+
 helpDialog.addEventListener('close', () => viewport.focus({ preventScroll: true }))
 
-// space must not activate the focused toolbar button (it is the hand tool)
-for (const b of document.querySelectorAll('header button')) {
-    b.addEventListener('keyup', (e) => {
-        if ((e as KeyboardEvent).key === ' ') {
-            e.preventDefault()
-        }
-    })
-}
+// space must not activate a focused toolbar button (it is the hand tool)
+document.addEventListener('keyup', (e) => {
+    if (e.key === ' ' && e.target instanceof HTMLButtonElement && e.target.closest('#chrome') && score) {
+        e.preventDefault()
+    }
+}, { capture: true })
 
 // a file can be dropped anywhere (also on the home screen)
 let dragDepth = 0

@@ -6,14 +6,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { removeAllScores, removeScore, useScores, type ScoreEntry } from '../db'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { qtrc, useLanguage } from '../i18n'
 import { chooseFile, dismissError, forgetScore, openStored, showNewScoreDialog, useSession } from '../session'
 import { updateSettings, useSettings } from '../settings'
 
 const ICON = { grid: '', list: '', plus: '', close: '', search: '', score: '' }
 
-const relativeTime = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-
 function timeAgo(t: number): string {
+    const relativeTime = new Intl.RelativeTimeFormat(document.documentElement.lang || undefined, { numeric: 'auto' })
     const s = (t - Date.now()) / 1000
     const steps: [Intl.RelativeTimeFormatUnit, number][] = [['second', 60], ['minute', 60], ['hour', 24], ['day', 7], ['week', 4.35], ['month', 12]]
     let v = s
@@ -55,6 +55,7 @@ function Thumbnail({ entry }: { entry: ScoreEntry }): React.JSX.Element {
 }
 
 export function ScoresPage(): React.JSX.Element {
+    useLanguage()
     const scores = useScores()
     const session = useSession()
     const { home } = useSettings()
@@ -89,18 +90,18 @@ export function ScoresPage(): React.JSX.Element {
     return (
         <section className="home" aria-labelledby="home-title">
             <div className="home-header">
-                <h1 id="home-title">Scores</h1>
+                <h1 id="home-title">{qtrc('project', 'Scores')}</h1>
                 <div className="home-tools">
                     <label className="search">
                         <span className="icon-glyph" aria-hidden="true">{ICON.search}</span>
-                        <input type="search" placeholder="Search" aria-label="Search recent scores" value={query}
+                        <input type="search" placeholder={qtrc('ui', 'Search')} aria-label={qtrc('project', 'Search recent scores')} value={query}
                             onChange={e => setQuery(e.target.value)} />
                     </label>
                     <div className="segmented" role="radiogroup" aria-label="View">
-                        <button className="icon" role="radio" aria-checked={home.layout === 'grid'} title="Grid view"
-                            aria-label="Grid view" onClick={() => updateSettings('home', { layout: 'grid' })}>{ICON.grid}</button>
-                        <button className="icon" role="radio" aria-checked={home.layout === 'list'} title="List view"
-                            aria-label="List view" onClick={() => updateSettings('home', { layout: 'list' })}>{ICON.list}</button>
+                        <button className="icon" role="radio" aria-checked={home.layout === 'grid'} title={qtrc('project', 'Grid view')}
+                            aria-label={qtrc('project', 'Grid view')} onClick={() => updateSettings('home', { layout: 'grid' })}>{ICON.grid}</button>
+                        <button className="icon" role="radio" aria-checked={home.layout === 'list'} title={qtrc('project', 'List view')}
+                            aria-label={qtrc('project', 'List view')} onClick={() => updateSettings('home', { layout: 'list' })}>{ICON.list}</button>
                     </div>
                 </div>
             </div>
@@ -108,20 +109,20 @@ export function ScoresPage(): React.JSX.Element {
             {session.error && (
                 <div className="home-error" role="alert">
                     <span>{session.error}</span>
-                    <button className="icon" aria-label="Dismiss" title="Dismiss" onClick={dismissError}>{ICON.close}</button>
+                    <button className="icon" aria-label={qtrc('global', 'Close')} title={qtrc('global', 'Close')} onClick={dismissError}>{ICON.close}</button>
                 </div>
             )}
 
             <div className="home-body">
                 {scores === undefined ? null : searching && !shown.length ? (
-                    <p className="no-results muted">No results found</p>
+                    <p className="no-results muted">{qtrc('global', 'No results found')}</p>
                 ) : home.layout === 'grid' ? (
-                    <ul className="score-grid" aria-label="Recent scores">
+                    <ul className="score-grid" aria-label={qtrc('project', 'Recent scores grid')}>
                         {!searching && (
                             <li>
                                 <button className="score-card new" onClick={() => showNewScoreDialog(true)}>
                                     <span className="thumb"><span className="new-plus" aria-hidden="true">{ICON.plus}</span></span>
-                                    <span className="card-name">New score</span>
+                                    <span className="card-name">{qtrc('project', 'New score')}</span>
                                 </button>
                             </li>
                         )}
@@ -138,9 +139,9 @@ export function ScoresPage(): React.JSX.Element {
                         ))}
                     </ul>
                 ) : (
-                    <table className="score-list" aria-label="Recent scores">
+                    <table className="score-list" aria-label={qtrc('project', 'Recent scores list')}>
                         <thead>
-                            <tr><th>Name</th><th>Opened</th><th>Size</th><th><span className="visually-hidden">Actions</span></th></tr>
+                            <tr><th>{qtrc('notation', 'Name')}</th><th>{qtrc('project', 'Modified')}</th><th>{qtrc('global', 'Size', 'file size')}</th><th><span className="visually-hidden">Actions</span></th></tr>
                         </thead>
                         <tbody>
                             {!searching && (
@@ -148,7 +149,7 @@ export function ScoresPage(): React.JSX.Element {
                                     <td colSpan={4}>
                                         <button className="list-item" onClick={() => showNewScoreDialog(true)}>
                                             <span className="list-thumb new"><span aria-hidden="true">{ICON.plus}</span></span>
-                                            New score
+                                            {qtrc('project', 'New score')}
                                         </button>
                                     </td>
                                 </tr>
@@ -188,8 +189,8 @@ export function ScoresPage(): React.JSX.Element {
                     <button className="secondary" onClick={() => setConfirm({ kind: 'all' })}>Clear list…</button>
                 )}
                 <span className="spacer" />
-                <button className="secondary" onClick={chooseFile}>Open other…</button>
-                <button className="primary" onClick={() => showNewScoreDialog(true)}>New</button>
+                <button className="secondary" onClick={chooseFile}>{qtrc('project', 'Open other…')}</button>
+                <button className="primary" onClick={() => showNewScoreDialog(true)}>{qtrc('project', 'New')}</button>
             </div>
 
             {confirm && (
@@ -198,7 +199,7 @@ export function ScoresPage(): React.JSX.Element {
                     message={confirm.kind === 'all'
                         ? 'All scores are removed from this browser. Scores created here cannot be restored, they are not saved anywhere else.'
                         : 'This score was created here and is not saved anywhere else. It cannot be restored.'}
-                    confirmLabel="Remove"
+                    confirmLabel={qtrc('workspace', 'Remove')}
                     onClose={(ok) => {
                         if (ok) {
                             if (confirm.kind === 'all') {

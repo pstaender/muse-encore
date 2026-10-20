@@ -26,7 +26,9 @@ Test scores come from the MuseScore submodule (`git submodule update --init`): t
 Starts the Vite dev server and serves the scores from a fake host. The score view is shared by both apps, so
 these tests run for the viewer and the editor. Covers:
 
-- empty state (viewer): drop target centered, nothing to scroll
+- empty state (viewer): drop target centered, nothing to scroll (the toolbar is the viewer's; in the editor the
+  same commands are MuseScore actions in a toolbar and the shortcuts are MuseScore's, e.g. ⌃⌘F for full screen
+  on macOS)
 - loading window while a file is downloaded/laid out; input blocked meanwhile
 - opening via `?url=`, page centered, last file remembered across reloads, close button forgets it (also when
   reloading immediately; the editor then shows its home screen)
@@ -45,6 +47,10 @@ these tests run for the viewer and the editor. Covers:
   a reload; removing a created score asks first
 - New Score dialog from a template with a rendered preview (Ctrl+N)
 - settings (grid/list view) kept across reloads
+- menu bar: MuseScore's menus, mouse and keyboard (F10, arrows, End, Enter)
+- toolbars: dragging a toolbar to another place, hiding one (View > Toolbars), customizing the note input toolbar,
+  the layout kept across reloads, "Restore the default layout"
+- translations: German through Preferences (menus, home screen, instrument search), kept across reloads
 
 ## Comparison with MuseScore (`npm run compare:all`)
 
