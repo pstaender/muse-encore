@@ -33,6 +33,7 @@ import { TConv } from '../../types/typesconv'
 import { Sid } from '../../style/styledef'
 import { Pid, PropertyFlags, propertyName, propertyType } from '../../dom/property'
 import { Factory } from '../../dom/factory'
+import type { MMRest } from '../../dom/mmrest'
 import { TDuration } from '../../dom/durationtype'
 import { ClefTypeList } from '../../dom/clefinfo'
 import { KeySigEvent, type CustDef, type KeyList } from '../../dom/key'
@@ -187,6 +188,7 @@ export class TRead {
         case ElementType.NOTE: TRead.readNote(item as Note, xml, ctx); break
         case ElementType.NOTEDOT: TRead.readItemPropertiesOnly(item, xml, ctx); break
         case ElementType.REST: TRead.readRest(item as Rest, xml, ctx); break
+        case ElementType.MMREST: TRead.readMMRest(item as MMRest, xml, ctx); break
         case ElementType.SLUR:
         case ElementType.HAMMER_ON_PULL_OFF: // C++ read(HammerOnPullOff*) reads the Slur properties
             TRead.readSlur(item as Slur, xml, ctx)
@@ -2781,6 +2783,34 @@ export class TRead {
             return false
         }
         return true
+    }
+
+    static readMMRest(r: MMRest, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'Symbol') {
+                const s = Factory.createItem(ElementType.SYMBOL, r) as Symbol
+                s.setTrack(r.track())
+                TRead.readSymbol(s, e, ctx)
+                r.add(s)
+            } else if (tag === 'Image') {
+                e.skipCurrentElement() // TODO(port): images
+            } else if (tag === 'NoteDot') {
+                const dot = Factory.createItem(ElementType.NOTEDOT, r) as NoteDot
+                TRead.readItemPropertiesOnly(dot, e, ctx)
+                r.add(dot)
+            } else if (tag === 'mmRestNumberPos') {
+                // Old property, deprecated in 4.5
+                r.setNumberOffset(new Spatium(e.readDouble() - ctx.style().styleS(Sid.mmRestNumberPos).val()))
+            } else if (TRead.readPropertyIfTag(r, tag, e, ctx, Pid.MMREST_NUMBER_OFFSET)) {
+            } else if (TRead.readStyledProperty(r, tag, e, ctx)) {
+            } else if (tag === 'mmRestNumberVisible') { // C++ readProperties(MMRest*)
+                r.setProperty(Pid.MMREST_NUMBER_VISIBLE, e.readBool())
+            } else if (TRead.readRestProperties(r, e, ctx)) {
+            } else {
+                e.unknown()
+            }
+        }
     }
 
     static readRest(r: Rest, e: XmlReader, ctx: ReadContext): void {

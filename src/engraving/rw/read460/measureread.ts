@@ -13,6 +13,7 @@ import { Spatium } from '../../types/dimension'
 import { AutoOnOff, BarLineType, DurationType, ElementType, PlacementV, VOICES, ClefToBarlinePosition, trackZeroVoice } from '../../types/types'
 import { TConv } from '../../types/typesconv'
 import { Factory } from '../../dom/factory'
+import type { MMRest } from '../../dom/mmrest'
 import { Location } from '../../dom/location'
 import { NoteType } from '../../dom/chordrest'
 import { SegmentType, type Segment } from '../../dom/segment'
@@ -246,10 +247,13 @@ export class MeasureRead {
                 }
             } else if (tag === 'Rest') {
                 if (measure.isMMRest()) {
-                    // TODO(port): MMRest
                     segment = measure.getSegment(SegmentType.ChordRest, ctx.tick())
-                    e.skipCurrentElement()
-                    ctx.incTick(measure.ticks())
+                    const mmr = Factory.createItem(ElementType.MMREST, segment) as MMRest
+                    mmr.setTrack(ctx.track())
+                    mmr.setParent(segment)
+                    TRead.readMMRest(mmr, e, ctx)
+                    segment.add(mmr)
+                    ctx.incTick(mmr.actualTicks())
                 } else {
                     segment = measure.getSegment(SegmentType.ChordRest, ctx.tick())
                     const rest = Factory.createItem(ElementType.REST, segment) as Rest

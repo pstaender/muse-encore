@@ -277,3 +277,7 @@
   Font::toQFont); metrics are taken from QFontProvider in the app, not from the FreeType FontsEngine.
   FreeSerif lyrics verse distance (2.x/3.x): lyrics-5 19% -> 5.2%, lyrics-3/7 15-17% -> 4-6%.
 - Not ported: ProjectMigrator (the converter does not apply it; no migration options are stored).
+- Stored multi-measure rests of 3.x files: the MMRest element in an MM rest measure is read (TRead::read(MMRest*))
+  and the read position advances by its own duration like C++; relative locations after it (e.g. the end bar line)
+  were placed mid-measure, which made the MM rest too wide and broke the system: bravura-mmrest-1 20% -> 3.3%,
+  mmrest-10 17% (2 pages) -> 3.1% (1 page like MuseScore), emmentaler-mmrest-1 9.3% -> 3.4%.
