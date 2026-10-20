@@ -13,6 +13,7 @@ import { DefaultStyle } from '../style/defaultstyle'
 import { MscReader } from '../infrastructure/mscreader'
 import { MasterScore } from '../dom/masterscore'
 import { XmlReader } from './xmlreader'
+import { Read302 } from './read302/read302'
 import { Read460 } from './read460/read460'
 import { Sid } from '../style/styledef'
 import { ChordStylePreset } from '../types/types'
@@ -71,8 +72,8 @@ export class MscLoader {
                 if (score.mscVersion() > MSC_VERSION) {
                     throw new MscLoadError('file too new')
                 }
-                if (score.mscVersion() < 400) {
-                    // TODO(port): read302/read206/read114
+                if (score.mscVersion() < 300) {
+                    // TODO(port): read206/read114
                     throw new MscLoadError(`files of version ${version} are not supported yet`)
                 }
                 if (score.mscVersion() < 400) {
@@ -82,7 +83,9 @@ export class MscLoader {
                     // make sure we have a chord list; load the default chord list otherwise
                     score.checkChordList()
                 }
-                if (!new Read460().readScoreFile(score, e)) {
+                // C++ makeReader(): RWRegister::reader(version)
+                const reader = score.mscVersion() < 400 ? new Read302() : new Read460()
+                if (!reader.readScoreFile(score, e)) {
                     throw new MscLoadError(`bad format: ${e.errorString()}`)
                 }
                 return
@@ -105,6 +108,7 @@ export class MscLoader {
             }
         }
         score.setStyle(DefaultStyle.resolveStyleDefaults(defaultsVersion))
+        score.style().setDefaultStyleVersion(defaultsVersion)
     }
 }
 

@@ -78,7 +78,7 @@
   export within 0.05 units (1200 DPI).
 
 ### Known differences / missing
-- 3.x and older files (read302/206/114) are rejected.
+- 2.x and older files (read206/read114) are rejected; 3.x excerpts (parts) are not read.
 - Headers/footers use placeholder file info macros.
 - Demo not yet verified in a real browser (node rendering path verified).
 
@@ -167,6 +167,14 @@
   as DIRECTION in files < 4.6 (hairpins/cresc. lines were placed below instead of above).
 - read400 compat: key signatures with `<accidental>` (4.0 files; transposing instruments got no key signature):
   gliss-3 11% -> 3.8%.
+- 3.x files: Read302 (score tag, legacy default styles legacy-style-defaults-v3/v302.mss shipped in fonts/styles,
+  defaultsVersion), MStyle copied in Score::setStyle like C++. 108 3.x vtest files load and lay out.
+  read400/read410 compat added for them (also applies to 4.0-4.5 files): obsolete `pos`/`tick`/`selected` item tags,
+  staff hide modes (`hideWhenEmpty` integers converted per part), box auto-size off before 3.02, hook height sign of
+  lines below the staff (resetHookHeightSign), pre-4.2 pedal texts.
+- Chord/rest shapes are refilled on access like C++ LayoutData::shape() (ChordLayout::checkAndFillShape; a chord line
+  laid out before the chord shape existed was placed at DBL_MAX and hung the layout).
+- Music fonts Emmentaler (MScore), Gonville (Gootville), Petaluma, Finale Maestro, Finale Broadway are shipped.
 - Note: files < 4.6 are read with read460 plus selected read400/read410 compat (fretFontName, harmony, fret
   diagrams, marker type from label, header clefs); C++ uses separate readers for them.
 
@@ -180,4 +188,4 @@
   4.5 file and a vocal instrument MuseScore also places them above. Cause not found yet.
 - bigTimeSig-8: first measure after an across-staves header time signature is ~1sp wider than in MuseScore.
 - Cross-staff spacing (e.g. cross-10) differs.
-- 3.x and older files (read302/206/114) are rejected.
+- 2.x and older files (read206/read114) are rejected; 3.x excerpts (parts) are not read.

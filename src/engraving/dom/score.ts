@@ -128,7 +128,7 @@ export class Score extends EngravingObject {
 
     override style(): MStyle { return this.m_style }
     setStyle(s: MStyle): void {
-        this.m_style = s
+        this.m_style = s.clone() // C++ copies the style
         this.styleChanged()
     }
 

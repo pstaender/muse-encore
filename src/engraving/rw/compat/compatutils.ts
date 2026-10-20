@@ -10,6 +10,7 @@
 import type { AlignH } from '../../types/types'
 import { Pid, PropertyFlags } from '../../dom/property'
 import type { TextLineBase } from '../../dom/textlinebase'
+import type { Spatium } from '../../types/dimension'
 import { Font, FontType } from '../../../framework/draw/types/font'
 import { fontProvider } from '../../infrastructure/engravingcontext'
 import { Sid, STYLE_VALUES } from '../../style/styledef'
@@ -22,6 +23,22 @@ export class CompatUtils {
         const st = h.staff()
         const key = st ? st.key(h.tick()) : Key.INVALID
         info.setRootTpc(function2Tpc(s, key).tpc)
+    }
+
+    /** read400/read410: hook heights of lines below the staff were stored with the opposite sign before 4.6 */
+    static resetHookHeightSign(tl: TextLineBase): void {
+        if (!tl.placeBelow()) {
+            return
+        }
+
+        if (!tl.isStyled(Pid.BEGIN_HOOK_HEIGHT)) {
+            const beginHookHeight = tl.getProperty(Pid.BEGIN_HOOK_HEIGHT) as Spatium
+            tl.setProperty(Pid.BEGIN_HOOK_HEIGHT, beginHookHeight.neg())
+        }
+        if (!tl.isStyled(Pid.END_HOOK_HEIGHT)) {
+            const endHookHeight = tl.getProperty(Pid.END_HOOK_HEIGHT) as Spatium
+            tl.setProperty(Pid.END_HOOK_HEIGHT, endHookHeight.neg())
+        }
     }
 
     static setTextLineTextPositionFromAlign(tl: TextLineBase): void {

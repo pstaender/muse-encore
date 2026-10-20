@@ -12,7 +12,7 @@ import type { Fraction } from '../../types/fraction'
 import { LayoutMode, type Score } from '../../dom/score'
 import type { Beam } from '../../dom/beam'
 import type { Chord } from '../../dom/chord'
-import { chordRestRenderer } from '../../dom/chordrest'
+import { chordRestRenderer, type ChordRest } from '../../dom/chordrest'
 import { ldataShapeHooks, type EngravingItem } from '../../dom/engravingitem'
 import type { GuitarBendSegment } from '../../dom/guitarbend'
 import { ElementType } from '../../types/types'
@@ -52,3 +52,9 @@ chordRestRenderer.layoutStem = (c) => ScoreRenderer.layoutStem(c)
 
 // C++ EngravingItem::LayoutData::shape(): "Temporary fix" refilling shapes on access
 ldataShapeHooks[ElementType.GUITAR_BEND_SEGMENT] = (item) => TLayout.fillGuitarBendSegmentShape(item as GuitarBendSegment)
+// ChordLayout::checkAndFillShape(): "Temporary fix" until the layout order of the elements is figured out
+const fillChordRestShape = (item: EngravingItem): void => ChordLayout.fillShape(item as ChordRest, new LayoutContext(item.score()))
+ldataShapeHooks[ElementType.CHORD] = fillChordRestShape
+ldataShapeHooks[ElementType.REST] = fillChordRestShape
+ldataShapeHooks[ElementType.MEASURE_REPEAT] = fillChordRestShape
+ldataShapeHooks[ElementType.MMREST] = fillChordRestShape

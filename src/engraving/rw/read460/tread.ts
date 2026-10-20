@@ -79,7 +79,7 @@ import type { Tie } from '../../dom/tie'
 import type { TimeSig, TimeSigType } from '../../dom/timesig'
 import type { Tuplet } from '../../dom/tuplet'
 import type { XmlReader } from '../xmlreader'
-import type { ReadContext } from './readcontext'
+import { StaffHideMode, type ReadContext } from './readcontext'
 import { ConnectorInfoReader } from './connectorinforeader'
 import { scoreDummy } from '../../compat/dummyelement'
 import { smDrumset } from '../../dom/drumset'
@@ -475,6 +475,15 @@ export class TRead {
             TRead.readItemLink(item, e, ctx)
         } else if ((tag === 'linked' || tag === 'linkedMain') && ctx.mscVersion() < 460) {
             TRead.readItemLink410(item, tag, e, ctx)
+        } else if (tag === 'selected' && ctx.mscVersion() < 460) { // read400: obsolete
+            e.readInt()
+        } else if (tag === 'tick' && ctx.mscVersion() < 460) { // read400: obsolete
+            const val = e.readInt()
+            if (val >= 0) {
+                ctx.setTick(Fraction.fromTicks(ctx.fileDivision(val)))
+            }
+        } else if (tag === 'pos' && ctx.mscVersion() < 460) { // read400: obsolete
+            TRead.readProperty(item, e, ctx, Pid.OFFSET)
         } else if (TRead.readPropertyIfTag(item, tag, e, ctx, Pid.POSITION_LINKED_TO_MASTER)) {
         } else if (TRead.readPropertyIfTag(item, tag, e, ctx, Pid.APPEARANCE_LINKED_TO_MASTER)) {
         } else if (TRead.readPropertyIfTag(item, tag, e, ctx, Pid.EXCLUDE_FROM_OTHER_PARTS)) {
@@ -1147,6 +1156,9 @@ export class TRead {
                 xml.unknown()
             }
         }
+        if (ctx.mscVersion() < 460) {
+            CompatUtils.resetHookHeightSign(c)
+        }
         if (ctx.mscVersion() < 470) {
             CompatUtils.setTextLineTextPositionFromAlign(c)
         }
@@ -1338,6 +1350,9 @@ export class TRead {
                 e.unknown()
             }
         }
+        if (ctx.mscVersion() < 460) {
+            CompatUtils.resetHookHeightSign(h)
+        }
         if (ctx.mscVersion() < 470) {
             CompatUtils.setTextLineTextPositionFromAlign(h)
         }
@@ -1358,6 +1373,9 @@ export class TRead {
                 e.unknown()
             }
         }
+        if (ctx.mscVersion() < 460) {
+            CompatUtils.resetHookHeightSign(b)
+        }
         if (ctx.mscVersion() < 470) {
             CompatUtils.setTextLineTextPositionFromAlign(b)
         }
@@ -1374,6 +1392,9 @@ export class TRead {
                 e.unknown()
             }
         }
+        if (ctx.mscVersion() < 460) {
+            CompatUtils.resetHookHeightSign(v)
+        }
         if (ctx.mscVersion() < 470) {
             CompatUtils.setTextLineTextPositionFromAlign(v)
         }
@@ -1383,6 +1404,9 @@ export class TRead {
         o.eraseSpannerSegments()
         while (e.readNextStartElement()) {
             TRead.readOttavaProperties(o, e, ctx)
+        }
+        if (ctx.mscVersion() < 460) {
+            CompatUtils.resetHookHeightSign(o)
         }
         if (ctx.mscVersion() < 470) {
             CompatUtils.setTextLineTextPositionFromAlign(o)
@@ -1416,8 +1440,14 @@ export class TRead {
     }
 
     static readPedal(p: Pedal, e: XmlReader, ctx: ReadContext): void {
+        let beginTextTag = false
+        let continueTextTag = false
+        let endTextTag = false
         while (e.readNextStartElement()) {
             const tag = e.name()
+            beginTextTag ||= tag === 'beginText'
+            continueTextTag ||= tag === 'continueText'
+            endTextTag ||= tag === 'endText'
             if (TRead.readStyledProperty(p, tag, e, ctx)) {
             } else if (TRead.readPropertyIfTag(p, tag, e, ctx, Pid.LINE_VISIBLE)) {
                 p.resetProperty(Pid.END_TEXT)
@@ -1429,6 +1459,31 @@ export class TRead {
             } else if (!TRead.readTextLineBaseProperties(p, e, ctx)) {
                 e.unknown()
             }
+        }
+        if (ctx.mscVersion() < 420 && !ctx.pasteMode()) {
+            // read400/read410: Set to the pre-420 defaults if no value was specified;
+            // or follow the new style setting if the specified value matches it
+            if (!beginTextTag) {
+                p.setBeginText('')
+                p.setPropertyFlags(Pid.BEGIN_TEXT, PropertyFlags.UNSTYLED)
+            } else if (p.beginText() === p.propertyDefault(Pid.BEGIN_TEXT)) {
+                p.setPropertyFlags(Pid.BEGIN_TEXT, PropertyFlags.STYLED)
+            }
+            if (!continueTextTag) {
+                p.setContinueText('')
+                p.setPropertyFlags(Pid.CONTINUE_TEXT, PropertyFlags.UNSTYLED)
+            } else if (p.continueText() === p.propertyDefault(Pid.CONTINUE_TEXT)) {
+                p.setPropertyFlags(Pid.CONTINUE_TEXT, PropertyFlags.STYLED)
+            }
+            if (!endTextTag) {
+                p.setEndText('')
+                p.setPropertyFlags(Pid.END_TEXT, PropertyFlags.UNSTYLED)
+            } else if (p.endText() === p.propertyDefault(Pid.END_TEXT)) {
+                p.setPropertyFlags(Pid.END_TEXT, PropertyFlags.STYLED)
+            }
+        }
+        if (ctx.mscVersion() < 460) {
+            CompatUtils.resetHookHeightSign(p)
         }
         if (ctx.mscVersion() < 470) {
             CompatUtils.setTextLineTextPositionFromAlign(p)
@@ -1447,6 +1502,9 @@ export class TRead {
             } else if (!TRead.readTextLineBaseProperties(r, e, ctx)) {
                 e.unknown()
             }
+        }
+        if (ctx.mscVersion() < 460) {
+            CompatUtils.resetHookHeightSign(r)
         }
         if (ctx.mscVersion() < 470) {
             CompatUtils.setTextLineTextPositionFromAlign(r)
@@ -1707,6 +1765,77 @@ export class TRead {
         if (p.partName().length === 0) {
             p.setPartName(p.instrument().trackName())
         }
+
+        if (ctx.mscVersion() < 460) {
+            TRead.readPartHideModes(p, ctx.staffHideModes(), ctx.style().styleB(Sid.hideEmptyStaves))
+        }
+    }
+
+    /** read400 TRead::read(Part*, StaffHideModes&, bool globalHideEmptyStaves) */
+    static readPartHideModes(p: Part, staffHideModes: Map<Staff, StaffHideMode>, globalHideEmptyStaves: boolean): void {
+        if (p.nstaves() === 0) {
+            return
+        }
+        const modeOf = (staff: Staff): StaffHideMode => staffHideModes.get(staff) ?? StaffHideMode.AUTO
+
+        if (p.nstaves() === 1) {
+            switch (modeOf(p.staves()[0])) {
+            case StaffHideMode.AUTO:
+                break
+            case StaffHideMode.ALWAYS:
+                p.setHideWhenEmpty(AutoOnOff.ON)
+                break
+            case StaffHideMode.NEVER:
+                p.setHideWhenEmpty(AutoOnOff.OFF)
+                break
+            case StaffHideMode.INSTRUMENT:
+                break
+            }
+            return
+        }
+
+        let hasAuto = false
+        let allAlways = true
+        let allNever = true
+        let hasInstrument = false
+
+        for (const staff of p.staves()) {
+            const mode = modeOf(staff)
+
+            hasAuto ||= mode === StaffHideMode.AUTO
+            allAlways &&= mode === StaffHideMode.ALWAYS
+            allNever &&= mode === StaffHideMode.NEVER
+            hasInstrument ||= mode === StaffHideMode.INSTRUMENT
+        }
+
+        if (allAlways) {
+            p.setHideWhenEmpty(AutoOnOff.ON)
+            p.setHideStavesWhenIndividuallyEmpty(true)
+            return
+        } else if (allNever) {
+            p.setHideWhenEmpty(AutoOnOff.OFF)
+            return
+        }
+
+        if (globalHideEmptyStaves && hasAuto && !hasInstrument) {
+            p.setHideStavesWhenIndividuallyEmpty(true)
+        }
+
+        for (const staff of p.staves()) {
+            switch (modeOf(staff)) {
+            case StaffHideMode.AUTO:
+                // A mix of AUTO and INSTRUMENT staves can't be represented in the new system (see C++)
+                break
+            case StaffHideMode.ALWAYS:
+                staff.setHideWhenEmpty(AutoOnOff.ON)
+                break
+            case StaffHideMode.NEVER:
+                staff.setHideWhenEmpty(AutoOnOff.OFF)
+                break
+            case StaffHideMode.INSTRUMENT:
+                break
+            }
+        }
     }
 
     static readPartProperties(p: Part, e: XmlReader, ctx: ReadContext): boolean {
@@ -1870,7 +1999,12 @@ export class TRead {
         } else if (tag === 'invisible') {
             s.staffType(new Fraction(0, 1)).setInvisible(e.readInt() !== 0) // same as: setInvisible(Fraction(0,1)), e.readInt())
         } else if (tag === 'hideWhenEmpty') {
-            s.setHideWhenEmpty(TConv.fromXmlAutoOnOff(e.readAsciiText(), AutoOnOff.AUTO))
+            if (ctx.mscVersion() < 460) {
+                // read400/read410: the old staff hide mode is converted in readPartHideModes()
+                ctx.staffHideModes().set(s, e.readInt() as StaffHideMode)
+            } else {
+                s.setHideWhenEmpty(TConv.fromXmlAutoOnOff(e.readAsciiText(), AutoOnOff.AUTO))
+            }
         } else if (tag === 'cutaway') {
             s.setCutaway(e.readInt() !== 0)
         } else if (tag === 'showIfSystemEmpty') {
@@ -2237,6 +2371,9 @@ export class TRead {
                 e.unknown()
             }
         }
+        if (b.score().mscVersion() < 302) {
+            b.setAutoSizeEnabled(false) // read400: disable auto-size for older scores by default.
+        }
     }
 
     static readHBox(b: HBox, e: XmlReader, ctx: ReadContext): void {
@@ -2244,6 +2381,9 @@ export class TRead {
             if (!TRead.readHBoxProperties(b, e, ctx)) {
                 e.unknown()
             }
+        }
+        if (b.score().mscVersion() < 302) {
+            b.setAutoSizeEnabled(false) // read400: disable auto-size for older scores by default.
         }
     }
 

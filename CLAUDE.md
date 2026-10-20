@@ -26,10 +26,12 @@ src/
   engraving/style       Sid + default style (generated), MStyle
   engraving/infrastructure  Shape, Skyline, Smufl, MscReader (zip)
   engraving/dom         the score object model (Score, Measure, Segment, Chord, Note, ...)
-  engraving/rw          XmlReader, readers (read460 ...)
+  engraving/rw          XmlReader, readers (read460 for 4.x incl. read400/read410 compat, read302 for 3.x)
   engraving/rendering/score  layout (ScoreLayout, SystemLayout, ChordLayout, ...) and painting (TDraw)
   index.ts              public library API
-fonts/                  runtime fonts (Leland, Bravura, Edwin, FreeSerif/FreeSans) with their licenses
+fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore, Gonville/Gootville, Petaluma,
+                        Finale Maestro/Broadway, MuseJazz, Edwin, FreeSerif/FreeSans) with their licenses,
+                        chord description files (chords/), legacy default styles for old scores (styles/)
 tools/gen/              generators for tables derived from the C++ sources (re-run on MuseScore updates)
 tools/                  node scripts: render to PNG, compare with MuseScore output
 demo/                   Vite demo app

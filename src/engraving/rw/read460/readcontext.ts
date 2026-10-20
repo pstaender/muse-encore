@@ -18,6 +18,14 @@ import type { Score } from '../../dom/score'
 import type { Staff } from '../../dom/staff'
 import type { ConnectorInfoReader } from './connectorinforeader'
 
+/** C++ rw/compat/compattypes.h */
+export enum StaffHideMode {
+    AUTO = 0,
+    ALWAYS,
+    NEVER,
+    INSTRUMENT,
+}
+
 /** C++ rw/linksindexer.h */
 class LinksIndexer {
     private m_lastLocalIndex = -1
@@ -52,6 +60,10 @@ export class ReadContext {
     private m_transpose = new Interval()
     private m_tracks = new Map<number, number>()
     private m_timeSigForNextMeasure = new Fraction(0, 1)
+
+    // read400/read410 compat: staff hide modes (rw/compat/compattypes.h StaffHideModes)
+    private m_staffHideModes = new Map<Staff, StaffHideMode>()
+    staffHideModes(): Map<Staff, StaffHideMode> { return this.m_staffHideModes }
 
     // read410 compat: elements linked with <linked>/<linkedMain> (one list per staff)
     private m_staffLinkedElements = new Map<number, [EngravingObject[], Location][]>()

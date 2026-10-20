@@ -1,0 +1,2 @@
+MScore (formerly Emmentaler, derived from the LilyPond feta font) and MScore Text,
+copied from MuseScore Studio fonts/mscore (GPL-3.0 with font exception, see the MuseScore repository).
