@@ -511,8 +511,11 @@ zoomSelect.addEventListener('change', () => {
 
 new ResizeObserver(() => {
     updatePan()
-    if (fitMode()) {
+    if (fitMode() && score) {
+        // the page stays fitted and centered (e.g. entering full screen)
+        const page = currentPage()
         applyZoom(computeZoom())
+        centerPage(page)
     }
 }).observe(viewport)
 
@@ -769,6 +772,66 @@ viewport.addEventListener('pointercancel', endDrag)
 function isTextInput(t: EventTarget | null): boolean {
     return t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement
 }
+
+// in full screen the toolbar is collapsed; it is shown while the pointer is at the top edge or on it,
+// or while it has the keyboard focus
+const toolbar = $<HTMLElement>('toolbar')
+let toolbarHideTimer = 0
+
+function showToolbar(autoHideMs = 0): void {
+    clearTimeout(toolbarHideTimer)
+    document.body.classList.add('toolbar-shown')
+    if (autoHideMs) {
+        toolbarHideTimer = window.setTimeout(hideToolbar, autoHideMs)
+    }
+}
+
+function hideToolbar(): void {
+    clearTimeout(toolbarHideTimer)
+    if (toolbar.matches(':hover') || toolbar.matches(':has(:focus-visible)')) {
+        return // pointer on it or keyboard navigation in it
+    }
+    document.body.classList.remove('toolbar-shown')
+}
+
+document.addEventListener('fullscreenchange', () => {
+    const fs = !!document.fullscreenElement
+    document.body.classList.toggle('fullscreen', fs)
+    btn.fullscreen.title = fs ? 'Exit full screen (F11)' : 'Full screen (F11)'
+    btn.fullscreen.setAttribute('aria-label', fs ? 'Exit full screen' : 'Full screen')
+    if (fs) {
+        // briefly, so it is clear where it went
+        showToolbar(1200)
+    } else {
+        document.body.classList.remove('toolbar-shown')
+    }
+})
+
+$('toolbar-trigger').addEventListener('pointerenter', () => showToolbar())
+$('toolbar-trigger').addEventListener('pointerdown', () => showToolbar(3000)) // touch: tap at the top edge
+toolbar.addEventListener('pointerenter', () => clearTimeout(toolbarHideTimer))
+toolbar.addEventListener('focusin', () => {
+    if (document.body.classList.contains('fullscreen')) {
+        showToolbar()
+    }
+})
+toolbar.addEventListener('focusout', () => {
+    if (document.body.classList.contains('fullscreen') && !toolbar.matches(':hover')) {
+        toolbarHideTimer = window.setTimeout(hideToolbar, 300)
+    }
+})
+// hidden when the pointer is clearly below it (not on leaving it: an open zoom list is outside of it)
+document.addEventListener('pointermove', (e) => {
+    if (!document.body.classList.contains('toolbar-shown') || !document.body.classList.contains('fullscreen')) {
+        return
+    }
+    if (e.clientY > toolbar.getBoundingClientRect().bottom + 24) {
+        clearTimeout(toolbarHideTimer)
+        toolbarHideTimer = window.setTimeout(hideToolbar, 300)
+    } else if (e.clientY <= toolbar.getBoundingClientRect().bottom) {
+        clearTimeout(toolbarHideTimer)
+    }
+})
 
 function toggleFullscreen(): void {
     if (document.fullscreenElement) {

@@ -308,3 +308,7 @@
 - Web viewer: busy overlay (spinner, file name, step) while a file is downloaded/laid out and while printing is
   prepared; it blocks input (overlay, inert viewport, shortcuts and drops ignored). The spinner is a CSS transform
   animation, so it keeps turning during the synchronous layout. Fades in after 150 ms (no flash for small files).
+- Web viewer full screen: the toolbar is collapsed (fixed, slid up) and slides in when the pointer reaches the top
+  edge (8 px trigger strip; tap on touch), stays while hovered or keyboard-focused, hides when the pointer is clearly
+  below it (not on mouseleave, an open zoom list is outside of it); shown for 1.2 s on entering full screen.
+  Fit zoom modes refit and recenter the page when the view is resized.
