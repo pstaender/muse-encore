@@ -634,8 +634,20 @@ export class Score extends EngravingObject {
     }
 
     override scanElements(func: (item: EngravingItem) => void): void {
+        for (let mb = this.first(); mb; mb = mb.next()) {
+            mb.scanElements(func)
+            if (mb.isMeasure()) {
+                const mmr = (mb as Measure).mmRest()
+                if (mmr) {
+                    mmr.scanElements(func)
+                }
+            }
+        }
         for (const page of this.m_pages) {
-            page.scanElements(func)
+            for (const s of page.systems()) {
+                s.scanElements(func)
+            }
+            func(page)
         }
     }
 

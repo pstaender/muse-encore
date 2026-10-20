@@ -64,6 +64,7 @@ import type { Parenthesis } from '../../dom/parenthesis'
 import { FretDotType, FretMarkerType, type FretDiagram } from '../../dom/fret'
 import { AlignmentFlag } from '../../../framework/draw/types/drawtypes'
 import type { TrillSegment } from '../../dom/trill'
+import type { Ambitus } from '../../dom/ambitus'
 import type { Arpeggio } from '../../dom/arpeggio'
 import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
@@ -106,6 +107,8 @@ export class TDraw {
         case ElementType.SPACER:
             break
         case ElementType.LEDGER_LINE: TDraw.drawLedgerLine(item as LedgerLine, painter, opt)
+            break
+        case ElementType.AMBITUS: TDraw.drawAmbitus(item as Ambitus, painter, opt)
             break
         case ElementType.ARPEGGIO: TDraw.drawArpeggio(item as Arpeggio, painter, opt)
             break
@@ -201,6 +204,7 @@ export class TDraw {
         case ElementType.DYNAMIC:
         case ElementType.EXPRESSION:
         case ElementType.STAFF_TEXT:
+        case ElementType.INSTRUMENT_CHANGE:
         case ElementType.SYSTEM_TEXT:
         case ElementType.TEMPO_TEXT:
         case ElementType.REHEARSAL_MARK:
@@ -648,6 +652,49 @@ export class TDraw {
                     new PointF(l.x2(), l.y2() + ww),
                     new PointF(l.x1(), l.y1() + ww),
                 ], FillRule.OddEvenFill)
+            }
+        }
+    }
+
+    static drawAmbitus(item: Ambitus, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+
+        const spatium = item.spatium()
+        const lw = item.lineWidth().val() * spatium
+        painter.setPen(new Pen(item.curColor(opt), lw, PenStyle.SolidLine, PenCapStyle.FlatCap))
+
+        item.drawSymbol(item.noteHead(), painter, ldata.topPos)
+        item.drawSymbol(item.noteHead(), painter, ldata.bottomPos)
+        if (item.hasLine()) {
+            painter.drawLine(ldata.line)
+        }
+
+        // draw ledger lines (if not in a palette)
+        if (item.explicitParent() && item.track() !== -1) {
+            const tick = item.segment().tick()
+            const staff = item.score().staff(item.staffIdx())!
+            const lineDist = staff.lineDistance(tick)
+            const numOfLines = staff.lines(tick)
+            const step = lineDist * spatium
+            const stepTolerance = step * 0.1
+            const ledgerLineLength = item.style().styleS(Sid.ledgerLineLength).val() * spatium
+            const ledgerLineWidth = item.style().styleS(Sid.ledgerLineWidth).val() * spatium
+            painter.setPen(new Pen(item.curColor(opt), ledgerLineWidth, PenStyle.SolidLine, PenCapStyle.FlatCap))
+
+            if (ldata.topPos.y() - stepTolerance <= -step) {
+                const xMin = ldata.topPos.x() - ledgerLineLength
+                const xMax = ldata.topPos.x() + item.headWidth() + ledgerLineLength
+                for (let y = -step; y >= ldata.topPos.y() - stepTolerance; y -= step) {
+                    painter.drawLine(new LineF(xMin, y, xMax, y))
+                }
+            }
+
+            if (ldata.bottomPos.y() + stepTolerance >= numOfLines * step) {
+                const xMin = ldata.bottomPos.x() - ledgerLineLength
+                const xMax = ldata.bottomPos.x() + item.headWidth() + ledgerLineLength
+                for (let y = numOfLines * step; y <= ldata.bottomPos.y() + stepTolerance; y += step) {
+                    painter.drawLine(new LineF(xMin, y, xMax, y))
+                }
             }
         }
     }

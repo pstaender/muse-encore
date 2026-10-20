@@ -78,7 +78,44 @@
   export within 0.05 units (1200 DPI).
 
 ### Known differences / missing
-- 2.x and older files (read206/read114) are rejected; 3.x excerpts (parts) are not read.
+- 1.x files (read114) are rejected; 2.x/3.x excerpts (parts) are not read.
+
+## 2026-10-20 — Session 2: 2.x files, load-time compatibility conversions
+
+### Done
+- 2.x files (mscVersion 115-207): Read206 port (rw/read206/read206.ts) incl. 2.x text styles (user/excess styles),
+  text reading via a sub reader (TextReaderContext206 -> XmlReader.readSubReader), tuplets/beams/slurs by id
+  (ReadContext tables like read400), old articulation names (fermatas split off), double articulations, ties fix,
+  adjustPlacement, old glissandi/text lines on notes (placeholder spanners), measure/box reading, page format
+  (compat/pageformat.ts, also used by MStyle.read for 3.x), bar line spans (setBarLineSpanToStaves + local
+  overrides). Old spanners of files < 3.01 are registered by id in the shared readers (read400).
+  All 157 2.x vtest files load; mean diff 7.99% (first run) -> see below.
+- ReadChordListHook (rw/compat/readchordlisthook.ts): `<ChordList>` in the style of 2.x-4.x files is read and the chord
+  list validated/loaded like C++ (3.x chord symbols: harmony-1 14.6% -> 4.6%).
+- EngravingCompat (compat/engravingcompat.ts): pre-layout conversions run between the first and second layout like
+  NotationProject::load (pre-4.7 text offsets/frame radius, note parentheses migration, marker size, rest offsets,
+  vbox distances, pedal end points, dynamics/hairpins below vocal staves) and post-layout ones (lyrics line
+  visibility, cross-staff beams). index.layoutScore applies them once per score.
+- CompatConversions (rw/compat/compatconversions.ts = CompatUtils::doCompatibilityConversions, called after reading):
+  custom dynamic types, expressions from staff text, ornaments from articulations, rest offsets, split combined
+  articulations, articulation offsets, two-note tremolo stems, initial key of transposing instruments, header/footer
+  style mapping, laissez vibrer articulations -> ties.
+- Time tick anchors (dom/anchors.ts, MeasureLayout.layoutTimeTickAnchors): spanners starting/ending at a tick without
+  a chord/rest (e.g. at the end of a measure) are anchored to TimeTick segments like C++ (hairpins/trills ending at
+  the end of the score were one measure too short).
+- Score.scanElements walks measures and systems like C++ (was: pages only).
+- Staff STAFF_BARLINE_SPAN property also updates non-generated end bar lines (C++ Staff::setProperty).
+- MStyle.styleD returns the value of Spatium styles (C++ toReal()); NaN bar line positions in 2.x files.
+- Trill segment and tuplet shapes are refilled on access like C++ (LayoutData::shape hooks; the trill was placed
+  against its bbox instead of its symbols): ornament-9 13.9% -> 5.8%.
+- Ambitus (dom/ambitus.ts, layout, drawing incl. ledger lines, MM rests, readers): small-1 22% -> 4.6%,
+  ambitus-offset 7.2% -> 0.6%.
+- Instrument changes (dom/instrchange.ts: text, Part::setInstrument at the tick, so later systems show the new
+  instrument names): instrument-1 20.6% -> 4.8% (together with the next item).
+- Measure `<stretch>` of files < 4.0 is ignored like read400.
+- Custom key signatures (layout incl. naturals after a custom key sig; 3.x `<KeySym>` tag): custom-keysig-1..4
+  12-15% -> 3-4.5%.
+- Not ported: ProjectMigrator (the converter does not apply it; no migration options are stored).
 - Headers/footers use placeholder file info macros.
 - Demo not yet verified in a real browser (node rendering path verified).
 
@@ -180,12 +217,49 @@
 
 ### Known differences / missing
 - Not ported (not drawn): partial lyrics lines,
-  chord brackets, tremolo bars, images, note lines, fret boxes, MMRestRange, excerpts, capos, string tunings.
+  chord brackets, tremolo bars, images, note lines, fret boxes, MMRestRange, excerpts, capos, string tunings,
+  play technique annotations, harp diagrams, system dividers, sticking, figured bass, old Bend.
+- harmony-15 (3.x, jazz chord symbols with a custom chord list) still differs (~17%).
 - guitarDive-2: measure widths differ slightly (~1.5%) from MuseScore.
 - harmony-35: chord symbols at size 20 are placed ~0.45sp lower than in MuseScore (10, 15 and 25 match), so a
   4th system fits on page 1.
-- ornament-9: hairpins on vocal staves (4.2 file) are placed above the staff, MuseScore places them below; with a
-  4.5 file and a vocal instrument MuseScore also places them above. Cause not found yet.
 - bigTimeSig-8: first measure after an across-staves header time signature is ~1sp wider than in MuseScore.
 - Cross-staff spacing (e.g. cross-10) differs.
-- 2.x and older files (read206/read114) are rejected; 3.x excerpts (parts) are not read.
+- 1.x files (read114) are rejected; 2.x/3.x excerpts (parts) are not read.
+
+## 2026-10-20 — Session 2: 2.x files, load-time compatibility conversions
+
+### Done
+- 2.x files (mscVersion 115-207): Read206 port (rw/read206/read206.ts) incl. 2.x text styles (user/excess styles),
+  text reading via a sub reader (TextReaderContext206 -> XmlReader.readSubReader), tuplets/beams/slurs by id
+  (ReadContext tables like read400), old articulation names (fermatas split off), double articulations, ties fix,
+  adjustPlacement, old glissandi/text lines on notes (placeholder spanners), measure/box reading, page format
+  (compat/pageformat.ts, also used by MStyle.read for 3.x), bar line spans (setBarLineSpanToStaves + local
+  overrides). Old spanners of files < 3.01 are registered by id in the shared readers (read400).
+  All 157 2.x vtest files load; mean diff 7.99% (first run) -> see below.
+- ReadChordListHook (rw/compat/readchordlisthook.ts): `<ChordList>` in the style of 2.x-4.x files is read and the chord
+  list validated/loaded like C++ (3.x chord symbols: harmony-1 14.6% -> 4.6%).
+- EngravingCompat (compat/engravingcompat.ts): pre-layout conversions run between the first and second layout like
+  NotationProject::load (pre-4.7 text offsets/frame radius, note parentheses migration, marker size, rest offsets,
+  vbox distances, pedal end points, dynamics/hairpins below vocal staves) and post-layout ones (lyrics line
+  visibility, cross-staff beams). index.layoutScore applies them once per score.
+- CompatConversions (rw/compat/compatconversions.ts = CompatUtils::doCompatibilityConversions, called after reading):
+  custom dynamic types, expressions from staff text, ornaments from articulations, rest offsets, split combined
+  articulations, articulation offsets, two-note tremolo stems, initial key of transposing instruments, header/footer
+  style mapping, laissez vibrer articulations -> ties.
+- Time tick anchors (dom/anchors.ts, MeasureLayout.layoutTimeTickAnchors): spanners starting/ending at a tick without
+  a chord/rest (e.g. at the end of a measure) are anchored to TimeTick segments like C++ (hairpins/trills ending at
+  the end of the score were one measure too short).
+- Score.scanElements walks measures and systems like C++ (was: pages only).
+- Staff STAFF_BARLINE_SPAN property also updates non-generated end bar lines (C++ Staff::setProperty).
+- MStyle.styleD returns the value of Spatium styles (C++ toReal()); NaN bar line positions in 2.x files.
+- Trill segment and tuplet shapes are refilled on access like C++ (LayoutData::shape hooks; the trill was placed
+  against its bbox instead of its symbols): ornament-9 13.9% -> 5.8%.
+- Ambitus (dom/ambitus.ts, layout, drawing incl. ledger lines, MM rests, readers): small-1 22% -> 4.6%,
+  ambitus-offset 7.2% -> 0.6%.
+- Instrument changes (dom/instrchange.ts: text, Part::setInstrument at the tick, so later systems show the new
+  instrument names): instrument-1 20.6% -> 4.8% (together with the next item).
+- Measure `<stretch>` of files < 4.0 is ignored like read400.
+- Custom key signatures (layout incl. naturals after a custom key sig; 3.x `<KeySym>` tag): custom-keysig-1..4
+  12-15% -> 3-4.5%.
+- Not ported: ProjectMigrator (the converter does not apply it; no migration options are stored).

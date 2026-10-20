@@ -14,6 +14,7 @@ import { Fraction } from './engraving/types/fraction'
 import { DPI } from './engraving/types/types'
 import { fontProvider } from './engraving/infrastructure/engravingcontext'
 import { loadScore as loadMasterScore } from './engraving/rw/mscloader'
+import { EngravingCompat } from './engraving/compat/engravingcompat'
 import type { MasterScore } from './engraving/dom/masterscore'
 import { ScoreRenderer } from './engraving/rendering/score/scorerenderer'
 import { Paint } from './engraving/rendering/score/paint'
@@ -33,10 +34,21 @@ export function loadScore(data: Uint8Array | ArrayBuffer): MasterScore {
 export function layoutScore(score: MasterScore): void {
     // MuseScore lays out a loaded score twice (EngravingProject::loadMscz and NotationProject::doLoad) and some
     // results depend on the previous pass (e.g. chord shapes include the lyrics bboxes, which are only laid out
-    // after the chord shapes are filled), so do the same to get identical results
+    // after the chord shapes are filled), so do the same to get identical results.
+    // The compatibility conversions for older files run between and after these passes (NotationProject::load).
+    const firstLayout = !s_compatDone.has(score)
     ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
+    if (firstLayout) {
+        s_compatDone.add(score)
+        EngravingCompat.doPreLayoutCompatIfNeeded(score)
+    }
     ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
+    if (firstLayout && EngravingCompat.doPostLayoutCompatIfNeeded(score)) {
+        ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
+    }
 }
+
+const s_compatDone = new WeakSet<MasterScore>()
 
 export function pageCount(score: MasterScore): number {
     return score.npages()

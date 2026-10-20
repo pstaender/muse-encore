@@ -10,15 +10,37 @@
 import type { AlignH } from '../../types/types'
 import { Pid, PropertyFlags } from '../../dom/property'
 import type { TextLineBase } from '../../dom/textlinebase'
-import type { Spatium } from '../../types/dimension'
+import { Spatium } from '../../types/dimension'
+import { DPI } from '../../types/types'
 import { Font, FontType } from '../../../framework/draw/types/font'
 import { fontProvider } from '../../infrastructure/engravingcontext'
 import { Sid, STYLE_VALUES } from '../../style/styledef'
 import { Key } from '../../types/types'
 import { function2Tpc } from '../../dom/pitchspelling'
 import type { Harmony, HarmonyInfo } from '../../dom/harmony'
+import { ArticulationAnchor } from '../../dom/articulation'
+
+const PRE_470_DPI = 360
 
 export class CompatUtils {
+    /** The frame radius used to be expressed in raster units and divided by 2 at drawing. Since 4.7 it is expressed in spatium. */
+    static convertPre470FrameRadius(frameRadius: number): Spatium {
+        return new Spatium(frameRadius * (DPI / PRE_470_DPI) / (STYLE_VALUES[Sid.spatium].defaultValue as number) / 2)
+    }
+
+    static translateToNewArticulationAnchor(anchor: number): ArticulationAnchor {
+        switch (anchor) {
+        case 0: // ArticulationAnchor::TOP_STAFF
+        case 3: // ArticulationAnchor::TOP_CHORD
+            return ArticulationAnchor.TOP
+        case 1: // ArticulationAnchor::BOTTOM_STAFF
+        case 4: // ArticulationAnchor::BOTTOM_CHORD
+            return ArticulationAnchor.BOTTOM
+        default:
+            return ArticulationAnchor.AUTO
+        }
+    }
+
     static setHarmonyRootTpcFromFunction(info: HarmonyInfo, h: Harmony, s: string): void {
         const st = h.staff()
         const key = st ? st.key(h.tick()) : Key.INVALID

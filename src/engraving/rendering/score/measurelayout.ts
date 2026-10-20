@@ -34,6 +34,7 @@ import type { TimeSig } from '../../dom/timesig'
 import type { GraceNotesGroup } from '../../dom/chord'
 import type { LayoutContext } from './layoutcontext'
 import { TLayout } from './tlayout'
+import type { Ambitus } from '../../dom/ambitus'
 import { ModifyDom } from './modifydom'
 import { SegmentLayout } from './segmentlayout'
 import { BeamLayout } from './beamlayout'
@@ -671,7 +672,34 @@ export class MeasureLayout {
             mmrMeasure.remove(mmrSeg)
         }
 
-        // TODO(port): ambitus
+        //
+        // check for ambitus
+        //
+        underlyingSeg = firstMeasure.findSegmentR(SegmentType.Ambitus, new Fraction(0, 1))
+        mmrSeg = mmrMeasure.findSegment(SegmentType.Ambitus, firstMeasure.tick())
+        if (underlyingSeg) {
+            if (!mmrSeg) {
+                mmrSeg = mmrMeasure.undoGetSegmentR(SegmentType.Ambitus, new Fraction(0, 1))
+            }
+            for (let staffIdx = 0; staffIdx < ctx.dom().nstaves(); ++staffIdx) {
+                const track = staffIdx * VOICES
+                const underlyingAmbitus = underlyingSeg.element(track) as Ambitus | null
+                if (underlyingAmbitus) {
+                    let mmrAmbitus = mmrSeg.element(track) as Ambitus | null
+                    if (!mmrAmbitus) {
+                        mmrAmbitus = underlyingAmbitus.clone() as Ambitus
+                        mmrAmbitus.setParent(mmrSeg)
+                        ctx.mutDom().doUndoAddElement(mmrAmbitus)
+                    } else {
+                        mmrAmbitus.initFrom(underlyingAmbitus)
+                        TLayout.layoutAmbitus(mmrAmbitus, ctx)
+                    }
+                }
+            }
+        } else if (mmrSeg) {
+            // TODO: remove elements from mmrSeg?
+            ctx.mutDom().doUndoRemoveElement(mmrSeg)
+        }
 
         //
         // check for key signature
@@ -2433,8 +2461,47 @@ export class MeasureLayout {
         }
     }
 
-    static layoutTimeTickAnchors(_m: Measure, _ctx: LayoutContext): void {
-        // TODO(port): time tick anchors are only shown in edit mode
+    static layoutTimeTickAnchors(m: Measure, ctx: LayoutContext): void {
+        for (let segment = m.first(); segment; segment = segment.next()) {
+            if (!segment.isTimeTickType()) {
+                continue
+            }
+
+            let refCRSeg = m.findSegmentR(SegmentType.ChordRest, segment.rtick())
+            if (!(refCRSeg && refCRSeg.isActive())) {
+                refCRSeg = segment.prevActive()
+                while (refCRSeg && !refCRSeg.isChordRestType()) {
+                    refCRSeg = refCRSeg.prevActive()
+                }
+            }
+
+            if (!refCRSeg || refCRSeg.ticks().isZero()) {
+                continue
+            }
+
+            const refSegDuration = refCRSeg.ticks()
+            const thisDuration = segment.ticks()
+            const relativeTick = segment.rtick().minus(refCRSeg.rtick())
+
+            let nextSeg = m.findSegmentR(SegmentType.ChordRest, refCRSeg.rtick().plus(refCRSeg.ticks()))
+            if (!(nextSeg && nextSeg.isActive())) {
+                nextSeg = m.findSegmentR(SegmentType.BarLineType, refCRSeg.rtick().plus(refCRSeg.ticks()))
+            }
+            const width = nextSeg ? nextSeg.x() - refCRSeg.x() : refCRSeg.width()
+
+            const relativeX = width * (relativeTick.toDouble() / refCRSeg.ticks().toDouble())
+            const relativeWidth = width * (thisDuration.toDouble() / refSegDuration.toDouble())
+
+            segment.mutldata().setPosX(refCRSeg.x() + relativeX)
+            segment.setWidth(relativeWidth)
+
+            for (const item of segment.elist()) {
+                if (item) {
+                    TLayout.layoutItem(item, ctx)
+                    // C++ also sets the alternating "darker" flag for drawing in edit mode
+                }
+            }
+        }
     }
 
     static layoutPartialWidth(lines: StaffLines, ctx: LayoutContext, w: number, wPartial: number, alignRight: boolean): void {

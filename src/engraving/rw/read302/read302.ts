@@ -25,6 +25,7 @@ import type { XmlReader } from '../xmlreader'
 import { ReadContext } from '../read460/readcontext'
 import { StaffRead } from '../read460/staffread'
 import { TRead } from '../read460/tread'
+import { ReadChordListHook } from '../compat/readchordlisthook'
 
 export class Read302 {
     readScoreFile(score: Score, e: XmlReader): boolean {
@@ -81,7 +82,7 @@ export class Read302 {
                 score.setMarkIrregularMeasures(e.readInt() !== 0)
             } else if (tag === 'Style') {
                 // ReadStyleHook::readStyleTag(score, e)
-                score.style().read(e, score.mscVersion())
+                score.style().read(e, new ReadChordListHook(score), score.mscVersion())
                 score.styleChanged()
                 score.setEngravingFont(engravingFonts().fontByName(score.style().styleSt(Sid.musicalSymbolFont)))
             } else if (tag === 'copyright' || tag === 'rights') {

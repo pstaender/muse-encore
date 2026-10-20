@@ -19,6 +19,8 @@ import {
 } from '../types/types'
 import { TConv } from '../types/typesconv'
 import { XmlReader } from '../rw/xmlreader'
+import type { ReadChordListHook } from '../rw/compat/readchordlisthook'
+import { readPageFormat206 } from '../compat/pageformat'
 import { Pid } from '../dom/propertydata'
 import { fontProvider } from '../infrastructure/engravingcontext'
 import { Sid, STYLE_VALUES } from './styledef'
@@ -138,7 +140,11 @@ export class MStyle {
     styleMM(idx: Sid): number { return this.valueMM(idx) }
     styleSt(idx: Sid): string { return this.value(idx) as string }
     styleB(idx: Sid): boolean { return !!this.value(idx) }
-    styleD(idx: Sid): number { return Number(this.value(idx)) }
+    styleD(idx: Sid): number {
+        // C++ PropertyValue::toReal() also returns the value of a Spatium
+        const v = this.value(idx)
+        return v instanceof Spatium ? v.val() : Number(v)
+    }
     styleI(idx: Sid): number {
         const v = this.value(idx)
         return typeof v === 'boolean' ? (v ? 1 : 0) : Math.trunc(Number(v))
@@ -212,7 +218,7 @@ export class MStyle {
                 const mscVersion = parseInt(versionTag, 10) || 0
                 while (e.readNextStartElement()) {
                     if (e.name() === 'Style') {
-                        this.read(e, mscVersion)
+                        this.read(e, null, mscVersion)
                     } else {
                         e.unknown()
                     }
@@ -406,7 +412,7 @@ export class MStyle {
         return true
     }
 
-    read(e: XmlReader, mscVersion: number): void {
+    read(e: XmlReader, readChordListHook: ReadChordListHook | null, mscVersion: number): void {
         while (e.readNextStartElement()) {
             const tag = e.name()
 
@@ -419,13 +425,15 @@ export class MStyle {
             } else if (tag === 'Spatium' || tag === 'spatium') {
                 this.set(Sid.spatium, e.readDouble() * DPMM)
             } else if (tag === 'page-layout') { // obsolete
-                // TODO(port): compat::readPageFormat206 (only for 2.x files)
-                e.skipCurrentElement()
+                readPageFormat206(this, e)
             } else if (tag === 'displayInConcertPitch') {
                 this.set(Sid.concertPitch, e.readBool())
             } else if (tag === 'ChordList') {
-                // TODO(port): ReadChordListHook
-                e.skipCurrentElement()
+                if (readChordListHook) {
+                    readChordListHook.read(e)
+                } else {
+                    e.skipCurrentElement()
+                }
             } else if (tag === 'lyricsDashMaxLegth') { // pre-3.6 typo
                 this.set(Sid.lyricsDashMaxLength, new Spatium(e.readDouble()))
             } else if (tag === 'dontHidStavesInFirstSystm') { // pre-3.6.3/4.0 typo
@@ -727,7 +735,9 @@ export class MStyle {
             this.set(Sid.tiePlacementChord, TiePlacement.INSIDE)
         }
 
-        // TODO(port): readChordListHook->validate()
+        if (readChordListHook) {
+            readChordListHook.validate()
+        }
     }
 }
 

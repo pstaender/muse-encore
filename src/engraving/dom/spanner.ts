@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/spanner.h/.cpp
  *
- * TODO(port): time tick anchors (EditTimeTickAnchors), navigation, links
+ * TODO(port): navigation, links
  */
 
 import { PointF } from '../../framework/draw/types/geometry'
@@ -18,6 +18,7 @@ import { EngravingItem, ElementFlag } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
 import { Pid } from './property'
 import { SegmentType, type Segment } from './segment'
+import { EditTimeTickAnchors } from './anchors'
 import type { Chord } from './chord'
 import type { ChordRest } from './chordrest'
 import type { Measure } from './measure'
@@ -614,7 +615,17 @@ export abstract class Spanner extends EngravingItem {
         if (!startSeg || !startSeg.hasElementsInStaff(staffIdx) || (this.isVoiceSpecific() && !startSeg.element(trackIdx))) {
             startSeg = this.score().tick2segment(startTick, true, SegmentType.TimeTick, mmRest)
         }
-        // TODO(port): create time tick anchors (EditTimeTickAnchors::createTimeTickAnchor)
+        if (!startSeg && startTick.lt(this.score().endTick())) {
+            const measure = mmRest ? this.score().tick2measureMM(startTick) : this.score().tick2measure(startTick)
+            if (measure) {
+                const anchor = EditTimeTickAnchors.createTimeTickAnchor(measure, startTick.minus(measure.tick()), track2staff(trackIdx))
+                if (!anchor) {
+                    return null
+                }
+                EditTimeTickAnchors.updateLayout(measure)
+                return anchor.segment()
+            }
+        }
         if (!startSeg) {
             startSeg = this.score().tick2rightSegment(startTick, mmRest)
         }
@@ -630,7 +641,14 @@ export abstract class Spanner extends EngravingItem {
         if (!endSeg || !endSeg.hasElementsInStaff(staffIdx) || (this.isVoiceSpecific() && !endSeg.element(trackIdx))) {
             endSeg = this.score().tick2segment(endTick, true, SegmentType.TimeTick, mmRest)
         }
-        // TODO(port): create time tick anchors (EditTimeTickAnchors::createTimeTickAnchor)
+        if (!endSeg && !endTick.isZero()) {
+            const measure = mmRest ? this.score().tick2measureMM(endTick) : this.score().tick2measure(endTick)
+            if (measure) {
+                const anchor = EditTimeTickAnchors.createTimeTickAnchor(measure, endTick.minus(measure.tick()), track2staff(trackIdx))!
+                EditTimeTickAnchors.updateLayout(measure)
+                return anchor.segment()
+            }
+        }
         if (!endSeg) {
             endSeg = this.score().tick2leftSegment(endTick, mmRest)
         }

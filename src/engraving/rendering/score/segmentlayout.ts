@@ -21,6 +21,7 @@ import type { Staff } from '../../dom/staff'
 import type { TimeSig } from '../../dom/timesig'
 import type { LayoutConfiguration, LayoutContext } from './layoutcontext'
 import { TLayout } from './tlayout'
+import type { Ambitus } from '../../dom/ambitus'
 import { ChordLayout } from './chordlayout'
 
 export class SegmentLayout {
@@ -47,7 +48,10 @@ export class SegmentLayout {
                 TLayout.layoutTimeSig(ts, ctx) // LD_INDEPENDENT
             }
         } else if (segment.isSegType(SegmentType.Ambitus)) {
-            // TODO(port): Ambitus
+            const am = segment.element(track) as Ambitus | null
+            if (am) {
+                TLayout.layoutAmbitus(am, ctx) // LD_INDEPENDENT
+            }
         } else if (segment.isSegType(SegmentType.BarLine)) {
             const bl = segment.element(track) as BarLine | null
             if (bl) {

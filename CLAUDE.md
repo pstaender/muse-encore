@@ -26,7 +26,9 @@ src/
   engraving/style       Sid + default style (generated), MStyle
   engraving/infrastructure  Shape, Skyline, Smufl, MscReader (zip)
   engraving/dom         the score object model (Score, Measure, Segment, Chord, Note, ...)
-  engraving/rw          XmlReader, readers (read460 for 4.x incl. read400/read410 compat, read302 for 3.x)
+  engraving/rw          XmlReader, readers (read460 for 4.x incl. read400/read410 compat, read302 for 3.x, read206 for 2.x),
+                        rw/compat (chord list hook, CompatUtils incl. doCompatibilityConversions = compatconversions.ts)
+  engraving/compat      EngravingCompat (pre/post layout conversions of old files), page format, dummy element
   engraving/rendering/score  layout (ScoreLayout, SystemLayout, ChordLayout, ...) and painting (TDraw)
   index.ts              public library API
 fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore, Gonville/Gootville, Petaluma,

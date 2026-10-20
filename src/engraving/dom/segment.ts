@@ -27,6 +27,7 @@ import type { DurationElement } from './durationelement'
 import type { Rest } from './rest'
 import type { Clef } from './clef'
 import type { KeySig } from './keysig'
+import type { InstrumentChange } from './instrchange'
 import type { TimeSig } from './timesig'
 
 export enum SegmentType {
@@ -517,9 +518,14 @@ export class Segment extends EngravingItem {
         case ElementType.STICKING:
         case ElementType.STRING_TUNINGS:
         case ElementType.STAFF_STATE:
-        case ElementType.INSTRUMENT_CHANGE:
+        case ElementType.INSTRUMENT_CHANGE: {
+            const part = el.part()!
+            part.setInstrument((el as InstrumentChange).instrument(), this.tick())
+            this.m_annotations.push(el)
+            break
+        }
         case ElementType.HARP_DIAGRAM:
-            // TODO(port): part()->setInstrument for instrument changes, string tunings
+            // TODO(port): harp diagrams
             this.m_annotations.push(el)
             break
         case ElementType.PLAY_COUNT_TEXT:
@@ -627,6 +633,12 @@ export class Segment extends EngravingItem {
         case ElementType.AMBITUS:
         case ElementType.BREATH:
             this.m_elist[track] = null
+            break
+        case ElementType.INSTRUMENT_CHANGE:
+            if (!this.isMMRestSegment()) {
+                el.part()!.removeInstrument(this.tick())
+            }
+            this.removeAnnotation(el)
             break
         default:
             this.removeAnnotation(el)

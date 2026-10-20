@@ -14,12 +14,16 @@ import type { Beam } from '../../dom/beam'
 import type { Chord } from '../../dom/chord'
 import { chordRestRenderer, type ChordRest } from '../../dom/chordrest'
 import { ldataShapeHooks, type EngravingItem } from '../../dom/engravingitem'
+import { anchorsLayoutHooks } from '../../dom/anchors'
 import type { GuitarBendSegment } from '../../dom/guitarbend'
+import type { TrillSegment } from '../../dom/trill'
+import type { Tuplet } from '../../dom/tuplet'
 import { ElementType } from '../../types/types'
 import { LayoutContext } from './layoutcontext'
 import { ScoreLayout, ScorePageViewLayout } from './scorelayout'
 import { TLayout } from './tlayout'
 import { ChordLayout } from './chordlayout'
+import { MeasureLayout } from './measurelayout'
 
 export class ScoreRenderer {
     static layoutScore(score: Score, st: Fraction, et: Fraction): void {
@@ -52,8 +56,12 @@ chordRestRenderer.layoutStem = (c) => ScoreRenderer.layoutStem(c)
 
 // C++ EngravingItem::LayoutData::shape(): "Temporary fix" refilling shapes on access
 ldataShapeHooks[ElementType.GUITAR_BEND_SEGMENT] = (item) => TLayout.fillGuitarBendSegmentShape(item as GuitarBendSegment)
+ldataShapeHooks[ElementType.TRILL_SEGMENT] = (item) => TLayout.fillTrillSegmentShape(item as TrillSegment)
+ldataShapeHooks[ElementType.TUPLET] = (item) => TLayout.fillTupletShape(item as Tuplet)
 // ChordLayout::checkAndFillShape(): "Temporary fix" until the layout order of the elements is figured out
 const fillChordRestShape = (item: EngravingItem): void => ChordLayout.fillShape(item as ChordRest, new LayoutContext(item.score()))
+anchorsLayoutHooks.layoutTimeTickAnchors = (measure) => MeasureLayout.layoutTimeTickAnchors(measure, new LayoutContext(measure.score()))
+
 ldataShapeHooks[ElementType.CHORD] = fillChordRestShape
 ldataShapeHooks[ElementType.REST] = fillChordRestShape
 ldataShapeHooks[ElementType.MEASURE_REPEAT] = fillChordRestShape

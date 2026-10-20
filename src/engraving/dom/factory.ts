@@ -84,6 +84,10 @@ import { Vibrato, VibratoSegment } from './vibrato'
 import { Glissando, GlissandoSegment } from './glissando'
 import { GradualTempoChange, GradualTempoChangeSegment } from './gradualtempochange'
 import { HammerOnPullOff, HammerOnPullOffSegment } from './hammeronpulloff'
+import { Fingering } from './fingering'
+import { ChordLine } from './chordline'
+import { Ambitus } from './ambitus'
+import { InstrumentChange } from './instrchange'
 
 type Parent = EngravingObject | null
 
@@ -103,6 +107,10 @@ export class Factory {
         case ElementType.TIMESIG: return new TimeSig(segmentOrDummy())
         case ElementType.BAR_LINE: return new BarLine(segmentOrDummy())
         case ElementType.ARPEGGIO: return new Arpeggio(chordOrDummy())
+        case ElementType.CHORDLINE: return new ChordLine(chordOrDummy())
+        case ElementType.AMBITUS: return new Ambitus(segmentOrDummy())
+        case ElementType.INSTRUMENT_CHANGE: return new InstrumentChange(segmentOrDummy())
+        case ElementType.FINGERING: return new Fingering(parent && parent.isNote() ? parent as unknown as Note : dummy().note())
         case ElementType.STAFFTYPE_CHANGE: return new StaffTypeChange(parent as MeasureBase)
         case ElementType.LAISSEZ_VIB: return new LaissezVib(parent as Note)
         case ElementType.MEASURE_REPEAT: return new MeasureRepeat(parent)

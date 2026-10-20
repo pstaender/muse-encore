@@ -117,6 +117,8 @@ import type { Glissando } from '../../dom/glissando'
 import type { GradualTempoChange } from '../../dom/gradualtempochange'
 import { Fingering } from '../../dom/fingering'
 import { ChordLine } from '../../dom/chordline'
+import type { Ambitus } from '../../dom/ambitus'
+import type { InstrumentChange } from '../../dom/instrchange'
 import { PainterPath, PainterPathElementType } from '../../../framework/draw/types/painterpath'
 import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
@@ -164,6 +166,8 @@ export class TRead {
         switch (item.type()) {
         case ElementType.ACCIDENTAL: TRead.readAccidental(item as Accidental, xml, ctx); break
         case ElementType.ARPEGGIO: TRead.readArpeggio(item as Arpeggio, xml, ctx); break
+        case ElementType.AMBITUS: TRead.readAmbitus(item as Ambitus, xml, ctx); break
+        case ElementType.INSTRUMENT_CHANGE: TRead.readInstrumentChange(item as InstrumentChange, xml, ctx); break
         case ElementType.ARTICULATION: TRead.readArticulation(item as Articulation, xml, ctx); break
         case ElementType.BAR_LINE: TRead.readBarLine(item as BarLine, xml, ctx); break
         case ElementType.BEAM: TRead.readBeam(item as Beam, xml, ctx); break
@@ -507,7 +511,7 @@ export class TRead {
         return true
     }
 
-    private static readItemPropertiesOnly(item: EngravingItem, e: XmlReader, ctx: ReadContext): void {
+    static readItemPropertiesOnly(item: EngravingItem, e: XmlReader, ctx: ReadContext): void {
         while (e.readNextStartElement()) {
             if (!TRead.readItemProperties(item, e, ctx)) {
                 e.unknown()
@@ -693,17 +697,24 @@ export class TRead {
 
     static readFermata(f: Fermata, xml: XmlReader, ctx: ReadContext): void {
         while (xml.readNextStartElement()) {
-            const tag = xml.name()
-            if (tag === 'subtype') {
-                f.setSymIdAndTimeStretch(SymNames.symIdByName(xml.readAsciiText()))
-            } else if (tag === 'play') {
-                f.setPlay(xml.readInt() !== 0)
-            } else if (tag === 'timeStretch') {
-                f.setTimeStretch(xml.readDouble())
-            } else if (!TRead.readItemProperties(f, xml, ctx)) {
+            if (!TRead.readFermataProperties(f, xml, ctx)) {
                 xml.unknown()
             }
         }
+    }
+
+    static readFermataProperties(f: Fermata, xml: XmlReader, ctx: ReadContext): boolean {
+        const tag = xml.name()
+        if (tag === 'subtype') {
+            f.setSymIdAndTimeStretch(SymNames.symIdByName(xml.readAsciiText()))
+        } else if (tag === 'play') {
+            f.setPlay(xml.readInt() !== 0)
+        } else if (tag === 'timeStretch') {
+            f.setTimeStretch(xml.readDouble())
+        } else if (!TRead.readItemProperties(f, xml, ctx)) {
+            return false
+        }
+        return true
     }
 
     static readBreath(b: Breath, e: XmlReader, ctx: ReadContext): void {
@@ -1167,6 +1178,10 @@ export class TRead {
     static readGlissando(g: Glissando, e: XmlReader, ctx: ReadContext): void {
         g.eraseSpannerSegments()
 
+        if (ctx.mscVersion() < 301) { // read400
+            ctx.addSpanner(e.intAttribute('id', -1), g)
+        }
+
         const staffIdx = track2staff(ctx.track())
         const staff = ctx.score().staff(staffIdx)
         if (staff) {
@@ -1368,6 +1383,9 @@ export class TRead {
 
     static readTextLineBase(b: TextLineBase, e: XmlReader, ctx: ReadContext): void {
         b.eraseSpannerSegments()
+        if (ctx.mscVersion() < 301) { // read400
+            ctx.addSpanner(e.intAttribute('id', -1), b)
+        }
         while (e.readNextStartElement()) {
             if (!TRead.readTextLineBaseProperties(b, e, ctx)) {
                 e.unknown()
@@ -1402,6 +1420,9 @@ export class TRead {
 
     static readOttava(o: Ottava, e: XmlReader, ctx: ReadContext): void {
         o.eraseSpannerSegments()
+        if (ctx.mscVersion() < 301) { // read400
+            ctx.addSpanner(e.intAttribute('id', -1), o)
+        }
         while (e.readNextStartElement()) {
             TRead.readOttavaProperties(o, e, ctx)
         }
@@ -1440,6 +1461,9 @@ export class TRead {
     }
 
     static readPedal(p: Pedal, e: XmlReader, ctx: ReadContext): void {
+        if (ctx.mscVersion() < 301) { // read400
+            ctx.addSpanner(e.intAttribute('id', -1), p)
+        }
         let beginTextTag = false
         let continueTextTag = false
         let endTextTag = false
@@ -1496,6 +1520,9 @@ export class TRead {
 
     /** C++ TRead::read(LetRing*) and TRead::read(PalmMute*) */
     static readChordTextLineBase(r: ChordTextLineBase, e: XmlReader, ctx: ReadContext): void {
+        if (ctx.mscVersion() < 301) { // read400
+            ctx.addSpanner(e.intAttribute('id', -1), r)
+        }
         while (e.readNextStartElement()) {
             if (TRead.readPropertyIfTag(r, e.name(), e, ctx, Pid.LINE_WIDTH)) {
                 r.setPropertyFlags(Pid.LINE_WIDTH, PropertyFlags.UNSTYLED)
@@ -2102,7 +2129,7 @@ export class TRead {
         const p = s.part()
         while (e.readNextStartElement()) {
             const tag = e.name()
-            if (tag === 'CustDef') {
+            if (tag === 'CustDef' || tag === 'KeySym') { // KeySym: read400
                 const cd: CustDef = { sym: SymId.noSym, degree: 0, xAlt: 0, octAlt: 0 }
                 while (e.readNextStartElement()) {
                     const t = e.name()
@@ -2962,6 +2989,73 @@ export class TRead {
         }
     }
 
+    static readInstrumentChange(c: InstrumentChange, e: XmlReader, ctx: ReadContext): void {
+        const inst = new Instrument()
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'Instrument') {
+                TRead.readInstrument(inst, e, ctx, c.part()!)
+            } else if (tag === 'init') {
+                c.setInit(e.readBool())
+            } else if (!TRead.readTextBaseProperties(c, e, ctx)) {
+                e.unknown()
+            }
+        }
+
+        c.setInstrument(inst)
+    }
+
+    static readAmbitus(a: Ambitus, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            if (!TRead.readAmbitusProperties(a, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readAmbitusProperties(a: Ambitus, e: XmlReader, ctx: ReadContext): boolean {
+        const tag = e.name()
+        if (tag === 'head') {
+            TRead.readProperty(a, e, ctx, Pid.HEAD_GROUP)
+        } else if (tag === 'headType') {
+            TRead.readProperty(a, e, ctx, Pid.HEAD_TYPE)
+        } else if (tag === 'mirror') {
+            TRead.readProperty(a, e, ctx, Pid.MIRROR_HEAD)
+        } else if (tag === 'hasLine') {
+            a.setHasLine(e.readInt() !== 0)
+        } else if (tag === 'lineWidth') {
+            TRead.readProperty(a, e, ctx, Pid.LINE_WIDTH)
+        } else if (tag === 'topPitch') {
+            a.setTopPitch(e.readInt(), false)
+        } else if (tag === 'bottomPitch') {
+            a.setBottomPitch(e.readInt(), false)
+        } else if (tag === 'topTpc') {
+            a.setTopTpc(e.readInt(), false)
+        } else if (tag === 'bottomTpc') {
+            a.setBottomTpc(e.readInt(), false)
+        } else if (tag === 'topAccidental') {
+            while (e.readNextStartElement()) {
+                if (e.name() === 'Accidental') {
+                    TRead.readAccidental(a.topAccidental(), e, ctx)
+                } else {
+                    e.skipCurrentElement()
+                }
+            }
+        } else if (tag === 'bottomAccidental') {
+            while (e.readNextStartElement()) {
+                if (e.name() === 'Accidental') {
+                    TRead.readAccidental(a.bottomAccidental(), e, ctx)
+                } else {
+                    e.skipCurrentElement()
+                }
+            }
+        } else if (TRead.readItemProperties(a, e, ctx)) {
+        } else {
+            return false
+        }
+        return true
+    }
+
     static readArpeggio(a: Arpeggio, e: XmlReader, ctx: ReadContext): void {
         while (e.readNextStartElement()) {
             const tag = e.name()
@@ -3064,23 +3158,32 @@ export class TRead {
 
     static readLyrics(l: Lyrics, e: XmlReader, ctx: ReadContext): void {
         while (e.readNextStartElement()) {
-            const tag = e.name()
-            if (tag === 'no') {
-                l.setVerse(e.readInt())
-                if (l.isEven()) {
-                    l.initTextStyleType(TextStyleType.LYRICS_EVEN)
-                }
-            } else if (tag === 'syllabic') {
-                l.setSyllabic(TConv.fromXmlLyricsSyllabic(e.readAsciiText(), LyricsSyllabic.SINGLE))
-            } else if (tag === 'ticks_f') {
-                l.setTicks(e.readFraction())
-            } else if (TRead.readPropertyIfTag(l, tag, e, ctx, Pid.PLACEMENT)) {
-            } else if (tag === 'LyricsLine') {
-                e.skipCurrentElement() // TODO(port): LyricsLine
-            } else if (!TRead.readTextBaseProperties(l, e, ctx)) {
+            if (!TRead.readLyricsProperties(l, e, ctx)) {
                 e.unknown()
             }
         }
+    }
+
+    static readLyricsProperties(l: Lyrics, e: XmlReader, ctx: ReadContext): boolean {
+        const tag = e.name()
+        if (tag === 'no') {
+            l.setVerse(e.readInt())
+            if (l.isEven()) {
+                l.initTextStyleType(TextStyleType.LYRICS_EVEN)
+            }
+        } else if (tag === 'syllabic') {
+            l.setSyllabic(TConv.fromXmlLyricsSyllabic(e.readAsciiText(), LyricsSyllabic.SINGLE))
+        } else if (tag === 'ticks_f') {
+            l.setTicks(e.readFraction())
+        } else if (tag === 'ticks') { // obsolete (read400)
+            l.setTicks(e.readFraction()) // will fall back to reading integer ticks on older scores
+        } else if (TRead.readPropertyIfTag(l, tag, e, ctx, Pid.PLACEMENT)) {
+        } else if (tag === 'LyricsLine') {
+            e.skipCurrentElement() // TODO(port): LyricsLine
+        } else if (!TRead.readTextBaseProperties(l, e, ctx)) {
+            return false
+        }
+        return true
     }
 
     static readTuplet(t: Tuplet, e: XmlReader, ctx: ReadContext): void {

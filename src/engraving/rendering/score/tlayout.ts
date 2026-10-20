@@ -16,7 +16,7 @@ import type { Color } from '../../../framework/draw/types/color'
 import { FontMetrics } from '../../../framework/draw/fontmetrics'
 import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
-import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
+import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionH, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
     StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff, SpannerSegmentType, LineType, PlacementV,
     HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType, ArpeggioType, GuitarBendType, ChordLineType, VibratoType, GlissandoStyle, nidx } from '../../types/types'
 import { SymNames } from '../../types/symnames'
@@ -66,6 +66,9 @@ import type { System } from '../../dom/system'
 import type { TextBase } from '../../dom/textbase'
 import type { Tie } from '../../dom/tie'
 import type { TimeSig } from '../../dom/timesig'
+import type { TimeTickAnchor } from '../../dom/anchors'
+import { Ambitus } from '../../dom/ambitus'
+import { pitchIsValid, tpcIsValid } from '../../dom/pitchspelling'
 import type { Tuplet } from '../../dom/tuplet'
 import type { LayoutContext } from './layoutcontext'
 import { ChordLayout } from './chordlayout'
@@ -203,12 +206,28 @@ function keySigAddLayout(item: KeySig, ctx: LayoutContext, sym: SymId, line: num
 }
 
 export class TLayout {
+    static layoutTimeTickAnchor(item: TimeTickAnchor, _ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        const st = item.staffType()
+        ldata.setPos(0.0, 0.0)
+        const width = item.segment().width()
+        let height = item.staff()!.staffHeight()
+        if (st && st.lines() === 1) {
+            // Special case for single line staves
+            const lineDist = st.lineDistance().val() * item.spatium()
+            ldata.setPosY(-lineDist)
+            height = lineDist * 2
+        }
+        ldata.setBbox(0.0, 0.0, width, height)
+    }
+
     static layoutItem(item: EngravingItem, ctx: LayoutContext): void {
         switch (item.type()) {
         case ElementType.ACCIDENTAL: TLayout.layoutAccidental(item as Accidental, ctx); break
         case ElementType.ARTICULATION: TLayout.layoutArticulation(item as Articulation, ctx); break
         case ElementType.ORNAMENT: TLayout.layoutOrnament(item as Ornament, ctx); break
         case ElementType.ARPEGGIO: TLayout.layoutArpeggio(item as Arpeggio, ctx); break
+        case ElementType.AMBITUS: TLayout.layoutAmbitus(item as Ambitus, ctx); break
         case ElementType.LAISSEZ_VIB: break // C++ TLayout::layoutLaissezVib() does nothing
         case ElementType.STAFFTYPE_CHANGE: TLayout.layoutStaffTypeChange(item as StaffTypeChange, ctx); break
         case ElementType.TREMOLO_SINGLECHORD: TremoloLayout.layoutSingleChord(item as TremoloSingleChord, ctx); break
@@ -285,6 +304,7 @@ export class TLayout {
         case ElementType.TEXT: TLayout.layoutText(item as Text, ctx); break
         case ElementType.TIE: TLayout.layoutTie(item as Tie, ctx); break
         case ElementType.TIMESIG: TLayout.layoutTimeSig(item as TimeSig, ctx); break
+        case ElementType.TIME_TICK_ANCHOR: TLayout.layoutTimeTickAnchor(item as TimeTickAnchor, ctx); break
         case ElementType.TUPLET: TLayout.layoutTuplet(item as Tuplet, ctx); break
         case ElementType.BREATH: TLayout.layoutBreath(item as Breath, ctx); break
         case ElementType.DYNAMIC: TLayout.layoutDynamic(item as Dynamic, ctx); break
@@ -297,6 +317,7 @@ export class TLayout {
         case ElementType.PARENTHESIS: ParenthesisLayout.layoutParenthesis(item as Parenthesis, ctx); break
         case ElementType.JUMP: TLayout.layoutJump(item as Jump, ctx); break
         case ElementType.STAFF_TEXT: TLayout.layoutStaffText(item as StaffText, ctx); break
+        case ElementType.INSTRUMENT_CHANGE: TLayout.layoutInstrumentChange(item as TextBase, ctx); break
         case ElementType.SYSTEM_TEXT: TLayout.layoutSystemText(item as SystemText, ctx); break
         case ElementType.TEMPO_TEXT: TLayout.layoutTempoText(item as TempoText, ctx); break
         default:
@@ -1281,6 +1302,17 @@ export class TLayout {
         Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
     }
 
+    static fillTrillSegmentShape(item: TrillSegment): void {
+        const font = item.score().engravingFont()
+        const s = font.shape(item.symbols(), item.magS())
+        const accidental = item.trill().accidental()
+        if (accidental && accidental.visible() && item.isSingleBeginType()) {
+            s.add(accidental.shape().translate(accidental.pos()))
+        }
+
+        item.mutldata().setShape(s)
+    }
+
     static layoutPedalSegment(item: PedalSegment, ctx: LayoutContext): void {
         const ldata = item.mutldata()
         TLayout.layoutTextLineBaseSegment(item, ctx)
@@ -1766,6 +1798,11 @@ export class TLayout {
         // TODO(port): sound flags
     }
 
+    static layoutInstrumentChange(item: TextBase, ctx: LayoutContext): void {
+        TextLayout.layoutBaseTextBase(item, ctx)
+        Autoplace.autoplaceSegmentElement(item, item.mutldata())
+    }
+
     static layoutSystemText(item: SystemText, ctx: LayoutContext): void {
         TextLayout.layoutBaseTextBase(item, ctx)
         Autoplace.autoplaceSegmentElement(item, item.mutldata())
@@ -1815,6 +1852,135 @@ export class TLayout {
             }
         }
         Autoplace.autoplaceSegmentElement(item, ldata)
+    }
+
+    static layoutAmbitus(item: Ambitus, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        if (ldata.isValid()) {
+            return
+        }
+
+        const spatium = item.spatium()
+        const headWdt = item.headWidth()
+
+        const topAccData = item.topAccidental().mutldata()
+        const bottomAccData = item.bottomAccidental().mutldata()
+
+        ldata.setPos(new PointF())
+
+        //
+        // NOTEHEADS Y POS
+        //
+        {
+            const tick = item.segment().tick()
+            const stf = ctx.dom().staff(item.staffIdx())!
+            const clf = stf.clef(tick)
+            const key = stf.key(tick)
+            const lineDist = stf.lineDistance(tick) * spatium
+
+            // top notehead
+            if (!pitchIsValid(item.topPitch()) || !tpcIsValid(item.topTpc())) {
+                ldata.topPos.setY(0.0) // if uninitialized, set to top staff line
+            } else {
+                const topLine = Ambitus.staffLine(item.topTpc(), item.topPitch(), clf)
+                ldata.topPos.setY(topLine * lineDist * 0.5)
+                // compute accidental
+                const accidType = Ambitus.accidentalType(item.topTpc(), key)
+                item.topAccidental().setAccidentalType(accidType)
+                TLayout.layoutAccidental(item.topAccidental(), ctx)
+                topAccData.setPosY(ldata.topPos.y())
+            }
+
+            // bottom notehead
+            if (!pitchIsValid(item.bottomPitch()) || !tpcIsValid(item.bottomTpc())) {
+                const numOfLines = stf.lines(tick)
+                ldata.bottomPos.setY((numOfLines - 1) * lineDist) // if uninitialized, set to last staff line
+            } else {
+                const bottomLine = Ambitus.staffLine(item.bottomTpc(), item.bottomPitch(), clf)
+                ldata.bottomPos.setY(bottomLine * lineDist * 0.5)
+                // compute accidental
+                const accidType = Ambitus.accidentalType(item.bottomTpc(), key)
+                item.bottomAccidental().setAccidentalType(accidType)
+                TLayout.layoutAccidental(item.bottomAccidental(), ctx)
+                bottomAccData.setPosY(ldata.bottomPos.y())
+            }
+        }
+
+        //
+        // NOTEHEAD X POS
+        //
+        // Note: manages colliding accidentals
+        //
+        {
+            const accNoteDist = item.absoluteFromSpatium(ctx.conf().styleS(Sid.accidentalNoteDistance))
+            const xAccidOffTop = topAccData.bbox().width() + accNoteDist
+            let xAccidOffBottom = bottomAccData.bbox().width() + accNoteDist
+
+            // if top accidental extends down more than bottom accidental extends up,
+            // AND ambitus is not leaning right, bottom accidental needs to be displaced
+            const collision = (item.direction() !== DirectionH.RIGHT)
+                              && (topAccData.pos().y() + topAccData.bbox().y() + topAccData.bbox().height()
+                                  > bottomAccData.pos().y() + bottomAccData.bbox().y())
+            if (collision) {
+                // displace bottom accidental (also attempting to 'undercut' flats)
+                const bottomAccType = item.bottomAccidental().accidentalType()
+                xAccidOffBottom = xAccidOffTop + ((bottomAccType === AccidentalType.FLAT
+                                                   || bottomAccType === AccidentalType.FLAT2
+                                                   || bottomAccType === AccidentalType.NATURAL)
+                    ? bottomAccData.bbox().width() * 0.5 : bottomAccData.bbox().width())
+            }
+
+            switch (item.direction()) {
+            case DirectionH.AUTO: // noteheads one above the other
+                // left align noteheads and right align accidentals 'hanging' on the left
+                ldata.topPos.setX(0.0)
+                ldata.bottomPos.setX(0.0)
+                topAccData.setPosX(-xAccidOffTop)
+                bottomAccData.setPosX(-xAccidOffBottom)
+                break
+            case DirectionH.LEFT: // top notehead at the left of bottom notehead
+                // place top notehead at left margin; bottom notehead at right of top head;
+                // top accid. 'hanging' on left of top head and bottom accid. 'hanging' at left of bottom head
+                ldata.topPos.setX(0.0)
+                ldata.bottomPos.setX(headWdt)
+                topAccData.setPosX(-xAccidOffTop)
+                bottomAccData.setPosX(collision ? -xAccidOffBottom : headWdt - xAccidOffBottom)
+                break
+            case DirectionH.RIGHT: // top notehead at the right of bottom notehead
+                // bottom notehead at left margin; top notehead at right of bottomnotehead
+                // top accid. 'hanging' on left of top head and bottom accid. 'hanging' at left of bottom head
+                ldata.topPos.setX(headWdt)
+                ldata.bottomPos.setX(0.0)
+                topAccData.setPosX(headWdt - xAccidOffTop)
+                bottomAccData.setPosX(-xAccidOffBottom)
+                break
+            }
+        }
+
+        // LINE
+        // compute line from top note centre to bottom note centre
+        {
+            const fullLine = new LineF(ldata.topPos.x() + headWdt * 0.5, ldata.topPos.y(),
+                ldata.bottomPos.x() + headWdt * 0.5, ldata.bottomPos.y())
+            // shorten line on each side by offsets
+            const yDelta = ldata.bottomPos.y() - ldata.topPos.y()
+            if (!RealIsNull(yDelta)) {
+                const off = spatium * Ambitus.LINEOFFSET_DEFAULT
+                const p1 = fullLine.pointAt(off / yDelta)
+                const p2 = fullLine.pointAt(1 - (off / yDelta))
+                ldata.line = new LineF(p1, p2)
+            } else {
+                ldata.line = fullLine
+            }
+        }
+
+        // BBOX
+        {
+            const headRect = new RectF(0, -0.5 * spatium, headWdt, 1 * spatium)
+            ldata.setBbox(headRect.translated(ldata.topPos).united(headRect.translated(ldata.bottomPos))
+                .united(topAccData.bbox().translated(topAccData.pos()))
+                .united(bottomAccData.bbox().translated(bottomAccData.pos())))
+        }
     }
 
     static layoutAccidental(item: Accidental, ctx: LayoutContext): void {
@@ -2655,9 +2821,61 @@ export class TLayout {
         const lines = ClefInfo.lines(clef)
 
         if (item.isCustom() && !item.isAtonal()) {
-            // TODO(port): custom key signatures
+            const accidentalGap = conf.styleS(Sid.keysigAccidentalDistance).val()
+            // add standard key accidentals first, if necessary
+            for (let i = 1; i <= Math.abs(t1) && Math.abs(t1) <= 7; ++i) {
+                let drop = false
+                for (const cd of item.customKeyDefs()) {
+                    const degree = item.degInKey(cd.degree)
+                    // if custom keysig accidental takes place, don't create tonal accidental
+                    if ((degree * 2 + 2) % 7 === (t1 < 0 ? 8 - i : i) % 7) {
+                        drop = true
+                        break
+                    }
+                }
+                if (!drop) {
+                    const lineIndexOffset = t1 > 0 ? -1 : 6
+                    const ks: KeySym = { sym: t1 > 0 ? SymId.accidentalSharp : SymId.accidentalFlat, line: lines[lineIndexOffset + i], xPos: 0 }
+                    if (ldata.keySymbols.length) {
+                        const previous = ldata.keySymbols[ldata.keySymbols.length - 1]
+                        const previousWidth = item.symWidth(previous.sym) / spatium
+                        ks.xPos = previous.xPos + previousWidth + accidentalGap
+                    }
+                    // TODO octave metters?
+                    ldata.keySymbols.push(ks)
+                }
+            }
             for (const cd of item.customKeyDefs()) {
-                void cd
+                let sym = item.symInKey(cd.sym, cd.degree)
+                const degree = item.degInKey(cd.degree)
+                const flat = SymNames.nameForSymId(sym).includes('Flat')
+                let accIdx = (degree * 2 + 1) % 7 // C D E F ... index to F C G D index
+                accIdx = flat ? 13 - accIdx : accIdx
+                const line = lines[accIdx] + cd.octAlt * 7
+                let xpos = cd.xAlt
+                if (ldata.keySymbols.length) {
+                    const previous = ldata.keySymbols[ldata.keySymbols.length - 1]
+                    const previousWidth = item.symWidth(previous.sym) / spatium
+                    xpos += previous.xPos + previousWidth + accidentalGap
+                }
+                // if translated symbol if out of range, add key accidental followed by untranslated symbol
+                if (sym === SymId.noSym) {
+                    const ks: KeySym = { sym: SymId.noSym, line, xPos: xpos }
+                    // for quadruple sharp use two double sharps
+                    if (cd.sym === SymId.accidentalTripleSharp) {
+                        ks.sym = SymId.accidentalDoubleSharp
+                        sym = SymId.accidentalDoubleSharp
+                    } else {
+                        ks.sym = t1 > 0 ? SymId.accidentalSharp : SymId.accidentalFlat
+                        sym = cd.sym
+                    }
+                    ldata.keySymbols.push(ks)
+                    xpos += t1 < 0 ? 0.7 : 1 // flats closer
+                }
+                // create symbol; natural only if is user defined
+                if (sym !== SymId.accidentalNatural || sym === cd.sym) {
+                    ldata.keySymbols.push({ sym, line, xPos: xpos })
+                }
             }
         } else {
             const layoutSharpsFlats = (): void => {
@@ -2731,7 +2949,19 @@ export class TLayout {
                         layoutNaturals()
                     }
                 } else if (prevKsEvent.custom()) {
-                    // TODO(port): naturals after a custom key signature
+                    const prevKeyTick = Fraction.fromTicks(item.staff()!.keyList().currentKeyTick(
+                        item.tick().minus(Fraction.eps()).ticks()))
+                    const prevKsSeg = item.score().tick2segment(prevKeyTick, true, SegmentType.KeySig)
+                    if (prevKsSeg) {
+                        const prevCustomKeySig = prevKsSeg.element(item.track()) as KeySig | null
+                        if (prevCustomKeySig) {
+                            for (const keySym of prevCustomKeySig.ldata().keySymbols as KeySym[]) {
+                                if (keySym.sym !== SymId.accidentalNatural) {
+                                    keySigAddLayout(item, ctx, SymId.accidentalNatural, keySym.line, ldata)
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

@@ -17,6 +17,18 @@ import type { Measure } from '../../dom/measure'
 import type { Score } from '../../dom/score'
 import type { Staff } from '../../dom/staff'
 import type { ConnectorInfoReader } from './connectorinforeader'
+import type { Beam } from '../../dom/beam'
+import type { Tuplet } from '../../dom/tuplet'
+import type { Spanner } from '../../dom/spanner'
+import type { BarLine } from '../../dom/barline'
+import { TextStyleType } from '../../types/types'
+
+/** read400 SpannerValues (read206: <endSpanner> read before its spanner) */
+export interface SpannerValues {
+    spannerId: number
+    tick2: Fraction
+    track2: track_idx_t
+}
 
 /** C++ rw/compat/compattypes.h */
 export enum StaffHideMode {
@@ -69,8 +81,96 @@ export class ReadContext {
     private m_staffLinkedElements = new Map<number, [EngravingObject[], Location][]>()
     private m_linksIndexer = new LinksIndexer()
 
+    // read206 (read400 ReadContext): elements referenced by id
+    private m_beams = new Map<number, Beam>()
+    private m_tuplets = new Map<number, Tuplet>()
+    private m_spannerValues: SpannerValues[] = []
+    private m_spanner: [number, Spanner][] = []
+    private m_userTextStyles: { name: string; ss: TextStyleType }[] = []
+    private m_staffBarLineSpanValues = new Map<staff_idx_t, number>()
+    private m_barLineSpanValues = new Map<BarLine, number>()
+
     constructor(score: Score) {
         this.m_score = score
+    }
+
+    addBeam(s: Beam): void { this.m_beams.set(s.id(), s) }
+    findBeam(id: number): Beam | null { return this.m_beams.get(id) ?? null }
+    addTuplet(s: Tuplet): void { this.m_tuplets.set(s.id(), s) }
+    findTuplet(id: number): Tuplet | null { return this.m_tuplets.get(id) ?? null }
+    tuplets(): Map<number, Tuplet> { return this.m_tuplets }
+
+    checkTuplets(): void {
+        for (const tuplet of this.m_tuplets.values()) {
+            if (tuplet.elements().length) {
+                // sort tuplet elements. Needed for nested tuplets #22537
+                tuplet.sortElements()
+                tuplet.sanitizeTuplet()
+            }
+            // else: empty tuplet (input file corrupted?), C++ deletes it
+        }
+    }
+
+    addSpannerToScore(s: Spanner): void { this.m_score.addSpanner(s) }
+    addSpanner(id: number, s: Spanner): void { this.m_spanner.push([id, s]) }
+
+    removeSpanner(s: Spanner): void {
+        const i = this.m_spanner.findIndex(p => p[1] === s)
+        if (i >= 0) {
+            this.m_spanner.splice(i, 1)
+        }
+    }
+
+    findSpanner(id: number): Spanner | null {
+        for (const [i, s] of this.m_spanner) {
+            if (i === id) {
+                return s
+            }
+        }
+        return null
+    }
+
+    spannerId(s: Spanner): number {
+        for (const [i, sp] of this.m_spanner) {
+            if (sp === s) {
+                return i
+            }
+        }
+        return -1
+    }
+
+    addSpannerValues(sv: SpannerValues): void { this.m_spannerValues.push(sv) }
+    spannerValues(id: number): SpannerValues | null { return this.m_spannerValues.find(v => v.spannerId === id) ?? null }
+
+    addUserTextStyle(name: string): TextStyleType {
+        const USER = [TextStyleType.USER1, TextStyleType.USER2, TextStyleType.USER3, TextStyleType.USER4, TextStyleType.USER5,
+            TextStyleType.USER6, TextStyleType.USER7, TextStyleType.USER8, TextStyleType.USER9, TextStyleType.USER10,
+            TextStyleType.USER11, TextStyleType.USER12]
+        const id = this.m_userTextStyles.length < USER.length ? USER[this.m_userTextStyles.length] : TextStyleType.TEXT_TYPES
+        if (id !== TextStyleType.TEXT_TYPES) {
+            this.m_userTextStyles.push({ name, ss: id })
+        }
+        return id
+    }
+
+    lookupUserTextStyle(name: string): TextStyleType {
+        return this.m_userTextStyles.find(i => i.name === name)?.ss ?? TextStyleType.TEXT_TYPES
+    }
+
+    clearUserTextStyles(): void { this.m_userTextStyles = [] }
+
+    getStaffBarLineSpan(staffIdx: staff_idx_t): number { return this.m_staffBarLineSpanValues.get(staffIdx) ?? 0 }
+    setStaffBarLineSpan(staffIdx: staff_idx_t, barLineSpan: number): void {
+        if (!this.m_staffBarLineSpanValues.has(staffIdx)) {
+            this.m_staffBarLineSpanValues.set(staffIdx, barLineSpan)
+        }
+    }
+
+    getBarLineSpan(barLine: BarLine): number | null { return this.m_barLineSpanValues.get(barLine) ?? null }
+    setBarLineSpan(barLine: BarLine, barLineSpan: number): void {
+        if (!this.m_barLineSpanValues.has(barLine)) {
+            this.m_barLineSpanValues.set(barLine, barLineSpan)
+        }
     }
 
     /** read410 ReadContext::addLink (master score only) */

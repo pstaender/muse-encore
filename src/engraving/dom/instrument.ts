@@ -50,6 +50,16 @@ export class Instrument {
 
     constructor(private m_id = '') {}
 
+    /** C++ Instrument::operator=() / copy constructor */
+    assign(i: Instrument): void {
+        Object.assign(this, i)
+        this.m_longNames = [...i.m_longNames]
+        this.m_shortNames = [...i.m_shortNames]
+        this.m_transpose = i.m_transpose.clone()
+        this.m_clefType = i.m_clefType.map(c => c.clone())
+        this.m_drumset = i.m_drumset ? i.m_drumset.clone() : null
+    }
+
     id(): string { return this.m_id }
     stringData(): StringData { return this.m_stringData }
     hasStrings(): boolean { return this.m_stringData.strings() > 0 }

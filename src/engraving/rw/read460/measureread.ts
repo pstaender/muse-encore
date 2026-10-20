@@ -10,7 +10,7 @@
 
 import { Fraction } from '../../types/fraction'
 import { Spatium } from '../../types/dimension'
-import { AutoOnOff, BarLineType, DurationType, ElementType, PlacementV, VOICES, ClefToBarlinePosition } from '../../types/types'
+import { AutoOnOff, BarLineType, DurationType, ElementType, PlacementV, VOICES, ClefToBarlinePosition, trackZeroVoice } from '../../types/types'
 import { TConv } from '../../types/typesconv'
 import { Factory } from '../../dom/factory'
 import { Location } from '../../dom/location'
@@ -32,6 +32,7 @@ import type { Tuplet } from '../../dom/tuplet'
 import type { XmlReader } from '../xmlreader'
 import type { ReadContext } from './readcontext'
 import { TRead } from './tread'
+import type { Ambitus } from '../../dom/ambitus'
 import type { Fermata } from '../../dom/fermata'
 import type { Breath } from '../../dom/breath'
 import type { StaffText } from '../../dom/stafftextbase'
@@ -82,6 +83,9 @@ export class MeasureRead {
                     el.setTrack(0) // original system object always goes on top
                 }
                 measure.add(el)
+            } else if (tag === 'stretch' && ctx.mscVersion() < 400) {
+                // read400: Ignore measure stretch pre 4.0
+                e.skipCurrentElement()
             } else if (tag === 'stretch') {
                 let val = e.readDouble()
                 if (val < 0.0) {
@@ -318,8 +322,8 @@ export class MeasureRead {
                     el.setTrack(0) // original system object always goes on top
                 }
                 segment.add(el)
-            } else if (tag === 'SystemText' || tag === 'RehearsalMark') {
-                // TODO(port): Sticking, PlayTechAnnotation, Capo, StringTunings, InstrumentChange, StaffState,
+            } else if (tag === 'SystemText' || tag === 'RehearsalMark' || tag === 'InstrumentChange') {
+                // TODO(port): Sticking, PlayTechAnnotation, Capo, StringTunings, StaffState,
                 // FiguredBass, HarpPedalDiagram
                 const el = Factory.createItemByName(tag, ctx.score())!
                 if (el.allowTimeAnchor()) {
@@ -460,6 +464,13 @@ export class MeasureRead {
                 startingBeam = beam
             } else if (tag === 'Segment' && segment) {
                 TRead.readSegment(segment, e, ctx)
+            } else if (tag === 'Ambitus') {
+                segment = measure.getSegment(SegmentType.Ambitus, ctx.tick())
+                const range = Factory.createItem(ElementType.AMBITUS, segment) as Ambitus
+                TRead.readAmbitus(range, e, ctx)
+                range.setParent(segment) // a parent segment is needed for setTrack() to work
+                range.setTrack(trackZeroVoice(ctx.track()))
+                segment.add(range)
             } else if (tag === 'MeasureRepeat' || tag === 'RepeatMeasure') {
                 //             4.x                       3.x
                 segment = measure.getSegment(SegmentType.ChordRest, ctx.tick())
@@ -476,7 +487,7 @@ export class MeasureRead {
                 ctx.incTick(measure.ticks())
             } else {
                 // TODO(port): TremoloBar, Sticking, InstrumentChange, Image,
-                // PlayCountText, Ambitus, ...
+                // PlayCountText, ...
                 e.skipCurrentElement()
             }
         }

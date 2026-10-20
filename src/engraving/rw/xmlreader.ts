@@ -440,6 +440,20 @@ export class XmlReader extends XmlStreamReader {
         }
     }
 
+    /**
+     * read206 TextReaderContext206: returns a reader for the current element (positioned at its start tag)
+     * and the element's inner xml; this reader continues after the element
+     */
+    readSubReader(): { reader: XmlReader; xml: string } {
+        const start = this.m_pos
+        const xml = this.readXml()
+        const r = new XmlReader()
+        r.m_tokens = this.m_tokens.slice(start, this.m_pos + 1)
+        r.m_pos = 0
+        r.setDocName(this.docName())
+        return { reader: r, xml }
+    }
+
     /** read verbatim until end tag of current level is reached */
     readXml(): string {
         const out = { s: '' }

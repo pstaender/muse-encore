@@ -5,14 +5,16 @@
  *
  * Port of src/engraving/rw/mscloader.h/.cpp
  *
- * Only the 4.x reader (read460) is ported. It is also used for 4.0 - 4.5 files.
- * TODO(port): read400/read410 differences, read302/206/114 for older files, excerpts, chord lists, images, audio
+ * Readers: read460 (4.x, incl. the read400/read410 differences), read302 (3.x), read206 (2.x).
+ * TODO(port): read114 (1.x files), excerpts, images, audio
  */
 
 import { DefaultStyle } from '../style/defaultstyle'
 import { MscReader } from '../infrastructure/mscreader'
 import { MasterScore } from '../dom/masterscore'
 import { XmlReader } from './xmlreader'
+import { Read206 } from './read206/read206'
+import { CompatConversions } from './compat/compatconversions'
 import { Read302 } from './read302/read302'
 import { Read460 } from './read460/read460'
 import { Sid } from '../style/styledef'
@@ -60,7 +62,11 @@ export class MscLoader {
         }
         const xml = new XmlReader(scoreData)
         this.readMasterScore(masterScore, xml, scoreData)
-        // TODO(port): excerpts (parts), CompatUtils::doCompatibilityConversions
+        // TODO(port): excerpts (parts)
+
+        // Compatibility conversions
+        // NOTE: must be done after all score and parts have been read
+        CompatConversions.doCompatibilityConversions(masterScore)
     }
 
     readMasterScore(score: MasterScore, e: XmlReader, scoreData: Uint8Array): void {
@@ -72,8 +78,8 @@ export class MscLoader {
                 if (score.mscVersion() > MSC_VERSION) {
                     throw new MscLoadError('file too new')
                 }
-                if (score.mscVersion() < 300) {
-                    // TODO(port): read206/read114
+                if (score.mscVersion() <= 114) {
+                    // TODO(port): read114
                     throw new MscLoadError(`files of version ${version} are not supported yet`)
                 }
                 if (score.mscVersion() < 400) {
@@ -84,7 +90,7 @@ export class MscLoader {
                     score.checkChordList()
                 }
                 // C++ makeReader(): RWRegister::reader(version)
-                const reader = score.mscVersion() < 400 ? new Read302() : new Read460()
+                const reader = score.mscVersion() <= 207 ? new Read206() : score.mscVersion() < 400 ? new Read302() : new Read460()
                 if (!reader.readScoreFile(score, e)) {
                     throw new MscLoadError(`bad format: ${e.errorString()}`)
                 }

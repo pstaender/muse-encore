@@ -29,6 +29,8 @@ import type { Clef } from './clef'
 import type { TimeSig } from './timesig'
 import type { Groups } from './groups'
 import type { Ottava } from './ottava'
+import type { BarLine } from './barline'
+import { SegmentType } from './segment'
 
 /** set by bracketitem.ts (avoids a module cycle) */
 export let createBracketItemHook: (staff: Staff) => BracketItem = () => { throw new Error('BracketItem not registered') }
@@ -603,9 +605,31 @@ export class Staff extends EngravingItem {
         case Pid.STAFF_COLOR:
             st0.setColor(v as Color)
             break
-        case Pid.STAFF_BARLINE_SPAN:
+        case Pid.STAFF_BARLINE_SPAN: {
             this.setBarLineSpan(!!v)
+            // update non-generated barlines
+            const track = this.idx() * VOICES
+            const blList: EngravingItem[] = []
+            for (let m = this.score().firstMeasure(); m; m = m.nextMeasure()) {
+                const s = m.getSegmentR(SegmentType.EndBarLine, m.ticks())
+                if (s && s.element(track)) {
+                    blList.push(s.element(track)!)
+                }
+                const mm = m.mmRest()
+                if (mm) {
+                    const ss = mm.getSegmentR(SegmentType.EndBarLine, mm.ticks())
+                    if (ss && ss.element(track)) {
+                        blList.push(ss.element(track)!)
+                    }
+                }
+            }
+            for (const e of blList) {
+                if (e && e.isBarLine() && !e.generated()) {
+                    (e as BarLine).setSpanStaff(this.barLineSpan())
+                }
+            }
             break
+        }
         case Pid.STAFF_BARLINE_SPAN_FROM:
             this.setBarLineFrom(v as number)
             break
