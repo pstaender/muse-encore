@@ -5,7 +5,8 @@
  */
 /// <reference types="vite/client" />
 import {
-    drawPage, initEngravingFonts, isTwoSided, layoutScore, loadScore, pageCount, pageSize, scoreTitle, type MasterScore,
+    drawPage, drawPageSvg, initEngravingFonts, isTwoSided, layoutScore, loadScore, pageCount, pageSize, scoreTitle,
+    SvgGlyphDefs, type MasterScore,
 } from '../src/index'
 import { clearLastFile, loadLastFile, loadSettings, saveLastFile, saveSettings, type ViewSettings } from './storage'
 
@@ -50,7 +51,6 @@ const MIN_ZOOM = ZOOM_LEVELS[0]
 const MAX_ZOOM = ZOOM_LEVELS[ZOOM_LEVELS.length - 1]
 const CSS_DPI = 96 // CSS pixels per inch at 100%
 const MAX_CANVAS_PIXELS = 16 * 1024 * 1024 // larger pages are drawn as tiles of the visible part
-const PRINT_DPI = 200
 
 const FIT_MODES = ['page-width', 'whole-page'] as const
 type FitMode = typeof FIT_MODES[number]
@@ -226,7 +226,7 @@ function scheduleRender(delay: number): void {
  * Draws a page at the given resolution. Small enough pages are drawn completely; otherwise only the visible part
  * of the page plus a margin of half a viewport is drawn (a "tile"), so the bitmap stays small at any zoom.
  */
-function renderPage(el: HTMLDivElement, cssDpi: number, wholePage = false): void {
+function renderPage(el: HTMLDivElement, cssDpi: number): void {
     const idx = Number(el.dataset.page)
     const s = pageSize(score!, idx)
     const dpr = window.devicePixelRatio
@@ -238,7 +238,7 @@ function renderPage(el: HTMLDivElement, cssDpi: number, wholePage = false): void
     const sameDpi = d.dpi === dpi.toFixed(4)
 
     let region: { x: number; y: number; width: number; height: number } | undefined
-    if (wholePage || fullW * fullH <= MAX_CANVAS_PIXELS) {
+    if (fullW * fullH <= MAX_CANVAS_PIXELS) {
         if (sameDpi && d.tile === '0') {
             return
         }
@@ -306,15 +306,50 @@ function renderVisible(): void {
     step()
 }
 
-// all pages must be drawn completely for printing
-window.addEventListener('beforeprint', () => {
-    if (score) {
-        for (const el of pages) {
-            renderPage(el, PRINT_DPI / window.devicePixelRatio, true)
-        }
+// ---------------------------------------------------------------------------------
+//   printing: every page as vector graphics (SVG) on a sheet of the score's page size
+// ---------------------------------------------------------------------------------
+
+const printPagesDiv = $<HTMLDivElement>('print-pages')
+const pageStyle = document.createElement('style')
+document.head.appendChild(pageStyle)
+
+function preparePrint(): void {
+    if (!score || printPagesDiv.childElementCount) {
+        return
     }
+    // the paper has the page size of the score, which also gives portrait or landscape
+    const size = pageSize(score, 0)
+    pageStyle.textContent = `@page { size: ${size.width}in ${size.height}in; margin: 0; }`
+    // glyph outlines are defined once for all pages
+    const defs = new SvgGlyphDefs()
+    let html = ''
+    for (let i = 0; i < pageCount(score); ++i) {
+        html += `<div class="print-page">${drawPageSvg(score, i, { defs })}</div>`
+    }
+    printPagesDiv.innerHTML = defs.svg() + html
+}
+
+async function print(): Promise<void> {
+    if (!score) {
+        return
+    }
+    if (!printPagesDiv.childElementCount) {
+        const status = statusEl.textContent ?? ''
+        setStatus('Preparing pages for printing…')
+        await new Promise(requestAnimationFrame)
+        preparePrint()
+        setStatus(status)
+    }
+    window.print()
+}
+
+// printing from the browser menu
+window.addEventListener('beforeprint', preparePrint)
+window.addEventListener('afterprint', () => {
+    printPagesDiv.replaceChildren()
+    pageStyle.textContent = ''
 })
-window.addEventListener('afterprint', () => scheduleRender(0))
 
 // ---------------------------------------------------------------------------------
 //   zoom
@@ -702,9 +737,7 @@ document.addEventListener('keydown', (e) => {
     } else if (mod && key.toLowerCase() === 'o') {
         fileInput.click()
     } else if (mod && key.toLowerCase() === 'p') {
-        if (score) {
-            window.print()
-        }
+        void print()
     } else if (key === 'F11') {
         toggleFullscreen()
     } else if (!score || isTextInput(e.target)) {
@@ -757,7 +790,7 @@ btn.layoutV.addEventListener('click', () => setOrientation('vertical'))
 btn.spread.addEventListener('click', toggleSpread)
 btn.zoomIn.addEventListener('click', () => zoomStep(1))
 btn.zoomOut.addEventListener('click', () => zoomStep(-1))
-btn.print.addEventListener('click', () => window.print())
+btn.print.addEventListener('click', () => void print())
 btn.fullscreen.addEventListener('click', toggleFullscreen)
 btn.help.addEventListener('click', () => helpDialog.showModal())
 helpDialog.addEventListener('close', () => viewport.focus({ preventScroll: true }))

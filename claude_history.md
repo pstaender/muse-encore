@@ -296,3 +296,9 @@
 - Font fallback: characters missing in the loaded fonts (e.g. CJK text) are measured and drawn with a system font
   like Qt does (FallbackFontEngine; in browsers a canvas, generic serif/sans-serif chosen from the font's PANOSE/name).
   Node has no fallback engine (setFallbackFontEngine), there such characters still show the .notdef glyph.
+- SVG output: SvgPaintProvider (paths, polygons, clip, masks as SVG <mask>, fallback text as <text>); glyphs are
+  passed as references (IPaintProvider.drawGlyphs) and each outline is defined once (SvgGlyphDefs, shareable between
+  pages) and placed with <use>. API drawPageSvg(score, page, {defs}); `npm run render -- file out svg`.
+  Rasterized SVG matches the canvas output (only antialiasing differences).
+- Web viewer printing: all pages as SVG in a print-only container, @page size = score page size (portrait/landscape),
+  margin 0; removed again after printing. Goldberg (119 pages) prints to a 2.4 MB vector PDF.

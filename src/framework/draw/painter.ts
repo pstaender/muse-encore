@@ -17,7 +17,7 @@ import { Font, FontType } from './types/font'
 import { LineF, PointF, PolygonF, RectF } from './types/geometry'
 import { FillRule, PainterPath } from './types/painterpath'
 import { Transform } from './types/transform'
-import type { FallbackFont, FallbackSegment, FontProvider } from './internal/fontprovider'
+import type { FallbackFont, FallbackSegment, FontProvider, GlyphRef } from './internal/fontprovider'
 
 /** clip region "background minus rects" (QPainter clip path set by Painter::setMask), in coordinates of `transform` */
 export interface PaintMask {
@@ -43,6 +43,8 @@ export interface IPaintProvider {
     setClipRect?(rect: RectF | null, state: PaintState): void
     /** text in a platform font (characters missing in the loaded fonts), `pos` is the baseline origin */
     drawFallbackText?(text: string, pos: PointF, font: FallbackFont, color: Color, state: PaintState): void
+    /** if implemented, text and symbols are passed as glyph references instead of one path (drawPath) */
+    drawGlyphs?(glyphs: readonly GlyphRef[], color: Color, state: PaintState): void
 }
 
 export class Painter {
@@ -237,11 +239,13 @@ export class Painter {
         }
         const f = this.st.font
         const fallbacks: FallbackSegment[] = []
-        const path = this.m_fontProvider.textPath(f, s, p, fallbacks)
-        this.fillGlyphs(path)
+        if (this.m_provider.drawGlyphs) {
+            this.drawGlyphRefs(this.m_fontProvider.textGlyphs(f, s, p, fallbacks))
+        } else {
+            this.fillGlyphs(this.m_fontProvider.textPath(f, s, p, fallbacks))
+        }
         for (const fb of fallbacks) {
-            const color = this.st.pen.style() === PenStyle.NoPen ? this.st.brush.color() : this.st.pen.color()
-            this.m_provider.drawFallbackText?.(fb.text, new PointF(fb.x, p.y()), fb.font, color, this.st)
+            this.m_provider.drawFallbackText?.(fb.text, new PointF(fb.x, p.y()), fb.font, this.glyphColor(), this.st)
         }
 
         if (f.underline() || f.strike()) {
@@ -283,8 +287,22 @@ export class Painter {
     }
 
     drawSymbol(point: PointF, ucs4Code: number): void {
-        const path = this.m_fontProvider.symbolPath(this.st.font, ucs4Code, point)
-        this.fillGlyphs(path)
+        if (this.m_provider.drawGlyphs) {
+            this.drawGlyphRefs(this.m_fontProvider.symbolGlyphs(this.st.font, ucs4Code, point))
+        } else {
+            this.fillGlyphs(this.m_fontProvider.symbolPath(this.st.font, ucs4Code, point))
+        }
+    }
+
+    /** glyphs are filled with the pen color (QPainter::drawText) */
+    private glyphColor(): Color {
+        return this.st.pen.style() === PenStyle.NoPen ? this.st.brush.color() : this.st.pen.color()
+    }
+
+    private drawGlyphRefs(glyphs: GlyphRef[]): void {
+        if (glyphs.length) {
+            this.m_provider.drawGlyphs!(glyphs, this.glyphColor(), this.st)
+        }
     }
 
     private fillGlyphs(path: PainterPath): void {
@@ -293,7 +311,7 @@ export class Painter {
         }
         path.setFillRule(FillRule.WindingFill)
         this.save()
-        const color = this.st.pen.style() === PenStyle.NoPen ? this.st.brush.color() : this.st.pen.color()
+        const color = this.glyphColor()
         this.setNoPen()
         this.setBrush(new Brush(color))
         this.drawPath(path)

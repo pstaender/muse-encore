@@ -23,6 +23,8 @@ const ENGRAVING_DPI = 1200
 const PPI = 72
 
 interface FaceEntry {
+    /** unique per loaded face (glyph ids of the SVG output) */
+    id: number
     family: string
     bold: boolean
     italic: boolean
@@ -118,6 +120,21 @@ export interface FallbackSegment {
     font: FallbackFont
 }
 
+/** a positioned glyph, for paint providers that define each glyph outline once (SVG <use>) */
+export interface GlyphRef {
+    /** unique per face and glyph */
+    key: string
+    /** outline in font units, y down */
+    path(): PainterPath
+    /** font units -> pixels */
+    scale: number
+    /** origin (baseline) */
+    x: number
+    y: number
+}
+
+let s_nextFaceId = 0
+
 export interface GlyphRun {
     face: FaceEntry
     /** glyph indices */
@@ -148,6 +165,7 @@ export class FontsDatabase {
             : data
         const otf = opentype.parse(buffer)
         const entry: FaceEntry = {
+            id: s_nextFaceId++,
             family,
             bold: !!opts.bold,
             italic: !!opts.italic,
@@ -498,6 +516,30 @@ export class FontProvider {
             fallbacks?.push({ ...fb, x: pos.x() + fb.x })
         }
         return path
+    }
+
+    /** The glyphs of textPath() as references; fallback parts are added to `fallbacks` */
+    textGlyphs(f: Font, text: string, pos: PointF = new PointF(), fallbacks?: FallbackSegment[]): GlyphRef[] {
+        const run = this.glyphRun(f, text)
+        if (!run) {
+            return []
+        }
+        const refs = run.glyphs.map((g, i) => this.glyphRef(run.face, g, run.scale, pos.x() + run.xs[i], pos.y()))
+        for (const fb of run.fallbacks) {
+            fallbacks?.push({ ...fb, x: pos.x() + fb.x })
+        }
+        return refs
+    }
+
+    /** The glyph of symbolPath() as reference */
+    symbolGlyphs(f: Font, ucs4: number, pos: PointF = new PointF()): GlyphRef[] {
+        const face = this.m_db.face(f)
+        const idx = face ? face.otf.charToGlyphIndex(String.fromCodePoint(ucs4)) : 0
+        return face && idx ? [this.glyphRef(face, idx, this.scale(face, f), pos.x(), pos.y())] : []
+    }
+
+    private glyphRef(face: FaceEntry, glyphIdx: number, scale: number, x: number, y: number): GlyphRef {
+        return { key: `${face.id}-${glyphIdx}`, path: () => this.glyphPathUnits(face, glyphIdx), scale, x, y }
     }
 
     /** Path of a single code point (no shaping), in pixels */

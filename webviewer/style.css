@@ -279,15 +279,16 @@ button.primary {
     :root { --page-gap: 12px; }
 }
 
-/* ---- printing: only the pages, one per sheet ---- */
+/* ---- printing: the SVG pages of #print-pages, one per sheet (@page size is set by the script) ---- */
+
+#print-pages { display: none; }
 
 @media print {
+    html, body { height: auto; }
     body { display: block; overflow: visible; background: #fff; }
-    .toolbar, .statusbar, .empty, dialog { display: none !important; }
-    main { overflow: visible; }
-    #pages { display: block; padding: 0; width: auto; }
-    .spread { display: block; }
-    .page { box-shadow: none; width: 100% !important; height: auto !important; break-after: page; overflow: visible; }
-    .page canvas { position: static; width: 100% !important; height: auto !important; }
-    .page.placeholder { display: none; }
+    body > :not(#print-pages) { display: none !important; }
+    #print-pages { display: block; }
+    .print-page { break-after: page; overflow: hidden; }
+    .print-page:last-child { break-after: auto; }
+    .print-page svg { display: block; }
 }

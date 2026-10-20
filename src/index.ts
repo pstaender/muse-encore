@@ -10,6 +10,7 @@
 import { CanvasPaintProvider, type Canvas2D } from './framework/draw/canvaspaintprovider'
 import { Painter } from './framework/draw/painter'
 import { Transform } from './framework/draw/types/transform'
+import { SvgGlyphDefs, SvgPaintProvider } from './framework/draw/svgpaintprovider'
 import { PointF, RectF } from './framework/draw/types/geometry'
 import { Fraction } from './engraving/types/fraction'
 import { DPI } from './engraving/types/types'
@@ -26,6 +27,7 @@ export { MscLoadError } from './engraving/rw/mscloader'
 export type { MasterScore } from './engraving/dom/masterscore'
 export type { Score } from './engraving/dom/score'
 export type { Canvas2D } from './framework/draw/canvaspaintprovider'
+export { SvgGlyphDefs } from './framework/draw/svgpaintprovider'
 export {
     setFallbackFontEngine, createCanvasFallbackFontEngine, type FallbackFontEngine, type FallbackFont,
 } from './framework/draw/internal/fontprovider'
@@ -116,4 +118,32 @@ export function drawPage(score: MasterScore, pageIdx: number, ctx: Canvas2D, opt
         printPageBackground: options.background ?? true,
         frameRect,
     })
+}
+
+export interface DrawPageSvgOptions {
+    /** fill the page with white before drawing (default true) */
+    background?: boolean
+    /** draw like printing: invisible elements are skipped (default true) */
+    printing?: boolean
+    /**
+     * glyph definitions shared by several pages in one HTML document: the page then only references them
+     * and `defs.svg()` must be added to the document once, after all pages are drawn.
+     * Without it the SVG is standalone.
+     */
+    defs?: SvgGlyphDefs
+}
+
+/** Draws one page as SVG (vector graphics, size in inches, each glyph outline defined once and reused) */
+export function drawPageSvg(score: MasterScore, pageIdx: number, options: DrawPageSvgOptions = {}): string {
+    const provider = new SvgPaintProvider(options.defs ?? new SvgGlyphDefs(), options.defs ? `p${pageIdx}-` : '')
+    const painter = new Painter(provider, fontProvider(), 'page_' + pageIdx)
+    Paint.paintScore(painter, score, {
+        fromPage: pageIdx,
+        toPage: pageIdx,
+        isPrinting: options.printing ?? true,
+        printPageBackground: options.background ?? true,
+    })
+    const size = pageSize(score, pageIdx)
+    const bbox = score.pages()[pageIdx]?.ldata().bbox() ?? new RectF(0, 0, size.width * DPI, size.height * DPI)
+    return provider.svg(`${size.width}in`, `${size.height}in`, bbox, !options.defs)
 }

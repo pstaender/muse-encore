@@ -9,16 +9,23 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createCanvas } from '@napi-rs/canvas'
-import { drawPage, initEngravingFonts, layoutScore, loadScore, pageCount, pageSize } from '../src/index'
+import { drawPage, drawPageSvg, initEngravingFonts, layoutScore, loadScore, pageCount, pageSize } from '../src/index'
 
 const FONTS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'fonts')
 
-export async function renderScore(file: string, outPrefix: string, dpi = 100): Promise<string[]> {
+/** dpi 'svg': vector output */
+export async function renderScore(file: string, outPrefix: string, dpi: number | 'svg' = 100): Promise<string[]> {
     await initEngravingFonts(async (p) => readFileSync(join(FONTS_DIR, p)))
     const score = loadScore(readFileSync(file))
     layoutScore(score)
     const out: string[] = []
     for (let i = 0; i < pageCount(score); ++i) {
+        if (dpi === 'svg') {
+            const name = `${outPrefix}-${i + 1}.svg`
+            writeFileSync(name, drawPageSvg(score, i))
+            out.push(name)
+            continue
+        }
         const size = pageSize(score, i)
         // same rounding as MuseScore's PngWriter (std::lrint)
         const canvas = createCanvas(Math.round(size.width * dpi), Math.round(size.height * dpi))
@@ -34,9 +41,9 @@ export async function renderScore(file: string, outPrefix: string, dpi = 100): P
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const [file, outPrefix, dpi] = process.argv.slice(2)
     if (!file || !outPrefix) {
-        console.error('usage: npm run render -- <file.mscz> <out-prefix> [dpi]')
+        console.error('usage: npm run render -- <file.mscz> <out-prefix> [dpi | svg]')
         process.exit(1)
     }
-    const files = await renderScore(file, outPrefix, dpi ? Number(dpi) : 100)
+    const files = await renderScore(file, outPrefix, dpi === 'svg' ? 'svg' : dpi ? Number(dpi) : 100)
     console.log(files.join('\n'))
 }

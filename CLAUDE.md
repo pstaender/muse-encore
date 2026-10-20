@@ -21,7 +21,7 @@ the desktop app. License: GPL-3.0-only (same as MuseScore).
 src/
   framework/global      realfn (fuzzy float compare like muse::RealIsEqual)
   framework/draw        geometry, PainterPath, Transform, Pen/Brush/Font, Painter,
-                        FontProvider (opentype.js, replaces Qt font metrics), canvas paint provider
+                        FontProvider (opentype.js, replaces Qt font metrics), canvas and SVG paint providers
   engraving/types       enums (types.ts), Fraction, Spatium, SymId (generated)
   engraving/style       Sid + default style (generated), MStyle
   engraving/infrastructure  Shape, Skyline, Smufl, MscReader (zip)
@@ -62,7 +62,7 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - `npm test` - vitest
 - `npm run dev` - web viewer (Vite; `?url=<score>` opens a score, fonts are served from ./fonts);
   `npm run build:webviewer` builds it into dist-webviewer/
-- `npm run render -- <file.mscz> <out-prefix> [dpi]` - render pages to PNG in node
+- `npm run render -- <file.mscz> <out-prefix> [dpi | svg]` - render pages to PNG (or SVG) in node
 - `npm run compare -- <file.mscz> [out-dir] [dpi]` - render with MuseScore and with this port and diff the PNGs
   (red = only MuseScore, blue = only port). For exact numbers compare with MuseScore's SVG export, which uses
   the same 1200 DPI coordinates as the layout.
