@@ -79,9 +79,9 @@ const DYN_LIST: Dyn[] = [
 const DYNAMIC_SYM_IDS: SymId[] = [
     SymId.noSym, SymId.dynamicPPPPPP, SymId.dynamicPPPPP, SymId.dynamicPPPP, SymId.dynamicPPP, SymId.dynamicPP,
     SymId.dynamicPiano, SymId.dynamicMP, SymId.dynamicMF, SymId.dynamicForte, SymId.dynamicFF, SymId.dynamicFFF,
-    SymId.dynamicFFFF, SymId.dynamicFFFFF, SymId.dynamicFFFFFF, SymId.dynamicFortePiano, SymId.noSym, SymId.dynamicSforzando,
+    SymId.dynamicFFFF, SymId.dynamicFFFFF, SymId.dynamicFFFFFF, SymId.dynamicFortePiano, SymId.noSym, SymId.dynamicSforzando1,
     SymId.dynamicSforzato, SymId.noSym, SymId.dynamicSforzatoFF, SymId.noSym, SymId.noSym, SymId.dynamicSforzandoPiano,
-    SymId.dynamicSforzandoPianissimo, SymId.dynamicRinforzando, SymId.dynamicRinforzando, SymId.dynamicForzando,
+    SymId.dynamicSforzandoPianissimo, SymId.dynamicRinforzando2, SymId.dynamicRinforzando1, SymId.dynamicForzando,
     SymId.dynamicMezzo, SymId.dynamicRinforzando, SymId.dynamicSforzando, SymId.dynamicZ, SymId.dynamicNiente,
 ]
 

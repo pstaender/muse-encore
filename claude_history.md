@@ -343,4 +343,8 @@
   line end.
 - Measure numbers were one too high after a frame (e.g. every score with a title VBox): the MeasureBase
   constructor marks measure bases irregular (only Measure resets it), so frames are not counted.
+- DynamicType -> SymId table had wrong symbols for sf, rf, rfz (single letters instead of the combined glyphs);
+  affected the optical-center alignment and, since the symbol shape is used for centering, the position of these
+  dynamics. Known difference: "sff" (Bravura) is kerned s-f-f here, MuseScore (HarfBuzz) does not kern f-f after
+  a pair that also adjusts its second glyph (GPOS PairPos with ValueFormat2); opentype.js has no such information.
 
