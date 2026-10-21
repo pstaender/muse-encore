@@ -14,6 +14,17 @@ import { FillRule, PainterPath, PainterPathElementType } from './types/painterpa
 import { Transform } from './types/transform'
 import type { IPaintProvider, PaintMask, PaintState } from './painter'
 import { type FallbackFont, type GlyphRef } from './internal/fontprovider'
+import type { Pixmap } from './types/pixmap'
+
+/** base64 of the bytes (without node's Buffer) */
+function base64(data: Uint8Array): string {
+    let s = ''
+    const chunk = 0x8000
+    for (let i = 0; i < data.length; i += chunk) {
+        s += String.fromCharCode(...data.subarray(i, i + chunk))
+    }
+    return btoa(s)
+}
 
 /** number with at most `digits` decimals, without trailing zeros */
 function num(v: number, digits = 2): string {
@@ -208,6 +219,12 @@ export class SvgPaintProvider implements IPaintProvider {
         if (uses) {
             this.add(`<g${matrix(state.transform)} fill="${color.toCss()}">${uses}</g>`, state)
         }
+    }
+
+    drawPixmap(rect: RectF, pixmap: Pixmap, state: PaintState): void {
+        const href = `data:${pixmap.mimeType()};base64,${base64(pixmap.data())}`
+        this.add(`<image${matrix(state.transform)} x="${num(rect.x())}" y="${num(rect.y())}" width="${num(rect.width())}" `
+            + `height="${num(rect.height())}" preserveAspectRatio="none" xlink:href="${href}"/>`, state)
     }
 
     drawFallbackText(text: string, pos: PointF, font: FallbackFont, color: Color, state: PaintState): void {

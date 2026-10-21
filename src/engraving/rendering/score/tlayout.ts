@@ -19,7 +19,7 @@ import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionH, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
     StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff, SpannerSegmentType, LineType, PlacementV,
-    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType, ArpeggioType, GuitarBendType, ChordLineType, VibratoType, GlissandoStyle, nidx, trackZeroVoice } from '../../types/types'
+    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType, ArpeggioType, GuitarBendType, ChordLineType, VibratoType, GlissandoStyle, nidx, trackZeroVoice, DPMM } from '../../types/types'
 import { SymNames } from '../../types/symnames'
 import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull } from '../../../framework/global/realfn'
 import { Pid, PropertyFlags } from '../../dom/property'
@@ -87,6 +87,7 @@ import type { Breath } from '../../dom/breath'
 import type { Dynamic } from '../../dom/dynamic'
 import type { Expression } from '../../dom/expression'
 import type { PlayTechAnnotation } from '../../dom/playtechannotation'
+import type { Image } from '../../dom/image'
 import {
     FBIDigitNone, FiguredBass, FiguredBassContLine, FiguredBassModifier, FiguredBassParenthesis, type FiguredBassItem,
 } from '../../dom/figuredbass'
@@ -337,6 +338,7 @@ export class TLayout {
         case ElementType.HARP_DIAGRAM: TLayout.layoutHarpPedalDiagram(item as HarpPedalDiagram, ctx); break
         case ElementType.PLAYTECH_ANNOTATION: TLayout.layoutPlayTechAnnotation(item as PlayTechAnnotation, ctx); break
         case ElementType.FIGURED_BASS: TLayout.layoutFiguredBass(item as FiguredBass, ctx); break
+        case ElementType.IMAGE: TLayout.layoutImage(item as Image, ctx); break
         default:
             if (item.isTextBase()) {
                 // TODO(port): specific text types (staff text, tempo text, rehearsal marks, ...)
@@ -354,8 +356,11 @@ export class TLayout {
             case ElementType.SYMBOL:
                 TLayout.layoutSymbol(e as SymbolItem, ctx)
                 break
+            case ElementType.IMAGE:
+                TLayout.layoutImage(e as Image, ctx)
+                break
             default:
-                // TODO(port): DEAD_SLAPPED, IMAGE
+                // TODO(port): DEAD_SLAPPED
                 break
             }
         }
@@ -465,7 +470,22 @@ export class TLayout {
 
     static layoutMMRest(item: MMRest, ctx: LayoutContext): void {
         const ldata = item.mutldata()
-        // TODO(port): dead slapped, symbols and images attached to the rest (item.el())
+
+        //! NOTE The types are listed here explicitly to show what types there are (see Rest::add method)
+        //! and accordingly show what depends on.
+        for (const e of item.el()) {
+            switch (e.type()) {
+            case ElementType.SYMBOL:
+                TLayout.layoutSymbol(e as SymbolItem, ctx)
+                break
+            case ElementType.IMAGE:
+                TLayout.layoutImage(e as Image, ctx)
+                break
+            default:
+                // TODO(port): DEAD_SLAPPED
+                break
+            }
+        }
 
         //! NOTE This is not look like layout data, perhaps this is should be set not here
         ldata.number = item.measure().mmRestCount()
@@ -1928,6 +1948,49 @@ export class TLayout {
     }
 
 
+    static layoutImage(item: Image, _ctx?: LayoutContext): void {
+        const ldata = item.mutldata()
+        if (!item.explicitParent()) {
+            return
+        }
+
+        ldata.setPos(0.0, 0.0)
+        item.init()
+
+        const imageSize = item.size().clone()
+
+        // if autoscale && inside a box, scale to box relevant size
+        const p = item.explicitParent()!
+        if (item.autoScale() && (p.isHBox() || p.isVBox())) {
+            const parentLD = item.parentItem()!.ldata()
+
+            if (item.lockAspectRatio()) {
+                const f = item.sizeIsSpatium() ? item.spatium() : DPMM
+                const size = item.imageSize()
+                const ratio = size.width() / size.height()
+                const w = parentLD.bbox().width()
+                const h = parentLD.bbox().height()
+                if ((w / h) < ratio) {
+                    imageSize.setWidth(w / f)
+                    imageSize.setHeight((w / ratio) / f)
+                } else {
+                    imageSize.setHeight(h / f)
+                    imageSize.setWidth(h * ratio / f)
+                }
+            } else {
+                const ps = item.pixel2size(parentLD.bbox().size())
+                imageSize.setWidth(ps.width())
+                imageSize.setHeight(ps.height())
+            }
+        }
+
+        item.setSize(imageSize)
+
+        // in any case, adjust position relative to parent
+        const px = item.size2pixel(imageSize)
+        ldata.setBbox(new RectF(0, 0, px.width(), px.height()))
+    }
+
     static layoutFermata(item: Fermata, _ctx: LayoutContext): void {
         const ldata = item.mutldata()
         const stType = item.staffType()
@@ -2761,8 +2824,10 @@ export class TLayout {
             case ElementType.SYMBOL:
                 TLayout.layoutSymbol(e as SymbolItem, ctx)
                 break
+            case ElementType.IMAGE:
+                TLayout.layoutImage(e as Image, ctx)
+                break
             default:
-                // TODO(port): images
                 break
             }
         }
@@ -4654,11 +4719,13 @@ export class TLayout {
         }
         ldata.setPos(p)
 
+        // see BSymbol::add
         for (const e of item.leafs()) {
             if (e.isSymbol()) {
                 TLayout.layoutSymbol(e as SymbolItem, ctx)
+            } else if (e.isImage()) {
+                TLayout.layoutImage(e as Image, ctx)
             }
-            // TODO(port): images
         }
     }
 

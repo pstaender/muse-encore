@@ -9,7 +9,7 @@
 import { useSyncExternalStore } from 'react'
 import {
     clearSelection, drawPage, drawPageSvg, hasSelection, initEngravingFonts, isModified, isTwoSided, moveSelection,
-    noteInputCursorBounds, noteInputState, onNotationChanged, pageCount, pageSize, scoreTitle, selectAll, selectionBounds, selectionInfo,
+    noteInputCursorBounds, noteInputState, onImageDecoded, onNotationChanged, pageCount, pageSize, scoreTitle, selectAll, selectionBounds, selectionInfo,
     SvgGlyphDefs, type MasterScore,
     // copy/paste, text editing, drag
     CLIPBOARD_FORMATS, clipboardContents, executeAction, isActionEnabled, isDragging, setClipboardContents, textEditingInfo,
@@ -371,6 +371,14 @@ function scheduleRender(delay: number): void {
     clearTimeout(renderTimer)
     renderTimer = window.setTimeout(renderVisible, delay)
 }
+
+// images of the score are decoded asynchronously: draw the pages again when one is available
+onImageDecoded(() => {
+    for (const el of pages) {
+        delete el.querySelector('canvas')!.dataset.dpi
+    }
+    scheduleRender(0)
+})
 
 /**
  * Draws a page at the given resolution. Small enough pages are drawn completely; otherwise only the visible part

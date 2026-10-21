@@ -70,6 +70,7 @@ import type { DurationElement } from '../../dom/durationelement'
 import type { Dynamic } from '../../dom/dynamic'
 import type { Expression } from '../../dom/expression'
 import type { PlayTechAnnotation } from '../../dom/playtechannotation'
+import type { Image } from '../../dom/image'
 import { FBIDigitNone, FiguredBassContLine, FiguredBassModifier, type FiguredBass, type FiguredBassItem } from '../../dom/figuredbass'
 import type { Capo } from '../../dom/capo'
 import type { StringTunings } from '../../dom/stringtunings'
@@ -232,6 +233,7 @@ export class TWrite {
         case ElementType.STRING_TUNINGS: TWrite.writeStringTunings(item as StringTunings, xml, ctx); break
         case ElementType.HARP_DIAGRAM: TWrite.writeHarpPedalDiagram(item as HarpPedalDiagram, xml, ctx); break
         case ElementType.FIGURED_BASS: TWrite.writeFiguredBass(item as FiguredBass, xml, ctx); break
+        case ElementType.IMAGE: TWrite.writeImage(item as Image, xml, ctx); break
         default:
             // TODO(port): element type not ported yet (C++: UNREACHABLE)
             break
@@ -1590,6 +1592,20 @@ export class TWrite {
             TWrite.writeItem(e, xml, ctx)
         }
         TWrite.writeItemProperties(item, xml, ctx)
+    }
+
+    static writeImage(item: Image, xml: XmlWriter, ctx: WriteContext): void {
+        xml.startElement(item)
+        TWrite.writeBSymbolProperties(item, xml, ctx)
+
+        xml.tag('path', item.storeItem() ? item.storeItem()!.hashName() : '')
+
+        TWrite.writeProperty(item, xml, Pid.AUTOSCALE)
+        TWrite.writeProperty(item, xml, Pid.SIZE)
+        TWrite.writeProperty(item, xml, Pid.LOCK_ASPECT_RATIO)
+        TWrite.writeProperty(item, xml, Pid.SIZE_IS_SPATIUM)
+
+        xml.endElement()
     }
 
     static writeInstrument(item: Instrument, xml: XmlWriter, _ctx: WriteContext, part: Part | null): void {

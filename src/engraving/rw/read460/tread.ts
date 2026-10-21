@@ -92,6 +92,7 @@ import { type TempoText, TempoTextType } from '../../dom/tempotext'
 import type { Expression } from '../../dom/expression'
 import type { PlayTechAnnotation } from '../../dom/playtechannotation'
 import type { FiguredBass, FiguredBassItem } from '../../dom/figuredbass'
+import { Image } from '../../dom/image'
 import type { Capo } from '../../dom/capo'
 import type { StringTunings } from '../../dom/stringtunings'
 import type { HarpPedalDiagram, HarpStringType, PedalPosition } from '../../dom/harppedaldiagram'
@@ -319,6 +320,7 @@ export class TRead {
         case ElementType.STRING_TUNINGS: TRead.readStringTunings(item as StringTunings, xml, ctx); break
         case ElementType.HARP_DIAGRAM: TRead.readHarpPedalDiagram(item as HarpPedalDiagram, xml, ctx); break
         case ElementType.FIGURED_BASS: TRead.readFiguredBass(item as FiguredBass, xml, ctx); break
+        case ElementType.IMAGE: TRead.readImage(item as Image, xml, ctx); break
         default:
             // TODO(port): element type not ported yet
             xml.skipCurrentElement()
@@ -2735,7 +2737,10 @@ export class TRead {
                 TRead.readSymbol(s, e, ctx)
                 b.add(s)
             } else if (tag === 'Image') {
-                e.skipCurrentElement() // TODO(port): images
+                const image = new Image(b)
+                image.setTrack(b.track())
+                TRead.readImage(image, e, ctx)
+                b.add(image)
             } else if (!TRead.readItemProperties(b, e, ctx)) {
                 e.unknown()
             }
@@ -2886,7 +2891,10 @@ export class TRead {
             TRead.readSymbol(s, e, ctx)
             b.add(s)
         } else if (tag === 'Image') {
-            e.skipCurrentElement() // TODO(port): images
+            const image = new Image(b)
+            image.setTrack(ctx.track())
+            TRead.readImage(image, e, ctx)
+            b.add(image)
         } else if (tag === 'FretDiagram') {
             const f = Factory.createItem(ElementType.FRET_DIAGRAM, scoreDummy(b.score()).segment()) as FretDiagram
             TRead.readFretDiagram(f, e, ctx)
@@ -2960,12 +2968,55 @@ export class TRead {
             const s = Factory.createItem(ElementType.SYMBOL, sym) as Symbol
             TRead.readSymbol(s, e, ctx)
             sym.add(s)
-        } else if (tag === 'FSymbol' || tag === 'Image') {
-            e.skipCurrentElement() // TODO(port): FSymbol, Image
+        } else if (tag === 'FSymbol') {
+            e.skipCurrentElement() // TODO(port): FSymbol
+        } else if (tag === 'Image') {
+            const image = new Image(sym)
+            TRead.readImage(image, e, ctx)
+            sym.add(image)
         } else {
             return false
         }
         return true
+    }
+
+    static readImage(img: Image, e: XmlReader, ctx: ReadContext): void {
+        // read400 (files < 4.0, the 2.x/3.x readers use this function)
+        if (img.score().mscVersion() <= 114) {
+            img.setSizeIsSpatium(false)
+        }
+
+        let loaded = false
+
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'autoScale') {
+                TRead.readProperty(img, e, ctx, Pid.AUTOSCALE)
+            } else if (tag === 'size') {
+                TRead.readProperty(img, e, ctx, Pid.SIZE)
+            } else if (tag === 'lockAspectRatio') {
+                TRead.readProperty(img, e, ctx, Pid.LOCK_ASPECT_RATIO)
+            } else if (tag === 'sizeIsSpatium') {
+                // setting this using the property Pid::SIZE_IS_SPATIUM breaks, because the
+                // property setter attempts to maintain a constant size. If we're reading, we
+                // don't want to do that, because the stored size will be in:
+                //    mm if size isn't spatium
+                //    sp if size is spatium
+                img.setSizeIsSpatium(e.readBool())
+            } else if (tag === 'path') {
+                loaded = img.loadFromStore(e.readText())
+            } else if (tag === 'linkPath') {
+                // C++: only if configuration()->allowReadingImagesFromOutsideMscz() (false) and not loaded
+                void loaded
+                e.skipCurrentElement()
+            } else if (tag === 'subtype' && img.score().mscVersion() < 400) { // obsolete (read400)
+                e.skipCurrentElement()
+            } else if (!TRead.readBSymbolProperties(img, e, ctx)) {
+                e.unknown()
+            }
+        }
+
+        CompatUtils.convertPre470ImageSize(img)
     }
 
     static readSymbol(sym: Symbol, e: XmlReader, ctx: ReadContext): void {
@@ -2985,6 +3036,14 @@ export class TRead {
             } else if (TRead.readPropertyIfTag(sym, tag, e, ctx, Pid.SCORE_FONT)) {
             } else if (TRead.readPropertyIfTag(sym, tag, e, ctx, Pid.SYMBOLS_SIZE)) {
             } else if (TRead.readPropertyIfTag(sym, tag, e, ctx, Pid.SYMBOL_ANGLE)) {
+            } else if (tag === 'Symbol') {
+                const s = Factory.createItem(ElementType.SYMBOL, sym) as Symbol
+                TRead.readSymbol(s, e, ctx)
+                sym.add(s)
+            } else if (tag === 'Image') {
+                const image = new Image(sym)
+                TRead.readImage(image, e, ctx)
+                sym.add(image)
             } else if (tag === 'offset' && sym.score().mscVersion() < 400 && sym.onTabStaff()
                        && (symId === SymId.noteheadParenthesisLeft || symId === SymId.noteheadParenthesisRight)) {
                 // Reset mu3 TAB parentheses offset
@@ -3209,7 +3268,10 @@ export class TRead {
                 TRead.readSymbol(s, e, ctx)
                 r.add(s)
             } else if (tag === 'Image') {
-                e.skipCurrentElement() // TODO(port): images
+                const image = new Image(r)
+                image.setTrack(r.track())
+                TRead.readImage(image, e, ctx)
+                r.add(image)
             } else if (tag === 'NoteDot') {
                 const dot = Factory.createItem(ElementType.NOTEDOT, r) as NoteDot
                 TRead.readItemPropertiesOnly(dot, e, ctx)
@@ -3354,8 +3416,13 @@ export class TRead {
             TRead.readChordLine(cl, e, ctx)
             cl.setNote(n)
             n.chord().add(cl)
-        } else if (tag === 'Image' || tag === 'Bend' || tag === 'Events' || tag === 'ChordLine') {
-            // TODO(port): images, bends, play events
+        } else if (tag === 'Image') {
+            const image = new Image(n)
+            image.setTrack(n.track())
+            TRead.readImage(image, e, ctx)
+            n.add(image)
+        } else if (tag === 'Bend' || tag === 'Events' || tag === 'ChordLine') {
+            // TODO(port): bends, play events
             e.skipCurrentElement()
         } else if (tag === 'offset') {
             TRead.readItemProperties(n, e, ctx)

@@ -5,7 +5,7 @@
  */
 /// <reference types="vite/client" />
 import {
-    drawPage, drawPageSvg, initEngravingFonts, isTwoSided, layoutScore, loadScore, pageCount, pageSize, scoreTitle,
+    drawPage, drawPageSvg, initEngravingFonts, isTwoSided, layoutScore, loadScore, onImageDecoded, pageCount, pageSize, scoreTitle,
     SvgGlyphDefs, type MasterScore,
 } from '../src/index'
 import { clearLastFile, loadLastFile, loadSettings, saveLastFile, saveSettings, type ViewSettings } from './storage'
@@ -259,6 +259,14 @@ function scheduleRender(delay: number): void {
     clearTimeout(renderTimer)
     renderTimer = window.setTimeout(renderVisible, delay)
 }
+
+// images of the score are decoded asynchronously: draw the pages again when one is available
+onImageDecoded(() => {
+    for (const el of pages) {
+        delete el.querySelector('canvas')!.dataset.dpi
+    }
+    scheduleRender(0)
+})
 
 /**
  * Draws a page at the given resolution. Small enough pages are drawn completely; otherwise only the visible part

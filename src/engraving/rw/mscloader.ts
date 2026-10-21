@@ -6,9 +6,10 @@
  * Port of src/engraving/rw/mscloader.h/.cpp
  *
  * Readers: read460 (4.x, incl. the read400/read410 differences), read302 (3.x), read206 (2.x).
- * TODO(port): read114 (1.x files), excerpts of pre-4.0 files (read302/read206), images, audio
+ * TODO(port): read114 (1.x files), excerpts of pre-4.0 files (read302/read206), audio
  */
 
+import { imageStore } from '../dom/imagestore'
 import { DefaultStyle } from '../style/defaultstyle'
 import { MscReader } from '../infrastructure/mscreader'
 import { MasterScore } from '../dom/masterscore'
@@ -55,7 +56,13 @@ export class MscLoader {
                 // Ensure that `checkChordList` loads the default chord list
                 masterScore.chordList().unload()
             }
-            // TODO(port): images
+
+            // Read images
+            {
+                for (const name of mscReader.imageFileNames()) {
+                    imageStore.add(name, mscReader.readImageFile(name) ?? new Uint8Array(0))
+                }
+            }
         }
 
         const scoreData = mscReader.readScoreFile()

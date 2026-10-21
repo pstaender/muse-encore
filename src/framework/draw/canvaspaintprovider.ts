@@ -16,6 +16,8 @@ import { Transform } from './types/transform'
 import type { IPaintProvider, PaintState } from './painter'
 import type { Color } from './types/color'
 import { fallbackCssFont, type FallbackFont } from './internal/fontprovider'
+import { imageCache } from './imagecache'
+import type { Pixmap } from './types/pixmap'
 
 /** The subset of CanvasRenderingContext2D that is used */
 export interface Canvas2D {
@@ -41,6 +43,8 @@ export interface Canvas2D {
     // for text in fallback fonts (missing in node canvas implementations: such text is not drawn)
     font?: string
     fillText?(text: string, x: number, y: number): void
+    // for images (Pixmap)
+    drawImage?(image: never, dx: number, dy: number, dw: number, dh: number): void
 }
 
 export class CanvasPaintProvider implements IPaintProvider {
@@ -157,6 +161,22 @@ export class CanvasPaintProvider implements IPaintProvider {
         ctx.font = fallbackCssFont(font)
         ctx.fillStyle = color.toCss()
         ctx.fillText(text, pos.x(), pos.y())
+        ctx.restore()
+    }
+
+    drawPixmap(rect: RectF, pixmap: Pixmap, state: PaintState): void {
+        const ctx = this.ctx
+        if (!ctx.drawImage) {
+            return
+        }
+        const img = imageCache.get(pixmap)
+        if (!img) {
+            return // not decodable, or still being decoded (imageCache.onImageDecoded)
+        }
+        ctx.save()
+        this.applyMask(state)
+        this.applyTransform(state.transform)
+        ctx.drawImage(img as never, rect.x(), rect.y(), rect.width(), rect.height())
         ctx.restore()
     }
 

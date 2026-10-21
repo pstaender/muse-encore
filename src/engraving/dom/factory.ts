@@ -98,6 +98,7 @@ import { Capo } from './capo'
 import { StringTunings } from './stringtunings'
 import { HarpPedalDiagram } from './harppedaldiagram'
 import { FiguredBass } from './figuredbass'
+import { Image } from './image'
 
 type Parent = EngravingObject | null
 
@@ -212,6 +213,7 @@ export class Factory {
         case ElementType.STRING_TUNINGS: return new StringTunings(segmentOrDummy())
         case ElementType.HARP_DIAGRAM: return new HarpPedalDiagram(segmentOrDummy())
         case ElementType.FIGURED_BASS: return new FiguredBass(segmentOrDummy())
+        case ElementType.IMAGE: return new Image(itemOrDummy())
         default:
             // TODO(port): element type not ported yet
             return null

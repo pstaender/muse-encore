@@ -5,9 +5,10 @@
  *
  * Port of src/engraving/rw/mscsaver.h/.cpp
  *
- * TODO(port): thumbnail, images, audio, automation
+ * TODO(port): thumbnail, audio, automation
  */
 
+import { imageStore } from '../dom/imagestore'
 import type { MasterScore } from '../dom/masterscore'
 import type { MscWriter } from '../infrastructure/mscwriter'
 import { XmlWriter } from './xmlwriter'
@@ -82,7 +83,17 @@ export class MscSaver {
             }
         }
 
-        // TODO(port): images (Pictures/), thumbnail (Thumbnails/thumbnail.png), audio, automation
+        // Write images
+        {
+            for (const ip of imageStore.items()) {
+                if (!ip.isUsed(score)) {
+                    continue
+                }
+                mscWriter.addImageFile(ip.hashName(), ip.buffer())
+            }
+        }
+
+        // TODO(port): thumbnail (Thumbnails/thumbnail.png), audio, automation
 
         return true
     }

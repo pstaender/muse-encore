@@ -18,6 +18,7 @@ import { LineF, PointF, PolygonF, RectF } from './types/geometry'
 import { FillRule, PainterPath } from './types/painterpath'
 import { Transform } from './types/transform'
 import type { FallbackFont, FallbackSegment, FontProvider, GlyphRef } from './internal/fontprovider'
+import type { Pixmap } from './types/pixmap'
 
 /** clip region "background minus rects" (QPainter clip path set by Painter::setMask), in coordinates of `transform` */
 export interface PaintMask {
@@ -45,6 +46,8 @@ export interface IPaintProvider {
     drawFallbackText?(text: string, pos: PointF, font: FallbackFont, color: Color, state: PaintState): void
     /** if implemented, text and symbols are passed as glyph references instead of one path (drawPath) */
     drawGlyphs?(glyphs: readonly GlyphRef[], color: Color, state: PaintState): void
+    /** draws the (encoded) image scaled into `rect` */
+    drawPixmap?(rect: RectF, pixmap: Pixmap, state: PaintState): void
 }
 
 export class Painter {
@@ -284,6 +287,22 @@ export class Painter {
             y = rect.top() + (rect.height() - height) / 2 + ascent
         }
         this.drawText(new PointF(x, y), text)
+    }
+
+    /** QPainter::drawPixmap(const QPointF&, const QPixmap&): one pixel per unit of the current coordinates */
+    drawPixmap(point: PointF, pm: Pixmap): void {
+        if (pm.isNull()) {
+            return
+        }
+        this.m_provider.drawPixmap?.(new RectF(point.x(), point.y(), pm.width(), pm.height()), pm, this.st)
+    }
+
+    /** QPainter::drawPixmap(const QRectF& target, const QPixmap&, const QRectF& source) with the whole pixmap as source */
+    drawPixmapInRect(rect: RectF, pm: Pixmap): void {
+        if (pm.isNull()) {
+            return
+        }
+        this.m_provider.drawPixmap?.(rect, pm, this.st)
     }
 
     drawSymbol(point: PointF, ucs4Code: number): void {

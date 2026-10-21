@@ -8,14 +8,19 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createCanvas } from '@napi-rs/canvas'
-import { drawPage, drawPageSvg, initEngravingFonts, layoutScore, loadScore, pageCount, pageSize } from '../src/index'
+import { createCanvas, loadImage } from '@napi-rs/canvas'
+import {
+    drawPage, drawPageSvg, hasPendingImages, imagesDecoded, initEngravingFonts, layoutScore, loadScore, pageCount, pageSize,
+    setImageDecoder,
+} from '../src/index'
 
 const FONTS_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'fonts')
 
 /** dpi 'svg': vector output */
 export async function renderScore(file: string, outPrefix: string, dpi: number | 'svg' = 100): Promise<string[]> {
     await initEngravingFonts(async (p) => readFileSync(join(FONTS_DIR, p)))
+    // images of the score (decoded asynchronously, the page is drawn again when they are available)
+    setImageDecoder(pm => loadImage(Buffer.from(pm.data)))
     const score = loadScore(readFileSync(file))
     layoutScore(score)
     const out: string[] = []
@@ -31,6 +36,11 @@ export async function renderScore(file: string, outPrefix: string, dpi: number |
         const canvas = createCanvas(Math.round(size.width * dpi), Math.round(size.height * dpi))
         const ctx = canvas.getContext('2d')
         drawPage(score, i, ctx as never, { dpi })
+        if (hasPendingImages()) {
+            await imagesDecoded()
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
+            drawPage(score, i, ctx as never, { dpi })
+        }
         const name = `${outPrefix}-${i + 1}.png`
         writeFileSync(name, canvas.toBuffer('image/png'))
         out.push(name)

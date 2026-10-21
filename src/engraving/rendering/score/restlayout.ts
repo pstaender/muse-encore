@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/restlayout.h/.cpp
  *
- * TODO(port): tablature rests, dead slapped, images, MMRest shape
+ * TODO(port): tablature rests, dead slapped, MMRest shape
  */
 
 import { PointF, RectF } from '../../../framework/draw/types/geometry'
@@ -43,10 +43,10 @@ export class RestLayout {
         }
 
         for (const e of item.el()) {
-            if (e.isSymbol()) {
+            if (e.isSymbol() || e.isImage()) {
                 TLayout.layoutItem(e, ctx)
             }
-            // TODO(port): dead slapped, images
+            // TODO(port): dead slapped
         }
 
         if (item.deadSlapped()) {

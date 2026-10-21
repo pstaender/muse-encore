@@ -19,6 +19,7 @@ import { Key } from '../../types/types'
 import { function2Tpc } from '../../dom/pitchspelling'
 import type { Harmony, HarmonyInfo } from '../../dom/harmony'
 import { ArticulationAnchor } from '../../dom/articulation'
+import type { Image } from '../../dom/image'
 
 const PRE_470_DPI = 360
 
@@ -26,6 +27,13 @@ export class CompatUtils {
     /** The frame radius used to be expressed in raster units and divided by 2 at drawing. Since 4.7 it is expressed in spatium. */
     static convertPre470FrameRadius(frameRadius: number): Spatium {
         return new Spatium(frameRadius * (DPI / PRE_470_DPI) / (STYLE_VALUES[Sid.spatium].defaultValue as number) / 2)
+    }
+
+    static convertPre470ImageSize(image: Image): void {
+        if (image.size().isNull() && image.score().mscVersion() < 470) {
+            image.init()
+            image.setSize(image.size().times(DPI / PRE_470_DPI))
+        }
     }
 
     static translateToNewArticulationAnchor(anchor: number): ArticulationAnchor {

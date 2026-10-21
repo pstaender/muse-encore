@@ -348,6 +348,12 @@ export class MeasureRead {
                     el.setTrack(0) // original system object always goes on top
                 }
                 segment.add(el)
+            } else if (tag === 'Image') {
+                segment = measure.getSegment(SegmentType.ChordRest, ctx.tick())
+                const el = Factory.createItem(ElementType.IMAGE, segment)!
+                el.setTrack(ctx.track())
+                TRead.readItem(el, e, ctx)
+                segment.add(el)
             } else if (tag === 'Fermata') {
                 fermata = Factory.createItem(ElementType.FERMATA, ctx.score()) as Fermata
                 fermata.setTrack(ctx.track())
@@ -497,8 +503,7 @@ export class MeasureRead {
                 segment.add(mr)
                 ctx.incTick(measure.ticks())
             } else {
-                // TODO(port): TremoloBar, Sticking, InstrumentChange, Image,
-                // PlayCountText, ...
+                // TODO(port): TremoloBar, PlayCountText, ...
                 e.skipCurrentElement()
             }
         }

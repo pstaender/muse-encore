@@ -7,11 +7,12 @@
  *
  * Like C++, the elements that did not change are read with the read400 readers (here: the shared read460
  * readers, which contain the read400/read410 compat code).
- * TODO(port): excerpts (<Score> recursion), Audio, images, old Bend, note events,
+ * TODO(port): excerpts (<Score> recursion), Audio, old Bend, note events,
  * MIDI data of instrument channels,
  * SystemDivider, tempo map, MIDI mapping, <ticklen> (< 1.12, needs the compat time sig map)
  */
 
+import { Image } from '../../dom/image'
 import { Fraction } from '../../types/fraction'
 import { Spatium } from '../../types/dimension'
 import { PointF } from '../../../framework/draw/types/geometry'
@@ -713,7 +714,10 @@ export class Read206 {
                 note.add(s)
             }
         } else if (tag === 'Image') {
-            e.skipCurrentElement() // TODO(port): images
+            const image = new Image(note)
+            image.setTrack(note.track())
+            TRead.readImage(image, e, ctx)
+            note.add(image)
         } else if (tag === 'Bend') {
             e.skipCurrentElement() // TODO(port): old Bend element
         } else if (tag === 'NoteDot') {
@@ -944,7 +948,10 @@ export class Read206 {
             const pt = e.readPoint()
             ch.setOffset(pt.times(ch.spatium()))
         } else if (ch.isRest() && tag === 'Image') {
-            e.skipCurrentElement() // TODO(port): images
+            const image = new Image(ch)
+            image.setTrack(ctx.track())
+            TRead.readImage(image, e, ctx)
+            ch.add(image)
         } else if (!Read206.readDurationProperties206(e, ctx, ch)) {
             return false
         }
@@ -2834,7 +2841,11 @@ function readMeasure206(m: Measure, staffIdx: number, e: XmlReader, ctx: ReadCon
                 m.add(el)
             }
         } else if (tag === 'Image') {
-            e.skipCurrentElement() // TODO(port): images
+            segment = m.getSegment(SegmentType.ChordRest, ctx.tick())
+            const el = Factory.createItemByName(tag, segment)!
+            el.setTrack(ctx.track())
+            TRead.readItem(el, e, ctx)
+            segment.add(el)
         } else if (tag === 'stretch') {
             // Ignore measure stretch pre 4.0
             e.skipCurrentElement()

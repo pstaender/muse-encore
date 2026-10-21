@@ -11,6 +11,7 @@ import { CanvasPaintProvider, type Canvas2D } from './framework/draw/canvaspaint
 import { Painter } from './framework/draw/painter'
 import { Transform } from './framework/draw/types/transform'
 import { SvgGlyphDefs, SvgPaintProvider } from './framework/draw/svgpaintprovider'
+import { imageCache } from './framework/draw/imagecache'
 import { PointF, RectF } from './framework/draw/types/geometry'
 import { Fraction } from './engraving/types/fraction'
 import { DPI, DurationType, Key } from './engraving/types/types'
@@ -201,6 +202,35 @@ export interface DrawPageOptions {
      * then has the size of the region. Used to draw sharp tiles at high zoom without a huge page bitmap.
      */
     region?: { x: number; y: number; width: number; height: number }
+}
+
+/**
+ * Images (pictures of the .mscz) are decoded by the canvas drawing. In browsers this happens asynchronously: the
+ * first drawing leaves images out, and `listener` is called when an image has been decoded (the page should be drawn
+ * again). Returns a function that removes the listener.
+ */
+export function onImageDecoded(listener: () => void): () => void {
+    return imageCache.onImageDecoded(listener)
+}
+
+/** true if images were left out of the last canvas drawing because they are still being decoded (see imagesDecoded()) */
+export function hasPendingImages(): boolean {
+    return imageCache.hasPending()
+}
+
+/** resolves when the images that are being decoded for the canvas drawing are available; then draw again */
+export function imagesDecoded(): Promise<void> {
+    return imageCache.whenDecoded()
+}
+
+/**
+ * Sets the function that decodes images for the canvas drawing (default in browsers: createImageBitmap, or an <img>
+ * element for SVG). In node, e.g. `pm => loadImage(Buffer.from(pm.data))` with @napi-rs/canvas. The decoder gets the
+ * encoded data and its MIME type and returns the decoded image (a CanvasImageSource) or a promise of it.
+ */
+export function setImageDecoder(decoder: ((image: { data: Uint8Array; mimeType: string; width: number; height: number }) =>
+unknown | Promise<unknown>) | null): void {
+    imageCache.setDecoder(decoder ? (pm) => decoder({ data: pm.data(), mimeType: pm.mimeType(), width: pm.width(), height: pm.height() }) : null)
 }
 
 /**

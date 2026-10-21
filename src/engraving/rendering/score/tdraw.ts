@@ -12,14 +12,14 @@
 
 import { Brush, BrushStyle, Pen, PenCapStyle, PenJoinStyle, PenStyle } from '../../../framework/draw/types/drawtypes'
 import { Color } from '../../../framework/draw/types/color'
-import { LineF, PointF, RectF } from '../../../framework/draw/types/geometry'
+import { LineF, PointF, RectF, SizeF } from '../../../framework/draw/types/geometry'
 import { Font, FontType } from '../../../framework/draw/types/font'
 import { FontMetrics } from '../../../framework/draw/fontmetrics'
 import { FillRule, PainterPath } from '../../../framework/draw/types/painterpath'
 import type { Painter } from '../../../framework/draw/painter'
 import { RealIsNull } from '../../../framework/global/realfn'
 import { SmuflAnchorId, SymId } from '../../types/symid'
-import { ArpeggioType, ArticulationTextType, BarLineType, BracketType, ElementType, ChordLineType, FontStyle, GlissandoType, GuitarBendType, HookType, LineType, Orientation, SlurStyleType, VOICES } from '../../types/types'
+import { ArpeggioType, ArticulationTextType, BarLineType, BracketType, ElementType, ChordLineType, FontStyle, GlissandoType, GuitarBendType, HookType, LineType, Orientation, SlurStyleType, VOICES, DPMM } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { DefaultStyle } from '../../style/defaultstyle'
 import { CrossMeasure } from '../../dom/chordrest'
@@ -27,6 +27,7 @@ import { Pid } from '../../dom/property'
 import { Accidental as DrawAccidental, type Accidental } from '../../dom/accidental'
 import type { ShadowNote } from '../../dom/shadownote'
 import type { StringTunings } from '../../dom/stringtunings'
+import { ImageType, type Image } from '../../dom/image'
 import { FiguredBass, FiguredBassContLine, FiguredBassParenthesis, type FiguredBassItem } from '../../dom/figuredbass'
 import { Rest as DrawRest } from '../../dom/rest'
 import type { MMRest } from '../../dom/mmrest'
@@ -232,6 +233,8 @@ export class TDraw {
         case ElementType.STRING_TUNINGS: TDraw.drawStringTunings(item as StringTunings, painter, opt)
             break
         case ElementType.FIGURED_BASS: TDraw.drawFiguredBass(item as FiguredBass, painter, opt)
+            break
+        case ElementType.IMAGE: TDraw.drawImage(item as Image, painter, opt)
             break
         default:
             // PAGE, SYSTEM, MEASURE, SEGMENT, CHORD, ... and types not ported yet
@@ -1706,6 +1709,49 @@ export class TDraw {
                 painter.drawPolyline(item.bracketL.slice(0, 3))
                 painter.drawPolyline(item.bracketR.slice(0, 3))
             }
+        }
+    }
+
+    static drawImage(item: Image, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+        let emptyImage = false
+        if (item.imageType() === ImageType.SVG) {
+            if (!item.svgRenderer()) {
+                emptyImage = true
+            } else {
+                item.svgRenderer()!.render(painter, ldata.bbox())
+            }
+        } else if (item.imageType() === ImageType.RASTER) {
+            const raster = item.rasterImage()
+            if (!raster || raster.isNull()) {
+                emptyImage = true
+            } else {
+                painter.save()
+                let s: SizeF
+                if (item.sizeIsSpatium()) {
+                    s = item.size().times(item.spatium())
+                } else {
+                    s = item.size().times(DPMM)
+                }
+                // C++ draws a buffer scaled to the device resolution unless printing (or the scaled image would be
+                // too big); here the image is always drawn directly, the paint provider scales it
+                painter.scale(s.width() / raster.width(), s.height() / raster.height())
+                painter.drawPixmap(new PointF(0, 0), raster)
+                painter.restore()
+            }
+        }
+
+        if (emptyImage) {
+            painter.setBrush(BrushStyle.NoBrush)
+            painter.setPen(EngravingConfiguration.defaultColor())
+            painter.drawRect(ldata.bbox())
+            painter.drawLine(new LineF(0.0, 0.0, ldata.bbox().width(), ldata.bbox().height()))
+            painter.drawLine(new LineF(ldata.bbox().width(), 0.0, 0.0, ldata.bbox().height()))
+        }
+        if (item.selected() && !opt.isPrinting) {
+            painter.setBrush(BrushStyle.NoBrush)
+            painter.setPen(EngravingConfiguration.selectionColor())
+            painter.drawRect(ldata.bbox())
         }
     }
 
