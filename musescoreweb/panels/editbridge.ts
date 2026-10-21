@@ -76,8 +76,8 @@ export function setPartVisible(_score: MasterScore, _partId: string, _visible: b
     return false
 }
 
-/** INotationParts::setStaffVisible */
-export function setStaffVisible(_score: MasterScore, _staffIndex: number, _visible: boolean): boolean {
+/** INotationParts::setStaffVisible (staff id: the library's Staff id, as in the layout panel's rows) */
+export function setStaffVisible(_score: MasterScore, _staffId: string, _visible: boolean): boolean {
     // TODO(port): NotationParts::setStaffVisible
     return false
 }
@@ -89,7 +89,7 @@ export function removeParts(_score: MasterScore, _partIds: readonly string[]): b
 }
 
 /** INotationParts::removeStaves */
-export function removeStaves(_score: MasterScore, _staffIndices: readonly number[]): boolean {
+export function removeStaves(_score: MasterScore, _staffIds: readonly string[]): boolean {
     // TODO(port): NotationParts::removeStaves
     return false
 }
@@ -100,9 +100,45 @@ export function moveParts(_score: MasterScore, _partIds: readonly string[], _des
     return false
 }
 
+/** INotationParts::moveStaves: the staves are moved before (or after) the destination staff */
+export function moveStaves(_score: MasterScore, _staffIds: readonly string[], _destinationStaffId: string, _after: boolean): boolean {
+    // TODO(port): NotationParts::moveStaves
+    return false
+}
+
 /** INotationParts::appendStaff / appendLinkedStaff ("Add staff", "Add linked staff") */
 export function addStaff(_score: MasterScore, _partId: string, _linked: boolean): boolean {
     // TODO(port): NotationParts::appendStaff / appendLinkedStaff
+    return false
+}
+
+/** INotationParts::addSystemObjects (Add > System markings: the staves get a copy of the top system markings) */
+export function addSystemObjects(_score: MasterScore, _staffIds: readonly string[]): boolean {
+    // TODO(port): NotationParts::addSystemObjects
+    return false
+}
+
+/** INotationParts::removeSystemObjects */
+export function removeSystemObjects(_score: MasterScore, _staffIds: readonly string[]): boolean {
+    // TODO(port): NotationParts::removeSystemObjects
+    return false
+}
+
+/** INotationParts::moveSystemObjects (a system markings layer moved to another staff) */
+export function moveSystemObjects(_score: MasterScore, _sourceStaffId: string, _destinationStaffId: string): boolean {
+    // TODO(port): NotationParts::moveSystemObjects
+    return false
+}
+
+/** INotationParts::moveSystemObjectLayerBelowBottomStaff / moveSystemObjectLayerAboveBottomStaff */
+export function moveSystemObjectLayerBottomStaff(_score: MasterScore, _below: boolean): boolean {
+    // TODO(port): NotationParts::moveSystemObjectLayerBelowBottomStaff / moveSystemObjectLayerAboveBottomStaff
+    return false
+}
+
+/** INotationParts::setScoreOrder (the panel's context menu "Instrument ordering"; id of orders.xml or "custom") */
+export function setScoreOrder(_score: MasterScore, _orderId: string): boolean {
+    // TODO(port): NotationParts::setScoreOrder
     return false
 }
 
