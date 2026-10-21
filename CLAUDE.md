@@ -36,7 +36,8 @@ src/
   engraving/rendering/single  SingleLayout/SingleDraw: standalone items (palette cells) on the palette score
   engraving/editing     score changes (edit.cpp, cmd.cpp, ... as Score module augmentations) through the undo stack
                         (undo.ts: UndoStack/UndoMacro/UndoCommand; startCmd/endCmd/undoRedo in cmd.ts, CmdState in
-                        cmdstate.ts); dom/noteentry.ts and dom/input.ts (InputState) for note input
+                        cmdstate.ts); dom/noteentry.ts and dom/input.ts (InputState) for note input; dom/range.ts
+                        (ScoreRange/TrackList) for rewriting measures (time signature changes)
   notation, project     MasterNotation / NotationParts / MasterNotationParts / NotationProject: creating new scores
                         (createScore), the part and staff commands of the Layout panel (editing/editpart.ts, editstaff.ts);
                         NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input

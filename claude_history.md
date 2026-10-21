@@ -685,3 +685,37 @@
   InLinkedTab, EditSystemLocks::removeSystemLocksContainingMMRests, remapBracketsAndBarlines for part scores, the
   notifications (partsChanged etc.), the instruments dialog listing the existing instruments (it only adds), part
   scores are not laid out after a change, rebuildMidiMapping/markInstrumentsAsPrimary (playback).
+
+## 2026-10-21 — Time signature changes that rewrite measures
+
+- Score::cmdAddTimeSig complete (deselectAll, local (ctrl) time signatures, measure repeat groups, errors unwind the
+  command): Score::rewriteMeasures (both overloads as one TS overload: up to the next time signature/section break incl.
+  frames and section break restore, and a measure range; the local variant only changes measure rest durations),
+  Score::undoRemoveMeasures, the complete Score::undoInsertTime (also removing time), Measure::adjustToLen (measures
+  with notes: removing/appending chords and rests, slurs, selection).
+- dom/range.ts: TrackList and ScoreRange of range.cpp (read/write of segments with accumulated rests and tied chords,
+  tuplets incl. splitting in the middle at a new barline (generated second half) and CANNOT_SPLIT_TUPLET,
+  CORRUPTED_MEASURE, clefs, key signatures, other segment elements, annotations, spanners (voltas, slurs on grace notes,
+  measure-anchored), incoming ties, barlines, layout breaks, repeats, spacers, jumps and markers; glissandi/bends via
+  cloneAndRebuildSpanners). TODO(port): linked staves (Excerpt::cloneStaff2), EngravingItem::reset of a measure repeat copy.
+- editmeasures.ts: InsertRemoveMeasures/RemoveMeasures/InsertMeasures (removeMeasures: beams, systems, empty systems and
+  pages, unmanaged spanners), ChangeMeasureLen, InsertTime, InsertTimeUnmanagedSpanner (+ Spanner.insertTimeUnmanaged)
+  are undo commands now; insertBox/insertMeasure/adjustToLen push them through the undo stack. edittremolo.ts:
+  MoveTremolo. MeasureBaseList.removeRange (C++ remove(fm, lm)), Score.isSpannerStartEnd, Rest.hack_toRestType.
+- C++ copy constructors (onCloned) of Chord (notes, grace notes, articulations, stem/hook/stem slash, arpeggio,
+  tremolos, chord lines/brackets, note parentheses; members C++ does not copy reset), ChordRest (lyrics deep copy, no
+  beam/el), Rest (dots, dead slapped), DurationElement (no tuplet), Tuplet (no elements/number), Lyrics (no separator):
+  the generic clone was shallow (a cloned chord shared its notes with the original). Chord/ChordRest.removeMarkings.
+- ChordRest.removeDeleteBeam removes empty beams/hooks through the undo stack (doUndoRemoveElement) like C++.
+- Tests: test/timesig.test.ts (a text notation -> 4.x .mscx generator; 3/4 on 4/4 with ties/two staves, mid-score with
+  incoming tie and voice 2, further changes, tuplet split + error rollback, barlines/repeats/breaks/clefs/key
+  signatures/annotations, slurs, mm rests, pickup, local time signatures + errors, 13 vtest scores with the note attacks
+  preserved; every change undo/redo compared with the SVG hash of all pages). MuseScore cannot apply a time signature
+  from the command line (plugins/extensions need the user's plugin folder), so the results are checked structurally
+  against the C++ algorithm.
+- Sweep over ~350 vtest scores (5/8 dropped on measure 2): no exceptions; the remaining undo/redo differences are C++
+  behavior: beams with user properties in the removed measures are lost on undo (removeDeleteBeam in removeMeasures),
+  lyrics lines in the range (removeUnmanaged not restored), drawing order of equal annotations/spanners (re-added in
+  reverse), a clef in the last rewritten measure lost on redo when its end barline segment is restored (InsertMeasures
+  collects clefs before lm->last()), ties across cross-staff chords, the local time signature check only looks at
+  staff 0 in the last measure (then CORRUPTED_MEASURE).
