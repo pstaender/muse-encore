@@ -6,6 +6,8 @@
  * Port of src/engraving/dom/palmmute.h/.cpp
  */
 
+import type { ChordRest } from './chordrest'
+import { InstrChannel } from './instrument'
 import { PointF } from '../../framework/draw/types/geometry'
 import type { PropertyValue } from '../types/propertyvalue'
 import { Align, AlignH, AlignV, ElementType, HookType, TextPlace, TextStyleType } from '../types/types'
@@ -95,6 +97,30 @@ export class PalmMute extends ChordTextLineBase {
         this.resetProperty(Pid.CONTINUE_TEXT)
         this.resetProperty(Pid.END_TEXT_PLACE)
         this.resetProperty(Pid.END_TEXT)
+    }
+
+    /** C++ PalmMute::setChannel: the palm mute channel of the instrument between the start and the end */
+    setChannel(): void {
+        const startEl = this.startElement()
+        const endEl = this.endElement()
+
+        if (!startEl || !endEl) {
+            return
+        }
+
+        if (!startEl.isChordRest() || !endEl.isChordRest()) {
+            return
+        }
+
+        const startCR = startEl as unknown as ChordRest
+        const endCR = endEl as unknown as ChordRest
+
+        const instrument = this.part()!.instrument(startCR.tick())
+        const idx = instrument.channelIdx(InstrChannel.PALM_MUTE_NAME)
+        if (idx > 0) {
+            this.staff()!.insertIntoChannelList(this.voice(), startCR.tick(), idx)
+            this.staff()!.insertIntoChannelList(this.voice(), endCR.endTick(), 0)
+        }
     }
 
     override getPropertyStyle(pid: Pid): Sid {

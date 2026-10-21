@@ -5127,8 +5127,13 @@ export class TLayout {
             return TLayout.layoutSystemLyricsLine(item as LyricsLine, system, ctx)
         }
         if (item.isVolta()) {
-            // TODO(port): Volta::setTempo (playback)
-            return TLayout.layoutSystemSLine(item as SLine, system, ctx)
+            const voltaSegment = TLayout.layoutSystemSLine(item as SLine, system, ctx)
+
+            // we need set tempo in layout because all tempos of score is set in layout
+            // so fermata in seconda volta works correct because fermata apply itself tempo during layouting
+            ;(item as Volta).setTempo()
+
+            return voltaSegment
         }
         if (item instanceof SLine) {
             return TLayout.layoutSystemSLine(item, system, ctx)

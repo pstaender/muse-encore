@@ -9,10 +9,12 @@
  *
  * The C++ controller registers its handlers in the ActionsDispatcher; here dispatch(code) runs them.
  *
- * TODO(port): playback (seek and play), text/lyrics/grip editing and nudging, tablature (string selection, TAB pad
+ * TODO(port): text/lyrics/grip editing and nudging, tablature (string selection, TAB pad
  * notes), copy/paste, the dialogs (tuplet-dialog, custom-tuplet), MIDI input (real-time input uses the note name keys).
  */
 
+import type { Harmony } from '../engraving/dom/harmony'
+import { playbackController } from '../playback/iplaybackcontroller'
 import { DurationType, StaffGroup, VoiceAssignment, type voice_idx_t } from '../engraving/types/types'
 import { InputState, NoteEntryMethod } from '../engraving/dom/input'
 import { Pid } from '../engraving/dom/property'
@@ -159,12 +161,22 @@ const BEAM_ACTIONS: readonly [string, BeamMode][] = [
 
 let s_actionCodes: string[] | null = null
 
+const DONT_PLAY_CHORD = false
+
+enum PlayMode {
+    NoPlay,
+    PlayNote,
+    PlayChord,
+}
+
 export class NotationActionController {
     private m_interaction: NotationInteraction
     private m_actions = new Map<string, ActionEntry>()
 
     /** C++ NotationConfiguration::defaultNoteInputMethod() */
     defaultNoteInputMethod = NoteEntryMethod.BY_NOTE_NAME
+    /** C++ NotationConfiguration::isPlayPreviewNotesInInputByDuration() */
+    isPlayPreviewNotesInInputByDuration = true
 
     constructor(interaction: NotationInteraction) {
         this.m_interaction = interaction
@@ -192,7 +204,7 @@ export class NotationActionController {
 
         for (const [code, type] of ACCIDENTAL_ACTIONS) {
             this.registerAction(code, () => this.toggleAccidental(type))
-            this.registerAction(`${code}-post`, () => this.interaction().changeAccidental(type))
+            this.registerAction(`${code}-post`, () => this.withPlayMode(PlayMode.PlayNote, () => this.interaction().changeAccidental(type)))
         }
 
         this.registerAction('rest', () => this.interaction().putRestToSelection())
@@ -209,8 +221,8 @@ export class NotationActionController {
         this.registerAction('pitch-down-octave', () => this.move(MoveDirection.Down, true))
         this.registerAction('up-chord', () => this.moveWithinChord(MoveDirection.Up), () => this.hasSelection())
         this.registerAction('down-chord', () => this.moveWithinChord(MoveDirection.Down), () => this.hasSelection())
-        this.registerAction('top-chord', () => this.interaction().selectTopOrBottomOfChord(MoveDirection.Up), () => this.hasSelection())
-        this.registerAction('bottom-chord', () => this.interaction().selectTopOrBottomOfChord(MoveDirection.Down), () => this.hasSelection())
+        this.registerAction('top-chord', () => this.selectTopOrBottomOfChord(MoveDirection.Up), () => this.hasSelection())
+        this.registerAction('bottom-chord', () => this.selectTopOrBottomOfChord(MoveDirection.Down), () => this.hasSelection())
 
         this.registerAction('double-duration', () => this.doubleNoteInputDuration())
         this.registerAction('half-duration', () => this.halveNoteInputDuration())
@@ -227,8 +239,8 @@ export class NotationActionController {
         this.registerAction(REDO_ACTION_CODE, () => this.interaction().redo(), () => this.canRedo())
 
         this.registerAction('notation-select-all', () => this.interaction().selectAll())
-        this.registerAction('first-element', () => this.interaction().selectFirstElement(false))
-        this.registerAction('last-element', () => this.interaction().selectLastElement())
+        this.registerAction('first-element', () => this.withPlayMode(PlayMode.PlayChord, () => this.interaction().selectFirstElement(false)))
+        this.registerAction('last-element', () => this.withPlayMode(PlayMode.PlayChord, () => this.interaction().selectLastElement()))
 
         this.registerAction('pitch-up-diatonic', () => this.movePitchDiatonic(MoveDirection.Up))
         this.registerAction('pitch-down-diatonic', () => this.movePitchDiatonic(MoveDirection.Down))
@@ -304,7 +316,10 @@ export class NotationActionController {
     // ---------------------------------------------------------------------------------
 
     private resetState(): void {
-        // TODO(port): playback reset
+        if (playbackController()?.isPlaying()) {
+            playbackController()!.reset()
+        }
+
         if (this.noteInput().isNoteInputMode()) {
             this.toggleNoteInput()
             return
@@ -367,13 +382,59 @@ export class NotationActionController {
             if (noteInput.usingNoteInputMethod(NoteEntryMethod.BY_DURATION)) {
                 noteInput.setRestMode(false)
                 noteInput.setInputNote(params)
-                // TODO(port): play preview notes
+
+                if (this.isPlayPreviewNotesInInputByDuration) {
+                    this.playInputNotes()
+                }
                 return
             }
         }
 
         noteInput.addNote(params, addingMode)
-        // TODO(port): seekAndPlaySelectedElement()
+
+        this.seekAndPlaySelectedElement()
+    }
+
+    /** C++ playbackController()->playNotes(state.notes(), state.staffIdx(), state.segment()) */
+    private playInputNotes(): void {
+        const state = this.score().inputState()
+        const segment = state.segment()
+        if (segment) {
+            playbackController()?.playNotes(state.notes(), state.staffIdx(), segment)
+        }
+    }
+
+    private seekSelectedElement(): void {
+        if (playbackController()?.isLoopEnabled()) {
+            return
+        }
+
+        const element = this.score().selection().element()
+        if (!element) {
+            return
+        }
+
+        playbackController()?.seekElement(element)
+    }
+
+    private playSelectedElement(playChord: boolean): void {
+        let element = this.score().selection().element()
+        if (!element) {
+            return
+        }
+
+        if (playChord) {
+            element = element.elementBase()
+        }
+
+        playbackController()?.playElements([element])
+
+        // C++ currentNotationScore()->setPlayChord(false), setPlayNote(false)
+    }
+
+    private seekAndPlaySelectedElement(playChord = true): void {
+        this.seekSelectedElement()
+        this.playSelectedElement(playChord)
     }
 
     private padNote(pad: Pad): void {
@@ -396,6 +457,11 @@ export class NotationActionController {
         }
 
         noteInput.padNote(pad)
+
+        if (noteInput.usingNoteInputMethod(NoteEntryMethod.BY_DURATION)
+            || noteInput.usingNoteInputMethod(NoteEntryMethod.RHYTHM)) {
+            this.seekAndPlaySelectedElement()
+        }
     }
 
     private toggleAccidental(type: AccidentalType): void {
@@ -414,6 +480,7 @@ export class NotationActionController {
             noteInput.setAccidental(type)
         } else {
             interaction.toggleAccidentalForSelection(type)
+            this.seekAndPlaySelectedElement()
         }
     }
 
@@ -440,12 +507,14 @@ export class NotationActionController {
         if (this.score().selection().isNone() && previousSelectionExists) {
             // Try to restore the previous selection...
             interaction.moveSelection(direction, MoveSelectionType.EngravingItem)
+            this.seekAndPlaySelectedElement(true)
             return
         }
 
         const noteInput = this.noteInput()
 
         const selectedElement = this.score().selection().element()
+        let playChord = false
 
         switch (direction) {
         case MoveDirection.Up:
@@ -473,7 +542,39 @@ export class NotationActionController {
             break
         case MoveDirection.Right:
         case MoveDirection.Left:
-            // TODO(port): playback (seek beat)
+            if (playbackController()?.isPlaying()) {
+                const beat = playbackController()!.currentBeat()
+                let targetBeatIdx = Math.trunc(beat.beat)
+                let targetMeasureIdx = beat.measureIndex
+                const increment = (direction === MoveDirection.Right ? 1 : -1)
+
+                if (quickly) {
+                    targetBeatIdx = 0
+                    targetMeasureIdx += increment
+                    if (targetMeasureIdx > beat.maxMeasureIndex) {
+                        targetMeasureIdx = beat.maxMeasureIndex
+                    } else if (targetMeasureIdx < 0) {
+                        targetMeasureIdx = 0
+                    }
+                } else {
+                    targetBeatIdx += increment
+                    if (targetBeatIdx > beat.maxBeatIndex) {
+                        targetBeatIdx = 0
+                        targetMeasureIdx += 1
+                    } else if (targetBeatIdx < 0) {
+                        targetMeasureIdx -= 1
+
+                        // Set target beat to max beat of previous bar
+                        const timeSigMap = this.score().masterScore().sigmap()
+                        const targetBarStartTick = timeSigMap.bar2tick(targetMeasureIdx, 0)
+                        targetBeatIdx = timeSigMap.timesig(Fraction.fromTicks(targetBarStartTick)).timesig().numerator() - 1
+                    }
+                }
+
+                playbackController()!.seekBeat(targetMeasureIdx, targetBeatIdx)
+                return
+            }
+
             if (interaction.isTextEditingStarted() && this.textNavigationAvailable()) {
                 this.navigateToTextElementInNearMeasure(direction)
                 return
@@ -488,16 +589,23 @@ export class NotationActionController {
                     interaction.selectFirstElement(false)
                 }
                 interaction.moveSelection(direction, quickly ? MoveSelectionType.Measure : MoveSelectionType.Chord)
+                playChord = true
             }
             break
         case MoveDirection.Undefined:
             break
         }
+
+        this.seekAndPlaySelectedElement(playChord)
     }
 
     private moveInputNotes(up: boolean, mode: UpDownMode): void {
         this.noteInput().setRestMode(false)
         this.noteInput().moveInputNotes(up, mode)
+
+        if (this.isPlayPreviewNotesInInputByDuration) {
+            this.playInputNotes()
+        }
     }
 
     private movePitchDiatonic(direction: MoveDirection): void {
@@ -508,10 +616,17 @@ export class NotationActionController {
         }
 
         this.interaction().movePitch(direction, UpDownMode.DIATONIC)
+        this.seekAndPlaySelectedElement(true)
     }
 
     private moveWithinChord(direction: MoveDirection): void {
         this.interaction().moveChordNoteSelection(direction)
+        this.seekAndPlaySelectedElement(DONT_PLAY_CHORD)
+    }
+
+    private selectTopOrBottomOfChord(direction: MoveDirection): void {
+        this.interaction().selectTopOrBottomOfChord(direction)
+        this.seekAndPlaySelectedElement(DONT_PLAY_CHORD)
     }
 
     private changeVoice(voiceIndex: voice_idx_t): void {
@@ -537,6 +652,7 @@ export class NotationActionController {
         const noteInput = this.noteInput()
         if (noteInput.isNoteInputMode()) {
             noteInput.addTie()
+            this.seekAndPlaySelectedElement(true)
         } else {
             this.interaction().addTieToSelection()
         }
@@ -546,6 +662,7 @@ export class NotationActionController {
         const noteInput = this.noteInput()
         if (noteInput.isNoteInputMode()) {
             noteInput.addTie() // C++ NotationNoteInput::addTie() is also used for chord-tie in note input
+            this.seekAndPlaySelectedElement(true)
         } else {
             this.interaction().addTiedNoteToChord()
         }
@@ -744,6 +861,17 @@ export class NotationActionController {
         return result
     }
 
+    /** C++ registerAction(code, handler, PlayMode): the handler, then seekSelectedElement and playSelectedElement */
+    private withPlayMode(playMode: PlayMode, handler: () => void): void {
+        handler()
+
+        this.seekSelectedElement()
+
+        if (playMode !== PlayMode.NoPlay) {
+            this.playSelectedElement(playMode === PlayMode.PlayChord)
+        }
+    }
+
     private registerAction(code: string, run: () => void, enabled?: () => boolean): void {
         this.m_actions.set(code, { run, enabled })
     }
@@ -764,7 +892,10 @@ export class NotationActionController {
         this.registerAction('notation-paste-double', () => this.pasteSelection(PastingType.Double))
         this.registerAction('notation-paste-special', () => this.pasteSelection(PastingType.Special))
         this.registerAction('notation-swap', () => this.interaction().swapSelection(), () => this.hasSelection())
-        this.registerAction('repeat-sel', () => this.interaction().repeatSelection())
+        this.registerAction('repeat-sel', () => {
+            this.interaction().repeatSelection()
+            this.seekAndPlaySelectedElement(true)
+        })
 
         this.registerAction('next-text-element', () => this.navigateToTextElement(MoveDirection.Right, NEAR_NOTE_OR_REST),
             () => this.textNavigationAvailable())
@@ -829,7 +960,7 @@ export class NotationActionController {
     private pasteSelection(type: PastingType): void {
         const scale = this.resolvePastingScale(type)
         this.interaction().pasteSelection(scale)
-        // TODO(port): seekAndPlaySelectedElement
+        this.seekAndPlaySelectedElement(DONT_PLAY_CHORD)
     }
 
     private resolvePastingScale(type: PastingType): Fraction {
@@ -911,8 +1042,16 @@ export class NotationActionController {
         if (element.isLyrics()) {
             this.interaction().navigateToLyricsDirection(direction, moveOnly)
         } else if (element.isHarmony()) {
-            // TODO(port): play the chord symbol
+            const chordSymbol = this.editedChordSymbol()
+
+            // otherwise, chord symbol will be deleted when navigating away from it
+            const canPlay = !!chordSymbol && chordSymbol.harmonyName() !== ''
+
             this.interaction().navigateToNearHarmony(direction, nearNoteOrRest)
+
+            if (canPlay) {
+                playbackController()?.playElements([chordSymbol!])
+            }
         } else {
             // TODO(port): figured bass, navigateToNearText (fingering, sticking)
         }
@@ -925,9 +1064,27 @@ export class NotationActionController {
         }
 
         if (element.isHarmony()) {
+            const chordSymbol = this.editedChordSymbol()
+
+            // otherwise, chord symbol will be deleted when navigating away from it
+            const canPlay = !!chordSymbol && chordSymbol.harmonyName() !== ''
+
             this.interaction().navigateToHarmonyInNearMeasure(direction)
+
+            if (canPlay) {
+                playbackController()?.playElements([chordSymbol!])
+            }
         }
         // TODO(port): figured bass
+    }
+
+    private editedChordSymbol(): Harmony | null {
+        const text = this.interaction().editedText()
+        if (!text || !text.isHarmony()) {
+            return null
+        }
+
+        return text as unknown as Harmony
     }
 
     isEditingText(): boolean {
@@ -1028,7 +1185,7 @@ export class NotationActionController {
 
         for (let i = MIN_NOTES_INTERVAL; i <= MAX_NOTES_INTERVAL; ++i) {
             if (isNotesIntervalValid(i)) {
-                this.registerAction(`interval${i}`, () => this.interaction().addIntervalToSelectedNotes(i))
+                this.registerAction(`interval${i}`, () => this.withPlayMode(PlayMode.PlayChord, () => this.interaction().addIntervalToSelectedNotes(i)))
             }
         }
     }
@@ -1114,6 +1271,7 @@ export class NotationActionController {
         const noteInput = this.noteInput()
         if (noteInput.isNoteInputMode()) {
             noteInput.addLaissezVib()
+            this.seekAndPlaySelectedElement(true)
         } else {
             this.interaction().addLaissezVibToSelection()
         }

@@ -5,7 +5,6 @@
  *
  * Port of src/engraving/dom/stafftextbase.h/.cpp, stafftext.h/.cpp and systemtext.h/.cpp
  *
- * TODO(port): playback related properties (midi actions, aeolus stops, swing, capo) are read but unused
  */
 
 import type { PropertyValue } from '../types/propertyvalue'
@@ -59,6 +58,7 @@ export abstract class StaffTextBase extends TextBase {
     clearAeolusStops(): void { this.m_aeolusStops = [0, 0, 0, 0] }
     setAeolusStop(group: number, val: number): void { this.m_aeolusStops[group] = val }
     aeolusStop(group: number): number { return this.m_aeolusStops[group] }
+    getAeolusStop(group: number, idx: number): boolean { return (this.m_aeolusStops[group] & (1 << idx)) !== 0 }
     setSetAeolusStops(val: boolean): void { this.m_setAeolusStops = val }
     setAeolusStops(): boolean { return this.m_setAeolusStops }
     setSwing(checked: boolean): void { this.m_swing = checked }

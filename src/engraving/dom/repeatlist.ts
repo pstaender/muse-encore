@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/repeatlist.h/.cpp
  * C++ iterators into m_rlElements are (section, element) index pairs here.
- * TODO(port): tempo map (utime/timeOffset), Score::undoRemoveStaleTieJumpPoints
+ * TODO(port): Score::undoRemoveStaleTieJumpPoints
  */
 
 import { HookType } from '../types/types'
@@ -118,6 +118,7 @@ interface RLPos {
 export class RepeatList extends Array<RepeatSegment> {
     private m_score: Score
     private m_idx1 = 0
+    private m_idx2 = 0
     private m_expanded = false
     private m_scoreChanged = true
     private m_jumpsTaken = new Set<string>() // take the jumps only once, so track them during unwind
@@ -157,13 +158,80 @@ export class RepeatList extends Array<RepeatSegment> {
         return 0
     }
 
-    /** TODO(port): only uticks, there is no tempo map */
     updateTempo(): void {
+        const tl = this.m_score.tempomap()
+        if (tl.empty()) {
+            return
+        }
+
+        // Collect the end-ticks of all segments that carry a section-break pause.
+        // tick2time() always includes the pause at the queried tick, so for repeated
+        // sections every segment ending at a section break would accumulate the pause
+        // once per iteration.  We subtract it from non-final segments so that it is
+        // counted only once (in the last segment, where s->pause > 0.0).
+        const sectionBreakEndTicks = new Set<number>()
+        for (const s of this) {
+            if (s.pause > 0.0) {
+                sectionBreakEndTicks.add(s.tick + s.len())
+            }
+        }
+
         let utick = 0
+        let t = 0
+
         for (const s of this) {
             s.utick = utick
-            utick += s.len()
+            s.utime = t
+            const ct = tl.tick2time(s.tick)
+            s.timeOffset = t - ct
+            const len = s.len()
+            utick += len
+            let delta = tl.tick2time(s.tick + len) - ct
+            // For a non-final segment that ends at a section break, remove the
+            // section-break pause from the delta so the pause is not double-counted.
+            if (s.pause === 0.0 && sectionBreakEndTicks.has(s.tick + len)) {
+                delta -= tl.pauseSecs(s.tick + len)
+            }
+            t += delta
         }
+    }
+
+    utick2utime(tick: number): number {
+        const n = this.length
+        const ii = (this.m_idx1 < n) && (tick >= this[this.m_idx1].utick) ? this.m_idx1 : 0
+        for (let i = ii; i < n; ++i) {
+            if ((tick >= this[i].utick) && ((i + 1 === n) || (tick < this[i + 1].utick))) {
+                const t = tick - (this[i].utick - this[i].tick)
+                const tt = this.m_score.tempomap().tick2time(t) + this[i].timeOffset
+                return tt
+            }
+        }
+        return 0.0
+    }
+
+    utime2utick(secs: number): number {
+        const repeatSegmentsCount = this.length
+        const ii = (this.m_idx2 < repeatSegmentsCount) && (secs >= this[this.m_idx2].utime) ? this.m_idx2 : 0
+        for (let i = ii; i < repeatSegmentsCount; ++i) {
+            if ((secs >= this[i].utime) && ((i + 1 === repeatSegmentsCount) || (secs < this[i + 1].utime))) {
+                this.m_idx2 = i
+                return this.m_score.tempomap().time2tick(secs - this[i].timeOffset) + (this[i].utick - this[i].tick)
+            }
+        }
+
+        // requesting from an empty map can be expected as a valid scenario
+        return 0
+    }
+
+    /** Lookup the RepeatSegment containing the given utick (index, or -1) */
+    findRepeatSegmentFromUTick(utick: number): number {
+        for (let i = 0; i < this.length; ++i) {
+            const seg = this[i]
+            if (utick >= seg.utick && utick < seg.utick + seg.len()) {
+                return i
+            }
+        }
+        return -1
     }
 
     utick2tick(tick: number): number {

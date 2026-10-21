@@ -145,6 +145,7 @@ export class Note extends EngravingItem {
     private m_offTimeType = 0
     private m_onTimeType = 0
     private m_subchannel = 0
+    private m_harmonicPitchOffset = 0
     private m_line = INVALID_LINE // y-Position; 0 - top line.
     private m_fret = -1 // for tablature view
     private m_harmonicFret = -1.0
@@ -1232,12 +1233,12 @@ export class Note extends EngravingItem {
     setTieFor(t: Tie | null): void { this.m_tieFor = t }
     setTieBack(t: Tie | null): void { this.m_tieBack = t }
 
-    lastTiedNote(): Note {
+    lastTiedNote(ignorePlayback = true): Note {
         const notes: Note[] = []
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         let note: Note = this
         notes.push(note)
-        while (note.tieFor()) {
+        while (note.tieFor() && (ignorePlayback || note.tieFor()!.playSpanner())) {
             const end = note.tieFor()!.endNote()
             if (!end || notes.includes(end)) {
                 break
@@ -1248,12 +1249,12 @@ export class Note extends EngravingItem {
         return note
     }
 
-    firstTiedNote(): Note {
+    firstTiedNote(ignorePlayback = true): Note {
         const notes: Note[] = []
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         let note: Note = this
         notes.push(note)
-        while (note.tieBack()) {
+        while (note.tieBack() && (ignorePlayback || note.tieBack()!.playSpanner())) {
             const start = note.tieBack()!.startNote()
             if (!start || notes.includes(start)) {
                 break
@@ -1613,6 +1614,30 @@ export class Note extends EngravingItem {
     }
 
     userVelocity(): number { return this.m_userVelocity }
+
+    customizeVelocity(velo: number): number {
+        if (this.m_veloType === VeloType.OFFSET_VAL) {
+            velo = velo + Math.trunc((velo * this.userVelocity()) / 100)
+        } else if (this.m_veloType === VeloType.USER_VAL) {
+            velo = this.userVelocity()
+        }
+        return Math.min(Math.max(velo, 1), 127)
+    }
+
+    harmonicPitchOffset(): number { return this.m_harmonicPitchOffset }
+    setHarmonicPitchOffset(val: number): void { this.m_harmonicPitchOffset = val }
+
+    playTicks(): number {
+        return this.playTicksFraction().ticks()
+    }
+
+    /** Return total tick len of tied notes */
+    playTicksFraction(): Fraction {
+        if (!this.m_tieBack && !this.m_tieFor && this.chord()) {
+            return this.chord().actualTicks()
+        }
+        return this.lastTiedNote().chord().endTick().minus(this.firstTiedNote().chord().tick())
+    }
     setUserVelocity(v: number): void { this.m_userVelocity = v }
     veloType(): VeloType { return this.m_veloType }
     setVeloType(v: VeloType): void { this.m_veloType = v }

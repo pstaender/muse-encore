@@ -238,6 +238,7 @@ export abstract class MeasureBase extends EngravingItem {
             }
         }
         this.m_el.push(e)
+        e.added()
     }
 
     override remove(el: EngravingItem): void {
@@ -246,13 +247,17 @@ export abstract class MeasureBase extends EngravingItem {
             switch (lb.layoutBreakType()) {
             case LayoutBreakType.PAGE: this.setPageBreak(false); break
             case LayoutBreakType.LINE: this.setLineBreak(false); break
-            case LayoutBreakType.SECTION: this.setSectionBreak(false); break
+            case LayoutBreakType.SECTION:
+                this.setSectionBreak(false)
+                this.score().setPause(this.endTick(), 0)
+                break
             case LayoutBreakType.NOBREAK: this.setNoBreak(false); break
             }
         }
         const i = this.m_el.indexOf(el)
         if (i >= 0) {
             this.m_el.splice(i, 1)
+            el.removed()
         }
     }
 

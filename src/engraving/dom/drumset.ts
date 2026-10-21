@@ -5,7 +5,6 @@
  *
  * Port of src/engraving/dom/drumset.h/.cpp
  *
- * TODO(port): findVariant (only used for note input and playback)
  */
 
 import { SymId } from '../types/symid'
@@ -14,6 +13,7 @@ import { DirectionV, NoteHeadGroup, NoteHeadType, TremoloType } from '../types/t
 import { TConv } from '../types/typesconv'
 import type { XmlReader } from '../rw/xmlreader'
 import type { XmlWriter } from '../rw/xmlwriter'
+import type { Articulation } from './articulation'
 import { STANDARD_DRUMSET } from './drumsetdata'
 
 const INVALID_PITCH = -1
@@ -70,6 +70,27 @@ export class Drumset {
     name(pitch: number): string { return this.m_drums[pitch].name }
     shortcut(pitch: number): string { return this.m_drums[pitch].shortcut }
     variants(pitch: number): DrumInstrumentVariant[] { return this.m_drums[pitch].variants }
+
+    findVariant(p: number, articulations: readonly Articulation[], tremType: TremoloType): DrumInstrumentVariant {
+        let div: DrumInstrumentVariant = { pitch: INVALID_PITCH, tremolo: TremoloType.INVALID_TREMOLO, articulationName: '' }
+        const vs = this.variants(p)
+        for (const v of vs) {
+            const matchTremolo = ((tremType === TremoloType.INVALID_TREMOLO) && (v.tremolo === TremoloType.INVALID_TREMOLO))
+                                 || (v.tremolo === tremType)
+            let matchArticulation = v.articulationName === '' && articulations.length === 0
+            for (const a of articulations) {
+                matchArticulation = a.articulationName() === v.articulationName
+                if (!matchArticulation) {
+                    break
+                }
+            }
+            if (matchArticulation && matchTremolo) {
+                div = { ...v }
+                break
+            }
+        }
+        return div
+    }
     panelRow(pitch: number): number { return this.m_drums[pitch].panelRow }
     panelColumn(pitch: number): number { return this.m_drums[pitch].panelColumn }
 

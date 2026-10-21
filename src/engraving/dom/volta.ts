@@ -5,13 +5,13 @@
  *
  * Port of src/engraving/dom/volta.h/.cpp
  *
- * TODO(port): playback (setChannel, setTempo)
  */
 
 import { PointF } from '../../framework/draw/types/geometry'
+import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import { SmuflAnchorId, SymId } from '../types/symid'
-import { BarLineType, ElementType, HookType, PlacementV, TextPlace, TextStyleType, nidx } from '../types/types'
+import { BarLineType, ElementType, HookType, PlacementV, TextPlace, TextStyleType, VOICES, nidx } from '../types/types'
 import { Sid } from '../style/styledef'
 import { Grip } from '../editing/editdata'
 import { ElementFlag } from './engravingitem'
@@ -259,6 +259,42 @@ export class Volta extends TextLineBase {
             }
         }
         return { pos: new PointF(x, 0.0), system }
+    }
+
+    /** C++ Volta::setChannel: the channel before the volta is restored at its end */
+    setChannel(): void {
+        const startMeasure = this.startMeasure()
+        const endMeasure = this.endMeasure()
+
+        if (startMeasure && endMeasure) {
+            if (!endMeasure.repeatEnd()) {
+                return
+            }
+
+            const startTick = startMeasure.tick().minus(Fraction.eps())
+            const endTick = endMeasure.endTick().minus(Fraction.eps())
+            const st = this.staff()!
+            for (let voice = 0; voice < VOICES; ++voice) {
+                const channel = st.channel(startTick, voice)
+                st.insertIntoChannelList(voice, endTick, channel)
+            }
+        }
+    }
+
+    /** C++ Volta::setTempo: the tempo at the end of the volta is the tempo before it (called by the layout) */
+    setTempo(): void {
+        const startMeasure = this.startMeasure()
+        const endMeasure = this.endMeasure()
+
+        if (startMeasure && endMeasure) {
+            if (!endMeasure.repeatEnd()) {
+                return
+            }
+            const startTick = startMeasure.tick().minus(Fraction.eps())
+            const endTick = endMeasure.endTick().minus(Fraction.eps())
+            const tempoBeforeVolta = this.score().tempomap().tempo(startTick.ticks())
+            this.score().setTempo(endTick, tempoBeforeVolta)
+        }
     }
 
     override accessibleInfo(): string {

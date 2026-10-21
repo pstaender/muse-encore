@@ -112,6 +112,8 @@ export class InsertMeasureOptions {
 
 declare module '../dom/score' {
     interface Score {
+        /** the tick of the selected chord/rest (the input position of e.g. loop markers) */
+        pos(): Fraction
         doUndoAddElement(element: EngravingItem): void
         undoAddElement(element: EngravingItem, addToLinkedStaves?: boolean, ctrlModifier?: boolean, elementToRelink?: EngravingItem | null): void
         doUndoRemoveElement(element: EngravingItem): void
@@ -197,6 +199,28 @@ declare module '../dom/score' {
         changeSelectedElementsVoice(voice: voice_idx_t): void
         canReselectItem(item: EngravingItem | null): boolean
     }
+}
+
+Score.prototype.pos = function (this: Score): Fraction {
+    let el: EngravingItem | null = this.selection().element()
+    if (this.selection().activeCR()) {
+        el = this.selection().activeCR()
+    }
+    if (el) {
+        if (el.type() === ElementType.NOTE) {
+            el = el.parentItem()!
+        }
+        switch (el.type()) {
+        case ElementType.MEASURE_REPEAT:
+        case ElementType.REST:
+        case ElementType.MMREST:
+        case ElementType.CHORD:
+            return (el as unknown as ChordRest).tick()
+        default:
+            break
+        }
+    }
+    return new Fraction(0, 1)
 }
 
 declare module '../dom/masterscore' {
@@ -5228,7 +5252,7 @@ function addTextToChordRest(score: Score, type: TextStyleType, destinationElemen
         tempoText.setTrack(0)
         tempoText.setXmlText(text)
         tempoText.setFollowText(true)
-        // TODO(port): tempoText->updateTempo() (the tempo of the playback)
+        tempoText.updateTempo()
 
         textBox = tempoText
         score.undoAddElement(textBox)

@@ -8,6 +8,8 @@
  * TODO(port): velocity changes and playback, editing (grips, drag groups)
  */
 
+import { Fraction } from '../types/fraction'
+import { Constants } from '../types/constants'
 import type { PropertyValue } from '../types/propertyvalue'
 import { DynamicSpeed, DynamicType, ElementType, TextStyleType } from '../types/types'
 import { SymId } from '../types/symid'
@@ -220,6 +222,30 @@ export class Dynamic extends TextBase {
         }
     }
     velChangeSpeed(): DynamicSpeed { return this.m_velChangeSpeed }
+
+    /** the time over which the velocity change occurs */
+    velocityChangeLength(): Fraction {
+        if (this.changeInVelocity() === 0) {
+            return Fraction.fromTicks(0)
+        }
+
+        const ratio = this.score().tempomap().multipliedTempo(this.segment().tick().ticks()) / Constants.DEFAULT_TEMPO
+        let speedMult: number
+        switch (this.velChangeSpeed()) {
+        case DynamicSpeed.SLOW:
+            speedMult = 1.3
+            break
+        case DynamicSpeed.FAST:
+            speedMult = 0.5
+            break
+        case DynamicSpeed.NORMAL:
+        default:
+            speedMult = 0.8
+            break
+        }
+
+        return Fraction.fromTicks(Math.trunc(ratio * (speedMult * Constants.DIVISION)))
+    }
     setVelChangeSpeed(val: DynamicSpeed): void { this.m_velChangeSpeed = val }
     playDynamic(): boolean { return this.m_playDynamic }
     setPlayDynamic(v: boolean): void { this.m_playDynamic = v }

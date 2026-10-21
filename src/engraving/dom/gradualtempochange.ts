@@ -317,6 +317,18 @@ export class GradualTempoChange extends TextLineBase {
 
         return { pos: new PointF(x, 0.0), system }
     }
+
+    override added(): void {
+        this.requestToRebuildTempo()
+    }
+
+    override removed(): void {
+        this.requestToRebuildTempo()
+    }
+
+    requestToRebuildTempo(): void {
+        this.score().setUpTempoMapLater()
+    }
 }
 
 export class GradualTempoChangeSegment extends TextLineBaseSegment {
@@ -407,5 +419,13 @@ export class GradualTempoChangeSegment extends TextLineBaseSegment {
         }
 
         return null
+    }
+
+    override added(): void {
+        (this.spanner() as GradualTempoChange).requestToRebuildTempo()
+    }
+
+    override removed(): void {
+        (this.spanner() as GradualTempoChange).requestToRebuildTempo()
     }
 }

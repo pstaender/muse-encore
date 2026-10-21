@@ -1067,6 +1067,12 @@ export enum CapoTransposeMode {
     TAB_ONLY      = 2,
 }
 
+/** C++ SwingParameters */
+export interface SwingParameters {
+    swingUnit: number
+    swingRatio: number
+}
+
 /** C++ CapoParams (a value type: copy with clone()) */
 export class CapoParams {
     ignoredStrings = new Set<number>()

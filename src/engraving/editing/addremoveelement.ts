@@ -6,6 +6,7 @@
  * Port of src/engraving/editing/addremoveelement.h/.cpp
  */
 
+import type { TempoText } from '../dom/tempotext'
 import { staffTextHooks } from '../dom/stafftextbase'
 import { Fraction } from '../types/fraction'
 import { VOICES, type staff_idx_t } from '../types/types'
@@ -321,8 +322,10 @@ export class ChangeElement extends UndoCommand {
             if (!ks.generated()) {
                 ks.staff()!.setKey(ks.tick(), ks.keySigEvent())
             }
+        } else if (newElement.isTempoText()) {
+            const t = oldElement as unknown as TempoText
+            score.setTempo(t.segment().tick(), t.tempo())
         }
-        // TODO(port): TempoText -> score->setTempo() (tempo map)
 
         if (newElement.isSpannerSegment()) {
             const os = oldElement as unknown as SpannerSegment

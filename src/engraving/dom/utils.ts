@@ -13,7 +13,7 @@ import {
 } from '../types/types'
 import { ClefInfo } from './clefinfo'
 import {
-    MIN_PITCH, PITCH_DELTA_OCTAVE, Prefer, STEP_DELTA_OCTAVE, clampPitch, pitch2tpc, tpc2pitch, tpc2step,
+    MAX_PITCH, MIN_PITCH, PITCH_DELTA_OCTAVE, Prefer, STEP_DELTA_OCTAVE, clampPitch, pitch2tpc, tpc2pitch, tpc2step,
 } from './pitchspelling'
 import type { Tuplet } from './tuplet'
 import { CHORD_REST_OR_TIME_TICK_TYPE, SegmentType, type Segment } from './segment'
@@ -969,4 +969,109 @@ export function collectSystemObjects(score: Score, staves: readonly Staff[] = []
     }
 
     return result
+}
+
+//---------------------------------------------------------
+//   convertLine
+// find the line in clefF corresponding to lineL2 in clefR
+//---------------------------------------------------------
+
+export function convertLine(lineL2: number, clefL: ClefType, clefR: ClefType): number {
+    let lineR2 = lineL2
+    const goalpitch = line2pitch(lineL2, clefL, Key.C)
+    let p: number
+    while ((p = line2pitch(lineR2, clefR, Key.C)) > goalpitch && p < MAX_PITCH) {
+        lineR2++
+    }
+    while ((p = line2pitch(lineR2, clefR, Key.C)) < goalpitch && p > MIN_PITCH) {
+        lineR2--
+    }
+    return lineR2
+}
+
+/**
+ * convertLine(lineL2, noteL, noteR): find the line in clef for NoteL corresponding to lineL2 in clef for noteR
+ * for example middle C is line 10 in Treble clef, but is line -2 in Bass clef.
+ */
+export function convertLineForNotes(lineL2: number, noteL: Note, noteR: Note): number {
+    return convertLine(lineL2,
+        noteL.chord().staff()!.clef(noteL.chord().tick()),
+        noteR.chord().staff()!.clef(noteR.chord().tick()))
+}
+
+//---------------------------------------------------------
+//   chromaticPitchSteps -- an articulation such as a trill, or mordant consists of several notes
+// played in succession.  The pitch offsets of each such note in the sequence can be represented either
+// as a number of steps in the diatonic scale, or in half steps as on a piano keyboard.
+// this function, articulationExcursion, takes deltastep indicating the number of steps in the
+// diatonic scale, and calculates (and returns) the number of half steps, taking several things into account.
+// E.g., the key signature, a trill from e to f, is to be understood as a trill between E and F# if we are
+// in the key of G.
+// E.g., if previously (looking backward in time) in the same measure there is another note on the same
+// staff line/space, and that note has an accidental (sharp,flat,natural,etc), then we want to match that
+// tone exactly.
+// noteL is the note to measure the deltastep from, i.e., ornaments are w.r.t. this note
+// noteR is the note to search backward from to find accidentals.
+//    for ornament calculation noteL and noteR are the same, but for glissando they are
+//     the start and end note of glissando.
+// nominalDiatonicSteps is the desired number of diatonic steps between the base note and this articulation step.
+//---------------------------------------------------------
+
+export function chromaticPitchSteps(noteL: Note, noteR: Note, nominalDiatonicSteps: number): number {
+    if (0 === nominalDiatonicSteps) {
+        return 0
+    }
+    const chordL = noteL.chord()
+    const chordR = noteR.chord()
+    const epitchL = noteL.epitch()
+    const tickL = chordL.tick()
+    // we cannot use staffL = chord->staff() because that won't correspond to the noteL->line()
+    //   in the case the user has pressed Shift-Cmd->Up or Shift-Cmd-Down.
+    //   Therefore we have to take staffMove() into account using vStaffIdx().
+    const staffL = noteL.score().staff(chordL.vStaffIdx())!
+    const clefL = staffL.clef(tickL)
+    // line represents the ledger line of the staff.  0 is the top line, 1, is the space between the top 2 lines,
+    //  ... 8 is the bottom line.
+    let lineL = noteL.line()
+    if (lineL === -10000 /* INVALID_LINE */) {
+        const absLine = absStep(noteL.tpc(), noteL.epitch())
+        const clef = noteL.staff()!.clef(noteL.tick())
+        lineL = relStep(absLine, clef)
+    }
+
+    // we use line - deltastep, because lines are oriented from top to bottom, while step is oriented from bottom to top.
+    const lineL2 = lineL - nominalDiatonicSteps
+    const measureR = chordR.segment().measure()
+
+    const segment = noteL.chord().segment()
+    const lineR2 = convertLineForNotes(lineL2, noteL, noteR)
+    // is there another note in this segment on the same line?
+    // if so, use its pitch exactly.
+    let halfsteps = 0
+    const staffIdx = noteL.chord().staff()!.idx() // cannot use staffL->idx() because of staffMove()
+    const startTrack = staffIdx * VOICES
+    const endTrack = startTrack + VOICES
+    const done = false
+    for (let track = startTrack; track < endTrack; ++track) {
+        const e = segment.element(track)
+        if (!e || !e.isChord()) {
+            continue
+        }
+        const chord = e as unknown as Chord
+        if (chord.vStaffIdx() !== chordL.vStaffIdx()) {
+            continue
+        }
+        if (!done) {
+            if (staffL.isPitchedStaff(segment.tick())) {
+                const [acciv2] = measureR.findAccidentalAtLine(chordR.segment(), chordR.vStaffIdx(), lineR2)
+                const acci2 = acciv2 as number
+                // epitch (effective pitch) is a visible pitch so line2pitch returns exactly that.
+                halfsteps = line2pitch(lineL - nominalDiatonicSteps, clefL, Key.C) + acci2 - epitchL
+            } else {
+                // cannot rely on accidentals or key signatures
+                halfsteps = nominalDiatonicSteps
+            }
+        }
+    }
+    return halfsteps
 }

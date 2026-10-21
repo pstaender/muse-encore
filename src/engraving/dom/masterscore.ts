@@ -3,12 +3,14 @@
  * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
- * Port of src/engraving/dom/masterscore.h/.cpp (playback related parts are not ported)
+ * Port of src/engraving/dom/masterscore.h/.cpp
+ * TODO(port): playback score, PartChannelSettingsLink (mixer)
  */
 
 import { RepeatList } from './repeatlist'
-import { Score } from './score'
+import { LoopBoundaryType, Score } from './score'
 import { TimeSigMap } from './sig'
+import { TempoMap } from './tempo'
 import { UndoStack } from '../editing/undo'
 import { CmdState } from '../editing/cmdstate'
 import type { Excerpt } from './excerpt'
@@ -51,6 +53,9 @@ export class MidiMapping {
 
 export class MasterScore extends Score {
     private m_sigmap = new TimeSigMap()
+    private m_tempomap = new TempoMap()
+    private m_loopBoundaries: [Fraction, Fraction] = [new Fraction(0, 1), new Fraction(0, 1)] // 0 - LoopIn, 1 - LoopOut
+    private m_loopBoundaryTickChanged = new Set<(type: LoopBoundaryType, ticks: number) => void>()
     private m_mscoreVersion = ''
     private m_mscoreRevision = 0
     private m_expandRepeats = true
@@ -136,6 +141,8 @@ export class MasterScore extends Score {
     }
     override masterScore(): MasterScore { return this }
     override sigmap(): TimeSigMap { return this.m_sigmap }
+    override tempomap(): TempoMap { return this.m_tempomap }
+    setTempomap(tm: TempoMap): void { this.m_tempomap = tm }
     override undoStack(): UndoStack { return this.m_undoStack }
     override cmdState(): CmdState { return this.m_cmdState }
     addLayoutFlags(val: number): void { this.m_cmdState.layoutFlags |= val }
@@ -148,12 +155,60 @@ export class MasterScore extends Score {
 
     expandRepeats(): boolean { return this.m_expandRepeats }
 
+    override loopBoundaryTick(type: LoopBoundaryType): Fraction {
+        if (type === LoopBoundaryType.Unknown) {
+            return new Fraction(0, 1)
+        }
+        return this.m_loopBoundaries[type]
+    }
+
+    override setLoopBoundaryTick(type: LoopBoundaryType, tick: Fraction): void {
+        if (type === LoopBoundaryType.Unknown) {
+            return
+        }
+        if (tick.lt(new Fraction(0, 1))) {
+            tick = new Fraction(0, 1)
+        }
+        const last = this.lastMeasure()
+        if (last && tick.gt(last.endTick())) {
+            // End Reverb may last longer than written notation, but cursor position should not
+            tick = last.endTick()
+        }
+
+        this.m_loopBoundaries[type] = tick
+        // even though tick position might not have changed, layout might have
+        // so we should update cursor here
+        for (const l of [...this.m_loopBoundaryTickChanged]) {
+            l(type, tick.ticks())
+        }
+    }
+
+    /** C++ Score::loopBoundaryTickChanged() (a channel): returns a function removing the listener */
+    onLoopBoundaryTickChanged(listener: (type: LoopBoundaryType, ticks: number) => void): () => void {
+        this.m_loopBoundaryTickChanged.add(listener)
+        return () => this.m_loopBoundaryTickChanged.delete(listener)
+    }
+
+    setExpandRepeats(expand: boolean): void {
+        if (this.m_expandRepeats === expand) {
+            return
+        }
+        this.m_expandRepeats = expand
+        this.setPlaylistDirty()
+    }
+
+    /** needed for usage in Seq::processMessages */
+    updateRepeatListTempo(): void {
+        this.m_expandedRepeatList.updateTempo()
+        this.m_nonExpandedRepeatList.updateTempo()
+    }
+
     updateRepeatList(): void {
         this.m_expandedRepeatList.update(true)
         this.m_nonExpandedRepeatList.update(false)
     }
 
-    repeatList(expandRepeats = this.m_expandRepeats, updateTies = true): RepeatList {
+    override repeatList(expandRepeats = this.m_expandRepeats, updateTies = true): RepeatList {
         if (expandRepeats) {
             this.m_expandedRepeatList.update(true, updateTies)
             return this.m_expandedRepeatList

@@ -55,6 +55,15 @@ import type { EditData } from '../editing/editdata'
 import { EIDRegister } from '../infrastructure/eidregister'
 import type { Excerpt } from './excerpt'
 import { SynthesizerState } from './synthesizerstate'
+import { type TempoMap, TEMPO_PRECISION } from './tempo'
+import type { RepeatList } from './repeatlist'
+import { Constants } from '../types/constants'
+import { RealIsEqual, RealIsNull, RealRound } from '../../framework/global/realfn'
+import type { GradualTempoChange } from './gradualtempochange'
+import type { TempoText } from './tempotext'
+import type { Fermata } from './fermata'
+import type { Breath } from './breath'
+import type { StaffTextBase } from './stafftextbase'
 import { ShadowNote } from './shadownote'
 
 export enum LayoutMode {
@@ -157,6 +166,16 @@ export class SpannerMap {
 
     all(): readonly Spanner[] { return this.m_spanners }
     clear(): void { this.m_spanners = [] }
+}
+
+export enum LoopBoundaryType {
+    Unknown = -1,
+    LoopIn = 0,
+    LoopOut = 1,
+}
+
+function roundTempo(bps: number): number {
+    return RealRound(bps, TEMPO_PRECISION)
 }
 
 /** set by compat/dummyelement.ts (C++ Score::dummy()->system(); avoids a circular import) */
@@ -1408,10 +1427,120 @@ export class Score extends EngravingObject {
         }
     }
 
+    /** C++ Score::updateSwing(): the swing maps of the staves from the staff texts with swing settings */
+    updateSwing(): void {
+        for (const s of this.m_staves) {
+            s.clearSwingMap()
+        }
+        const fm = this.firstMeasure()
+        if (!fm) {
+            return
+        }
+        for (let s = fm.first(SegmentType.ChordRest); s; s = s.next1(SegmentType.ChordRest)) {
+            for (const e of s.annotations()) {
+                if (!e.isStaffTextBase()) {
+                    continue
+                }
+                const st = e as unknown as StaffTextBase
+                if (st.xmlText() === '') {
+                    continue
+                }
+                const staff = st.staff()!
+                if (!st.swing()) {
+                    continue
+                }
+                const sp = { swingRatio: st.swingParameters().swingRatio, swingUnit: st.swingParameters().swingUnit }
+                if (st.systemFlag()) {
+                    for (const sta of this.m_staves) {
+                        sta.insertIntoSwingMap(s.tick(), sp)
+                    }
+                } else {
+                    staff.insertIntoSwingMap(s.tick(), sp)
+                }
+            }
+        }
+    }
+
+    /** C++ Score::updateChannel(): the channel lists of the staves and the subchannels of the notes */
+    updateChannel(): void {
+        for (const s of this.staves()) {
+            for (let i = 0; i < VOICES; ++i) {
+                s.clearChannelList(i)
+            }
+        }
+        const fm = this.firstMeasure()
+        if (!fm) {
+            return
+        }
+        for (let s = fm.first(SegmentType.ChordRest); s; s = s.next1(SegmentType.ChordRest)) {
+            for (const e of s.annotations()) {
+                if (e.isInstrumentChange()) {
+                    for (const staff of e.part()!.staves()) {
+                        for (let voice = 0; voice < VOICES; ++voice) {
+                            staff.insertIntoChannelList(voice, s.tick(), 0)
+                        }
+                    }
+                    continue
+                }
+                if (!e.isStaffTextBase()) {
+                    continue
+                }
+                const st = e as unknown as StaffTextBase
+                for (let voice = 0; voice < VOICES; ++voice) {
+                    const an = st.channelName(voice)
+                    if (an === '') {
+                        continue
+                    }
+                    const staff = this.staff(st.staffIdx())!
+                    const a = staff.part().instrument(s.tick()).channelIdx(an)
+                    if (a !== -1) {
+                        staff.insertIntoChannelList(voice, s.tick(), a)
+                    }
+                }
+            }
+        }
+
+        for (const spanner of this.spanner()) {
+            if (spanner.isPalmMute()) {
+                (spanner as unknown as { setChannel(): void }).setChannel()
+            }
+            if (spanner.isVolta()) {
+                (spanner as unknown as { setChannel(): void }).setChannel()
+            }
+        }
+
+        for (let s = fm.first(SegmentType.ChordRest); s; s = s.next1(SegmentType.ChordRest)) {
+            for (const st of this.staves()) {
+                const strack = st.idx() * VOICES
+                const etrack = strack + VOICES
+                for (let track = strack; track < etrack; ++track) {
+                    const e = s.element(track)
+                    if (!e) {
+                        continue
+                    }
+                    if (!e.isChord()) {
+                        continue
+                    }
+                    const c = e as unknown as Chord
+                    let channel = st.channel(c.tick(), c.voice())
+                    const instr = c.part()!.instrument(c.tick())
+                    if (channel >= instr.channels().length) {
+                        channel = 0
+                    }
+                    for (const note of c.notes()) {
+                        if (note.hidden()) {
+                            continue
+                        }
+                        note.setSubchannel(channel)
+                    }
+                }
+            }
+        }
+    }
+
     /**
-     * update measure ticks and the time signature map; this is needed after inserting or removing a measure,
-     * changing the sigmap or inserting/deleting time.
-     * TODO(port): tempo map (playback), repeat list tempo, anacrusis tempo
+     * update measure ticks, the tempo map and the time signature map; this is needed after inserting or removing a
+     * measure, changing the sigmap or inserting/deleting time.
      */
     setUpTempoMap(): void {
         let tick = new Fraction(0, 1)
@@ -1425,9 +1554,13 @@ export class Score extends EngravingObject {
         }
 
         if (this.isMaster()) {
+            this.tempomap().clear()
             this.sigmap().clear()
             this.sigmap().addSig(0, new SigEvent(fm.ticks(), fm.timesig(), 0))
         }
+        const anacrusisMeasures: Measure[] = []
+
+        const tempoPrimo: { value: number | null } = { value: null }
 
         for (let mb = this.first(); mb; mb = mb.next()) {
             if (!mb.isMeasure()) {
@@ -1442,23 +1575,164 @@ export class Score extends EngravingObject {
             if (m.mmRest()) {
                 m.mmRest()!.moveTicks(diff)
             }
+            if (m.isAnacrusis()) {
+                anacrusisMeasures.push(m)
+            }
 
-            this.rebuildTempoAndTimeSigMaps(m)
+            this.rebuildTempoAndTimeSigMaps(m, tempoPrimo)
 
             tick = tick.plus(measureTicks)
         }
 
         this.m_measures.updateTickIndex()
+
+        if (this.isMaster()) {
+            for (const spannerItem of this.spanner()) {
+                if (!spannerItem || !spannerItem.isGradualTempoChange() || !spannerItem.playSpanner()) {
+                    continue
+                }
+
+                const tempoChange = spannerItem as unknown as GradualTempoChange
+
+                const tickPositionFrom = tempoChange.tick().ticks()
+                const currentBps = this.tempomap().tempo(tickPositionFrom)
+                const newBps = currentBps * tempoChange.tempoChangeFactor()
+
+                const totalTicks = tempoChange.ticks().ticks()
+                const stepsCount = Math.max(8, Math.trunc(totalTicks / Constants.DIVISION))
+                const tempoCurve = TConv.easingValueCurve(totalTicks, stepsCount, newBps - currentBps, tempoChange.easingMethod())
+
+                for (const [pos, value] of tempoCurve) {
+                    const tick2 = tickPositionFrom + pos
+
+                    if (!this.tempomap().has(tick2)) {
+                        this.tempomap().setTempo(tick2, roundTempo(currentBps + value))
+                    }
+                }
+            }
+
+            if (this.tempomap().empty()) {
+                this.tempomap().setTempo(0, Constants.DEFAULT_TEMPO)
+            }
+        }
+
+        this.masterScore().updateRepeatListTempo()
+        if (anacrusisMeasures.length) {
+            this.fixAnacrusisTempo(anacrusisMeasures)
+        }
+        this.m_needSetUpTempoMap = false
     }
 
-    /** updates the time signature map for a measure; TODO(port): tempo map, pauses, fermatas */
-    rebuildTempoAndTimeSigMaps(measure: Measure): void {
+    /** C++ Score::rebuildTempoAndTimeSigMaps: updates the tempo map and the time signature map for a measure */
+    rebuildTempoAndTimeSigMaps(measure: Measure, tempoPrimo: { value: number | null } = { value: null }): void {
+        if (this.isMaster()) {
+            // Reset tempo to set correct time stretch for fermata.
+            const startTick = measure.tick()
+            this.resetTempoRange(startTick, measure.endTick())
+
+            // Implement section break rest
+            for (let mb = measure.prev(); mb && mb.endTick().eq(startTick); mb = mb.prev()) {
+                if (mb.pause()) {
+                    this.tempomap().setPause(startTick.ticks(), mb.pause())
+                }
+            }
+
+            // Add pauses from the end of the previous measure (at measure->tick()):
+            for (let s = measure.first(); s && s.tick().eq(startTick); s = s.prev1()) {
+                if (!s.isBreathType()) {
+                    continue
+                }
+                let length = 0.0
+                for (const e of s.elist()) {
+                    if (e && e.isBreath()) {
+                        length = Math.max(length, (e as unknown as Breath).pause())
+                    }
+                }
+                if (!RealIsNull(length)) {
+                    this.tempomap().setPause(startTick.ticks(), length)
+                }
+            }
+        }
+
         for (let segment = measure.first(); segment; segment = segment.next()) {
-            if (segment.isTimeSigType()) {
+            if (segment.isBreathType()) {
+                if (!this.isMaster()) {
+                    continue
+                }
+                let length = 0.0
+                const tick = segment.tick()
+                // find longest pause
+                for (let i = 0, n = this.ntracks(); i < n; ++i) {
+                    const e = segment.element(i)
+                    if (e && e.isBreath()) {
+                        length = Math.max(length, (e as unknown as Breath).pause())
+                    }
+                }
+                if (!RealIsNull(length)) {
+                    this.tempomap().setPause(tick.ticks(), length)
+                }
+            } else if (segment.isTimeSigType()) {
                 for (let staffIdx = 0; staffIdx < this.m_staves.length; ++staffIdx) {
                     const ts = segment.element(staffIdx * VOICES) as TimeSig | null
                     if (ts) {
                         this.staff(staffIdx)!.addTimeSig(ts)
+                    }
+                }
+            } else if (segment.isChordRestType() || segment.isTimeTickType()) {
+                if (!this.isMaster()) {
+                    continue
+                }
+                let stretch = 0.0
+                for (const e of segment.annotations()) {
+                    if (e.isFermata() && (e as unknown as Fermata).play()) {
+                        stretch = Math.max(stretch, (e as unknown as Fermata).timeStretch())
+                    } else if (e.isTempoText()) {
+                        const tt = e as unknown as TempoText
+
+                        if (!tt.playTempoText()) {
+                            continue
+                        }
+
+                        if (tt.isNormal() && !tt.isRelative() && tempoPrimo.value === null) {
+                            tempoPrimo.value = roundTempo(tt.tempo())
+                        } else if (tt.isRelative()) {
+                            tt.updateRelative()
+                        }
+
+                        const ticks = tt.segment().tick().ticks()
+                        if (tt.isATempo() && tt.followText()) {
+                            // this will effectively reset the tempo to the previous one
+                            // when a progressive change was active
+                            this.tempomap().setTempo(ticks, this.tempomap().tempo(ticks))
+                        } else if (tt.isTempoPrimo() && tt.followText()) {
+                            this.tempomap().setTempo(ticks, tempoPrimo.value !== null ? tempoPrimo.value : Constants.DEFAULT_TEMPO)
+                        } else {
+                            this.tempomap().setTempo(ticks, roundTempo(tt.tempo()))
+                        }
+                    }
+                }
+
+                if (!RealIsNull(stretch) && !RealIsEqual(stretch, 1.0)) {
+                    const otempo = this.tempomap().tempo(segment.tick().ticks())
+                    const ntempo = roundTempo(otempo / stretch)
+                    this.tempomap().setTempo(segment.tick().ticks(), ntempo)
+
+                    let tempoEndTick: Fraction
+
+                    let nextActiveSegment = segment.next1()
+                    while (nextActiveSegment && !nextActiveSegment.isActive()) {
+                        nextActiveSegment = nextActiveSegment.next1()
+                    }
+
+                    if (nextActiveSegment) {
+                        tempoEndTick = nextActiveSegment.tick()
+                    } else {
+                        tempoEndTick = segment.tick().plus(segment.ticks())
+                    }
+
+                    const etick = tempoEndTick.minus(Fraction.eps())
+                    if (!this.tempomap().has(etick.ticks())) {
+                        this.tempomap().setTempo(etick.ticks(), otempo)
                     }
                 }
             }
@@ -1480,6 +1754,81 @@ export class Score extends EngravingObject {
                 this.sigmap().addSig(m.tick().ticks(), new SigEvent(mTicks, m.timesig(), m.no()))
             }
         }
+    }
+
+    fixAnacrusisTempo(measures: Measure[]): void {
+        const getTempoTextIfExist = (m: Measure): TempoText | null => {
+            for (let s = m.first(); s; s = s.next()) {
+                if (s.isChordRestType()) {
+                    for (const e of s.annotations()) {
+                        if (e.isTempoText() && (e as unknown as TempoText).playTempoText()) {
+                            return e as unknown as TempoText
+                        }
+                    }
+                }
+            }
+            return null
+        }
+
+        for (const measure of measures) {
+            if (getTempoTextIfExist(measure)) {
+                continue
+            }
+            const nextMeasure = measure.nextMeasure()
+            if (nextMeasure) {
+                const tt = getTempoTextIfExist(nextMeasure)
+                if (tt) {
+                    this.tempomap().setTempo(measure.tick().ticks(), roundTempo(tt.tempo()))
+                }
+            }
+        }
+    }
+
+    setUpTempoMapLater(): void { this.m_needSetUpTempoMap = true }
+
+    //   setTempo
+    //    convenience function to access TempoMap
+    setTempo(tick: Fraction, tempo: number): void {
+        this.tempomap().setTempo(tick.ticks(), roundTempo(tempo))
+        this.masterScore().setPlaylistDirty()
+    }
+
+    removeTempo(tick: Fraction): void {
+        this.tempomap().delTempo(tick.ticks())
+        this.masterScore().setPlaylistDirty()
+    }
+
+    resetTempo(): void {
+        this.resetTempoRange(new Fraction(0, 1), new Fraction(0x7fffffff, 1))
+    }
+
+    /** Reset tempo and timesig maps in the given range. Start tick included, end tick excluded. */
+    resetTempoRange(tick1: Fraction, tick2: Fraction): void {
+        const zeroInRange = (tick1.le(new Fraction(0, 1)) && tick2.gt(new Fraction(0, 1)))
+        this.tempomap().clearRange(tick1.ticks(), tick2.ticks())
+        if (zeroInRange) {
+            this.tempomap().setTempo(0, Constants.DEFAULT_TEMPO)
+        }
+        this.sigmap().clearRange(tick1.ticks(), tick2.ticks())
+        if (zeroInRange) {
+            const m = this.firstMeasure()
+            if (m) {
+                this.sigmap().addSig(0, new SigEvent(m.ticks(), m.timesig(), 0))
+            }
+        }
+    }
+
+    setPause(tick: Fraction, seconds: number): void {
+        this.tempomap().setPause(tick.ticks(), seconds)
+        this.masterScore().setPlaylistDirty()
+    }
+
+    tempo(tick: Fraction): number {
+        return this.tempomap().tempo(tick.ticks())
+    }
+
+    multipliedTempo(tick: Fraction): number {
+        return this.tempomap().multipliedTempo(tick.ticks())
     }
 
     autoUpdateSpatium(): void {
@@ -1965,6 +2314,18 @@ export class Score extends EngravingObject {
     eidRegister(): EIDRegister { return this.masterScore().m_eidRegister }
 
     sigmap(): TimeSigMap { return this.masterScore().sigmap() }
+    tempomap(): TempoMap { return this.masterScore().tempomap() }
+
+    loopInTick(): Fraction { return this.loopBoundaryTick(LoopBoundaryType.LoopIn) }
+    loopOutTick(): Fraction { return this.loopBoundaryTick(LoopBoundaryType.LoopOut) }
+    setLoopInTick(tick: Fraction): void { this.setLoopBoundaryTick(LoopBoundaryType.LoopIn, tick) }
+    setLoopOutTick(tick: Fraction): void { this.setLoopBoundaryTick(LoopBoundaryType.LoopOut, tick) }
+    loopBoundaryTick(type: LoopBoundaryType): Fraction { return this.masterScore().loopBoundaryTick(type) }
+    setLoopBoundaryTick(type: LoopBoundaryType, tick: Fraction): void { this.masterScore().setLoopBoundaryTick(type, tick) }
+    repeatList(expandRepeats?: boolean, updateTies = true): RepeatList {
+        const ms = this.masterScore()
+        return ms.repeatList(expandRepeats ?? ms.expandRepeats(), updateTies)
+    }
 
     getText(tid: TextStyleType): Text | null {
         const m = this.first()
@@ -2069,6 +2430,12 @@ export class Score extends EngravingObject {
             }
             break
         }
+        case ElementType.HARMONY:
+        case ElementType.FRET_DIAGRAM:
+            if (element.part()) {
+                element.part()!.updateHarmonyChannels(true)
+            }
+            break
         default:
             break
         }
@@ -2146,6 +2513,12 @@ export class Score extends EngravingObject {
             // TODO: check for tuplet?
             break
         }
+        case ElementType.HARMONY:
+        case ElementType.FRET_DIAGRAM:
+            if (element.part()) {
+                element.part()!.updateHarmonyChannels(true, true)
+            }
+            break
         default:
             break
         }

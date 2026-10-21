@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/glissando.h/.cpp
  *
- * TODO(port): pitchSteps (playback), guessInitialNote (1.x/2.0 files)
+ * TODO(port): guessInitialNote (1.x/2.0 files)
  */
 
 import type { PropertyValue } from '../types/propertyvalue'
@@ -17,6 +17,10 @@ import { LineSegment, SLine } from './line'
 import { Pid } from './property'
 import { SpannerAnchor } from './spanner'
 import type { System } from './system'
+import type { Spanner } from './spanner'
+import type { Note } from './note'
+import { PITCH_DELTA_OCTAVE, TPC_DELTA_ENHARMONIC, Tpc, tpc2pitch } from './pitchspelling'
+import { chromaticPitchSteps } from './utils'
 
 const glissandoElementStyle: ElementStyle = [
     { sid: Sid.glissandoFontFace, pid: Pid.FONT_FACE },
@@ -89,6 +93,97 @@ export class Glissando extends SLine {
     glissandoType(): GlissandoType { return this.m_glissandoType }
     setGlissandoType(v: GlissandoType): void { this.m_glissandoType = v }
     glissandoStyle(): GlissandoStyle { return this.m_glissandoStyle }
+
+    /**
+     * C++ Glissando::pitchSteps: the pitch offsets (from the start note) of the notes played by the glissando;
+     * returns false if the glissando is not played note by note
+     */
+    static pitchSteps(spanner: Spanner, pitchOffsets: number[]): boolean {
+        if (!spanner.endElement()!.isNote()) {
+            return false
+        }
+        const glissando = spanner as unknown as Glissando
+        if (!glissando.playSpanner()) {
+            return false
+        }
+        const glissandoStyle = glissando.glissandoStyle()
+        if (glissandoStyle === GlissandoStyle.PORTAMENTO) {
+            return false
+        }
+        // only consider glissando connected to NOTE.
+        const noteStart = spanner.startElement() as unknown as Note
+        const noteEnd = spanner.endElement() as unknown as Note
+        const pitchStart = noteStart.ppitch()
+        const pitchEnd = noteEnd.ppitch()
+        if (pitchEnd === pitchStart) {
+            return false
+        }
+        const direction = pitchEnd > pitchStart ? 1 : -1
+        pitchOffsets.length = 0
+        if (glissandoStyle === GlissandoStyle.DIATONIC) {
+            // Obey harp pedal diagrams if on a harp staff
+            if (glissando.isHarpGliss() ?? false) {
+                const hd = spanner.part()!.currentHarpDiagram(spanner.tick())
+                const playableTpcs: ReadonlySet<number> = hd ? hd.playableTpcs() : new Set([14, 16, 18, 13, 15, 17, 19])
+                const playablePitches: number[] = []
+                for (const t of [...playableTpcs].sort((a, b) => a - b)) {
+                    playablePitches.push(tpc2pitch(t) % PITCH_DELTA_OCTAVE)
+                }
+
+                // Push starting note, then check for enharmonic on the next string.  If there is an enharmonic, 0 will be pushed back twice
+                pitchOffsets.push(0)
+                let en = noteStart.tpc() + TPC_DELTA_ENHARMONIC * -direction
+                // Harp pedalling will only have 1 flat or sharp
+                if (en >= Tpc.TPC_F_B && en <= Tpc.TPC_B_S && playableTpcs.has(en)) {
+                    pitchOffsets.push(0)
+                }
+
+                for (let p = pitchStart + direction; p !== pitchEnd; p += direction) {
+                    // Count times pitch occurs in harp pedalling - this accounts for enharmonics
+                    const pitchOccurrences = playablePitches.filter(pp => pp === p % PITCH_DELTA_OCTAVE).length
+                    for (let k = 0; k < pitchOccurrences; ++k) {
+                        pitchOffsets.push(p - pitchStart)
+                    }
+                }
+
+                // Check for enharmonic at end, in correct direction
+                en = noteEnd.tpc() + TPC_DELTA_ENHARMONIC * direction
+                if (en >= Tpc.TPC_F_B && en <= Tpc.TPC_B_S && playableTpcs.has(en)) {
+                    pitchOffsets.push(pitchEnd - pitchStart)
+                }
+
+                return pitchOffsets.length > 0
+            }
+
+            // Regular diatonic mode
+            const lineStart = noteStart.line()
+            // scale obeying accidentals
+            for (let line = lineStart, pitch = pitchStart; (direction === 1) ? (pitch < pitchEnd) : (pitch > pitchEnd); line -= direction) {
+                const halfSteps = chromaticPitchSteps(noteStart, noteEnd, lineStart - line)
+                pitch = pitchStart + halfSteps
+                if ((direction === 1) ? (pitch < pitchEnd) : (pitch > pitchEnd)) {
+                    pitchOffsets.push(halfSteps)
+                }
+            }
+            return pitchOffsets.length > 0
+        }
+        if (glissandoStyle === GlissandoStyle.CHROMATIC) {
+            for (let pitch = pitchStart; pitch !== pitchEnd; pitch += direction) {
+                pitchOffsets.push(pitch - pitchStart)
+            }
+            return true
+        }
+        const whiteNotes = [true, false, true, false, true, true, false, true, false, true, false, true]
+        const Cnote = 60 // pitch of middle C
+        const notePick = glissandoStyle === GlissandoStyle.WHITE_KEYS
+        for (let pitch = pitchStart; pitch !== pitchEnd; pitch += direction) {
+            const idx = ((pitch - Cnote) + 1200) % 12
+            if (whiteNotes[idx] === notePick) {
+                pitchOffsets.push(pitch - pitchStart)
+            }
+        }
+        return true
+    }
     setGlissandoStyle(v: GlissandoStyle): void { this.m_glissandoStyle = v }
     glissandoShift(): boolean { return this.m_glissandoShift }
     setGlissandoShift(v: boolean): void { this.m_glissandoShift = v }

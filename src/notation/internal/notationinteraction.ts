@@ -1211,6 +1211,59 @@ export class NotationInteraction {
      * controlModifier: C++ checks QGuiApplication::keyboardModifiers() == Qt::ControlModifier in doSelect (ctrl+click
      * on a selected element deselects it)
      */
+    /** selects the chord/rest at tick in the last selected staff and voice (pause-and-select) */
+    findAndSelectChordRest(tick: Fraction): void {
+        const startSeg = this.score().tick2leftSegment(tick, /*useMMrest*/ false, SegmentType.ChordRest)
+        if (!startSeg || !startSeg.isChordRestType()) {
+            return
+        }
+
+        const selection = this.score().selection()
+        let lastSelectedStaffIdx = 0
+        let lastSelectedVoiceIdx = 0
+        if (selection.isRange()) {
+            lastSelectedStaffIdx = selection.staffStart()
+        } else if (selection.elements().length) {
+            const lastSelectedItem = selection.elements()[selection.elements().length - 1]
+            if (lastSelectedItem) {
+                lastSelectedStaffIdx = lastSelectedItem.staffIdx()
+                lastSelectedVoiceIdx = lastSelectedItem.voice()
+            }
+        }
+
+        // startSeg could be a CR segment in any staff. The idea of this method is to select the CR in the last selected
+        // staff (or the top staff if none was selected). The following outer loop iterates backwards through previous CR
+        // segments until a valid CR is found in the desired staff...
+        let toSelect: EngravingItem | null = null
+        for (let currSeg: Segment | null = startSeg; currSeg && !toSelect; currSeg = currSeg.prev(SegmentType.ChordRest)) {
+            toSelect = currSeg.element(staff2track(lastSelectedStaffIdx, lastSelectedVoiceIdx))
+            if (toSelect && toSelect.isChordRest()) {
+                break
+            }
+            toSelect = null
+            // Inner loop: Couldn't find a valid CR in the last selected voice - try other voices in the same staff...
+            for (let currVoice = 0; currVoice < VOICES; ++currVoice) {
+                if (currVoice === lastSelectedVoiceIdx) {
+                    // Already tried this...
+                    continue
+                }
+                toSelect = currSeg.element(staff2track(lastSelectedStaffIdx, currVoice))
+                if (toSelect && toSelect.isChordRest()) {
+                    break
+                }
+                toSelect = null
+            }
+        }
+
+        if (!toSelect) {
+            return
+        }
+
+        const itemsToSelect: EngravingItem[] = toSelect.isChord() ? [...(toSelect as unknown as Chord).notes()] : [toSelect]
+
+        this.select(itemsToSelect, SelectType.REPLACE)
+    }
+
     select(elements: readonly EngravingItem[], type: SelectType, staffIndex: staff_idx_t = 0, controlModifier = false): boolean {
         const selection = this.score().selection()
         const oldSelectedElements = [...selection.elements()]

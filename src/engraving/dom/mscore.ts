@@ -57,6 +57,7 @@ export const mimeStaffListFormat = 'application/musescore/stafflist'
 export class MScore {
     // engravingmodule.cpp: MScore::setNudgeStep(0.1) etc.
     static nudgeStep = 0.1 // cursor key (default 0.1)
+    static pedalEventsMinTicks = 1 // set by EngravingModule::onInit
     static nudgeStep10 = 1.0 // Ctrl + cursor key (default 1.0)
     static nudgeStep50 = 0.01 // Alt  + cursor key (default 0.01)
 

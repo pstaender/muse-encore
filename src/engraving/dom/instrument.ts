@@ -50,8 +50,6 @@ export class Trait {
     clone(): Trait { return Object.assign(new Trait(), this) }
 }
 
-
-/** InstrChannel: only name, bank and program (used to recognize the instrument of old scores); no playback data */
 export interface NamedEventList {
     name: string
     descr: string
@@ -68,6 +66,8 @@ export interface MidiArticulation {
 /** C++ InstrChannel (without playback state: mute/solo, notifications) */
 export class InstrChannel {
     static readonly DEFAULT_NAME = 'normal'
+    static readonly HARMONY_NAME = 'harmony'
+    static readonly PALM_MUTE_NAME = 'palmmute'
     static readonly DEFAULT_COLOR = 0x3399ff
     static readonly defaultVolume = 100
 
@@ -223,7 +223,8 @@ export class Instrument {
             instrument.setClefType(i, templ.clefTypes[i].clone())
         }
 
-        // TODO(port): MIDI actions, articulations
+        // TODO(port): MIDI actions (the templates have none)
+        instrument.m_articulation = templ.midiArticulations.map(a => ({ ...a }))
         instrument.m_channel = []
 
         for (const c of templ.channel) {
@@ -237,7 +238,7 @@ export class Instrument {
         if (instrument.m_channel.length === 0) {
             const fallbackChannel = new InstrChannel()
             fallbackChannel.setName(InstrChannel.DEFAULT_NAME)
-            // TODO(port): fallbackChannel->setProgram(instrument.recognizeMidiProgram())
+            fallbackChannel.setProgram(instrument.recognizeMidiProgram())
             instrument.m_channel.push(fallbackChannel)
         }
 
@@ -279,11 +280,56 @@ export class Instrument {
     channels(): readonly InstrChannel[] { return this.m_channel }
     appendChannel(c: InstrChannel): void { this.m_channel.push(c) }
     clearChannels(): void { this.m_channel = [] }
+    removeChannel(c: InstrChannel): void {
+        const i = this.m_channel.indexOf(c)
+        if (i >= 0) {
+            this.m_channel.splice(i, 1)
+        }
+    }
 
     midiActions(): readonly NamedEventList[] { return this.m_midiActions }
     addMidiAction(a: NamedEventList): void { this.m_midiActions.push(a) }
     articulation(): readonly MidiArticulation[] { return this.m_articulation }
     addMidiArticulation(a: MidiArticulation): void { this.m_articulation.push(a) }
+
+    midiAction(s: string, channelIdx: number): NamedEventList | null {
+        // first look in channel list
+        for (const a of this.m_channel[channelIdx].midiActions) {
+            if (s === a.name) {
+                return a
+            }
+        }
+
+        for (const a of this.m_midiActions) {
+            if (s === a.name) {
+                return a
+            }
+        }
+        return null
+    }
+
+    getVelocityMultiplier(name: string): number {
+        for (const a of this.m_articulation) {
+            if (a.name === name) {
+                return a.velocity / 100
+            }
+        }
+        return 1
+    }
+
+    /** C++ Instrument::updateGateTime(int* gateTime, name): returns the new gate time */
+    updateGateTime(gateTime: number, name: string): number {
+        for (const a of this.m_articulation) {
+            if (a.name === name) {
+                // Imagine ["staccato", "accent"] articulations
+                // accent will override the gate time,
+                // so we have to take the minimum value from all articulations
+                gateTime = Math.min(gateTime, a.gateTime)
+                break
+            }
+        }
+        return gateTime
+    }
 
     channelIdx(s: string): number {
         let idx = 0

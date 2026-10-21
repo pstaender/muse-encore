@@ -32,6 +32,11 @@ export class TimeSigFrac extends Fraction {
     static from(f: Fraction): TimeSigFrac { return new TimeSigFrac(f.numerator(), f.denominator()) }
 
     isCompound(): boolean { return this.numerator() > 3 && this.numerator() % 3 === 0 }
+    // isBeatedCompound? Note: Conductors will beat the simple unit at slow tempos (<60 compound units per minute)
+    // However, the meter is still considered to be compound (at least for our purposes).
+    isBeatedCompound(tempo: number): boolean { return this.tempo2beatsPerMinute(tempo) >= 60.0 }
+    tempo2beatsPerMinute(tempo: number): number { return tempo * this.denominator() * 15.0 / this.dUnitsPerBeat() }
+    beatsPerMinute2tempo(bpm: number): number { return bpm * this.dUnitsPerBeat() / (15.0 * this.denominator()) }
     dUnitTicks(): number { return Math.trunc((4 * Constants.DIVISION) / this.denominator()) }
     ticksPerMeasure(): number { return this.numerator() * this.dUnitTicks() }
     dUnitsPerBeat(): number { return this.isCompound() ? 3 : 1 }

@@ -178,7 +178,60 @@ const OLD_TST_TAGS: Record<string, TextStyleType> = {
     '26': TextStyleType.STAFF,
 }
 
+/** C++ easingFactor (typesconv.cpp; float arithmetic) */
+function easingFactor(x: number, method: ChangeMethod): number {
+    const f = Math.fround
+    switch (method) {
+    case ChangeMethod.NORMAL:
+        return x
+    case ChangeMethod.EASE_IN:
+        return f(1 - Math.sqrt(1 - x * x))
+    case ChangeMethod.EASE_OUT:
+        return f(Math.sqrt(1 - (x - 1) * (x - 1)))
+    case ChangeMethod.EASE_IN_OUT:
+        if (x < 0.5) {
+            return f((1 - Math.sqrt(1 - (2 * x) * (2 * x))) / 2)
+        } else {
+            return f((Math.sqrt(1 - (-2 * x + 2) * (-2 * x + 2)) + 1) / 2)
+        }
+    case ChangeMethod.EXPONENTIAL:
+        if (Math.abs(x - 1) < 1e-6) {
+            return x
+        } else {
+            return f(1 - Math.pow(2, -10 * x))
+        }
+    }
+
+    return 1
+}
+
+/** C++ buildEasedValueCurve: tick position -> value (std::map: the first value of a position is kept) */
+function buildEasedValueCurve(ticksDuration: number, stepsCount: number, amplitude: number, method: ChangeMethod,
+                              integral: boolean): Map<number, number> {
+    const result = new Map<number, number>()
+    if (stepsCount <= 0) {
+        return result
+    }
+
+    const durationStep = Math.fround(ticksDuration / stepsCount)
+
+    for (let i = 0; i <= stepsCount; ++i) {
+        const pos = Math.trunc(Math.fround(i * durationStep))
+        if (!result.has(pos)) {
+            const v = easingFactor(Math.fround(i / stepsCount), method) * amplitude
+            result.set(pos, integral ? Math.trunc(v) : v)
+        }
+    }
+
+    return result
+}
+
 export const TConv = {
+    /** C++ TConv::easingValueCurve (int and double amplitude overloads); keys are in ascending order */
+    easingValueCurve(ticksDuration: number, stepsCount: number, amplitude: number, method: ChangeMethod,
+                     integral = false): Map<number, number> {
+        return buildEasedValueCurve(ticksDuration, stepsCount, amplitude, method, integral)
+    },
     // ElementType
     toXmlElementType: (v: ElementType): string => findXmlTagByType(D.ELEMENT_TYPES, v),
     fromXmlElementType: (tag: string, def: ElementType = ElementType.INVALID): ElementType => findTypeByXmlTag(D.ELEMENT_TYPES, tag, def),
