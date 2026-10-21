@@ -64,8 +64,9 @@ describe('palette tree xml', () => {
             expect(read.palettes.map(p => [p.name(), p.type(), p.cellsCount(), p.mag(), p.isVisible()]))
                 .toEqual(tree.palettes.map(p => [p.name(), p.type(), p.cellsCount(), p.mag(), p.isVisible()]))
             // the elements are the same (except properties the readers do not restore: C++ behaves the same for the
-            // play technique of an annotation; the instrument of an instrument change, hammer-on segments)
-            const known = new Set(['PlayTechAnnotation', 'InstrumentChange', 'HammerOnPullOff'])
+            // play technique of an annotation; the instrument of an instrument change, hammer-on segments; the
+            // whitespace-only text nodes of the harp pedal text diagram, dropped by XmlReader::readXml)
+            const known = new Set(['PlayTechAnnotation', 'InstrumentChange', 'HammerOnPullOff', 'HarpPedalDiagram'])
             const diff: string[] = []
             tree.palettes.forEach((p, i) => p.cells().forEach((c, j) => {
                 const r = read.palettes[i].cells()[j]

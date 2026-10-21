@@ -153,7 +153,6 @@ import type { StaffTypeChange } from '../../dom/stafftypechange'
 import type { LaissezVib } from '../../dom/laissezvib'
 import type { PartialTie } from '../../dom/partialtie'
 import type { MeasureRepeat } from '../../dom/measurerepeat'
-import type { PlayTechAnnotation } from '../../dom/playtechannotation'
 import { NoteParenthesisInfo, updatePercussionNotes } from '../../dom/chord'
 import { HammerOnPullOffText, type HammerOnPullOffSegment } from '../../dom/hammeronpulloff'
 
@@ -251,7 +250,6 @@ export class TRead {
         case ElementType.MEASURE_REPEAT: TRead.readMeasureRepeat(item as MeasureRepeat, xml, ctx); break
         case ElementType.NOTEHEAD: TRead.readSymbol(item as Symbol, xml, ctx); break // C++ read(NoteHead*)
         case ElementType.ORNAMENT: TRead.readOrnament(item as Ornament, xml, ctx); break
-        case ElementType.PLAYTECH_ANNOTATION: TRead.readPlayTechAnnotation(item as PlayTechAnnotation, xml, ctx); break
         case ElementType.STAFFTYPE_CHANGE: TRead.readStaffTypeChange(item as StaffTypeChange, xml, ctx); break
         case ElementType.TREMOLO_SINGLECHORD:
             TRead.readTremoloCompat({ parent: null, single: item as TremoloSingleChord, two: null }, xml, ctx)
@@ -1016,18 +1014,6 @@ export class TRead {
                 setActionIconTypeFromAction(i, actionCode)
             } else {
                 e.unknown()
-            }
-        }
-    }
-
-    static readPlayTechAnnotation(a: PlayTechAnnotation, xml: XmlReader, ctx: ReadContext): void {
-        while (xml.readNextStartElement()) {
-            const tag = xml.name()
-
-            if (TRead.readPropertyIfTag(a, tag, xml, ctx, Pid.PLAY_TECH_TYPE)) {
-            } else if (TRead.readPropertyIfTag(a, tag, xml, ctx, Pid.PLAY)) {
-            } else if (!TRead.readStaffTextBaseProperties(a, xml, ctx)) {
-                xml.unknown()
             }
         }
     }

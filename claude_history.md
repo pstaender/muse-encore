@@ -972,7 +972,11 @@
 - Properties panel: ChordBracketSettingsModel, ImageSettingsModel, ArticulationSettingsModel for tapping.
 - Tests: test/elements.test.ts (MD4 vectors; write/read back of every type; images from Pictures/ and pasted;
   figured bass and sticking actions with undo/redo; chord bracket inspector section).
-- Metrics: compare:mscx 737 -> 774 of 839 main files identical to MuseScore's re-save; roundtrip 656 identical,
+- Metrics: compare:all improved 17 pages (harp-diagrams 64.0% -> 5.0%, system-divider-1 27.8% -> 2.4%,
+  courtesy-jump-section-2 22.7% -> 2.3%, bend-1 14.1% -> 5.2%, capo 10.4% -> 1.2%, sticking-1/-2 9.7/7.1% -> 2.8/0.8%,
+  chordBrackets 10.2% -> 4.4%, figured-bass-2 8.0% -> 2.3%, image-1 9.5% -> 5.8%, ...; baseline updated, worse
+  values within the tolerance kept at their old baseline); compare:mscx 737 -> 774 of 839 main files identical to
+  MuseScore's re-save; roundtrip 656 identical,
   172 within rounding, 11 differing (new: harp-diagrams, a 4.0 file that MuseScore also renders differently after its
   own re-save).
 - TODO(port) / known differences: SoundFlag icon, the scaled image buffer (images are drawn directly; SVG images keep

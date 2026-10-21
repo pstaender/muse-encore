@@ -123,7 +123,7 @@ MuseScore/vtest/scores/beams-french-style-2.mscz,1,0.0109
 MuseScore/vtest/scores/beams-french-style.mscz,1,0.0021
 MuseScore/vtest/scores/beams-manual-adjust.mscz,1,0.0226
 MuseScore/vtest/scores/beams-middle-line.mscz,1,0.0214
-MuseScore/vtest/scores/bend-1.mscx,1,0.1408
+MuseScore/vtest/scores/bend-1.mscx,1,0.0521
 MuseScore/vtest/scores/bigTimeSig-1.mscz,1,0.0435
 MuseScore/vtest/scores/bigTimeSig-10.mscz,1,0.0441
 MuseScore/vtest/scores/bigTimeSig-2.mscz,1,0.0432
@@ -140,7 +140,7 @@ MuseScore/vtest/scores/brackets-1.mscz,1,0.0303
 MuseScore/vtest/scores/brackets-2.mscz,1,0.0394
 MuseScore/vtest/scores/brackets.mscx,1,0.0669
 MuseScore/vtest/scores/bravura-1.mscx,1,0.0363
-MuseScore/vtest/scores/bravura-10.mscx,1,0.0561
+MuseScore/vtest/scores/bravura-10.mscx,1,0.0553
 MuseScore/vtest/scores/bravura-11.mscx,1,0.0619
 MuseScore/vtest/scores/bravura-2.mscx,1,0.0470
 MuseScore/vtest/scores/bravura-3.mscx,1,0.0472
@@ -162,7 +162,7 @@ MuseScore/vtest/scores/breath-4.mscz,1,0.0175
 MuseScore/vtest/scores/breath-5.mscz,1,0.0595
 MuseScore/vtest/scores/breath-6.mscz,1,0.0112
 MuseScore/vtest/scores/breath-6.mscz,2,0.0107
-MuseScore/vtest/scores/capo.mscz,1,0.1037
+MuseScore/vtest/scores/capo.mscz,1,0.0118
 MuseScore/vtest/scores/changes-before-barline-off.mscz,1,0.0266
 MuseScore/vtest/scores/changes-before-barline-on.mscz,1,0.0298
 MuseScore/vtest/scores/changes-inside-repeats.mscz,1,0.0283
@@ -198,9 +198,9 @@ MuseScore/vtest/scores/chord-small-3.mscz,1,0.0225
 MuseScore/vtest/scores/chord-small.mscz,1,0.0498
 MuseScore/vtest/scores/chord-space-1.mscx,1,0.0277
 MuseScore/vtest/scores/chord-space-2.mscx,1,0.0299
-MuseScore/vtest/scores/chordBrackets-2.mscz,1,0.0993
-MuseScore/vtest/scores/chordBrackets-3.mscz,1,0.0595
-MuseScore/vtest/scores/chordBrackets.mscz,1,0.1019
+MuseScore/vtest/scores/chordBrackets-2.mscz,1,0.0364
+MuseScore/vtest/scores/chordBrackets-3.mscz,1,0.0187
+MuseScore/vtest/scores/chordBrackets.mscz,1,0.0442
 MuseScore/vtest/scores/chordline-2.mscz,1,0.0503
 MuseScore/vtest/scores/chordline-3.mscz,1,0.0292
 MuseScore/vtest/scores/chordLine.mscz,1,0.0598
@@ -220,7 +220,7 @@ MuseScore/vtest/scores/courtesy-changes-9.mscz,1,0.0331
 MuseScore/vtest/scores/courtesy-changes-small-parens.mscz,1,0.0268
 MuseScore/vtest/scores/courtesy-changes.mscz,1,0.0268
 MuseScore/vtest/scores/courtesy-jump-section-1.mscz,1,0.0293
-MuseScore/vtest/scores/courtesy-jump-section-2.mscz,1,0.2270
+MuseScore/vtest/scores/courtesy-jump-section-2.mscz,1,0.0235
 MuseScore/vtest/scores/courtesyKeysigParens.mscz,1,0.0305
 MuseScore/vtest/scores/cross-1.mscx,1,0.0443
 MuseScore/vtest/scores/cross-10.mscz,1,0.0415
@@ -264,7 +264,7 @@ MuseScore/vtest/scores/dynamics-8.mscz,1,0.0465
 MuseScore/vtest/scores/dynamics-9.mscz,1,0.0342
 MuseScore/vtest/scores/dynamics2ndVoice.mscz,1,0.0419
 MuseScore/vtest/scores/emmentaler-1.mscx,1,0.0363
-MuseScore/vtest/scores/emmentaler-10.mscx,1,0.0501
+MuseScore/vtest/scores/emmentaler-10.mscx,1,0.0495
 MuseScore/vtest/scores/emmentaler-11.mscx,1,0.0663
 MuseScore/vtest/scores/emmentaler-2.mscx,1,0.0499
 MuseScore/vtest/scores/emmentaler-3.mscx,1,0.0501
@@ -290,8 +290,8 @@ MuseScore/vtest/scores/fermata-5.mscz,1,0.0119
 MuseScore/vtest/scores/fermata-6.mscz,1,0.0215
 MuseScore/vtest/scores/fermata.mscz,1,0.0460
 MuseScore/vtest/scores/fermata.mscz,2,0.0490
-MuseScore/vtest/scores/figured-bass-1.mscx,1,0.0767
-MuseScore/vtest/scores/figured-bass-2.mscz,1,0.0798
+MuseScore/vtest/scores/figured-bass-1.mscx,1,0.0443
+MuseScore/vtest/scores/figured-bass-2.mscz,1,0.0226
 MuseScore/vtest/scores/fingeringCross.mscz,1,0.0266
 MuseScore/vtest/scores/fingeringSpacing.mscz,1,0.0189
 MuseScore/vtest/scores/fingeringVSarticulation.mscz,1,0.0260
@@ -319,7 +319,7 @@ MuseScore/vtest/scores/gliss-4.mscz,1,0.0301
 MuseScore/vtest/scores/gliss-5.mscz,1,0.0310
 MuseScore/vtest/scores/gliss-6.mscz,1,0.0476
 MuseScore/vtest/scores/gonville-1.mscx,1,0.0361
-MuseScore/vtest/scores/gonville-10.mscx,1,0.0516
+MuseScore/vtest/scores/gonville-10.mscx,1,0.0509
 MuseScore/vtest/scores/gonville-11.mscx,1,0.0634
 MuseScore/vtest/scores/gonville-2.mscx,1,0.0506
 MuseScore/vtest/scores/gonville-3.mscx,1,0.0498
@@ -423,7 +423,7 @@ MuseScore/vtest/scores/harmony-capo-1.mscz,1,0.0371
 MuseScore/vtest/scores/harmony-capo-2.mscz,1,0.0402
 MuseScore/vtest/scores/harmony29.mscz,1,0.0463
 MuseScore/vtest/scores/harmony34.mscz,1,0.0355
-MuseScore/vtest/scores/harp-diagrams.mscz,1,0.6404
+MuseScore/vtest/scores/harp-diagrams.mscz,1,0.0502
 MuseScore/vtest/scores/hidden-harmony.mscz,1,0.0307
 MuseScore/vtest/scores/hidden-header-1.mscz,1,0.0496
 MuseScore/vtest/scores/hidden-header-2.mscz,1,0.0564
@@ -433,8 +433,8 @@ MuseScore/vtest/scores/hideEmptyStaves.mscz,1,0.0391
 MuseScore/vtest/scores/hopo-1.mscz,1,0.0379
 MuseScore/vtest/scores/hopo-2.mscz,1,0.0376
 MuseScore/vtest/scores/hopo-3.mscz,1,0.0319
-MuseScore/vtest/scores/hopo-4.mscz,1,0.0529
-MuseScore/vtest/scores/image-1.mscx,1,0.0951
+MuseScore/vtest/scores/hopo-4.mscz,1,0.0392
+MuseScore/vtest/scores/image-1.mscx,1,0.0577
 MuseScore/vtest/scores/instrument-1.mscx,1,0.0481
 MuseScore/vtest/scores/instrument-change-to-pitched.mscz,1,0.0438
 MuseScore/vtest/scores/instrument-change-to-unpitched.mscz,1,0.0529
@@ -446,7 +446,7 @@ MuseScore/vtest/scores/jumps.mscz,1,0.0534
 MuseScore/vtest/scores/justify-text.mscz,1,0.0389
 MuseScore/vtest/scores/kerning-1.mscz,1,0.0048
 MuseScore/vtest/scores/kerning-2.mscz,1,0.0316
-MuseScore/vtest/scores/kerning-3.mscz,1,0.0898
+MuseScore/vtest/scores/kerning-3.mscz,1,0.0226
 MuseScore/vtest/scores/keySig-1.mscz,1,0.0310
 MuseScore/vtest/scores/layout-1.mscx,1,0.0162
 MuseScore/vtest/scores/layout-10.mscx,1,0.0456
@@ -584,7 +584,7 @@ MuseScore/vtest/scores/mmrest-invisible-elements.mscz,1,0.0205
 MuseScore/vtest/scores/mmrest-measure-repeat-custom-staves-petaluma.mscz,1,0.0841
 MuseScore/vtest/scores/mmrest-measure-repeat-custom-staves.mscz,1,0.0592
 MuseScore/vtest/scores/musejazz-1.mscx,1,0.0303
-MuseScore/vtest/scores/musejazz-10.mscx,1,0.0284
+MuseScore/vtest/scores/musejazz-10.mscx,1,0.0281
 MuseScore/vtest/scores/musejazz-11.mscx,1,0.0469
 MuseScore/vtest/scores/musejazz-2.mscx,1,0.0373
 MuseScore/vtest/scores/musejazz-3.mscx,1,0.0418
@@ -602,7 +602,7 @@ MuseScore/vtest/scores/musejazz-text-2.mscx,1,0.0547
 MuseScore/vtest/scores/musejazz-text-3.mscx,1,0.0447
 MuseScore/vtest/scores/music-symbol-scale.mscz,1,0.0415
 MuseScore/vtest/scores/narrow-spacing-1.mscz,1,0.0224
-MuseScore/vtest/scores/narrow-spacing-2.mscz,1,0.0330
+MuseScore/vtest/scores/narrow-spacing-2.mscz,1,0.0255
 MuseScore/vtest/scores/narrow-spacing-3.mscz,1,0.0226
 MuseScore/vtest/scores/narrow-spacing-4.mscz,1,0.0099
 MuseScore/vtest/scores/newline-1.mscz,1,0.0301
@@ -610,16 +610,16 @@ MuseScore/vtest/scores/newline-2.mscz,1,0.0346
 MuseScore/vtest/scores/note-line.mscz,1,0.0434
 MuseScore/vtest/scores/notehead-offset.mscz,1,0.0233
 MuseScore/vtest/scores/noteheadposition-1.mscx,1,0.0186
-MuseScore/vtest/scores/offsets.mscz,1,0.0460
-MuseScore/vtest/scores/ornament-1.mscz,1,0.0369
+MuseScore/vtest/scores/offsets.mscz,1,0.0439
+MuseScore/vtest/scores/ornament-1.mscz,1,0.0366
 MuseScore/vtest/scores/ornament-10.mscz,1,0.0426
 MuseScore/vtest/scores/ornament-11.mscz,1,0.0146
-MuseScore/vtest/scores/ornament-2.mscz,1,0.0440
-MuseScore/vtest/scores/ornament-3.mscz,1,0.0466
+MuseScore/vtest/scores/ornament-2.mscz,1,0.0437
+MuseScore/vtest/scores/ornament-3.mscz,1,0.0462
 MuseScore/vtest/scores/ornament-4.mscz,1,0.0370
 MuseScore/vtest/scores/ornament-5.mscz,1,0.0198
 MuseScore/vtest/scores/ornament-6.mscz,1,0.0428
-MuseScore/vtest/scores/ornament-7.mscz,1,0.0433
+MuseScore/vtest/scores/ornament-7.mscz,1,0.0411
 MuseScore/vtest/scores/ornament-8.mscz,1,0.0146
 MuseScore/vtest/scores/ornament-9.mscz,1,0.0578
 MuseScore/vtest/scores/ottava-2.mscz,1,0.0255
@@ -636,7 +636,7 @@ MuseScore/vtest/scores/page-numbers-04.mscz,1,0.0215
 MuseScore/vtest/scores/page-numbers-04.mscz,2,0.0148
 MuseScore/vtest/scores/paren-chords-2.mscz,1,0.0110
 MuseScore/vtest/scores/paren-chords-3.mscz,1,0.0136
-MuseScore/vtest/scores/paren-chords-4.mscz,1,0.0323
+MuseScore/vtest/scores/paren-chords-4.mscz,1,0.0283
 MuseScore/vtest/scores/paren-chords.mscz,1,0.0403
 MuseScore/vtest/scores/paren-ll.mscz,1,0.0232
 MuseScore/vtest/scores/paren-offset.mscz,1,0.0061
@@ -748,8 +748,8 @@ MuseScore/vtest/scores/stemSlash-2-maestro.mscz,1,0.0412
 MuseScore/vtest/scores/stemSlash-2.mscz,1,0.0370
 MuseScore/vtest/scores/stemSlash-3.mscz,1,0.0304
 MuseScore/vtest/scores/stemSlash-4.mscz,1,0.0034
-MuseScore/vtest/scores/sticking-1.mscz,1,0.0971
-MuseScore/vtest/scores/sticking-2.mscz,1,0.0706
+MuseScore/vtest/scores/sticking-1.mscz,1,0.0278
+MuseScore/vtest/scores/sticking-2.mscz,1,0.0080
 MuseScore/vtest/scores/symbol-1.mscx,1,0.0846
 MuseScore/vtest/scores/symbol-2.mscz,1,0.0350
 MuseScore/vtest/scores/symbol-size.mscz,1,0.0312
@@ -762,8 +762,8 @@ MuseScore/vtest/scores/system-6.mscx,1,0.0491
 MuseScore/vtest/scores/system-7.mscx,1,0.0496
 MuseScore/vtest/scores/system-7.mscx,2,0.0606
 MuseScore/vtest/scores/system-8.mscx,1,0.0523
-MuseScore/vtest/scores/system-9.mscx,1,0.1138
-MuseScore/vtest/scores/system-divider-1.mscz,1,0.2778
+MuseScore/vtest/scores/system-9.mscx,1,0.0525
+MuseScore/vtest/scores/system-divider-1.mscz,1,0.0243
 MuseScore/vtest/scores/system-objects-2.mscz,1,0.0435
 MuseScore/vtest/scores/system-objects.mscz,1,0.0574
 MuseScore/vtest/scores/system-spanner.mscz,1,0.0315
@@ -792,7 +792,7 @@ MuseScore/vtest/scores/text-line-alignment.mscz,1,0.0428
 MuseScore/vtest/scores/text-line-scaling.mscz,1,0.0943
 MuseScore/vtest/scores/text-line-style-1.mscz,1,0.0407
 MuseScore/vtest/scores/text-line-text-scaling.mscz,1,0.0190
-MuseScore/vtest/scores/text-offset-scale.mscz,1,0.0453
+MuseScore/vtest/scores/text-offset-scale.mscz,1,0.0441
 MuseScore/vtest/scores/tie-1.mscx,1,0.0293
 MuseScore/vtest/scores/tie-10.mscz,1,0.0143
 MuseScore/vtest/scores/tie-11.mscz,1,0.0109
