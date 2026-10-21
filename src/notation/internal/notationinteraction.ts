@@ -785,6 +785,12 @@ export class NotationInteraction {
 
         return endSegment
     }
+
+    // =================================================================================================================
+    //   palette elements and drop (applyPaletteElement, applyPaletteElementToList/Range, drop): filled by the palette
+    //   drop port; the other editing methods go above this section
+    // =================================================================================================================
+
 }
 
 /** std::sort(..., NotationInteraction::elementIsLess) */

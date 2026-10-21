@@ -488,3 +488,8 @@ Score.prototype.selectMove = function (this: Score, cmd: string): EngravingItem 
     }
     return el
 }
+
+// =====================================================================================================================
+//   cmd.cpp functions for drop / palette elements (cmdInsertClef, toggleArticulation, ...): this section is filled
+//   by the palette drop port; the editing commands go above it
+// =====================================================================================================================

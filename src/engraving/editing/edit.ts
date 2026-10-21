@@ -1023,3 +1023,7 @@ Measure.prototype.adjustToLen = function (this: Measure, nf: Fraction, _appendRe
     // TODO(port): remove slurs when shortening, update the selection
 }
 
+// =====================================================================================================================
+//   edit.cpp functions for drop / palette elements (undoChangeClef, undoChangeBarLineType, ...): this section is
+//   filled by the palette drop port; the editing commands go above it
+// =====================================================================================================================

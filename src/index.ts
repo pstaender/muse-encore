@@ -545,3 +545,7 @@ export function selectionBounds(score: MasterScore): { page: number; x: number; 
     }
     return res
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+//   palette elements (MuseScore's palettes: NotationInteraction::applyPaletteElement): filled by the palette drop port
+// ---------------------------------------------------------------------------------------------------------------------
