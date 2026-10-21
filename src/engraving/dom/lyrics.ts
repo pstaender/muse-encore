@@ -18,7 +18,7 @@ import { Pid } from './property'
 import { TextBase } from './textbase'
 import type { ChordRest } from './chordrest'
 import type { Measure } from './measure'
-import type { Segment } from './segment'
+import { SegmentType, type Segment } from './segment'
 import type { Spanner } from './spanner'
 
 const lyricsElementStyle: ElementStyle = [
@@ -58,8 +58,36 @@ export class Lyrics extends TextBase {
     }
 
     override remove(el: EngravingItem): void {
+        // only if separator still exists and is the right one
         if (el.isLyricsLine() && this.m_separator && el === (this.m_separator as unknown as EngravingItem)) {
+            // Lyrics::remove() and LyricsLine::removeUnmanaged() call each other;
+            // be sure each finds a clean context
+            const separ = this.m_separator
             this.m_separator = null
+            separ.removeUnmanaged()
+        }
+    }
+
+    /** Lyrics::removeFromScore: called when the lyrics or its chord/rest is removed from the score */
+    removeFromScore(): void {
+        if (this.m_ticks.isNotZero()) {
+            // clear melismaEnd flag from end cr
+            const ecr = this.score().findCR(this.endTick(), this.track())
+            if (ecr) {
+                ecr.setMelismaEnd(false)
+            }
+        }
+
+        // TODO(port): PartialLyricsLine (findPrevPartialLyricsLineDash: remove the partial dash before this lyrics)
+
+        if (this.m_separator) {
+            this.m_separator.removeUnmanaged()
+            this.m_separator = null // C++ deletes the separator
+        }
+        const prev = prevLyrics(this)
+        if (prev) {
+            // check to make sure we haven't created an invalid segment by deleting this lyric
+            prev.setNeedRemoveInvalidSegments()
         }
     }
 
@@ -182,4 +210,24 @@ export class Lyrics extends TextBase {
             return super.propertyDefault(id)
         }
     }
+}
+
+/** prevLyrics (navigate.cpp): the lyrics of the same verse and placement on the previous chord of the staff */
+export function prevLyrics(lyrics: Lyrics): Lyrics | null {
+    let seg: Segment | null = lyrics.explicitParent() ? lyrics.segment() : null
+    if (!seg) {
+        return null
+    }
+    while ((seg = seg.prev1(SegmentType.ChordRest))) {
+        const strack = lyrics.staffIdx() * VOICES
+        const etrack = strack + VOICES
+        for (let track = strack; track < etrack; ++track) {
+            const el = seg.element(track)
+            const prev = el && el.isChord() ? (el as unknown as ChordRest).lyricsVerse(lyrics.verse(), lyrics.placement()) : null
+            if (prev) {
+                return prev
+            }
+        }
+    }
+    return null
 }

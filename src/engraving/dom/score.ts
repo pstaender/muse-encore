@@ -1421,13 +1421,30 @@ export class Score extends EngravingObject {
     spanner(): readonly Spanner[] { return this.m_spanner.all() }
     unmanagedSpanners(): Set<Spanner> { return this.m_unmanagedSpanners }
 
-    addSpanner(s: Spanner): void {
+    addSpanner(s: Spanner, computeStartEnd = true): void {
         this.m_spanner.addSpanner(s)
         s.added()
+        if (computeStartEnd) {
+            s.computeStartElement()
+            s.computeEndElement()
+        }
     }
 
     removeSpanner(s: Spanner): void {
         this.m_spanner.removeSpanner(s)
+        s.removed()
+
+        const startElement = s.startElement()
+        const startChord = startElement && startElement.isChord() ? startElement as unknown as Chord : null
+        if (startChord) {
+            startChord.removeStartingSpanner(s)
+        }
+
+        const endElement = s.endElement()
+        const endChord = endElement && endElement.isChord() ? endElement as unknown as Chord : null
+        if (endChord) {
+            endChord.removeEndingSpanner(s)
+        }
     }
 
     // ---------------------------------------------------------
@@ -1762,7 +1779,9 @@ export class Score extends EngravingObject {
             if (cr.beam()) {
                 cr.beam()!.remove(cr)
             }
-            // TODO(port): lyr->removeFromScore() for the lyrics of the chord/rest
+            for (const lyr of cr.lyrics()) {
+                lyr.removeFromScore()
+            }
             // TODO: check for tuplet?
             break
         }

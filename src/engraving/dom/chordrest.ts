@@ -436,9 +436,11 @@ export abstract class ChordRest extends DurationElement {
 
     override remove(e: EngravingItem): void {
         if (e.type() === ElementType.LYRICS) {
+            (e as Lyrics).removeFromScore()
             const i = this.m_lyrics.indexOf(e as Lyrics)
             if (i >= 0) {
                 this.m_lyrics.splice(i, 1)
+                e.removed()
             }
             return
         }

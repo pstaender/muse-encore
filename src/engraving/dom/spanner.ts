@@ -425,9 +425,12 @@ export abstract class Spanner extends EngravingItem {
             this.setPlaySpanner(!!v)
             break
         case Pid.SPANNER_TICK:
+            this.triggerLayout() // spanner may have moved to another system
             this.setTick(v as Fraction)
+            // C++ re-inserts the spanner into the spanner map (keyed by tick); the port's SpannerMap is a list
             break
         case Pid.SPANNER_TICKS:
+            this.triggerLayout() // spanner may now span for a smaller number of systems
             this.setTicks(v as Fraction)
             this.setEndElement(null) // invalidate
             break
@@ -445,6 +448,7 @@ export abstract class Spanner extends EngravingItem {
         default:
             return super.setProperty(propertyId, v)
         }
+        this.triggerLayout()
         return true
     }
 

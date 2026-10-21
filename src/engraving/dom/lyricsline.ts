@@ -49,6 +49,13 @@ export class LyricsLine extends SLine {
         return p ? p as unknown as Lyrics : null
     }
     nextLyrics(): Lyrics | null { return this.m_nextLyrics }
+
+    override removeUnmanaged(): void {
+        super.removeUnmanaged()
+        if (this.lyrics()) {
+            this.lyrics()!.remove(this)
+        }
+    }
     setNextLyrics(l: Lyrics | null): void { this.m_nextLyrics = l }
     isEndMelisma(): boolean { return !!this.lyrics() && this.lyrics()!.ticks().isNotZero() }
     isDash(): boolean { return !this.isEndMelisma() }
