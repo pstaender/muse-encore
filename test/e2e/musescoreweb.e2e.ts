@@ -530,6 +530,55 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('edits the instruments in the Layout panel: hides a part, undoes, removes and adds instruments', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.click('#panel-tab-instrumentsPanel')
+        const partNames = (): Promise<(string | null)[]> =>
+            page.$$eval('.layout-tree [role="treeitem"][data-type="part"]', r => r.map(x => x.getAttribute('aria-label')))
+        const alto = '.layout-tree [data-type="part"][aria-label="Alto"]'
+        const undoButton = '.tool-button[data-action="action://notation/undo"]'
+
+        // the eye button hides the part and its staff (undoable: "Hide instrument", "Hide staff", like MuseScore)
+        expect(await page.isDisabled(`${alto} .visibility`)).toBe(false)
+        await page.click(`${alto} .visibility`)
+        await page.waitForSelector(`${alto}.hidden-item`)
+        expect(await page.getAttribute(`${alto} .visibility`, 'aria-pressed')).toBe('false')
+        expect(await page.isDisabled(undoButton)).toBe(false)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForSelector(`${alto}:not(.hidden-item)`)
+        expect(await page.getAttribute(`${alto} .visibility`, 'aria-pressed')).toBe('true')
+
+        // the selected instrument is removed with the remove button; the score has one staff less
+        await page.click(`${alto} .layout-row-title`)
+        await page.waitForSelector(`${alto}[aria-selected="true"]`)
+        await page.click('.layout-controls [data-control="remove"]')
+        await page.waitForFunction(() => document.querySelectorAll('.layout-tree [data-type="part"]').length === 3)
+        expect(await partNames()).toEqual(['Soprano', 'Tenor', 'Bass'])
+
+        // Add > New instrument opens the instruments dialog; the chosen instrument is added to the score
+        await page.click('.layout-add-button')
+        await page.click('.menu-item:has-text("New instrument")')
+        await page.waitForSelector('dialog.instruments-dialog[open]')
+        await page.fill('dialog.instruments-dialog .instruments input[type="search"]', 'flute')
+        await page.dblclick('dialog.instruments-dialog .instruments [role="option"] >> text=Flute')
+        await page.click('dialog.instruments-dialog .dialog-buttons button:has-text("OK")')
+        await page.waitForFunction(() => document.querySelectorAll('.layout-tree [data-type="part"]').length === 4)
+        expect(await partNames()).toContain('Flute')
+
+        // undo removes the flute again, a second undo restores the alto
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => document.querySelectorAll('.layout-tree [data-type="part"]').length === 3)
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => document.querySelectorAll('.layout-tree [data-type="part"]').length === 4)
+        expect(await partNames()).toEqual(['Soprano', 'Alto', 'Tenor', 'Bass'])
+        await context.close()
+    }, 180000)
+
     it('shows the values of the selection in the Properties panel', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)

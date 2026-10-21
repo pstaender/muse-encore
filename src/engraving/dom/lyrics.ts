@@ -66,12 +66,36 @@ export class Lyrics extends TextBase {
     }
 
     override remove(el: EngravingItem): void {
-        if (el.isLyricsLine() && this.m_separator && el === (this.m_separator as unknown as EngravingItem)) {
-            this.m_separator = null
+        if (el.isLyricsLine()) {
+            // only if separator still exists and is the right one
+            if (this.m_separator && el === (this.m_separator as unknown as EngravingItem)) {
+                // Lyrics::remove() and LyricsLine::removeUnmanaged() call each other;
+                // be sure each finds a clean context
+                const separ = this.m_separator
+                this.m_separator = null
+                separ.removeUnmanaged()
+            }
         }
     }
 
     override positionRelativeToNoteheadRest(): boolean { return true }
+
+    removeFromScore(): void {
+        if (this.m_ticks.isNotZero()) {
+            // clear melismaEnd flag from end cr
+            const ecr = this.score().findCR(this.endTick(), this.track())
+            if (ecr) {
+                ecr.setMelismaEnd(false)
+            }
+        }
+
+        // TODO(port): the previous partial lyrics line dash (findPrevPartialLyricsLineDash -> undoRemoveElement)
+
+        if (this.m_separator) {
+            this.m_separator.removeUnmanaged()
+            this.m_separator = null
+        }
+    }
 
     ticks(): Fraction { return this.m_ticks }
     setTicks(tick: Fraction): void { this.m_ticks = tick }

@@ -8,7 +8,7 @@
 
 import { Fraction } from '../types/fraction'
 import { VOICES, type staff_idx_t } from '../types/types'
-import type { EngravingObject } from '../dom/engravingobject'
+import { EngravingObject } from '../dom/engravingobject'
 import type { EngravingItem } from '../dom/engravingitem'
 import type { DurationElement } from '../dom/durationelement'
 import type { ChordRest } from '../dom/chordrest'
@@ -440,6 +440,13 @@ export class Unlink extends LinkUnlink {
     override redo(_ed: EditData | null): void { this.unlink() }
     override type(): CommandType { return CommandType.Unlink }
     override name(): string { return 'Unlink' }
+}
+
+/** C++ EngravingObject::undoUnlink() (engravingobject.cpp; the DOM module cannot create undo commands) */
+EngravingObject.prototype.undoUnlink = function (this: EngravingObject): void {
+    if (this.links()) {
+        this.score().undo(new Unlink(this))
+    }
 }
 
 /** link e1 to e2 */

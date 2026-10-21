@@ -97,8 +97,10 @@ describe('new score', () => {
         expect(score.parts().map(p => p.longName())).toEqual(['Flute 1', 'Flute 2', 'Oboe'])
         expect(score.staff(0)!.bracketType(0)).toBe(BracketType.NORMAL)
         expect(score.staff(0)!.bracketSpan(0)).toBe(3)
-        expect(score.staff(0)!.bracketType(1)).toBe(BracketType.SQUARE)
-        expect(score.staff(0)!.bracketSpan(1)).toBe(2)
+        // the thin bracket is added first (column 1); adding the thick bracket at column 0 moves it outwards
+        // (Score::undoAddBracket -> BracketItem BRACKET_COLUMN -> Staff::changeBracketColumn)
+        expect(score.staff(0)!.bracketType(2)).toBe(BracketType.SQUARE)
+        expect(score.staff(0)!.bracketSpan(2)).toBe(2)
         expect(score.staff(0)!.barLineSpan()).toBe(true)
         // the custom order sets no brackets
         const custom = createScore(options({ order: 'custom', instruments: [{ id: 'flute' }, { id: 'oboe' }] }))

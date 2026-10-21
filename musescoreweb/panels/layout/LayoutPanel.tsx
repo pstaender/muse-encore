@@ -7,6 +7,8 @@
  * Shift extends the selection, Delete removes the selected rows).
  * The score selection selects the rows of its parts (LayoutPanelTreeModel::updateSelectedRows); like MuseScore,
  * selecting rows does not change the score selection.
+ * The score changes go through editbridge (NotationParts, undoable); the model is reloaded after every change of the
+ * score (scoreVersion), keeping the expanded and selected rows.
  * TODO(port): drag and drop of rows, the staff and system markings settings popups (StaffSettingsPopup,
  * SystemObjectsLayerSettingsPopup), editing in the instrument settings popup.
  */
@@ -70,6 +72,19 @@ function setExpanded(key: string, expanded: boolean): void {
 
 /** the model of the panel shown (for the actions) */
 let s_model: LayoutPanelTreeModel | null = null
+/** the keys of the selected rows (kept when the model is reloaded after a change requested by the panel) */
+let s_selectedKeys: string[] = []
+let s_keepSelection = false
+
+function allItems(model: LayoutPanelTreeModel): AbstractLayoutPanelTreeItem[] {
+    const res: AbstractLayoutPanelTreeItem[] = []
+    const add = (item: AbstractLayoutPanelTreeItem): void => {
+        res.push(item)
+        item.childItems().forEach(add)
+    }
+    model.rootItem()?.childItems().forEach(add)
+    return res
+}
 
 /** LayoutPanelTreeView.expandCollapseAll */
 function expandCollapseAll(expand: boolean): void {
@@ -171,6 +186,7 @@ export function layoutPanelMenu(): MenuItem[] {
 function notationParts(score: MasterScore): LayoutPanelNotationParts {
     const run = (changed: boolean): void => {
         if (changed) {
+            s_keepSelection = true
             scoreChanged()
         }
     }
@@ -443,6 +459,7 @@ export function LayoutPanel(): React.JSX.Element {
         }
         s_model = model
         model.onChanged = () => {
+            s_selectedKeys = model.selectedItems().map(layoutPanelItemKey)
             forceUpdate()
             actionsChanged()
         }
@@ -454,9 +471,24 @@ export function LayoutPanel(): React.JSX.Element {
         }
     }, [model])
 
-    // the score selection selects the rows of its parts
+    // the score selection selects the rows of its parts; a model reloaded after a change of the score keeps the
+    // selected rows (C++ updates the rows of the existing model)
+    const lastModel = useRef<LayoutPanelTreeModel | null>(null)
     useEffect(() => {
-        model?.updateSelectedRows()
+        if (!model) {
+            return
+        }
+        if (model !== lastModel.current) {
+            const reloaded = lastModel.current?.score() === model.score() && s_keepSelection
+            s_keepSelection = false
+            lastModel.current = model
+            if (reloaded && s_selectedKeys.length) {
+                const items = allItems(model).filter(i => s_selectedKeys.includes(layoutPanelItemKey(i)))
+                model.selectItems(items)
+                return
+            }
+        }
+        model.updateSelectedRows()
     }, [model, view.selectionVersion])
 
     if (!model) {

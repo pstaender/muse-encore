@@ -202,6 +202,11 @@ export class LayoutPanelTreeModel {
         this.setSelection([])
     }
 
+    /** selects the given rows (the app restores the selection after reloading the model) */
+    selectItems(items: readonly AbstractLayoutPanelTreeItem[]): void {
+        this.setSelection(items.filter(i => i.isSelectable()))
+    }
+
     private setSelection(items: AbstractLayoutPanelTreeItem[]): void {
         const deselected = this.m_selection.filter(i => !items.includes(i))
         const selected = items.filter(i => !this.m_selection.includes(i))
