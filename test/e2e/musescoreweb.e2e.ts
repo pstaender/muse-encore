@@ -319,6 +319,55 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('lists the parts of the score in the Layout panel, synced with the selection', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.click('#panel-tab-instrumentsPanel')
+        const parts = await page.$$eval('.layout-tree [role="treeitem"][data-type="part"]', r => r.map(x => x.getAttribute('aria-label')))
+        expect(parts).toEqual(['Soprano', 'Alto', 'Tenor', 'Bass'])
+        expect(await page.locator('.layout-tree [data-type="system-objects"]').count()).toBeGreaterThan(0)
+        // expanding a part shows its staff and the "Add staff" row
+        await page.click('.layout-tree [data-type="part"] .expand')
+        await page.waitForSelector('.layout-tree [data-type="part"][aria-expanded="true"]')
+        expect(await page.locator('.layout-tree [data-type="staff"]').count()).toBe(1)
+        expect(await page.locator('.layout-tree [data-type="control"]').count()).toBe(1)
+        // the score selection selects the rows of its parts
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+a')
+        await page.waitForFunction(() => document.querySelectorAll('.layout-tree [data-type="part"][aria-selected="true"]').length === 4)
+        await page.keyboard.press('Escape')
+        await page.waitForFunction(() => document.querySelectorAll('.layout-tree [aria-selected="true"]').length === 0)
+        await context.close()
+    }, 120000)
+
+    it('shows the values of the selection in the Properties panel', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.keyboard.press('F9') // hide the palettes: the properties are the first tab
+        await page.click('#panel-tab-inspectorPanel')
+        // without a selection: the score sections
+        await page.waitForSelector('.inspector [data-section="SECTION_SCORE_DISPLAY"]')
+        expect(await page.textContent('.inspector [data-section="SECTION_SCORE_APPEARANCE"] .insp-section-title')).toBe('Score appearance')
+        // a note
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+Home')
+        for (let i = 0; i < 8 && !(await page.textContent('#status'))!.startsWith('Note'); i++) {
+            await page.keyboard.press('ArrowRight')
+        }
+        expect(await page.textContent('#status')).toMatch(/^Note/)
+        await page.waitForSelector('.inspector [data-section="SECTION_NOTATION"]')
+        expect(await page.isChecked('.inspector [data-section="SECTION_GENERAL"] [data-property="isVisible"] input')).toBe(true)
+        expect(await page.textContent('.inspector [data-section="SECTION_NOTATION"] .insp-section-title')).toBe('Note')
+        expect(await page.textContent('[data-view="NoteSettings"] .insp-tabbar [role="tab"][aria-selected="true"]')).toBe('Head')
+        expect(await page.isChecked('[data-view="NoteSettings"] [data-property="isHeadHidden"] input')).toBe(false)
+        // the whole score: measures
+        await page.keyboard.press('ControlOrMeta+a')
+        await page.waitForSelector('.inspector [data-section="SECTION_MEASURES"]')
+        await context.close()
+    }, 120000)
+
     it('keeps the settings of the home screen', async () => {
         const { page, context } = await newPage()
         await page.goto(base)
