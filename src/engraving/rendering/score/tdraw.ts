@@ -18,13 +18,15 @@ import { FontMetrics } from '../../../framework/draw/fontmetrics'
 import { FillRule } from '../../../framework/draw/types/painterpath'
 import type { Painter } from '../../../framework/draw/painter'
 import { RealIsNull } from '../../../framework/global/realfn'
-import { SymId } from '../../types/symid'
+import { SmuflAnchorId, SymId } from '../../types/symid'
 import { ArpeggioType, ArticulationTextType, BarLineType, BracketType, ElementType, ChordLineType, FontStyle, GlissandoType, GuitarBendType, HookType, LineType, Orientation, SlurStyleType, VOICES } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { DefaultStyle } from '../../style/defaultstyle'
 import { CrossMeasure } from '../../dom/chordrest'
 import { Pid } from '../../dom/property'
-import type { Accidental } from '../../dom/accidental'
+import { Accidental as DrawAccidental, type Accidental } from '../../dom/accidental'
+import type { ShadowNote } from '../../dom/shadownote'
+import { Rest as DrawRest } from '../../dom/rest'
 import type { MMRest } from '../../dom/mmrest'
 import type { Breath } from '../../dom/breath'
 import type { Fermata } from '../../dom/fermata'
@@ -168,6 +170,8 @@ export class TDraw {
         case ElementType.STAFF_LINES: TDraw.drawStaffLines(item as StaffLines, painter, opt)
             break
         case ElementType.STEM: TDraw.drawStem(item as Stem, painter, opt)
+            break
+        case ElementType.SHADOW_NOTE: TDraw.drawShadowNote(item as ShadowNote, painter, opt)
             break
         case ElementType.STEM_SLASH: TDraw.drawStemSlash(item as StemSlash, painter, opt)
             break
@@ -1695,6 +1699,102 @@ export class TDraw {
         }
         const background = ldata.bbox().padded(item.spatium())
         painter.setMask(background, mask.toRects())
+    }
+
+    static drawShadowNote(item: ShadowNote, painter: Painter, _opt: PaintOptions): void {
+        if (!item.visible() || !item.isValid()) {
+            return
+        }
+
+        const ap = item.pagePos()
+        painter.translate(ap)
+        let lw = item.style().styleMM(Sid.stemWidth) * item.mag()
+        const pen = new Pen(item.color(), lw, PenStyle.SolidLine, PenCapStyle.FlatCap)
+        painter.setPen(pen)
+
+        const up = item.computeUp()
+
+        // Draw the accidental
+        const acc = DrawAccidental.subtype2symbol(item.accidentalType())
+        if (acc !== SymId.noSym) {
+            const posAcc = new PointF()
+            posAcc.setX(posAcc.x() - (item.symWidth(acc) + item.style().styleMM(Sid.accidentalNoteDistance) * item.mag()))
+            item.drawSymbol(acc, painter, posAcc)
+        }
+
+        // Draw the notehead
+        item.drawSymbol(item.noteheadSymbol(), painter)
+
+        // Draw the dots
+        const sp = item.spatium()
+        const sp2 = sp / 2
+        const noteheadWidth = item.symWidth(item.noteheadSymbol())
+
+        const posDot = new PointF()
+        if (item.duration().dots() > 0) {
+            const d = item.style().styleMM(Sid.dotNoteDistance) * item.mag()
+            const dd = item.style().styleMM(Sid.dotDotDistance) * item.mag()
+            posDot.setX(posDot.x() + (noteheadWidth + d))
+
+            if (item.isRest()) {
+                posDot.setY(posDot.y() + DrawRest.getDotline(item.duration().type()) * sp2)
+            } else {
+                posDot.setY(posDot.y() - (item.lineIndex() % 2 === 0 ? sp2 : 0))
+            }
+
+            if (item.hasFlag() && up) {
+                posDot.setX(Math.max(posDot.x(), noteheadWidth + item.symBbox(item.flagSym()).right()))
+            }
+
+            for (let i = 0; i < item.duration().dots(); i++) {
+                posDot.setX(posDot.x() + dd * i)
+                item.drawSymbol(SymId.augmentationDot, painter, posDot)
+                posDot.setX(posDot.x() - dd * i)
+            }
+        }
+
+        // Draw stem and flag
+        if (item.hasStem()) {
+            let x = item.symSmuflAnchor(item.noteheadSymbol(), up ? SmuflAnchorId.stemUpSE : SmuflAnchorId.stemDownNW).x()
+            x += up ? -0.5 * lw : 0.5 * lw
+            const y1 = item.symSmuflAnchor(item.noteheadSymbol(), up ? SmuflAnchorId.stemUpSE : SmuflAnchorId.stemDownNW).y()
+            let y2 = (up ? -3.5 : 3.5) * sp
+
+            if (item.hasFlag()) {
+                const flag = item.flagSym()
+                item.drawSymbol(flag, painter, new PointF(x - (lw / 2), y2))
+                y2 += item.symSmuflAnchor(flag, up ? SmuflAnchorId.stemUpNW : SmuflAnchorId.stemDownSW).y()
+            }
+            painter.drawLine(new LineF(x, y1, x, y2))
+        }
+
+        // Draw ledger lines if needed
+        if (item.ledgerLinesVisible()) {
+            const extraLen = item.style().styleS(Sid.ledgerLineLength).val() * sp
+            const x1 = -extraLen
+            const x2 = noteheadWidth + extraLen
+            const yOffset = item.staffOffsetY()
+            const step = sp2 * item.staffType()!.lineDistance().val()
+
+            lw = item.style().styleMM(Sid.ledgerLineWidth) * item.mag()
+            pen.setWidthF(lw)
+            painter.setPen(pen)
+
+            const topLine = Math.trunc(-2 + yOffset / step)
+            for (let i = topLine; i >= item.lineIndex(); i -= 2) {
+                const y = step * (i - item.lineIndex())
+                painter.drawLine(new LineF(x1, y, x2, y))
+            }
+            const l = Math.trunc(item.staffType()!.lines() * 2 + yOffset / step) // first ledger line below staff
+            for (let i = l; i <= item.lineIndex(); i += 2) {
+                const y = step * (i - item.lineIndex())
+                painter.drawLine(new LineF(x1, y, x2, y))
+            }
+        }
+
+        item.drawArticulations(painter)
+
+        painter.translate(ap.neg())
     }
 }
 

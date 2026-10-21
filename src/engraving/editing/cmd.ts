@@ -2167,10 +2167,10 @@ Score.prototype.cmdAddPitch = function (this: Score, paramsOrStep: NoteInputPara
     pos.line = relStep(step, clef)
 
     if (is.usingNoteEntryMethod(NoteEntryMethod.REPITCH)) {
-        // TODO(port): repitchNote(pos, !addFlag)
+        this.repitchNote(pos, !addFlag)
     } else {
         if (insert) {
-            // TODO(port): insertChordByInsertingTime(pos)
+            this.insertChordByInsertingTime(pos)
         } else {
             this.putNote(pos, !addFlag)
         }
@@ -2631,3 +2631,106 @@ Score.prototype.cmdAddSpanner = function (this: Score, spanner: Spanner, staffId
     this.undoAddElement(spanner, true, ctrlModifier)
 }
 
+
+// =====================================================================================================================
+//   cmd.cpp functions of the note input methods and of grace notes (realtimeAdvance, setGraceNote, cmdAddGrace)
+// =====================================================================================================================
+
+// (imports of this section; ES imports are hoisted)
+import { NoteType as GraceNoteType } from '../dom/chordrest'
+
+declare module '../dom/score' {
+    interface Score {
+        /**
+         * advances the real-time input by one input duration (the "realtime-advance" action of the real-time note
+         * input methods). TODO(port): MIDI input: activeMidiPitches() is always empty (no MIDI in the browser), so
+         * the new position always gets a rest; allowTransposition is unused.
+         */
+        realtimeAdvance(allowTransposition: boolean): void
+        /**
+         * Create a grace note in front of a normal note.
+         * ch is the chord of the normal note, pitch the pitch of the grace note, type the grace note type,
+         * len the visual duration of the grace note (1/16 or 1/32) in ticks
+         */
+        setGraceNote(ch: Chord, pitch: number, type: GraceNoteType, len: number): Note
+        /** adds grace note of specified type to selected notes */
+        cmdAddGrace(graceType: GraceNoteType, duration: number): void
+    }
+}
+
+Score.prototype.realtimeAdvance = function (this: Score, _allowTransposition: boolean): void {
+    const is = this.inputState()
+    if (!is.noteEntryMode()) {
+        return
+    }
+
+    const ticks2measureEnd = is.segment()!.measure().ticks().minus(is.segment()!.rtick())
+    if (!is.cr() || (!is.cr()!.ticks().eq(is.duration().fraction()) && is.duration().fraction().lt(ticks2measureEnd))) {
+        this.setNoteRest(is.segment()!, is.track(), new NoteVal(), is.duration().fraction(), DirectionV.AUTO)
+    }
+
+    const prevCR = is.cr()!
+    if (is.endOfScore()) {
+        // C++ appendMeasures(1)
+        const options = new InsertMeasureOptions()
+        options.createEmptyMeasures = false
+        this.insertMeasure(ElementType.MEASURE, null, options)
+    }
+
+    is.moveToNextInputPos()
+
+    // C++: the active MIDI pitches are tied to the previous chord (addTiedMidiPitch); there is no MIDI input here
+    this.setNoteRest(is.segment()!, is.track(), new NoteVal(), is.duration().fraction(), DirectionV.AUTO)
+
+    if (prevCR.measure() !== is.segment()!.measure()) {
+        // just advanced across barline. Now simplify tied notes.
+        this.score().regroupNotesAndRests(prevCR.measure().tick(), is.segment()!.measure().tick(), is.track())
+    }
+}
+
+Score.prototype.setGraceNote = function (this: Score, ch: Chord, pitch: number, type: GraceNoteType, len: number): Note {
+    const chord = Factory.createItem(ElementType.CHORD, scoreDummy(this).segment()) as unknown as Chord
+    const note = Factory.createItem(ElementType.NOTE, chord) as unknown as Note
+
+    // allow grace notes to be added to other grace notes
+    // by really adding to parent chord
+    if (ch.noteType() !== GraceNoteType.NORMAL) {
+        ch = ch.explicitParent() as unknown as Chord
+    }
+
+    chord.setTrack(ch.track())
+    chord.setParent(ch)
+    chord.add(note)
+
+    // find corresponding note within chord and use its tpc information
+    // if no note with same pitch found, derive tpc from pitch / key
+    const n = ch.findNote(pitch)
+    if (n) {
+        note.setNval(n.noteVal(), ch.tick())
+    } else {
+        note.setPitch(pitch)
+        note.setTpcFromPitch()
+    }
+
+    const d = new TDuration()
+    d.setVal(len)
+    chord.setDurationType(d)
+    chord.setTicks(d.fraction())
+    chord.setNoteType(type)
+    chord.setShowStemSlashInAdvance()
+    chord.mutldata().setMag(ch.staff()!.staffMag(chord.tick()) * this.style().styleD(Sid.graceNoteMag))
+
+    this.undoAddElement(chord)
+    return note
+}
+
+Score.prototype.cmdAddGrace = function (this: Score, graceType: GraceNoteType, duration: number): void {
+    const copyOfElements = [...this.selection().elements()]
+    for (const e of copyOfElements) {
+        if (e.isNote()) {
+            const n = e as unknown as Note
+            const graceNote = this.setGraceNote(n.chord(), n.pitch(), graceType, duration)
+            this.select(graceNote, SelectType.SINGLE, 0)
+        }
+    }
+}

@@ -60,6 +60,34 @@ import type { LayoutBreak } from '../../engraving/dom/layoutbreak'
 import type { Spanner } from '../../engraving/dom/spanner'
 import type { Hairpin } from '../../engraving/dom/hairpin'
 import type { Clef } from '../../engraving/dom/clef'
+// (imports of the note input section)
+import { Fraction } from '../../engraving/types/fraction'
+import { Constants } from '../../engraving/types/constants'
+import { NoteHeadGroup, type BeamMode } from '../../engraving/types/types'
+import { Sid } from '../../engraving/style/styledef'
+import { Note as NoteInputNote } from '../../engraving/dom/note'
+import { Tuplet } from '../../engraving/dom/tuplet'
+import { TDuration as TDurationValue } from '../../engraving/dom/durationtype'
+import { MScore as NoteInputMScore, MsError as NoteInputMsError } from '../../engraving/dom/mscore'
+import { ScoreRenderer } from '../../engraving/rendering/score/scorerenderer'
+import { NoteType as GraceNoteType } from '../../engraving/dom/chordrest'
+import { isNotesIntervalValid, type TupletOptions } from '../notationtypes'
+import type { ShadowNote } from '../../engraving/dom/shadownote'
+import type { Slur } from '../../engraving/dom/slur'
+import type { OttavaType } from '../../engraving/dom/ottava'
+import type { HairpinType } from '../../engraving/dom/hairpin'
+import type { Position } from '../../engraving/dom/score'
+import type { SymId } from '../../engraving/types/symid'
+import { ArticulationsUpdateMode, flipArticulations, splitArticulations } from '../../engraving/dom/articulation'
+import { PlacementV } from '../../engraving/types/types'
+
+/** C++ NotationInteraction::ShadowNoteParams */
+interface ShadowNoteParams {
+    duration: TDuration
+    accidentalType: AccidentalType
+    articulationIds: ReadonlySet<SymId>
+    position: Position
+}
 
 export enum MoveDirection {
     Undefined, Left, Right, Up, Down,
@@ -171,11 +199,510 @@ export class NotationInteraction {
     /** C++ showItem(): the view scrolls to the item; here the UI scrolls to selectionBounds() after a command */
     showItem(_el: EngravingItem | null): void {}
 
-    /** TODO(port): the shadow note (note input preview at the mouse position) */
-    hideShadowNote(): void {}
-
     /** C++ checkAndShowError(): shows MScore's last error (MScoreErrorsController); TODO(port): error messages */
     checkAndShowError(): void {}
+
+    // =================================================================================================================
+    //   note input: the shadow note, slurs, tuplets, lines, grace notes, beams, intervals (section of the note input
+    //   port; notationinteraction.cpp)
+    // =================================================================================================================
+
+    private m_shadowNoteChanged = new Notification()
+
+    shadowNote(): ShadowNote {
+        return this.score().shadowNote()
+    }
+
+    /** returns true if the shadow note is shown (C++ sends shadowNoteChanged(visible)) */
+    showShadowNoteForPosition(pos: PointF): boolean {
+        const inputState = this.score().inputState()
+        const shadowNote = this.score().shadowNote()
+
+        const position = this.score().getPosition(pos, inputState.voice())
+        if (!position) {
+            shadowNote.setVisible(false)
+            this.m_shadowNoteChanged.notify()
+            return false
+        }
+
+        const params: ShadowNoteParams = {
+            duration: inputState.duration(),
+            accidentalType: inputState.accidentalType(),
+            articulationIds: inputState.articulationIds(),
+            position,
+        }
+
+        const show = this.doShowShadowNote(shadowNote, params)
+        this.m_shadowNoteChanged.notify()
+        return show
+    }
+
+    private doShowShadowNote(shadowNote: ShadowNote, params: ShadowNoteParams): boolean {
+        const position = params.position
+
+        const inputState = this.score().inputState()
+        const staff = this.score().staff(position.staffIdx)!
+
+        let segment = position.segment!
+        let segmentSkylineTopY = 0
+        let segmentSkylineBottomY = 0
+
+        const shadowNoteActualSegment = position.segment!.prev1enabled()
+        if (shadowNoteActualSegment) {
+            segment = shadowNoteActualSegment
+            segmentSkylineTopY = shadowNoteActualSegment.elementsTopOffsetFromSkyline(position.staffIdx)
+            segmentSkylineBottomY = shadowNoteActualSegment.elementsBottomOffsetFromSkyline(position.staffIdx)
+        }
+
+        const tick = segment.tick()
+        const mag = staff.staffMag(tick)
+
+        const instr = staff.part().instrument(tick)
+
+        // in any empty measure, pos will be right next to barline
+        // so pad this by barNoteDistance
+        const relX = position.pos.x() - position.segment!.measure().canvasPos().x()
+        position.pos.setX(position.pos.x() - Math.min(relX - this.score().style().styleMM(Sid.barNoteDistance) * mag, 0.0))
+
+        let noteheadGroup = NoteHeadGroup.HEAD_NORMAL
+        const noteHead = params.duration.headType()
+
+        const line = position.line
+        let voice = 0
+        let drumNotePitch = -1
+
+        if (instr.useDrumset()) {
+            const ds = instr.drumset()!
+
+            const noteInputPitch = inputState.drumNote()
+
+            if (ds.isValid(noteInputPitch) && ds.line(noteInputPitch) === line) {
+                noteheadGroup = ds.noteHead(noteInputPitch)
+                voice = ds.voice(noteInputPitch)
+                drumNotePitch = noteInputPitch
+            } else {
+                const pitch = ds.defaultPitchForLine(line)
+                if (ds.isValid(pitch)) {
+                    noteheadGroup = ds.noteHead(pitch)
+                    voice = ds.voice(pitch)
+                    drumNotePitch = pitch
+                }
+                if (drumNotePitch < 0) {
+                    shadowNote.setVisible(false)
+                    return false
+                }
+            }
+        } else {
+            voice = inputState.voice()
+        }
+
+        shadowNote.setVisible(true)
+        shadowNote.mutldata().setMag(mag)
+        shadowNote.setTick(tick)
+        shadowNote.setStaffIdx(position.staffIdx)
+        shadowNote.setVoice(voice)
+        shadowNote.setLineIndex(line)
+
+        // C++: configuration()->noteInputPreviewColor() (default: the selection color, so the highlight color is used)
+        shadowNote.setColor(EngravingConfiguration.highlightSelectionColor(voice))
+
+        let symNotehead: SymId
+
+        if (inputState.rest()) {
+            const rest = Factory.createItem(ElementType.REST, scoreDummy(this.score()).segment()) as unknown as Rest
+            rest.setDurationType(params.duration)
+            rest.setTicks(params.duration.fraction())
+            symNotehead = rest.getSymbol(params.duration.type(), 0, staff.lines(position.segment!.tick()))
+            shadowNote.setState(symNotehead, params.duration, true, segmentSkylineTopY, segmentSkylineBottomY)
+        } else {
+            if (noteheadGroup === NoteHeadGroup.HEAD_CUSTOM) {
+                symNotehead = instr.drumset()!.noteHeads(drumNotePitch, noteHead)
+            } else {
+                symNotehead = NoteInputNote.noteHeadSym(0, noteheadGroup, noteHead)
+            }
+
+            shadowNote.setState(symNotehead, params.duration, false, segmentSkylineTopY, segmentSkylineBottomY,
+                params.accidentalType, params.articulationIds)
+        }
+
+        ScoreRenderer.layoutItem(shadowNote)
+
+        shadowNote.setPos(position.pos)
+
+        return true
+    }
+
+    hideShadowNote(): void {
+        this.score().shadowNote().setVisible(false)
+        this.m_shadowNoteChanged.notify()
+    }
+
+    /** in canvas coordinates; empty if there is no visible shadow note */
+    shadowNoteRect(): RectF {
+        const note = this.score().shadowNote()
+        if (!note.visible() || !note.isValid()) {
+            return new RectF()
+        }
+
+        const rect = note.canvasBoundingRect()
+
+        let penWidth = note.style().styleMM(Sid.stemWidth)
+        if (note.ledgerLinesVisible()) {
+            const w = note.style().styleMM(Sid.ledgerLineWidth)
+            penWidth = Math.max(penWidth, w)
+        }
+
+        penWidth *= note.mag()
+        return rect.adjusted(-penWidth, -penWidth, penWidth, penWidth)
+    }
+
+    shadowNoteChanged(): Notification { return this.m_shadowNoteChanged }
+
+    addSlurToSelection(): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        // Calls `startEdit` internally
+        this.doAddSlur()
+    }
+
+    /** NOTE Copied from ScoreView::cmdAddSlur */
+    doAddSlur(slurTemplate: Slur | null = null): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Add slur'))
+
+        let firstChordRest: ChordRest | null = null
+        let secondChordRest: ChordRest | null = null
+        const sel = this.score().selection()
+        const el = sel.uniqueElements()
+
+        if (sel.isRange()) {
+            const startTrack = staff2track(sel.staffStart())
+            const endTrack = staff2track(sel.staffEnd())
+            for (let track = startTrack; track < endTrack; ++track) {
+                firstChordRest = null
+                secondChordRest = null
+                for (let e of el) {
+                    if (e.track() !== track) {
+                        continue
+                    }
+                    if (e.isNote()) {
+                        e = (e as unknown as Note).chord()
+                    }
+                    if (!e.isChord()) {
+                        continue
+                    }
+                    const cr = e as unknown as ChordRest
+                    if (!firstChordRest || firstChordRest.tick().gt(cr.tick())) {
+                        firstChordRest = cr
+                    }
+                    if (!secondChordRest || secondChordRest.tick().lt(cr.tick())) {
+                        secondChordRest = cr
+                    }
+                }
+
+                const firstCrTrill = !!firstChordRest && firstChordRest.isChord() && (firstChordRest as unknown as Chord).isTrillCueNote()
+                const secondCrTrill = !!secondChordRest && secondChordRest.isChord() && (secondChordRest as unknown as Chord).isTrillCueNote()
+
+                if (firstChordRest && (firstChordRest !== secondChordRest) && !(firstCrTrill || secondCrTrill)) {
+                    this.doAddSlurBetween(firstChordRest, secondChordRest, slurTemplate)
+                }
+            }
+        } else if (sel.isSingle()) {
+            const element = sel.element()!
+            if (element.isNote() && !(element as unknown as Note).isTrillCueNote()) {
+                this.doAddSlurBetween((element as unknown as Note).chord(), null, slurTemplate)
+            }
+            // TODO(port): hammer-on/pull-off templates on a selected slur segment
+        } else {
+            let firstItem: EngravingItem | null = null
+            let secondItem: EngravingItem | null = null
+            for (let e of el) {
+                if (e.isNote()) {
+                    e = (e as unknown as Note).chord()
+                }
+
+                const meas = e.findMeasure()
+                const header = !!meas && meas.header() && e.tick().eq(meas.tick())
+
+                if (!e.isChord() && !e.isBarLine() && !header) {
+                    continue
+                }
+
+                if (!firstItem || e.isBefore(firstItem)) {
+                    firstItem = e
+                }
+                if (!secondItem || secondItem.isBefore(e)) {
+                    secondItem = e
+                }
+            }
+
+            if (firstChordRest === secondItem && (!firstItem || firstItem.isChordRest())) {
+                // TODO(port): ChordRestNavigateOptions disableOverRepeats
+                secondItem = nextChordRest(firstItem as unknown as ChordRest | null)
+            }
+
+            const firstCrTrill = !!firstItem && firstItem.isChord() && (firstItem as unknown as Chord).isTrillCueNote()
+            const secondCrTrill = !!secondItem && secondItem.isChord() && (secondItem as unknown as Chord).isTrillCueNote()
+
+            if (firstItem && secondItem && (firstItem.isChordRest() || secondItem.isChordRest()) && !(firstCrTrill || secondCrTrill)) {
+                this.doAddSlurBetween(firstItem, secondItem, slurTemplate)
+            }
+        }
+
+        this.apply()
+    }
+
+    /** C++ doAddSlur(EngravingItem* firstItem, EngravingItem* secondItem, const Slur* slurTemplate) */
+    private doAddSlurBetween(firstItem: EngravingItem, secondItem: EngravingItem | null, slurTemplate: Slur | null): void {
+        const meas = firstItem ? firstItem.findMeasure() : null
+        const header = !!meas && meas.header() && firstItem.tick().eq(meas.tick()) && !firstItem.isChordRest()
+
+        if (firstItem && secondItem
+            && ((firstItem.isBarLine() !== secondItem.isBarLine()) || (header && secondItem.isChordRest()))) {
+            // TODO(port): partial slurs (incoming/outgoing over a repeat bar line: undoSetIncoming/undoSetOutgoing)
+            return
+        }
+
+        const firstChordRest = firstItem as unknown as ChordRest
+        const secondChordRest = secondItem as unknown as ChordRest | null
+
+        let slur = firstChordRest.slur(secondChordRest)
+        if (!slur || slur.slurDirection() !== DirectionV.AUTO) {
+            slur = this.score().addSlur(firstChordRest, secondChordRest, slurTemplate)
+        }
+        // TODO(port): replacing an existing slur with a hammer-on/pull-off
+
+        if (this.m_noteInput.isNoteInputMode()) {
+            this.m_noteInput.addSlur(slur)
+        } else if (!secondItem) {
+            const segment = slur.frontSegment()
+            this.select([segment], SelectType.SINGLE)
+            // TODO(port): startEditGrip(segment, Grip::END)
+        }
+    }
+
+    addOttavaToSelection(type: OttavaType): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add ottava'))
+        this.score().cmdAddOttava(type)
+        this.apply()
+    }
+
+    addHairpinsToSelection(type: HairpinType): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add hairpin'))
+        const hairpins = this.score().addHairpins(type)
+        this.apply()
+
+        if (!this.noteInput().isNoteInputMode() && hairpins.length === 1) {
+            const segment = hairpins[0].frontSegment()
+            if (segment) {
+                this.select([segment], SelectType.SINGLE)
+            }
+            // TODO(port): startEditGrip(segment, Grip::END)
+        }
+    }
+
+    canAddTupletToSelectedChordRests(): boolean {
+        for (const chordRest of this.score().getSelectedChordRests()) {
+            if (chordRest.isGrace() || (chordRest.isChord() && (chordRest as unknown as Chord).isTrillCueNote())) {
+                continue
+            }
+
+            if (chordRest.durationType().lt(new TDurationValue(DurationType.V_512TH))
+                && !chordRest.durationType().equals(new TDurationValue(DurationType.V_MEASURE))) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    addTupletToSelectedChordRests(options: TupletOptions): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add tuplet'))
+
+        for (const chordRest of this.score().getSelectedChordRests()) {
+            if (!chordRest.isGrace() && !(chordRest.isChord() && (chordRest as unknown as Chord).isTrillCueNote())) {
+                let ratio = options.ratio
+                if (options.autoBaseLen) {
+                    ratio = new Fraction(ratio.numerator(), Tuplet.computeTupletDenominator(ratio.numerator(), chordRest.ticks()))
+                }
+                this.score().addTuplet(chordRest, ratio, options.numberType, options.bracketType)
+            }
+        }
+
+        this.apply()
+    }
+
+    addBeamToSelectedChordRests(mode: BeamMode): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Set beam type'))
+        this.score().cmdSetBeamMode(mode)
+        this.apply()
+    }
+
+    addGraceNotesToSelectedNotes(type: GraceNoteType): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        let denominator = 1
+
+        switch (type) {
+        case GraceNoteType.GRACE4:
+        case GraceNoteType.INVALID:
+        case GraceNoteType.NORMAL:
+            denominator = 1
+            break
+        case GraceNoteType.ACCIACCATURA:
+        case GraceNoteType.APPOGGIATURA:
+        case GraceNoteType.GRACE8_AFTER:
+            denominator = 2
+            break
+        case GraceNoteType.GRACE16:
+        case GraceNoteType.GRACE16_AFTER:
+            denominator = 4
+            break
+        case GraceNoteType.GRACE32:
+        case GraceNoteType.GRACE32_AFTER:
+            denominator = 8
+            break
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add grace note'))
+        this.score().cmdAddGrace(type, Constants.DIVISION / denominator)
+        this.apply()
+    }
+
+    addIntervalToSelectedNotes(interval: number): void {
+        if (!isNotesIntervalValid(interval)) {
+            return
+        }
+
+        let notes: Note[] = []
+
+        const score = this.score()
+        if (score.selection().isRange()) {
+            const hasMultiNoteChords = score.selection().rangeContainsMultiNoteChords()
+            for (const chordRest of score.getSelectedChordRests()) {
+                if (!chordRest.isChord()) {
+                    continue
+                }
+                const chord = chordRest as unknown as Chord
+                const nl = chord.notes()
+                if (interval > 0) {
+                    for (let noteIdx = nl.length; noteIdx > 0; --noteIdx) {
+                        if (score.selectionFilter().canSelectNoteIdx(noteIdx - 1, nl.length, hasMultiNoteChords)) {
+                            notes.push(nl[noteIdx - 1])
+                            break
+                        }
+                    }
+                } else {
+                    for (let noteIdx = 0; noteIdx < nl.length; ++noteIdx) {
+                        if (score.selectionFilter().canSelectNoteIdx(noteIdx, nl.length, hasMultiNoteChords)) {
+                            notes.push(nl[noteIdx])
+                            break
+                        }
+                    }
+                }
+            }
+        } else {
+            notes = score.selection().noteList()
+        }
+
+        if (!notes.length) {
+            NoteInputMScore.setError(NoteInputMsError.NO_NOTE_SELECTED)
+            this.checkAndShowError()
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add interval'))
+        score.addInterval(interval, notes)
+        this.apply()
+    }
+
+    addLaissezVibToSelection(): void {
+        // Calls `startEdit` internally
+        this.score().cmdToggleLaissezVib()
+
+        this.notifyAboutNotationChanged()
+    }
+
+    /** C++ toggleArticulation(SymId): the palette's toggle of an articulation (bowing actions) */
+    toggleArticulation(symId: SymId): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Toggle articulation'))
+        this.score().toggleArticulation(symId)
+        this.apply()
+    }
+
+    toggleArticulationForSelection(articulationSymbolId: SymId): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        const notes = this.score().selection().noteList()
+        if (!notes.length) {
+            // no notes, but maybe they have an articulation selected. we should use that chord
+            const e = this.score().selection().element()
+            if (e && e.isArticulationFamily()) {
+                const c = e.explicitParent() as unknown as Chord | null
+                if (c) {
+                    notes.unshift(...c.notes())
+                }
+            }
+        }
+
+        const updateMode = this.notesHaveActiculation(notes, articulationSymbolId)
+            ? ArticulationsUpdateMode.Remove : ArticulationsUpdateMode.Insert
+
+        const chords = new Set<Chord>()
+        for (const note of notes) {
+            if (note.isTrillCueNote()) {
+                return
+            }
+            chords.add(note.chord())
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Toggle articulation'))
+        for (const chord of chords) {
+            chord.updateArticulations(new Set([articulationSymbolId]), updateMode)
+        }
+        this.apply()
+    }
+
+    private notesHaveActiculation(notes: readonly Note[], articulationSymbolId: SymId): boolean {
+        for (const note of notes) {
+            const chord = note.chord()
+
+            let chordArticulations = chord.articulationSymbolIds()
+            chordArticulations = flipArticulations(chordArticulations, PlacementV.ABOVE)
+            chordArticulations = splitArticulations(chordArticulations)
+
+            if (!chordArticulations.has(articulationSymbolId)) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    // =================================================================================================================
+    //   (end of the note input section)
+    // =================================================================================================================
 
     // ---------------------------------------------------------------------------------
     // editing commands
@@ -1125,7 +1652,7 @@ export class NotationInteraction {
         }
 
         if (element.isSlur()) {
-            // TODO(port): doAddSlur (ScoreView::cmdAddSlur)
+            this.doAddSlur(element as unknown as Slur)
             return
         }
 
@@ -1284,7 +1811,7 @@ export class NotationInteraction {
         }
 
         if (element.isSlur()) {
-            // TODO(port): doAddSlur (ScoreView::cmdAddSlur)
+            this.doAddSlur(element as unknown as Slur)
             return
         }
 

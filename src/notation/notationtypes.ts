@@ -10,6 +10,7 @@ import { Fraction } from '../engraving/types/fraction'
 import { DurationType, Key } from '../engraving/types/types'
 import { TimeSigType } from '../engraving/dom/timesig'
 import { ScoreOrder } from '../engraving/dom/scoreorder'
+import { TupletBracketType, TupletNumberType } from '../engraving/dom/tuplet'
 import type { InstrumentTemplate } from '../engraving/dom/instrtemplate'
 
 export enum BracketsType {
@@ -79,4 +80,21 @@ export enum PastingType {
     Half,
     Double,
     Special,
+}
+
+// ---- note input (tuplets, intervals) ----
+
+export class TupletOptions {
+    ratio = new Fraction(-1, -1)
+    numberType = TupletNumberType.SHOW_NUMBER
+    bracketType = TupletBracketType.AUTO_BRACKET
+    autoBaseLen = false
+}
+
+export const MIN_NOTES_INTERVAL = -10
+export const MAX_NOTES_INTERVAL = 10
+
+export function isNotesIntervalValid(interval: number): boolean {
+    return interval >= MIN_NOTES_INTERVAL && interval <= MAX_NOTES_INTERVAL
+           && interval !== 0 && interval !== -1
 }

@@ -13,7 +13,7 @@ import { Fraction } from '../types/fraction'
 import { Spatium } from '../types/dimension'
 import type { PropertyValue } from '../types/propertyvalue'
 import {
-    AccidentalRole, AutoOnOff, DirectionV, DurationType, ElementType, GuitarBendType, StaffGroup, TremoloChordType, TremoloType,
+    AccidentalRole, AutoOnOff, BeamMode, DirectionV, DurationType, ElementType, GuitarBendType, StaffGroup, TremoloChordType, TremoloType,
     type staff_idx_t, type track_idx_t,
 } from '../types/types'
 import { Sid } from '../style/styledef'
@@ -30,14 +30,14 @@ import type { Stem } from './stem'
 import type { StemSlash } from './stemslash'
 import type { Hook } from './hook'
 import type { LedgerLine } from './ledgerline'
-import { ArticulationAnchor, type Articulation } from './articulation'
+import { ArticulationAnchor, ArticulationsUpdateMode, splitArticulations, type Articulation } from './articulation'
 import type { AccidentalState } from './key'
 import type { Spanner } from './spanner'
 import type { Tie } from './tie'
 import type { TablatureMinimStyle } from './stafftype'
 import type { Drumset } from './drumset'
 import { TDuration } from './durationtype'
-import type { SymId } from '../types/symid'
+import { SymId } from '../types/symid'
 import type { TremoloTwoChord } from './tremolotwochord'
 import type { Trill } from './trill'
 import type { TremoloSingleChord } from './tremolosinglechord'
@@ -450,6 +450,42 @@ export class Chord extends ChordRest {
     }
     setShowStemSlash(show: boolean): void { this.m_showStemSlash = show }
 
+    setShowStemSlashInAdvance(): void {
+        if (this.m_noteType === NoteType.NORMAL) {
+            return
+        }
+        if (this.isGraceBefore()) {
+            const graceBefore = (this.explicitParent() as unknown as Chord).graceNotesBefore()
+            const grace = graceBefore.empty() ? null : graceBefore.front()
+            if (grace && grace.beamMode() !== BeamMode.NONE && grace.beamMode() !== BeamMode.BEGIN) {
+                grace.requestShowStemSlash(this.showStemSlash())
+            }
+        }
+        if (this.isGraceAfter()) {
+            const graceAfter = (this.explicitParent() as unknown as Chord).graceNotesAfter()
+            const grace = graceAfter.empty() ? null : graceAfter.back()
+            if (grace && grace.beamMode() !== BeamMode.NONE) {
+                grace.requestShowStemSlash(this.showStemSlash())
+            }
+        }
+    }
+
+    requestShowStemSlash(show: boolean): void {
+        if (this.m_noteType === NoteType.NORMAL) {
+            return
+        }
+        const beam = this.beam()
+        if (beam) {
+            for (const chordRest of beam.elements()) {
+                if (chordRest.isChord()) {
+                    (chordRest as unknown as Chord).setShowStemSlash(show)
+                }
+            }
+        } else {
+            this.setShowStemSlash(show)
+        }
+    }
+
     noteParentheses(): readonly NoteParenthesisInfo[] { return this.m_noteParens }
 
     /** C++ findNoteParenthesisInfo(const Note*) / findNoteParenthesisInfo(const Parenthesis*) */
@@ -829,20 +865,131 @@ export class Chord extends ChordRest {
         return null
     }
 
-    /**
-     * C++ updateArticulations(newArticulationIds, ArticulationsUpdateMode updateMode = Insert)
-     * TODO(port): splitting/joining of combined articulations and the anchors; only adds the missing articulations
-     */
-    updateArticulations(newArticulationIds: ReadonlySet<SymId>): void {
-        for (const id of newArticulationIds) {
-            if (this.m_articulations.some(a => a.symId() === id)) {
-                continue
+    articulationSymbolIds(): Set<SymId> {
+        return new Set(this.m_articulations.map(a => a.symId()))
+    }
+
+    updateArticulations(newArticulationIds: ReadonlySet<SymId>, updateMode = ArticulationsUpdateMode.Insert): void {
+        const createArticulation = (): Articulation => itemFactories.createItem!(ElementType.ARTICULATION, this) as Articulation
+        let staccato: Articulation | null = null
+        let accent: Articulation | null = null
+        let marcato: Articulation | null = null
+        let tenuto: Articulation | null = null
+        let overallAnchor = ArticulationAnchor.AUTO
+        let mixedDirections = false
+        if (this.m_articulations.length) {
+            const articsToRemove: Articulation[] = []
+            // split all articulations
+            for (const artic of [...this.m_articulations]) {
+                if (!artic.isDouble()) {
+                    continue
+                }
+                const splitSyms = splitArticulations([artic.symId()])
+                for (const id of splitSyms) {
+                    const newArticulation = createArticulation()
+                    newArticulation.setSymId(id)
+                    newArticulation.setAnchor(artic.anchor())
+                    newArticulation.setPropertyFlags(Pid.ARTICULATION_ANCHOR, artic.propertyFlags(Pid.ARTICULATION_ANCHOR))
+                    if (!this.hasArticulation(newArticulation)) {
+                        this.score().toggleArticulation(this, newArticulation)
+                    }
+                }
+                articsToRemove.push(artic)
             }
-            const na = itemFactories.createItem!(ElementType.ARTICULATION, this) as Articulation
-            na.setSymId(id)
-            na.setParent(this)
-            na.setTrack(this.track())
-            this.score().undoAddElement(na)
+            for (const artic of articsToRemove) {
+                this.score().undoRemoveElement(artic)
+            }
+            // now we have guaranteed no more combined artics
+            // take an inventory of which articulations are already present
+            for (const artic of this.m_articulations) {
+                const pf = artic.propertyFlags(Pid.ARTICULATION_ANCHOR)
+                if (!mixedDirections && pf === PropertyFlags.UNSTYLED && artic.anchor() !== ArticulationAnchor.AUTO) {
+                    if (overallAnchor !== ArticulationAnchor.AUTO && artic.anchor() !== overallAnchor) {
+                        mixedDirections = true
+                        overallAnchor = ArticulationAnchor.AUTO
+                    } else {
+                        overallAnchor = artic.anchor()
+                    }
+                }
+                if (artic.isStaccato()) {
+                    staccato = artic
+                } else if (artic.isAccent()) {
+                    accent = artic
+                } else if (artic.isMarcato()) {
+                    marcato = artic
+                } else if (artic.isTenuto()) {
+                    tenuto = artic
+                }
+            }
+        }
+        const newArtics = new Set<SymId>()
+        // get symbol id's for correct direction
+        for (const id of newArticulationIds) {
+            if (id === SymId.articAccentAbove || id === SymId.articAccentBelow) {
+                if (marcato && updateMode === ArticulationsUpdateMode.Insert) {
+                    // adding an accent, which replaces marcato
+                    this.score().undoRemoveElement(marcato)
+                }
+            } else if (id === SymId.articMarcatoAbove || id === SymId.articMarcatoBelow) {
+                if (accent && updateMode === ArticulationsUpdateMode.Insert) {
+                    // adding a marcato, which replaces accent
+                    this.score().undoRemoveElement(accent)
+                }
+            }
+            newArtics.add(id)
+        }
+
+        // newArtics now contains the articulations in the correct direction
+        if (updateMode === ArticulationsUpdateMode.Remove) {
+            // remove articulations from _articulations that are found in in newArtics
+            // (C++ undoRemoveElement(nullptr) does nothing)
+            for (const id of [...newArtics].sort((a, b) => a - b)) {
+                switch (id) {
+                case SymId.articAccentAbove:
+                case SymId.articAccentBelow:
+                    if (accent) {
+                        this.score().undoRemoveElement(accent)
+                    }
+                    accent = null
+                    break
+                case SymId.articMarcatoAbove:
+                case SymId.articMarcatoBelow:
+                    if (marcato) {
+                        this.score().undoRemoveElement(marcato)
+                    }
+                    marcato = null
+                    break
+                case SymId.articTenutoAbove:
+                case SymId.articTenutoBelow:
+                    if (tenuto) {
+                        this.score().undoRemoveElement(tenuto)
+                    }
+                    tenuto = null
+                    break
+                case SymId.articStaccatoAbove:
+                case SymId.articStaccatoBelow:
+                    if (staccato) {
+                        this.score().undoRemoveElement(staccato)
+                    }
+                    staccato = null
+                    break
+                default:
+                    break
+                }
+            }
+        } else {
+            // add articulations from newArtics that are not found in m_articulations
+            for (const id of [...newArtics].sort((a, b) => a - b)) {
+                const newArticulation = createArticulation()
+                newArticulation.setSymId(id)
+                if (overallAnchor !== ArticulationAnchor.AUTO) {
+                    newArticulation.setAnchor(overallAnchor)
+                    newArticulation.setPropertyFlags(Pid.ARTICULATION_ANCHOR, PropertyFlags.UNSTYLED)
+                }
+                if (!this.hasArticulation(newArticulation)) {
+                    this.score().toggleArticulation(this, newArticulation)
+                }
+            }
         }
     }
 

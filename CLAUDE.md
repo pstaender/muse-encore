@@ -38,7 +38,8 @@ src/
                         (undo.ts: UndoStack/UndoMacro/UndoCommand; startCmd/endCmd/undoRedo in cmd.ts, CmdState in
                         cmdstate.ts); dom/noteentry.ts and dom/input.ts (InputState) for note input
   notation, project     MasterNotation / NotationParts / NotationProject: creating new scores (createScore);
-                        NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input
+                        NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input;
+                        NotationMidiInput: the real-time advance (no MIDI)
   notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands)
   palette               palette tree/palettes/cells (palettecreator: default + master palettes), cell icons
                         (PaletteCellIconEngine, EngravingItemPreviewPainter); api.ts

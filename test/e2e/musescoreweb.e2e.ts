@@ -309,6 +309,107 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 180000)
 
+    it('enters a triplet and a slur by keyboard, re-pitches notes and enters notes with the mouse', async () => {
+        const { page, context } = await newPage()
+        await page.goto(base)
+        await page.click('.home-footer button:has-text("New")')
+        await page.waitForSelector('dialog.new-score[open]')
+        await page.fill('.instruments input[type="search"]', 'flute')
+        await page.dblclick('.instruments [role="option"] >> text=Flute')
+        await page.click('dialog.new-score .dialog-buttons button:has-text("Done")')
+        await scoreShown(page)
+        const status = (): Promise<string> => page.textContent('#status').then(t => t ?? '')
+        const waitStatus = (re: RegExp): Promise<unknown> => page.waitForFunction(
+            (src) => new RegExp(src).test(document.getElementById('status')!.textContent!), re.source)
+        const pressed = (code: string): Promise<string | null> => page.getAttribute(`.tool-button[data-action="${code}"]`, 'aria-pressed')
+
+        // N, Ctrl+3: a triplet of eighths; S starts a slur at D, F ends it
+        await page.focus('#viewport')
+        await page.keyboard.press('n')
+        await page.keyboard.press('ControlOrMeta+3')
+        await waitStatus(/^Rest.*Duration: Triplet Eighth/)
+        await page.keyboard.press('c')
+        await page.keyboard.press('d')
+        await waitStatus(/^Note;.*Pitch: D5; Duration: Triplet Eighth/)
+        await page.keyboard.press('s')
+        await page.waitForFunction(() => document.querySelector('.tool-button[data-action="add-slur"]')?.getAttribute('aria-pressed') === 'true')
+        await page.keyboard.press('e')
+        await page.keyboard.press('f')
+        await waitStatus(/^Note;.*Pitch: F5; Duration: Eighth;.*Beat: 2;/)
+        await page.keyboard.press('s')
+        await page.waitForFunction(() => document.querySelector('.tool-button[data-action="add-slur"]')?.getAttribute('aria-pressed') === 'false')
+        await page.keyboard.press('Escape')
+
+        // re-pitch mode (Ctrl+Shift+I) from the first note: new pitches, the rhythm stays
+        for (let i = 0; i < 3; ++i) {
+            const before = await status()
+            await page.keyboard.press('ArrowLeft')
+            await page.waitForFunction(b => document.getElementById('status')!.textContent !== b, before)
+        }
+        await waitStatus(/^Note;.*Pitch: C5; Duration: Triplet Eighth;.*Beat: 1;/)
+        await page.keyboard.press('ControlOrMeta+Shift+i')
+        // note input in the re-pitch mode (hidden in the default toolbar): the note name button is not pressed
+        await page.waitForFunction(() => document.querySelector('.tool-button[data-action="note-input-by-note-name"]')?.getAttribute('aria-pressed') === 'false')
+        await page.keyboard.press('g')
+        await waitStatus(/^Note;.*Pitch: G4; Duration: Triplet Eighth;.*Beat: 1;/)
+        await page.keyboard.press('a')
+        await waitStatus(/^Note;.*Pitch: A4; Duration: Triplet Eighth;.*Beat: 1\.33/)
+        expect(await pressed('note-input-by-note-name')).toBe('false')
+        await page.keyboard.press('Escape')
+
+        // the mouse in note input mode: the shadow note follows it, a click on the middle line of measure 2 enters a B4
+        await page.keyboard.press('n')
+        // zoom 100 % (Ctrl+0), the top of the first page in view
+        await page.keyboard.press('ControlOrMeta+0')
+        await page.waitForTimeout(400)
+        await page.evaluate(() => {
+            const v = document.getElementById('viewport')!
+            const pr = document.querySelector('.page')!.getBoundingClientRect()
+            v.scrollBy(0, pr.top - v.getBoundingClientRect().top - 20)
+        })
+        await page.waitForTimeout(400)
+        const p = (await page.locator('.page').first().boundingBox())!
+        const x = p.x + p.width * 0.38
+        // the staff lines in the page bitmap at that x (dark pixels), the middle one of the first staff
+        const lineY = await page.evaluate((fx) => {
+            const c = document.querySelector<HTMLCanvasElement>('.page canvas')!
+            const col = Math.round(c.width * fx)
+            const d = c.getContext('2d')!.getImageData(col, 0, 1, c.height).data
+            // runs of non-white rows (antialiased lines), their centers
+            const lines: number[] = []
+            let runStart = -1
+            for (let y = 0; y <= c.height; ++y) {
+                const dark = y < c.height && d[y * 4] < 245
+                if (dark && runStart < 0) {
+                    runStart = y
+                } else if (!dark && runStart >= 0) {
+                    lines.push((runStart + y - 1) / 2)
+                    runStart = -1
+                }
+            }
+            // the first five equally spaced runs are the staff lines
+            for (let i = 0; i + 4 < lines.length; ++i) {
+                const gap = lines[i + 1] - lines[i]
+                if ([2, 3, 4].every(k => Math.abs(lines[i + k] - lines[i + k - 1] - gap) <= 1)) {
+                    return (lines[i + 2] + 0.5) / c.height
+                }
+            }
+            return -1
+        }, 0.38)
+        expect(lineY).toBeGreaterThan(0)
+        const y = p.y + p.height * lineY
+        await page.mouse.move(x, y - 40)
+        await page.mouse.move(x, y, { steps: 4 })
+        await page.waitForSelector('.page canvas.shadow-note')
+        await page.mouse.click(x, y)
+        await waitStatus(/^Note;.*Pitch: B4;.*Measure: 2;/)
+        expect(await page.locator('.page canvas.shadow-note').count()).toBe(1)
+        await page.keyboard.press('Escape')
+        await page.mouse.move(x, y + 5)
+        await page.waitForFunction(() => !document.querySelector('.page canvas.shadow-note'))
+        await context.close()
+    }, 180000)
+
     it('saves the edited score in the browser and asks before closing it with unsaved changes', async () => {
         const { page, context } = await newPage()
         await page.goto(base)

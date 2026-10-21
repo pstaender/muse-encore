@@ -16,7 +16,7 @@ import { Fraction } from '../types/fraction'
 import { P_TYPE, propertyValueEquals, type PropertyValue } from '../types/propertyvalue'
 import { SmuflAnchorId, SymId, type SymIdList } from '../types/symid'
 import {
-    AutoOnOff, DirectionH, DirectionV, ElementType, ParenthesesMode, PlacementV, VoiceAssignment, nidx, staff2track, track2staff, track2voice, VOICES,
+    AutoOnOff, DirectionH, DirectionV, ElementType, ParenthesesMode, PlacementV, VoiceAssignment, nidx, staff2track, track2staff, track2voice, trackZeroVoice, VOICES,
     type staff_idx_t, type track_idx_t, type voice_idx_t,
 } from '../types/types'
 import { Sid } from '../style/styledef'
@@ -747,6 +747,21 @@ export abstract class EngravingItem extends EngravingObject {
     appliesToAllVoicesInInstrument(): boolean {
         return this.hasVoiceAssignmentProperties()
                && (this.getProperty(Pid.VOICE_ASSIGNMENT) as VoiceAssignment) === VoiceAssignment.ALL_VOICE_IN_INSTRUMENT
+    }
+
+    /** C++ configuration()->dynamicsApplyToAllVoices() is true (the default) */
+    setInitialTrackAndVoiceAssignment(track: track_idx_t, curVoiceOnlyOverride: boolean): void {
+        if (track === nidx) {
+            return
+        }
+
+        if (!curVoiceOnlyOverride) {
+            this.setTrack(trackZeroVoice(track))
+            this.setProperty(Pid.VOICE_ASSIGNMENT, VoiceAssignment.ALL_VOICE_IN_INSTRUMENT)
+        } else {
+            this.setTrack(track)
+            this.setProperty(Pid.VOICE_ASSIGNMENT, VoiceAssignment.CURRENT_VOICE_ONLY)
+        }
     }
 
     setPlacementBasedOnVoiceAssignment(styledDirection: DirectionV): void {

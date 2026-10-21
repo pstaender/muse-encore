@@ -54,6 +54,7 @@ import type { EditData } from '../editing/editdata'
 import { EIDRegister } from '../infrastructure/eidregister'
 import type { Excerpt } from './excerpt'
 import { SynthesizerState } from './synthesizerstate'
+import { ShadowNote } from './shadownote'
 
 export enum LayoutMode {
     PAGE, FLOAT, LINE, SYSTEM, HORIZONTAL_FIXED,
@@ -184,6 +185,7 @@ export class Score extends EngravingObject {
     private m_selectionFilter = new SelectionFilter()
     private m_selectionChanged = false // C++ m_updateState.selectionChanged
     private m_is = new InputState()
+    private m_shadowNote: ShadowNote | null = null
     protected m_updatesLocked = false
     protected m_needSetUpTempoMap = false
 
@@ -386,6 +388,11 @@ export class Score extends EngravingObject {
 
     inputState(): InputState { return this.m_is }
     setInputState(st: InputState): void { this.m_is = st.clone() }
+    /** the shadow note of note input (C++ m_shadowNote, created in the constructor; here on first use) */
+    shadowNote(): ShadowNote {
+        this.m_shadowNote ??= new ShadowNote(this)
+        return this.m_shadowNote
+    }
     noteEntryMode(): boolean { return this.m_is.noteEntryMode() }
     usingNoteEntryMethod(m: NoteEntryMethod): boolean { return this.m_is.usingNoteEntryMethod(m) }
 
