@@ -7,8 +7,7 @@
  * Score::padToggle and Score::getPosition of score.cpp. The functions are added to Score by this module (module
  * augmentation), so it must be imported before they are used.
  *
- * TODO(port): repitchNote/repitchReplaceNote (re-pitch mode), insertChordByInsertingTime (insert mode), real-time
- * input, the message box when note input removes a measure repeat (the repeat is removed without asking),
+ * TODO(port): the message box when note input removes a measure repeat (the repeat is removed without asking),
  * excerpts (tracks mapping).
  */
 
@@ -216,8 +215,10 @@ Score.prototype.addPitch = function (this: Score, nval: NoteVal, addFlag: boolea
         duration = is.duration().fraction()
     }
     let note: Note | null = null
+    let lastTiedNote: Note | null = null
     if (is.usingNoteEntryMethod(NoteEntryMethod.REPITCH) && is.cr()?.isChord()) {
-        // TODO(port): repitchReplaceNote(chord, nval)
+        const chord = is.cr() as unknown as Chord
+        ;[note, lastTiedNote] = this.repitchReplaceNote(chord, nval) // the add (not replace) case was handled above
     } else if (!is.usingNoteEntryMethod(NoteEntryMethod.REPITCH)) {
         const seg = this.setNoteRest(is.segment()!, track, nval, duration, stemDirection, /* forceAccidental */ false,
             is.articulationIds(), /* rhythmic */ false, externalInputState)
@@ -253,7 +254,7 @@ Score.prototype.addPitch = function (this: Score, nval: NoteVal, addFlag: boolea
     }
     if (is.usingNoteEntryMethod(NoteEntryMethod.REPITCH)) {
         // move cursor to next note, but skip tied notes (they were already repitched above)
-        let next = is.cr() ? nextChordRest(is.cr()!) : null
+        let next = lastTiedNote ? nextChordRest(lastTiedNote.chord()) : (is.cr() ? nextChordRest(is.cr()!) : null)
         while (next && !next.isChord()) {
             next = nextChordRest(next)
         }
@@ -335,12 +336,10 @@ Score.prototype.putNote = function (this: Score, pos: PointF | Position, replace
         p.line -= stepOffset + 2 * stYOffset / lineDist
 
         if (score.inputState().usingNoteEntryMethod(NoteEntryMethod.REPITCH) && !isTablature) {
-            // TODO(port): repitchNote(p, replace)
-            return false
+            return score.repitchNote(p, replace)
         } else {
             if (insert || score.inputState().usingNoteEntryMethod(NoteEntryMethod.TIMEWISE)) {
-                // TODO(port): insertChordByInsertingTime(p)
-                return false
+                return score.insertChordByInsertingTime(p)
             } else {
                 return score.putNote(p, replace)
             }
@@ -1036,3 +1035,325 @@ Score.prototype.padToggle = function (this: Score, p: Pad, toggleForSelectionOnl
     }
 }
 
+
+// =====================================================================================================================
+//   re-pitch and insert note input (noteentry.cpp: repitchNote, repitchReplaceNote, insertChordByInsertingTime)
+// =====================================================================================================================
+
+// (imports of this section; ES imports are hoisted)
+import { AccidentalRole, ElementType } from '../types/types'
+import { MScore as NoteEntryMScore, MsError as NoteEntryMsError } from './mscore'
+import { Factory as NoteEntryFactory } from './factory'
+import { tpc2alter as noteEntryTpc2alter } from './pitchspelling'
+import { ChangeMeasureLen, InsertTime } from '../editing/editmeasures'
+import { Pid as NoteEntryPid } from './property'
+import type { Tie } from './tie'
+import type { ChordLine } from './chordline'
+
+declare module './score' {
+    interface Score {
+        /** false: C++ returns an error */
+        repitchNote(p: Position, replace: boolean): boolean
+        /** returns [note, lastTiedNote] */
+        repitchReplaceNote(chord: Chord, nval: NoteVal, forceAccidental?: boolean): [Note, Note]
+        /** insert by increasing measure length; false: C++ returns an error */
+        insertChordByInsertingTime(pos: Position): boolean
+    }
+}
+
+Score.prototype.repitchNote = function (this: Score, p: Position, replace: boolean): boolean {
+    const is = this.inputState()
+    const s = p.segment!
+    const tick = s.tick()
+    const st = this.staff(p.staffIdx)!
+    const clef = st.clef(tick)
+
+    const nval = new NoteVal()
+    const at = is.accidentalType()
+    if (is.drumset() && is.drumNote() !== -1) {
+        nval.pitch = is.drumNote()
+    } else {
+        let acci: number
+        if (at === AccidentalType.NONE) {
+            const [a, error] = s.measure().findAccidentalAtLine(s, p.staffIdx, p.line)
+            if (error) {
+                return false
+            }
+            acci = a
+        } else {
+            acci = Accidental.subtype2value(at)
+        }
+
+        const step = absStepFromLine(p.line, clef)
+        const octave = Math.trunc(step / 7)
+        nval.pitch = step2pitch(step) + octave * 12 + acci
+
+        if (this.style().styleB(Sid.concertPitch)) {
+            nval.tpc1 = step2tpc(step % 7, acci)
+        } else {
+            nval.pitch += st.part().instrument(s.tick()).transpose().chromatic
+            nval.tpc2 = step2tpc(step % 7, acci)
+        }
+    }
+
+    if (!is.segment()) {
+        return false
+    }
+
+    let chord: Chord
+    let cr: ChordRest | null = is.cr()
+    if (!cr) {
+        cr = is.segment()!.nextChordRest(is.track())
+        if (!cr) {
+            return false
+        }
+    }
+    if (cr.isRest()) { //skip rests
+        let next = nextChordRest(cr)
+        while (next && !next.isChord()) {
+            next = nextChordRest(next)
+        }
+        if (next) {
+            is.moveInputPos(next.segment() as unknown as EngravingItem)
+        }
+        return true
+    } else {
+        chord = cr as unknown as Chord
+    }
+
+    let forceAccidental = false
+    if (is.accidentalType() !== AccidentalType.NONE) {
+        const nval2 = this.noteValForPosition(p, AccidentalType.NONE)
+        forceAccidental = !!nval2 && nval.pitch === nval2.pitch
+    }
+
+    // Note: not sure this is ever called with replace == false, since add (not replace) case is handled already in cmdAddPitch
+    if (!replace) {
+        return !!this.addPitchToChord(nval, chord, /* externalInputState */ null, forceAccidental)
+    }
+
+    const [, lastTiedNote] = this.repitchReplaceNote(chord, nval, forceAccidental)
+    // TODO(port): setPlayChord(true)
+
+    // move to next Chord
+    let next = nextChordRest(lastTiedNote.chord())
+    while (next && !next.isChord()) {
+        next = nextChordRest(next)
+    }
+    if (next) {
+        is.moveInputPos(next.segment() as unknown as EngravingItem)
+    }
+
+    return true
+}
+
+Score.prototype.repitchReplaceNote = function (this: Score, chord: Chord, nval: NoteVal, forceAccidental = false): [Note, Note] {
+    const note = NoteEntryFactory.createItem(ElementType.NOTE, chord) as unknown as Note
+    note.setParent(chord)
+    note.setTrack(chord.track())
+    note.setNval(nval)
+
+    let firstTiedNote: Note | null = null
+    let lastTiedNote: Note = note
+    const notes: Note[] = [...chord.notes()]
+    // break all ties into current chord
+    // these will exist only if user explicitly moved cursor to a tied-into note
+    // in ordinary use, cursor will automatically skip past these during note entry
+    for (const n of notes) {
+        if (n.tieBack()) {
+            this.undoRemoveElement(n.tieBack()!)
+        }
+    }
+    // Keep first chordline only
+    const chordLine = chord.chordLine() ? chord.chordLine()!.clone() as unknown as ChordLine : null
+    for (const e of [...chord.el()]) {
+        if (e.isChordLine()) {
+            this.undoRemoveElement(e)
+        }
+    }
+    // for the first note of the chord only, preserve ties by changing pitch of all forward notes
+    // the tie forward itself will be added later
+    // multi-note chords get reduced to single note chords anyhow since we remove the old notes below
+    if (notes[0].tieFor()) {
+        let tn: Note | null = notes[0].tieFor()!.endNote()
+        while (tn) {
+            const tc = tn.chord()
+            if (tc.notes().length !== 1) {
+                const notesToRemove = tc.notes().filter(n => n !== tn)
+                for (const n of notesToRemove) {
+                    this.undoRemoveElement(n)
+                }
+            }
+            if (!firstTiedNote) {
+                firstTiedNote = tn
+            }
+            lastTiedNote = tn
+            this.undoChangePitch(tn, note.pitch(), note.tpc1(), note.tpc2())
+            if (tn.tieFor()) {
+                tn = tn.tieFor()!.endNote()
+            } else {
+                break
+            }
+        }
+    }
+    // remove all notes from chord
+    // the new note will be added below
+    while (chord.notes().length) {
+        this.undoRemoveElement(chord.notes()[0])
+    }
+
+    // add new note to chord
+    this.undoAddElement(note)
+
+    if (chordLine) {
+        chordLine.setNote(note)
+        this.undoAddElement(chordLine)
+    }
+
+    if (forceAccidental) {
+        const tpc = this.style().styleB(Sid.concertPitch) ? nval.tpc1 : nval.tpc2
+        const alter = noteEntryTpc2alter(tpc)
+        const at = Accidental.value2subtype(alter)
+        const a = NoteEntryFactory.createItem(ElementType.ACCIDENTAL, note) as unknown as Accidental
+        a.setAccidentalType(at)
+        a.setRole(AccidentalRole.USER)
+        a.setParent(note)
+        this.undoAddElement(a)
+    }
+    // TODO(port): setPlayNote(true)
+    // recreate tie forward if there is a note to tie to
+    // one-sided ties will not be recreated
+    if (firstTiedNote) {
+        const tie = NoteEntryFactory.createItem(ElementType.TIE, note) as unknown as Tie
+        tie.setStartNote(note)
+        tie.setEndNote(firstTiedNote)
+        tie.setTick(tie.startNote()!.tick())
+        tie.setTick2(tie.endNote()!.tick())
+        tie.setTrack(note.track())
+        this.undoAddElement(tie)
+    }
+    this.select(lastTiedNote)
+
+    return [note, lastTiedNote]
+}
+
+Score.prototype.insertChordByInsertingTime = function (this: Score, pos: Position): boolean {
+    // insert by increasing measure length
+    //
+    // TODO:
+    //    - check voices
+    //    - split chord/rest
+
+    const el = this.selection().element()
+    if (!el || !(el.isNote() || el.isRest())) {
+        return false
+    }
+
+    const seg = pos.segment!
+    if (seg.splitsTuplet()) {
+        NoteEntryMScore.setError(NoteEntryMsError.CANNOT_INSERT_TUPLET)
+        return false
+    }
+
+    // remove all two-note tremolos that end on this tick
+    for (const e of seg.elist()) {
+        if (!e || !e.isChord()) {
+            continue
+        }
+        const c = e as unknown as Chord
+        const t = c.tremoloTwoChord()
+        if (t && t.chord2() === c) {
+            // we have to remove this tremolo because we are adding time in the middle of it
+            // (if c is chord1 then we're inserting before the trem so it's fine)
+            this.undoRemoveElement(t)
+        }
+    }
+
+    const duration = this.inputState().duration()
+    const fraction = duration.fraction()
+    const len = fraction
+    const tick = seg.tick()
+    const measure = seg.measure().isMMRest() ? seg.measure().mmRestFirst()! : seg.measure()
+    const targetMeasureLen = measure.ticks().plus(fraction)
+
+    // Shift spanners, enlarge the measure.
+    // The approach is similar to that in Measure::adjustToLen() but does
+    // insert time to the middle of the measure rather than to the end.
+    this.undoInsertTime(tick, len)
+
+    for (const score of [this as Score]) { // TODO(port): scoreList() (excerpts)
+        score.undo(new InsertTime(score, tick, len))
+        const m = score.tick2measure(tick)!
+        this.undo(new ChangeMeasureLen(m, targetMeasureLen))
+        const scoreSeg = m.tick2segment(tick)
+        for (let s = scoreSeg; s; s = s.next()) {
+            s.undoChangeProperty(NoteEntryPid.TICK, s.rtick().plus(len))
+        }
+    }
+
+    // Fill the inserted time with rests.
+    // This is better to be done in master score to cover all staves.
+    const ms = this.masterScore()
+    const msMeasure = ms.tick2measure(tick)!
+    const msTracks = ms.ntracks()
+
+    const firstSeg = msMeasure.first(SegmentType.ChordRest)!
+    for (let track = 0; track < msTracks; ++track) {
+        const maybeRest = firstSeg.element(track)
+        let measureIsFull = false
+
+        // I. Convert any measure rests into normal (non-measure) rest(s) of equivalent duration
+        if (maybeRest && maybeRest.isRest() && (maybeRest as unknown as Rest).durationType().isMeasure()) {
+            ms.undoRemoveElement(maybeRest)
+            const measureRest = maybeRest as unknown as Rest
+            // If measure rest is situated at measure start we will fill
+            // the whole measure with rests.
+            measureIsFull = measureRest.rtick().isZero()
+            const fillLen = measureIsFull ? targetMeasureLen : measureRest.ticks()
+            ms.setRest(measureRest.tick(), track, fillLen, /* useDots */ false, /* tuplet */ null, /* useFullMeasureRest */ false)
+        }
+
+        // II. Make chord or rest in other track longer if it crosses the insert area
+        if (!measureIsFull) {
+            const cr = ms.findCR(tick, track)
+            if (cr && cr.tick().lt(tick) && cr.endTick().gt(tick)) {
+                if (cr.isRest()) {
+                    const fillLen = cr.ticks().plus(fraction)
+                    ms.undoRemoveElement(cr)
+                    ms.setRest(cr.tick(), track, fillLen, /* useDots */ false, /* tuplet */ null, /* useFullMeasureRest */ false)
+                } else if (cr.isChord()) {
+                    const chord = cr as unknown as Chord
+                    const durations = toDurationList(chord.ticks().plus(fraction), /* useDots */ true)
+                    let p = chord.tick()
+                    ms.undoRemoveElement(chord)
+                    let prevChord: Chord | null = null
+                    for (const dur of durations) {
+                        const prototype = prevChord ?? chord
+                        const genTie = !!prevChord
+                        prevChord = ms.addChord(p, dur, prototype, genTie, /* tuplet */ null)
+                        p = p.plus(dur.fraction())
+                    }
+                    // TODO: reconnect ties if this chord was tied to other
+                }
+                measureIsFull = true
+            }
+        }
+
+        // III. insert rest(s) to fill the inserted space
+        if (!measureIsFull && msMeasure.hasVoice(track)) {
+            ms.setRest(tick, track, fraction, /* useDots */ false, /* tuplet */ null)
+        }
+    }
+
+    // Put the note itself.
+    const s = measure.undoGetSegment(SegmentType.ChordRest, tick)
+    const p = new Position()
+    p.segment = s
+    p.staffIdx = pos.staffIdx
+    p.line = pos.line
+    p.fret = pos.fret
+    p.pos = pos.pos.clone()
+    this.putNote(p, true)
+
+    return true
+}

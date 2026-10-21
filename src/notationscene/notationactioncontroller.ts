@@ -10,8 +10,7 @@
  * The C++ controller registers its handlers in the ActionsDispatcher; here dispatch(code) runs them.
  *
  * TODO(port): playback (seek and play), text/lyrics/grip editing and nudging, tablature (string selection, TAB pad
- * notes), tuplets, slurs, articulations, the other note input methods than by note name and by duration, copy/paste,
- * the dialogs.
+ * notes), copy/paste, the dialogs (tuplet-dialog, custom-tuplet), MIDI input (real-time input uses the note name keys).
  */
 
 import { DurationType, StaffGroup, VoiceAssignment, type voice_idx_t } from '../engraving/types/types'
@@ -26,11 +25,10 @@ import type { NotationNoteInput } from '../notation/internal/notationnoteinput'
 import type { Score } from '../engraving/dom/score'
 import type { EngravingItem } from '../engraving/dom/engravingitem'
 import type { ChordRest } from '../engraving/dom/chordrest'
-// (imports of the editing section)
-import { Fraction } from '../engraving/types/fraction'
-import { ElementType, TextStyleType } from '../engraving/types/types'
+// (imports of the editing section; Fraction and ElementType: see the note input section)
+import { TextStyleType } from '../engraving/types/types'
 import { PointF } from '../framework/draw/types/geometry'
-import { isVerticalBoxTextStyle } from '../notation/notationtypes'
+import { PastingType, isVerticalBoxTextStyle } from '../notation/notationtypes'
 
 interface ActionEntry {
     run: () => void
@@ -93,15 +91,70 @@ const ACCIDENTAL_ACTIONS: ReadonlyMap<string, AccidentalType> = new Map([
 /** NotationUiActions::actionVoice */
 const VOICE_ACTIONS: ReadonlyMap<string, voice_idx_t> = new Map([['voice-1', 0], ['voice-2', 1], ['voice-3', 2], ['voice-4', 3]])
 
-/** NoteInputBarModel NOTE_INPUT_METHOD_ACTIONS (the methods with a port of their note input) */
+/** NoteInputBarModel NOTE_INPUT_METHOD_ACTIONS */
 const NOTE_INPUT_METHOD_ACTIONS: ReadonlyMap<string, NoteEntryMethod> = new Map([
     ['note-input-by-note-name', NoteEntryMethod.BY_NOTE_NAME],
     ['note-input-by-duration', NoteEntryMethod.BY_DURATION],
+    ['note-input-rhythm', NoteEntryMethod.RHYTHM],
+    ['note-input-repitch', NoteEntryMethod.REPITCH],
+    ['note-input-realtime-auto', NoteEntryMethod.REALTIME_AUTO],
+    ['note-input-realtime-manual', NoteEntryMethod.REALTIME_MANUAL],
+    ['note-input-timewise', NoteEntryMethod.TIMEWISE],
 ])
 
 const NOTE_NAMES: readonly [string, NoteName][] = [
     ['c', NoteName.C], ['d', NoteName.D], ['e', NoteName.E], ['f', NoteName.F], ['g', NoteName.G], ['a', NoteName.A],
     ['b', NoteName.B],
+]
+
+// (constants and imports of the note input section)
+import { Fraction } from '../engraving/types/fraction'
+import { BeamMode, ElementType } from '../engraving/types/types'
+import { Sid } from '../engraving/style/styledef'
+import { TranslatableString } from '../framework/global/types/translatablestring'
+import { NoteType as GraceNoteType } from '../engraving/dom/chordrest'
+import { TupletBracketType, TupletNumberType } from '../engraving/dom/tuplet'
+import { HairpinType } from '../engraving/dom/hairpin'
+import { OttavaType } from '../engraving/dom/ottava'
+import { MAX_NOTES_INTERVAL, MIN_NOTES_INTERVAL, TupletOptions, isNotesIntervalValid } from '../notation/notationtypes'
+import { NotationMidiInput } from '../notation/internal/notationmidiinput'
+import { SymId } from '../engraving/types/symid'
+import { PlacementV } from '../engraving/types/types'
+import { flipArticulations, splitArticulations } from '../engraving/dom/articulation'
+import type { Chord } from '../engraving/dom/chord'
+import type { Note } from '../engraving/dom/note'
+
+/** NotationUiActions::actionArticulationSymbolId */
+const ARTICULATION_ACTIONS: ReadonlyMap<string, SymId> = new Map([
+    ['add-marcato', SymId.articMarcatoAbove],
+    ['add-sforzato', SymId.articAccentAbove],
+    ['add-tenuto', SymId.articTenutoAbove],
+    ['add-staccato', SymId.articStaccatoAbove],
+])
+
+const TUPLET_ACTIONS: readonly [string, number][] = [
+    ['duplet', 2], ['triplet', 3], ['quadruplet', 4], ['quintuplet', 5], ['sextuplet', 6], ['septuplet', 7], ['octuplet', 8],
+    ['nonuplet', 9],
+]
+
+const GRACE_NOTE_ACTIONS: readonly [string, GraceNoteType][] = [
+    ['acciaccatura', GraceNoteType.ACCIACCATURA],
+    ['appoggiatura', GraceNoteType.APPOGGIATURA],
+    ['grace4', GraceNoteType.GRACE4],
+    ['grace16', GraceNoteType.GRACE16],
+    ['grace32', GraceNoteType.GRACE32],
+    ['grace8after', GraceNoteType.GRACE8_AFTER],
+    ['grace16after', GraceNoteType.GRACE16_AFTER],
+    ['grace32after', GraceNoteType.GRACE32_AFTER],
+]
+
+const BEAM_ACTIONS: readonly [string, BeamMode][] = [
+    ['beam-auto', BeamMode.AUTO],
+    ['beam-none', BeamMode.NONE],
+    ['beam-break-left', BeamMode.BEGIN],
+    ['beam-break-inner-8th', BeamMode.BEGIN16],
+    ['beam-break-inner-16th', BeamMode.BEGIN32],
+    ['beam-join', BeamMode.MID],
 ]
 
 let s_actionCodes: string[] | null = null
@@ -189,6 +242,7 @@ export class NotationActionController {
         this.registerAction('add-braces', () => this.interaction().addBracketsToSelection(BracketsType.Braces))
 
         this.initEditingActions()
+        this.initNoteInputActions()
     }
 
     /** the action codes of the controller (independent of a score: the handlers are only registered) */
@@ -200,7 +254,8 @@ export class NotationActionController {
     /** the actions that have a checked state (the buttons of the note input toolbar, NoteInputBarModel) */
     static isCheckableAction(code: string): boolean {
         return code === 'note-input' || NOTE_INPUT_METHOD_ACTIONS.has(code) || DOT_ACTIONS.has(code) || DURATION_ACTIONS.has(code)
-            || ACCIDENTAL_ACTIONS.has(code) || VOICE_ACTIONS.has(code) || code === 'tie' || code === 'pad-rest'
+            || ACCIDENTAL_ACTIONS.has(code) || VOICE_ACTIONS.has(code) || code === 'tie' || code === 'pad-rest' || code === 'add-slur'
+            || ARTICULATION_ACTIONS.has(code) || code === 'lv'
     }
 
     interaction(): NotationInteraction { return this.m_interaction }
@@ -571,6 +626,11 @@ export class NotationActionController {
             return is.accidentalType() === accidentalType
         }
 
+        const articulation = ARTICULATION_ACTIONS.get(code)
+        if (articulation !== undefined) {
+            return this.resolveCurrentArticulations().has(articulation)
+        }
+
         const voice = VOICE_ACTIONS.get(code)
         if (voice !== undefined) {
             return this.resolveCurrentVoiceIndex() === voice
@@ -590,6 +650,10 @@ export class NotationActionController {
         }
         case 'pad-rest':
             return this.resolveRestSelected()
+        case 'add-slur':
+            return !!is.slur()
+        case 'lv':
+            return this.resolveLvChecked()
         default:
             return false
         }
@@ -906,13 +970,209 @@ export class NotationActionController {
 
         return false
     }
+
+    // =================================================================================================================
+    //   note input methods, tuplets, slurs, lines, grace notes, beams, intervals (section of the note input port)
+    // =================================================================================================================
+
+    private m_midiInput: NotationMidiInput | null = null
+
+    /** C++ currentNotationMidiInput() (the Notation owns it in C++) */
+    midiInput(): NotationMidiInput {
+        this.m_midiInput ??= new NotationMidiInput(() => this.score(), this.interaction(), this.interaction().undoStack())
+        return this.m_midiInput
+    }
+
+    private initNoteInputActions(): void {
+        this.registerAction('realtime-advance', () => this.realtimeAdvance(), () => this.isNoteInputMode())
+        this.registerAction('toggle-insert-mode', () => this.toggleNoteInputInsert(), () => !this.isEditingElement())
+
+        for (const [code, n] of TUPLET_ACTIONS) {
+            this.registerAction(code, () => this.putTupletCount(n), () => this.noteOrRestSelected())
+        }
+        // TODO(port): "custom-tuplet" (TupletOptions as action data) and "tuplet-dialog" (OtherTupletDialog)
+
+        this.registerAction('add-slur', () => this.addSlur())
+
+        this.registerAction('add-8va', () => this.interaction().addOttavaToSelection(OttavaType.OTTAVA_8VA))
+        this.registerAction('add-8vb', () => this.interaction().addOttavaToSelection(OttavaType.OTTAVA_8VB))
+        this.registerAction('add-hairpin', () => this.interaction().addHairpinsToSelection(HairpinType.CRESC_HAIRPIN),
+            () => this.noteOrRestSelected())
+        this.registerAction('add-hairpin-reverse', () => this.interaction().addHairpinsToSelection(HairpinType.DIM_HAIRPIN),
+            () => this.noteOrRestSelected())
+
+        for (const [code, type] of GRACE_NOTE_ACTIONS) {
+            this.registerAction(code, () => this.interaction().addGraceNotesToSelectedNotes(type))
+        }
+
+        for (const [code, mode] of BEAM_ACTIONS) {
+            this.registerAction(code, () => this.interaction().addBeamToSelectedChordRests(mode))
+        }
+
+        this.registerAction('full-measure-rest', () => this.interactionExecute(() => this.score().cmdFullMeasureRest(),
+            new TranslatableString('undoableAction', 'Enter full-measure rest')))
+        this.registerAction('set-visible', () => this.interactionExecute(() => this.score().cmdSetVisible(),
+            new TranslatableString('undoableAction', 'Make element(s) visible')))
+        this.registerAction('unset-visible', () => this.interactionExecute(() => this.score().cmdUnsetVisible(),
+            new TranslatableString('undoableAction', 'Make element(s) invisible')))
+
+        for (const [code, id] of ARTICULATION_ACTIONS) {
+            this.registerAction(code, () => this.toggleArticulation(id))
+        }
+        this.registerAction('add-up-bow', () => this.interaction().toggleArticulation(SymId.stringsUpBow))
+        this.registerAction('add-down-bow', () => this.interaction().toggleArticulation(SymId.stringsDownBow))
+        this.registerAction('lv', () => this.addLaissezVib())
+
+        for (let i = MIN_NOTES_INTERVAL; i <= MAX_NOTES_INTERVAL; ++i) {
+            if (isNotesIntervalValid(i)) {
+                this.registerAction(`interval${i}`, () => this.interaction().addIntervalToSelectedNotes(i))
+            }
+        }
+    }
+
+    /** C++ Interaction::execute(&Score::f, actionName) */
+    private interactionExecute(f: () => void, actionName: TranslatableString): void {
+        this.interaction().startEdit(actionName)
+        f()
+        this.interaction().apply()
+    }
+
+    private realtimeAdvance(): void {
+        this.midiInput().onRealtimeAdvance()
+    }
+
+    private toggleNoteInputInsert(): void {
+        if (!this.noteInput().usingNoteInputMethod(NoteEntryMethod.TIMEWISE)) {
+            this.toggleNoteInputMethod(NoteEntryMethod.TIMEWISE)
+        } else {
+            this.toggleNoteInputMethod(NoteEntryMethod.BY_NOTE_NAME)
+        }
+    }
+
+    /** C++ putTuplet(const TupletOptions&) */
+    putTuplet(options: TupletOptions): void {
+        const interaction = this.interaction()
+        const noteInput = this.noteInput()
+
+        if (!interaction.canAddTupletToSelectedChordRests()) {
+            // TODO(port): interactive()->error("Cannot create tuplet", "Note value is too short")
+            return
+        }
+
+        if (noteInput.isNoteInputMode()) {
+            noteInput.addTuplet(options)
+        } else {
+            interaction.addTupletToSelectedChordRests(options)
+        }
+    }
+
+    /** C++ putTuplet(int tupletCount) */
+    private putTupletCount(tupletCount: number): void {
+        const options = new TupletOptions()
+        options.ratio = new Fraction(tupletCount, 2)
+        options.autoBaseLen = true
+        // get the bracket type from score style settings
+        const style = this.score().style()
+        options.bracketType = style.styleI(Sid.tupletBracketType) as TupletBracketType
+        options.numberType = style.styleI(Sid.tupletNumberType) as TupletNumberType
+
+        this.putTuplet(options)
+    }
+
+    private addSlur(): void {
+        const noteInput = this.noteInput()
+        if (noteInput.isNoteInputMode() && noteInput.state().slur()) {
+            noteInput.resetSlur()
+        } else {
+            this.interaction().addSlurToSelection()
+        }
+    }
+
+    private toggleArticulation(articulationSymbolId: SymId): void {
+        const interaction = this.interaction()
+        const noteInput = this.noteInput()
+
+        if (this.score().selection().isNone()) {
+            if (!noteInput.isNoteInputMode() && !this.startNoteInputAllowed()) {
+                return
+            }
+
+            this.startNoteInput()
+        }
+
+        if (noteInput.isNoteInputMode() && noteInput.addAccidentalDotsArticulationsToNextNoteEntered) {
+            noteInput.setArticulation(articulationSymbolId)
+        } else {
+            interaction.toggleArticulationForSelection(articulationSymbolId)
+        }
+    }
+
+    private addLaissezVib(): void {
+        const noteInput = this.noteInput()
+        if (noteInput.isNoteInputMode()) {
+            noteInput.addLaissezVib()
+        } else {
+            this.interaction().addLaissezVibToSelection()
+        }
+    }
+
+    /** NoteInputBarModel::resolveCurrentArticulations */
+    private resolveCurrentArticulations(): Set<SymId> {
+        if (this.isNoteInputMode()) {
+            return splitArticulations(this.score().inputState().articulationIds())
+        }
+
+        const selection = this.score().selection()
+        if (selection.isNone()) {
+            return new Set()
+        }
+
+        const chordArticulations = (chord: Chord): Set<SymId> => {
+            return splitArticulations(flipArticulations(chord.articulationSymbolIds(), PlacementV.ABOVE))
+        }
+
+        let result = new Set<SymId>()
+        let isFirstNote = true
+        for (const element of selection.elements()) {
+            if (!element.isNote()) {
+                continue
+            }
+
+            const note = element as unknown as Note
+            if (isFirstNote) {
+                result = chordArticulations(note.chord())
+                isFirstNote = false
+            } else {
+                const currentNoteArticulations = chordArticulations(note.chord())
+                result = new Set([...result].filter(id => currentNoteArticulations.has(id)))
+            }
+        }
+
+        return result
+    }
+
+    /** NoteInputBarModel::updateLvState: the selected notes with a tie are laissez vibrer */
+    private resolveLvChecked(): boolean {
+        const tiedNotes = this.score().selection().noteList().filter(n => n.tieFor())
+        return tiedNotes.length > 0 && tiedNotes.every(n => n.laissezVib())
+    }
+
+    private noteOrRestSelected(): boolean {
+        if (this.isNoteInputMode()) {
+            return true
+        }
+
+        return this.score().selection().elements().some(e => e.type() === ElementType.NOTE || e.type() === ElementType.REST)
+    }
+
+    // =================================================================================================================
+    //   (end of the note input section)
+    // =================================================================================================================
 }
 
-enum PastingType {
-    Default,
-    Half,
-    Double,
-    Special,
+/** NoteInputBarModel::elementToChordRest */
+function elementToChordRest(element: EngravingItem | null): ChordRest | null {
+    return InputState.chordRest(element)
 }
 
 enum TextNavigationType {
@@ -922,10 +1182,3 @@ enum TextNavigationType {
 }
 
 const NEAR_NOTE_OR_REST = true
-
-
-/** NoteInputBarModel::elementToChordRest */
-function elementToChordRest(element: EngravingItem | null): ChordRest | null {
-    return InputState.chordRest(element)
-}
-

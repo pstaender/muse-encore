@@ -686,6 +686,59 @@
   notifications (partsChanged etc.), the instruments dialog listing the existing instruments (it only adds), part
   scores are not laid out after a change, rebuildMidiMapping/markInstrumentsAsPrimary (playback).
 
+## 2026-10-21 — Note input methods, tuplets, slurs, lines, shadow note
+
+- Note input methods (all of NoteInputBarModel's NOTE_INPUT_METHOD_ACTIONS are registered: note-input-rhythm,
+  -repitch, -realtime-auto, -realtime-manual, -timewise; toggle-insert-mode Ctrl+I): noteentry.ts Score::repitchNote,
+  repitchReplaceNote (ties kept forward, chord lines, forced accidentals), insertChordByInsertingTime (insert/timewise:
+  undoInsertTime + InsertTime + ChangeMeasureLen + segment ticks, rests filled in all tracks, crossing chords split
+  with ties); wired into addPitch/putNote/cmdAddPitch ("insert-c".. Ctrl+Shift+C.., mouse Ctrl+click). Rhythm-only
+  input already worked through padToggle. ChangeMeasureLen and InsertTime (editmeasures.ts) are undo commands now
+  (callers that are not undoable yet still call redo() directly).
+- Real-time input: notation/internal/notationmidiinput.ts (NotationMidiInput::onRealtimeAdvance, the automatic mode's
+  timer with the 750 ms default delay, doRealtimeAdvance without the 100 ms metronome delay) and cmd.ts
+  Score::realtimeAdvance; "realtime-advance" (Enter). There is no MIDI input: notes are entered with the note name keys,
+  which (like in MuseScore, putNote) move the cursor; activeMidiPitches is always empty (rests at the new position).
+  API onNotationChanged(score, listener) for the timer's changes; the editor redraws on it.
+- Tuplets: edit.ts Score::addTuplet, cmdCreateTuplet; NotationInteraction canAddTupletToSelectedChordRests /
+  addTupletToSelectedChordRests (TupletOptions in notationtypes.ts with Tuplet::computeTupletDenominator), NotationNoteInput
+  ::addTuplet (note input: changeCRlen to the input duration, then the tuplet); actions duplet..nonuplet (Ctrl+2..9)
+  with the style's bracket/number types. Not ported: custom-tuplet (action data), tuplet-dialog (OtherTupletDialog),
+  the "Cannot create tuplet" message box.
+- Slurs: Score::addSlur (follows tied chains), ChordRest::slur (module augmentation in edit.ts),
+  NotationInteraction::addSlurToSelection/doAddSlur (range: per track, single note: to the next chord, list: first to
+  last) also for palette slurs; in note input S starts a slur at the last note, addPitch extends it, S ends it
+  (resetSlur); "add-slur" is checked while one is open. Not ported: partial slurs over repeat bar lines
+  (incoming/outgoing), hammer-on/pull-off templates, startEditGrip after adding (the segment is only selected).
+- Lines: Score::addHairpins / addHairpin(type, cr1, cr2) (= addHairpinOfType) / addHairpin(type, ticks, track)
+  (= addHairpinAtTicks), cmdAddOttava; EngravingItem::setInitialTrackAndVoiceAssignment (dynamicsApplyToAllVoices
+  default); actions add-hairpin (Shift+,), add-hairpin-reverse (Shift+.), add-8va, add-8vb.
+- More actions: grace notes (Score::setGraceNote/cmdAddGrace, Chord::setShowStemSlashInAdvance/requestShowStemSlash;
+  acciaccatura, appoggiatura, grace4/16/32, grace8/16/32after), beams (cmdSetBeamMode: beam-auto/none/break-left/
+  break-inner-8th/16th/join), intervals (addIntervalToSelectedNotes: interval2..10, interval-2..-10, Alt+digits),
+  full-measure-rest (cmdFullMeasureRest), set-visible/unset-visible, articulations (add-staccato/tenuto/sforzato/
+  marcato with Shift+S/N/V/O, add-up-bow/down-bow: Chord::updateArticulations is now complete incl. Remove mode and
+  splitting combined articulations, splitArticulations/flipArticulations/updateArticulations (= updateArticulationIds)
+  of articulation.cpp, NotationInteraction::toggleArticulationForSelection, NotationNoteInput::setArticulation),
+  lv (laissez vibrer). Checked states of the note input toolbar: add-slur, the four articulations, lv.
+- Shadow note: dom/shadownote.ts (ShadowNote), TLayout::layoutShadowNote, TDraw::draw(ShadowNote),
+  Score.shadowNote(), NotationInteraction::showShadowNoteForPosition/doShowShadowNote/hideShadowNote/shadowNoteRect
+  (color: EngravingConfiguration.highlightSelectionColor = QColor::lighter(135) of the voice color),
+  NotationViewInputController hoverMove/hoverLeave and the right click in note input mode (removeNote). API:
+  showShadowNote(score, page, x, y) -> bounds, hideShadowNote, drawShadowNote(score, page, ctx, {dpi, region}),
+  rightClickAt. Editor: the shadow note is drawn on a small overlay canvas over the page at the mouse position;
+  keyboard input hides it until the mouse moves (like MuseScore); a right click in note input removes the note.
+- Editor: the note input method button shows the method in use; the new actions use MuseScore's shortcuts from the
+  generated table (Ctrl+2..9, S, Shift+,/., Ctrl+Shift+I, Ctrl+I, Enter, Shift+S/N/V/O, Alt+1..9, ...).
+- Checked against MuseScore: a score built with these commands (triplet, quintuplet, slurs, hairpins, 8va, grace
+  note, interval, beams) saved with saveMscz and re-saved by mscore differs only in the order of two spanners starting
+  at the same tick; its rendering matches MuseScore's at 1.6 % (stem positions of very high chords).
+- Tests: test/noteinputmethods.test.ts (each feature with undo/redo restoring the SVG hash of all pages), e2e
+  "enters a triplet and a slur by keyboard, re-pitches notes and enters notes with the mouse".
+- Missing: regroupNotesAndRests (realtimeAdvance across bar lines), MIDI input, metronome, tuplet dialog,
+  custom-tuplet, add-noteline, chord symbols/text (other agent), the shadow note popup (percussion), TAB shadow notes
+  and string selection, the error message boxes (checkAndShowError), playback of entered notes.
+
 ## 2026-10-21 — Copy/paste, text and lyrics editing, dragging
 
 - Copy/paste: Selection::mimeType/mimeData/staffMimeData/symbolListMimeData/canCopy (dom/select.ts), EngravingItem

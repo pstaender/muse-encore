@@ -3,7 +3,8 @@
  * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
- * Port of parts of src/engraving/editing/editmeasures.h/.cpp. There is no undo stack: the commands only have redo().
+ * Port of parts of src/engraving/editing/editmeasures.h/.cpp (and InsertTime of inserttime.cpp). InsertMeasures only has
+ * redo(); ChangeMeasureLen and InsertTime are undo commands.
  * TODO(port): removeMeasures (undo), the other measure commands
  */
 
@@ -18,6 +19,8 @@ import type { KeySig } from '../dom/keysig'
 import type { Measure } from '../dom/measure'
 import type { MeasureBase } from '../dom/measurebase'
 import type { MasterScore } from '../dom/masterscore'
+import { CommandType, UndoCommand } from './undo'
+import type { EditData } from './editdata'
 
 export class InsertRemoveMeasures {
     constructor(protected fm: MeasureBase, protected lm: MeasureBase, protected moveStc = true) {}
@@ -141,11 +144,16 @@ export class InsertMeasures extends InsertRemoveMeasures {
     // TODO(port): undo() { removeMeasures() }
 }
 
-export class ChangeMeasureLen {
-    constructor(private measure: Measure, private len: Fraction) {}
+export class ChangeMeasureLen extends UndoCommand {
+    constructor(private measure: Measure, private len: Fraction) { super() }
 
-    /** C++ flip() */
-    redo(): void {
+    override type(): CommandType { return CommandType.ChangeMeasureLen }
+    override name(): string { return 'ChangeMeasureLen' }
+
+    /** also called directly (without the undo stack) by the callers that are not undoable yet */
+    override redo(ed: EditData | null = null): void { super.redo(ed) }
+
+    protected override flip(_ed: EditData | null): void {
         const oLen = this.measure.ticks()
 
         //
@@ -167,9 +175,13 @@ export class ChangeMeasureLen {
     }
 }
 
-export class InsertTime {
-    constructor(private score: import('../dom/score').Score, private tick: Fraction, private len: Fraction) {}
+export class InsertTime extends UndoCommand {
+    constructor(private score: import('../dom/score').Score, private tick: Fraction, private len: Fraction) { super() }
 
-    redo(): void { this.score.insertTime(this.tick, this.len) }
+    override type(): CommandType { return CommandType.InsertTime }
+    override name(): string { return 'InsertTime' }
+
+    override redo(_ed: EditData | null = null): void { this.score.insertTime(this.tick, this.len) }
+    override undo(_ed: EditData | null = null): void { this.score.insertTime(this.tick, this.len.neg()) }
 }
 

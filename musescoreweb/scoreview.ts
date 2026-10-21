@@ -9,13 +9,14 @@
 import { useSyncExternalStore } from 'react'
 import {
     clearSelection, drawPage, drawPageSvg, hasSelection, initEngravingFonts, isModified, isTwoSided, moveSelection,
-    noteInputCursorBounds, noteInputState, pageCount, pageSize, scoreTitle, selectAll, selectionBounds, selectionInfo,
+    noteInputCursorBounds, noteInputState, onNotationChanged, pageCount, pageSize, scoreTitle, selectAll, selectionBounds, selectionInfo,
     SvgGlyphDefs, type MasterScore,
     // copy/paste, text editing, drag
     CLIPBOARD_FORMATS, clipboardContents, executeAction, isActionEnabled, isDragging, setClipboardContents, textEditingInfo,
     viewInputText, viewKeyPress, viewMouseDoubleClick, viewMouseMove, viewMousePress, viewMouseRelease, viewResetTripleClick,
     viewShortcutOverride, type ViewKeyEvent, type ViewPointerEvent,
 } from '../src/index'
+import { drawShadowNote, hideShadowNote, rightClickAt, showShadowNote } from '../src/index'
 import { setShortcutOverride } from './actions/actions'
 import { settings as appSettings, updateSettings, type ViewSettings } from './settings'
 
@@ -123,6 +124,8 @@ let zoom = 100 // current zoom in percent
 let pages: HTMLDivElement[] = []
 const visible = new Set<HTMLDivElement>()
 let renderTimer = 0
+let unsubscribeNotation: (() => void) | null = null
+let externalChangeTimer = 0
 
 function fitMode(): FitMode | null {
     return (FIT_MODES as readonly string[]).includes(settings.zoom) ? settings.zoom as FitMode : null
@@ -181,7 +184,13 @@ fontsReady.then(() => setStatus('Ready'), (e: Error) => setStatus(`Error: ${e.me
 
 /** shows a laid out score; `name` is the file name (or the title of a new score) */
 export function showScore(s: MasterScore, name: string): void {
+    unsubscribeNotation?.()
     score = s
+    // changes made by a timer (real-time note input) are shown like the changes of commands
+    unsubscribeNotation = onNotationChanged(s, () => {
+        clearTimeout(externalChangeTimer)
+        externalChangeTimer = window.setTimeout(() => scoreChanged(), 0)
+    })
     publish({ selection: '', modified: isModified(s), noteInput: noteInputState(s).active, selectionVersion: viewState.selectionVersion + 1, scoreVersion: viewState.scoreVersion + 1 })
     fileName = name
     printPagesDiv.replaceChildren()
@@ -189,6 +198,9 @@ export function showScore(s: MasterScore, name: string): void {
 }
 
 export function clearScore(): void {
+    unsubscribeNotation?.()
+    unsubscribeNotation = null
+    removeShadowNote()
     score = null
     publish({ selection: '', modified: false, noteInput: false, selectionVersion: viewState.selectionVersion + 1, scoreVersion: viewState.scoreVersion + 1 })
     fileName = ''
@@ -302,8 +314,15 @@ function buildPages(keepPosition = false): void {
  * into view.
  */
 export function scoreChanged(scroll = true): void {
+    clearTimeout(externalChangeTimer)
     if (!score) {
         return
+    }
+    // a click keeps the shadow note at the mouse position, keyboard input hides it until the mouse moves (like MuseScore)
+    if (score.shadowNote().visible()) {
+        updateShadowNote()
+    } else {
+        removeShadowNote()
     }
     if (pageCount(score) !== pages.length) {
         buildPages(true)
@@ -861,6 +880,9 @@ viewport.addEventListener('pointerdown', (e) => {
     if (!score || spaceDown || (e.button !== 0 && e.button !== 2)) {
         return
     }
+    if (e.button === 2 && noteInputState(score).active) {
+        return // the right click removes a note (contextmenu)
+    }
     const ev = pointerEvent(e)
     if (!ev) {
         return
@@ -922,9 +944,9 @@ viewport.addEventListener('dblclick', (e) => {
     afterViewInput(true)
 })
 
-// the context menu is not ported: a right click only selects
+// the context menu is not ported: a right click only selects (in note input mode it removes a note, see below)
 viewport.addEventListener('contextmenu', (e) => {
-    if (score) {
+    if (score && !noteInputState(score).active) {
         e.preventDefault()
     }
 })
@@ -1102,6 +1124,97 @@ document.addEventListener('paste', (e) => {
         }
     }
     if (executeAction(score!, 'action://notation/paste')) {
+        scoreChanged()
+    }
+})
+
+// ---------------------------------------------------------------------------------
+//   note input: the shadow note at the mouse position, right click removes a note
+//   (MuseScore's NotationViewInputController::hoverMoveEvent / handleClickInNoteInputMode)
+// ---------------------------------------------------------------------------------
+
+const shadowCanvas = document.createElement('canvas')
+shadowCanvas.className = 'shadow-note'
+shadowCanvas.setAttribute('aria-hidden', 'true')
+let hover: { el: HTMLDivElement; x: number; y: number } | null = null
+let hoverFrame = 0
+
+function removeShadowNote(): void {
+    shadowCanvas.remove()
+}
+
+/** shows the shadow note at the last mouse position (in note input mode) */
+function updateShadowNote(): void {
+    if (!score || !hover || !hover.el.isConnected || !noteInputState(score).active) {
+        if (score && shadowCanvas.isConnected) {
+            hideShadowNote(score)
+        }
+        removeShadowNote()
+        return
+    }
+    const el = hover.el
+    const idx = Number(el.dataset.page)
+    const r = el.getBoundingClientRect()
+    const cssDpi = r.width / pageSize(score, idx).width
+    const b = showShadowNote(score, idx, (hover.x - r.left) / cssDpi, (hover.y - r.top) / cssDpi)
+    if (!b) {
+        removeShadowNote()
+        return
+    }
+    const dpr = window.devicePixelRatio
+    const dpi = cssDpi * dpr
+    const x = Math.floor(b.x * dpi) - 2
+    const y = Math.floor(b.y * dpi) - 2
+    const region = { x, y, width: Math.ceil((b.x + b.width) * dpi) + 2 - x, height: Math.ceil((b.y + b.height) * dpi) + 2 - y }
+    shadowCanvas.width = Math.max(1, region.width)
+    shadowCanvas.height = Math.max(1, region.height)
+    Object.assign(shadowCanvas.style, {
+        left: `${x / dpr}px`, top: `${y / dpr}px`, width: `${region.width / dpr}px`, height: `${region.height / dpr}px`,
+    })
+    const ctx = shadowCanvas.getContext('2d')!
+    ctx.clearRect(0, 0, shadowCanvas.width, shadowCanvas.height)
+    drawShadowNote(score, idx, ctx, { dpi, region })
+    if (shadowCanvas.parentElement !== el) {
+        el.appendChild(shadowCanvas)
+    }
+}
+
+viewport.addEventListener('pointermove', (e) => {
+    if (!score || e.pointerType === 'touch' || !noteInputState(score).active) {
+        if (shadowCanvas.isConnected) {
+            hover = null
+            updateShadowNote()
+        }
+        return
+    }
+    const el = (e.target as Element).closest<HTMLDivElement>('.page:not(.placeholder)')
+    hover = el ? { el, x: e.clientX, y: e.clientY } : null
+    if (!hoverFrame) {
+        hoverFrame = requestAnimationFrame(() => {
+            hoverFrame = 0
+            updateShadowNote()
+        })
+    }
+})
+
+viewport.addEventListener('pointerleave', () => {
+    hover = null
+    updateShadowNote()
+})
+
+viewport.addEventListener('contextmenu', (e) => {
+    if (!score || !noteInputState(score).active) {
+        return
+    }
+    e.preventDefault()
+    const el = (e.target as Element).closest<HTMLDivElement>('.page:not(.placeholder)')
+    if (!el) {
+        return
+    }
+    const idx = Number(el.dataset.page)
+    const r = el.getBoundingClientRect()
+    const cssDpi = r.width / pageSize(score, idx).width
+    if (rightClickAt(score, idx, (e.clientX - r.left) / cssDpi, (e.clientY - r.top) / cssDpi)) {
         scoreChanged()
     }
 })

@@ -11,7 +11,7 @@
 import type { PropertyValue } from '../types/propertyvalue'
 import { SymId } from '../types/symid'
 import { SymNames } from '../types/symnames'
-import { ArticulationTextType, DirectionV, ElementType, OrnamentStyle, type staff_idx_t } from '../types/types'
+import { ArticulationTextType, DirectionV, ElementType, OrnamentStyle, PlacementV, type staff_idx_t } from '../types/types'
 import { Sid } from '../style/styledef'
 import { EngravingItem, ElementFlag, LayoutData } from './engravingitem'
 import type { ElementStyle, EngravingObject } from './engravingobject'
@@ -469,4 +469,109 @@ export class Articulation extends EngravingItem {
     override accessibleInfo(): string {
         return `${this.translatedTypeUserName()}: ${this.translatedSubtypeUserName()}`
     }
+}
+
+// ---- articulation.cpp: splitting and flipping of articulation symbols (note input, toggling articulations) ----
+
+export enum ArticulationsUpdateMode {
+    Insert,
+    Remove,
+}
+
+const ARTICULATION_PLACEMENTS: readonly [SymId, SymId][] = [
+    [SymId.articStaccatissimoAbove, SymId.articStaccatissimoBelow],
+    [SymId.articStaccatissimoStrokeAbove, SymId.articStaccatissimoStrokeBelow],
+    [SymId.articStaccatissimoWedgeAbove, SymId.articStaccatissimoWedgeBelow],
+    [SymId.articStaccatoAbove, SymId.articStaccatoBelow],
+    [SymId.articAccentStaccatoAbove, SymId.articAccentStaccatoBelow],
+    [SymId.articMarcatoStaccatoAbove, SymId.articMarcatoStaccatoBelow],
+    [SymId.articTenutoStaccatoAbove, SymId.articTenutoStaccatoBelow],
+    [SymId.articTenutoAccentAbove, SymId.articTenutoAccentBelow],
+    [SymId.articMarcatoTenutoAbove, SymId.articMarcatoTenutoBelow],
+    [SymId.articTenutoAbove, SymId.articTenutoBelow],
+    [SymId.articMarcatoAbove, SymId.articMarcatoBelow],
+    [SymId.articAccentAbove, SymId.articAccentBelow],
+]
+
+/** ARTICULATION_ABOVE_SPLIT_GROUPS / ARTICULATION_BELOW_SPLIT_GROUP */
+const ARTICULATION_SPLIT_GROUPS: ReadonlyMap<SymId, readonly [SymId, SymId]> = new Map<SymId, readonly [SymId, SymId]>([
+    [SymId.articAccentStaccatoAbove, [SymId.articStaccatoAbove, SymId.articAccentAbove]],
+    [SymId.articTenutoAccentAbove, [SymId.articTenutoAbove, SymId.articAccentAbove]],
+    [SymId.articTenutoStaccatoAbove, [SymId.articTenutoAbove, SymId.articStaccatoAbove]],
+    [SymId.articMarcatoStaccatoAbove, [SymId.articStaccatoAbove, SymId.articMarcatoAbove]],
+    [SymId.articMarcatoTenutoAbove, [SymId.articTenutoAbove, SymId.articMarcatoAbove]],
+    [SymId.articAccentStaccatoBelow, [SymId.articStaccatoBelow, SymId.articAccentBelow]],
+    [SymId.articTenutoAccentBelow, [SymId.articTenutoBelow, SymId.articAccentBelow]],
+    [SymId.articTenutoStaccatoBelow, [SymId.articTenutoBelow, SymId.articStaccatoBelow]],
+    [SymId.articMarcatoStaccatoBelow, [SymId.articStaccatoBelow, SymId.articMarcatoBelow]],
+    [SymId.articMarcatoTenutoBelow, [SymId.articTenutoBelow, SymId.articMarcatoBelow]],
+])
+
+/** C++ splitArticulations(): the combined articulations as their single symbols */
+export function splitArticulations(articulationSymbolIds: Iterable<SymId>): Set<SymId> {
+    const result = new Set<SymId>()
+    for (const id of articulationSymbolIds) {
+        const group = ARTICULATION_SPLIT_GROUPS.get(id)
+        if (group) {
+            result.add(group[0])
+            result.add(group[1])
+        } else {
+            result.add(id)
+        }
+    }
+    return result
+}
+
+/** C++ flipArticulations() */
+export function flipArticulations(articulationSymbolIds: Iterable<SymId>, placement: PlacementV): Set<SymId> {
+    const result = new Set<SymId>()
+    for (const id of articulationSymbolIds) {
+        const pair = placement === PlacementV.ABOVE
+            ? ARTICULATION_PLACEMENTS.find(p => p[1] === id)?.[0]
+            : ARTICULATION_PLACEMENTS.find(p => p[0] === id)?.[1]
+        result.add(pair ?? id)
+    }
+    return result
+}
+
+/**
+ * C++ updateArticulations(const std::set<SymId>&, SymId, ArticulationsUpdateMode) (the free function of
+ * articulation.cpp): the articulations of the note input state after toggling one of them
+ */
+export function updateArticulationIds(articulationSymbolIds: Iterable<SymId>, articulationSymbolId: SymId,
+    updateMode: ArticulationsUpdateMode): Set<SymId> {
+    const splittedArticulations = splitArticulations(articulationSymbolIds)
+
+    const replaceOrToggle = (id: SymId, replaced: SymId | null): void => {
+        if (replaced !== null && splittedArticulations.has(replaced)) {
+            splittedArticulations.delete(replaced)
+            splittedArticulations.add(id)
+        } else if (splittedArticulations.has(id)) {
+            if (updateMode === ArticulationsUpdateMode.Remove) {
+                splittedArticulations.delete(id)
+            }
+        } else {
+            splittedArticulations.add(id)
+        }
+    }
+
+    switch (articulationSymbolId) {
+    case SymId.articMarcatoAbove:
+        replaceOrToggle(SymId.articMarcatoAbove, SymId.articAccentAbove)
+        break
+    case SymId.articAccentAbove:
+        replaceOrToggle(SymId.articAccentAbove, SymId.articMarcatoAbove)
+        break
+    case SymId.articTenutoAbove:
+        replaceOrToggle(SymId.articTenutoAbove, null)
+        break
+    case SymId.articStaccatoAbove:
+        replaceOrToggle(SymId.articStaccatoAbove, null)
+        break
+    default:
+        break
+    }
+    // we no longer want to join articulations when adding or removing individual ones. combined articulations can still
+    // be added by the palette (which doesn't perform any of this splitting)
+    return splittedArticulations
 }

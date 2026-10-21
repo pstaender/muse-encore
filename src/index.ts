@@ -1595,3 +1595,88 @@ function drawEditMode(score: MasterScore, page: EngravingItem, painter: Painter,
     }
     interaction.drawLasso(painter, scaling)
 }
+
+//   note input in the view: the shadow note at the mouse position, the right click, changes made by a timer
+//   (MuseScore's NotationViewInputController hover/right click, NotationInteraction::showShadowNoteForPosition)
+// ---------------------------------------------------------------------------------------------------------------------
+
+import { TDraw } from './engraving/rendering/score/tdraw'
+
+/** a rectangle on a page (inches from the page's top left) */
+export interface PageRect {
+    page: number
+    x: number
+    y: number
+    width: number
+    height: number
+}
+
+function pageRectOf(score: MasterScore, pageIdx: number, r: RectF): PageRect | null {
+    const page = score.pages()[pageIdx]
+    if (!page || !r.isValid()) {
+        return null
+    }
+    const pr = r.translated(page.pos().times(-1))
+    return { page: pageIdx, x: pr.x() / DPI, y: pr.y() / DPI, width: pr.width() / DPI, height: pr.height() / DPI }
+}
+
+/**
+ * In note input mode: shows the shadow note (the preview of the note a click would enter) at a point of a page
+ * (inches from the page's top left), like moving the mouse over MuseScore's notation view. Returns its bounds for
+ * repainting (drawShadowNote), null if it is not shown (not in note input mode or no input position there).
+ */
+export function showShadowNote(score: MasterScore, pageIdx: number, x: number, y: number): PageRect | null {
+    const pos = pagePointToCanvas(score, pageIdx, x, y)
+    const st = notationState(score)
+    if (!pos || !st.controller.hoverMove(pos)) {
+        if (score.shadowNote().visible()) {
+            st.controller.hoverLeave()
+        }
+        return null
+    }
+    return pageRectOf(score, pageIdx, st.interaction.shadowNoteRect())
+}
+
+/** hides the shadow note (the mouse left the view); returns true if it was shown */
+export function hideShadowNote(score: MasterScore): boolean {
+    const shown = score.shadowNote().visible() && score.shadowNote().isValid()
+    notationState(score).controller.hoverLeave()
+    return shown
+}
+
+/**
+ * Draws only the shadow note (if shown) onto a transparent canvas, with the same coordinates as drawPage (dpi,
+ * region): MuseScore's view paints it over the score.
+ */
+export function drawShadowNote(score: MasterScore, pageIdx: number, ctx: Canvas2D,
+    options: { dpi?: number; region?: { x: number; y: number; width: number; height: number } } = {}): void {
+    const page = score.pages()[pageIdx]
+    const note = score.shadowNote()
+    if (!page || !note.visible() || !note.isValid()) {
+        return
+    }
+    const dpi = options.dpi ?? 100
+    const scale = dpi / DPI
+    const r = options.region
+    const provider = new CanvasPaintProvider(ctx, new Transform(scale, 0, 0, scale, r ? -r.x : 0, r ? -r.y : 0))
+    const painter = new Painter(provider, fontProvider(), 'shadow_' + pageIdx)
+    painter.translate(page.pos().times(-1))
+    TDraw.drawItem(note, painter, { isPrinting: false }) // C++ score()->renderer()->drawItem(shadowNote)
+}
+
+/**
+ * A right click at a point of a page in note input mode removes the note there (MuseScore's "remove-note"); returns
+ * false outside of note input mode. The score is laid out again.
+ */
+export function rightClickAt(score: MasterScore, pageIdx: number, x: number, y: number): boolean {
+    const pos = pagePointToCanvas(score, pageIdx, x, y)
+    return !!pos && notationState(score).controller.rightClick(pos)
+}
+
+/**
+ * Calls the listener after changes that were not made by a call of this API: the real-time note input advances by
+ * a timer ("realtime-advance" in the automatic real-time mode). Returns a function that removes the listener.
+ */
+export function onNotationChanged(score: MasterScore, listener: () => void): () => void {
+    return notationState(score).interaction.notationChanged().onNotify(listener)
+}

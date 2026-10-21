@@ -334,6 +334,7 @@ main.hand.dragging { cursor: grabbing; user-select: none; }
 }
 
 .page canvas { position: absolute; display: block; }
+.page canvas.shadow-note { pointer-events: none; }
 
 .page.placeholder { visibility: hidden; }
 

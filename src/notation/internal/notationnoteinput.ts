@@ -6,7 +6,7 @@
  * Port of src/notation/internal/notationnoteinput.h/.cpp
  *
  * TODO(port): accessibility announcements, the view rectangle for the start position (setGetViewRectFunc is kept),
- * tuplets (addTuplet), slurs, the canvas orientation of cursorRect (the port's pages are always laid out like
+ * the canvas orientation of cursorRect (the port's pages are always laid out like
  * MuseScore's horizontal page view: the page position is added).
  */
 
@@ -27,7 +27,9 @@ import { noteValToLine, relStep } from '../../engraving/dom/utils'
 import '../../engraving/editing/cmd'
 import '../../engraving/editing/edit'
 import '../../engraving/dom/noteentry'
-import { NoteAddingMode } from '../notationtypes'
+import { NoteAddingMode, type TupletOptions } from '../notationtypes'
+import { Tuplet } from '../../engraving/dom/tuplet'
+import { ArticulationsUpdateMode, updateArticulationIds } from '../../engraving/dom/articulation'
 import { Notification, type NotationUndoStack } from './notationundostack'
 import type { EngravingItem } from '../../engraving/dom/engravingitem'
 import type { ChordRest } from '../../engraving/dom/chordrest'
@@ -638,15 +640,9 @@ export class NotationNoteInput {
         this.m_interaction.checkAndShowError()
     }
 
-    /** TODO(port): updateArticulations (ArticulationsUpdateMode::Remove) */
     setArticulation(articulationSymbolId: SymId): void {
         const inputState = this.score().inputState()
-        const articulations = new Set(inputState.articulationIds())
-        if (articulations.has(articulationSymbolId)) {
-            articulations.delete(articulationSymbolId)
-        } else {
-            articulations.add(articulationSymbolId)
-        }
+        const articulations = updateArticulationIds(inputState.articulationIds(), articulationSymbolId, ArticulationsUpdateMode.Remove)
         inputState.setArticulationIds(articulations)
 
         this.notifyAboutStateChanged()
@@ -775,6 +771,25 @@ export class NotationNoteInput {
         return new RectF(x, y, w, h).translated(system.page()!.pos())
     }
 
+    addTuplet(options: TupletOptions): void {
+        const inputState = this.score().inputState()
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add tuplet'))
+        this.score().expandVoice()
+        const chordRest = inputState.cr()
+        if (chordRest) {
+            let ratio = options.ratio
+            if (options.autoBaseLen) {
+                ratio = new Fraction(ratio.numerator(), Tuplet.computeTupletDenominator(ratio.numerator(), inputState.ticks()))
+            }
+            this.score().changeCRlen(chordRest, inputState.duration())
+            this.score().addTuplet(chordRest, ratio, options.numberType, options.bracketType)
+        }
+        this.apply()
+
+        this.notifyAboutStateChanged()
+    }
+
     addSlur(slur: Slur | null): void {
         const inputState = this.score().inputState()
         inputState.setSlur(slur)
@@ -804,6 +819,14 @@ export class NotationNoteInput {
     addTie(): void {
         // Calls `startEdit` internally
         this.score().cmdAddTie()
+
+        this.notifyAboutStateChanged()
+        this.m_interaction.checkAndShowError()
+    }
+
+    addLaissezVib(): void {
+        // Calls `startEdit` internally
+        this.score().cmdToggleLaissezVib()
 
         this.notifyAboutStateChanged()
         this.m_interaction.checkAndShowError()

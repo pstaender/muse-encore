@@ -44,7 +44,8 @@ src/
                         keys); dom/paste.ts (Score::cmdPaste, pasteStaff, ...), dom/select.ts mime data
   notation, project     MasterNotation / NotationParts / MasterNotationParts / NotationProject: creating new scores
                         (createScore), the part and staff commands of the Layout panel (editing/editpart.ts, editstaff.ts);
-                        NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input
+                        NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input;
+                        NotationMidiInput: the real-time advance (no MIDI)
   notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands)
   palette               palette tree/palettes/cells (palettecreator: default + master palettes), cell icons
                         (PaletteCellIconEngine, EngravingItemPreviewPainter); api.ts

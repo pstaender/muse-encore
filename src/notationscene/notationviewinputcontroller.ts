@@ -166,6 +166,37 @@ export class NotationViewInputController {
         this.viewInteraction().noteInput().putNote(logicPos, modifiers.shift, modifiers.ctrl)
     }
 
+    // ---- note input: the shadow note and the right click (section of the note input port) ----
+
+    /**
+     * a right click in note input mode at logicPos: C++ handleClickInNoteInputMode dispatches "remove-note"
+     * (NotationNoteInput::removeNote). Returns false outside of note input mode (the context menu, not ported).
+     */
+    rightClick(logicPos: PointF): boolean {
+        const noteInput = this.viewInteraction().noteInput()
+        if (!noteInput.isNoteInputMode()) {
+            return false
+        }
+        noteInput.removeNote(logicPos)
+        return true
+    }
+
+    /** C++ hoverMoveEvent: shows the shadow note at the mouse position in note input mode; returns true if it is shown */
+    hoverMove(logicPos: PointF): boolean {
+        const interaction = this.viewInteraction()
+        if (!interaction.noteInput().isNoteInputMode()) {
+            return false
+        }
+
+        // TODO(port): the shadow note popup (percussion), locking the x position while it is open
+        return interaction.showShadowNoteForPosition(logicPos)
+    }
+
+    /** C++ hoverLeaveEvent */
+    hoverLeave(): void {
+        this.viewInteraction().hideShadowNote()
+    }
+
     /**
      * the selection key actions of MuseScore's notation view without note input (shortcuts.xml); key like
      * KeyboardEvent.key. Returns true if the key is one of these actions.
