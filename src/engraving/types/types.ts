@@ -1067,6 +1067,23 @@ export enum CapoTransposeMode {
     TAB_ONLY      = 2,
 }
 
+/** C++ CapoParams (a value type: copy with clone()) */
+export class CapoParams {
+    ignoredStrings = new Set<number>()
+    fretPosition = 0
+    transposeMode = CapoTransposeMode.PLAYBACK_ONLY
+    active = false
+
+    clone(): CapoParams {
+        const p = new CapoParams()
+        p.ignoredStrings = new Set(this.ignoredStrings)
+        p.fretPosition = this.fretPosition
+        p.transposeMode = this.transposeMode
+        p.active = this.active
+        return p
+    }
+}
+
 
 
 

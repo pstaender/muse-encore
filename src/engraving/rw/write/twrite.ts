@@ -69,6 +69,11 @@ import type { Clef } from '../../dom/clef'
 import type { DurationElement } from '../../dom/durationelement'
 import type { Dynamic } from '../../dom/dynamic'
 import type { Expression } from '../../dom/expression'
+import type { PlayTechAnnotation } from '../../dom/playtechannotation'
+import { FBIDigitNone, FiguredBassContLine, FiguredBassModifier, type FiguredBass, type FiguredBassItem } from '../../dom/figuredbass'
+import type { Capo } from '../../dom/capo'
+import type { StringTunings } from '../../dom/stringtunings'
+import type { HarpPedalDiagram } from '../../dom/harppedaldiagram'
 import type { Fermata } from '../../dom/fermata'
 import type { Fingering } from '../../dom/fingering'
 import type { Glissando } from '../../dom/glissando'
@@ -221,6 +226,12 @@ export class TWrite {
         case ElementType.VIBRATO: TWrite.writeVibrato(item as Vibrato, xml, ctx); break
         case ElementType.VOLTA: TWrite.writeVolta(item as Volta, xml, ctx); break
         case ElementType.WHAMMY_BAR: TWrite.writeTextLineBaseItem(item as TextLineBase, xml, ctx); break
+        case ElementType.STICKING: TWrite.writeTextBaseItem(item as TextBase, xml, ctx); break // C++ write(Sticking*)
+        case ElementType.PLAYTECH_ANNOTATION: TWrite.writePlayTechAnnotation(item as PlayTechAnnotation, xml, ctx); break
+        case ElementType.CAPO: TWrite.writeCapo(item as Capo, xml, ctx); break
+        case ElementType.STRING_TUNINGS: TWrite.writeStringTunings(item as StringTunings, xml, ctx); break
+        case ElementType.HARP_DIAGRAM: TWrite.writeHarpPedalDiagram(item as HarpPedalDiagram, xml, ctx); break
+        case ElementType.FIGURED_BASS: TWrite.writeFiguredBass(item as FiguredBass, xml, ctx); break
         default:
             // TODO(port): element type not ported yet (C++: UNREACHABLE)
             break
@@ -1029,6 +1040,121 @@ export class TWrite {
         }
 
         TWrite.writeProperty(item, xml, Pid.TEXT_LINKED_TO_MASTER)
+    }
+
+    static writeFiguredBass(item: FiguredBass, xml: XmlWriter, ctx: WriteContext): void {
+        if (!ctx.canWrite(item)) {
+            return
+        }
+
+        xml.startElement(item)
+        if (!item.onNote()) {
+            xml.tag('onNote', item.onNote())
+        }
+        if (item.ticks().isNotZero()) {
+            xml.tagFraction('ticks', item.ticks())
+        }
+        // if unparseable items, write full text data
+        if (item.items().length < 1) {
+            TWrite.writeTextBaseProperties(item, xml, ctx, true)
+        } else {
+            for (const fBItem of item.items()) {
+                TWrite.writeFiguredBassItem(fBItem, xml, ctx)
+            }
+            for (const spp of item.styledProperties()) {
+                TWrite.writeProperty(item, xml, spp.pid)
+            }
+            TWrite.writeItemProperties(item, xml, ctx)
+        }
+        xml.endElement()
+    }
+
+    static writeFiguredBassItem(item: FiguredBassItem, xml: XmlWriter, _ctx: WriteContext): void {
+        xml.startElementFor('FiguredBassItem', item)
+        xml.tag('brackets', [
+            ['b0', item.parenth1()],
+            ['b1', item.parenth2()],
+            ['b2', item.parenth3()],
+            ['b3', item.parenth4()],
+            ['b4', item.parenth5()],
+        ])
+
+        if (item.prefix() !== FiguredBassModifier.NONE) {
+            xml.tag('prefix', item.prefix() as number)
+        }
+        if (item.digit() !== FBIDigitNone) {
+            xml.tag('digit', item.digit())
+        }
+        if (item.suffix() !== FiguredBassModifier.NONE) {
+            xml.tag('suffix', item.suffix() as number)
+        }
+        if (item.contLine() !== FiguredBassContLine.NONE) {
+            xml.tag('continuationLine', item.contLine() as number)
+        }
+        xml.endElement()
+    }
+
+    static writePlayTechAnnotation(item: PlayTechAnnotation, xml: XmlWriter, ctx: WriteContext): void {
+        xml.startElement(item)
+        TWrite.writeProperty(item, xml, Pid.PLAY_TECH_TYPE)
+        TWrite.writeProperty(item, xml, Pid.PLAY)
+        TWrite.writeTextBaseProperties(item, xml, ctx, true)
+        xml.endElement()
+    }
+
+    static writeCapo(item: Capo, xml: XmlWriter, ctx: WriteContext): void {
+        xml.startElement(item)
+        TWrite.writeProperty(item, xml, Pid.ACTIVE)
+        TWrite.writeProperty(item, xml, Pid.CAPO_FRET_POSITION)
+        TWrite.writeProperty(item, xml, Pid.CAPO_GENERATE_TEXT)
+        TWrite.writeProperty(item, xml, Pid.CAPO_TRANSPOSE_MODE)
+
+        const orderedStrings = [...item.params().ignoredStrings].sort((a, b) => a - b)
+
+        for (const idx of orderedStrings) {
+            xml.startElement('string', [['no', idx]])
+            xml.tag('apply', false)
+            xml.endElement()
+        }
+
+        // C++ writeProperties(static_cast<const StaffTextBase*>(item), xml, ctx, true) resolves to the TextBase overload
+        TWrite.writeTextBaseProperties(item, xml, ctx, true)
+        xml.endElement()
+    }
+
+    static writeHarpPedalDiagram(item: HarpPedalDiagram, xml: XmlWriter, ctx: WriteContext): void {
+        if (!ctx.canWrite(item)) {
+            return
+        }
+        xml.startElement(item)
+        TWrite.writeProperty(item, xml, Pid.HARP_IS_DIAGRAM)
+
+        // Write vector of harp strings.  Order is always D, C, B, E, F, G, A
+        xml.startElement('pedalState')
+        const state = item.getPedalState()
+        for (let idx = 0; idx < state.length; idx++) {
+            xml.tag('string', [['name', idx]], state[idx] as number)
+        }
+        xml.endElement()
+
+        TWrite.writeTextBaseProperties(item, xml, ctx, true)
+        xml.endElement()
+    }
+
+    static writeStringTunings(item: StringTunings, xml: XmlWriter, ctx: WriteContext): void {
+        xml.startElement(item)
+
+        TWrite.writeProperty(item, xml, Pid.STRINGTUNINGS_PRESET)
+
+        xml.tag('visibleStrings', TConv.toXmlIntVec(item.visibleStrings()))
+
+        if (!item.stringData().isNull()) {
+            TWrite.writeStringData(item.stringData(), xml)
+        }
+
+        // C++ writeProperties(static_cast<const StaffTextBase*>(item), xml, ctx, true) resolves to the TextBase overload
+        TWrite.writeTextBaseProperties(item, xml, ctx, true)
+        xml.endElement()
     }
 
     static writeFermata(item: Fermata, xml: XmlWriter, ctx: WriteContext): void {

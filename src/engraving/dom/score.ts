@@ -42,7 +42,7 @@ import { Interval } from './interval'
 import { Selection, SelectType, SelState } from './select'
 import { SelectionFilter } from './selectionfilter'
 import { PointF, type RectF } from '../../framework/draw/types/geometry'
-import { nidx } from '../types/types'
+import { nidx, type CapoParams } from '../types/types'
 import { CHORD_REST_OR_TIME_TICK_TYPE } from './segment'
 import { y2pitch } from './utils'
 import { TranslatableString } from '../../framework/global/types/translatablestring'
@@ -1381,6 +1381,28 @@ export class Score extends EngravingObject {
 
     setBracketsAndBarlines(): void {
         this.scoreOrder().setBracketsAndBarlines(this)
+    }
+
+    /** C++ Score::updateCapo(): the capo map of the staves from the Capo elements. TODO(port): realized harmonies */
+    updateCapo(ignoreNotationUpdate = false): void {
+        const fm = this.firstMeasure()
+        if (!fm) {
+            return
+        }
+
+        for (let s = fm.first(SegmentType.ChordRest); s; s = s.next1(SegmentType.ChordRest)) {
+            const segmentTick = s.tick()
+
+            for (const e of s.annotations()) {
+                if (!e.isCapo()) {
+                    continue
+                }
+
+                for (const staff of e.staff()!.staffList()) {
+                    staff.insertCapoParams(segmentTick, (e as unknown as { params(): CapoParams }).params(), ignoreNotationUpdate)
+                }
+            }
+        }
     }
 
     /**

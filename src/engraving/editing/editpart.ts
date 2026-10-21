@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/editing/editpart.h/.cpp: the part undo commands and EditPart (the part and staff editing
  * functions of the Layout panel / NotationParts).
- * TODO(port): ChangePart, ChangeInstrumentLong/Short, ChangeDrumset, ChangeStringData, ChangePatch,
+ * TODO(port): ChangePart, ChangeInstrumentLong/Short, ChangeDrumset, ChangePatch,
  * SetUserBankController and the EditPart functions that use them (replacePartInstrument, replaceInstrumentAtTick,
  * setPartSharpFlat, setInstrumentName, setInstrumentAbbreviature, setStaffType, replaceDrumset); appendLinkedStaff
  * and setVoiceVisible (Excerpt::cloneStaff, excerpts); insertPart/replacePart from a template.
@@ -27,6 +27,9 @@ import type { Score } from '../dom/score'
 import type { ScoreOrder } from '../dom/scoreorder'
 import type { Staff } from '../dom/staff'
 import type { EditData } from './editdata'
+import type { Instrument } from '../dom/instrument'
+import { StringData } from '../dom/stringdata'
+import { stringTuningsHooks, type StringTunings } from '../dom/stringtunings'
 import './edit'
 
 // ---------------------------------------------------------
@@ -90,6 +93,48 @@ export class SetSoloist extends UndoCommand {
     override type(): CommandType { return CommandType.SetSoloist }
     override name(): string { return 'SetSoloist' }
     override objectItems(): EngravingObject[] { return [this.part] }
+}
+
+// ---------------------------------------------------------
+//   ChangeStringData
+// ---------------------------------------------------------
+
+export class ChangeStringData extends UndoCommand {
+    private m_instrument: Instrument | null = null
+    private m_stringTunings: StringTunings | null = null
+    private m_stringData: StringData
+
+    /** C++ ChangeStringData(StringTunings*, const StringData&) and ChangeStringData(Instrument*, const StringData&) */
+    constructor(target: { stringTunings: StringTunings } | { instrument: Instrument }, stringData: StringData) {
+        super()
+        if ('stringTunings' in target) {
+            this.m_stringTunings = target.stringTunings
+        } else {
+            this.m_instrument = target.instrument
+        }
+        this.m_stringData = stringData.clone()
+    }
+
+    protected override flip(_ed: EditData | null): void {
+        const stringData = this.m_stringTunings ? this.m_stringTunings.stringData() : this.m_instrument!.stringData()
+        const frets = stringData.frets()
+        const stringList = stringData.stringList()
+        const old = StringData.fromStrings(frets, stringList)
+
+        if (this.m_stringTunings) {
+            this.m_stringTunings.setStringData(this.m_stringData)
+        } else {
+            this.m_instrument!.setStringData(this.m_stringData.clone())
+        }
+
+        this.m_stringData.set(old)
+    }
+
+    override name(): string { return 'ChangeStringData' }
+}
+
+stringTuningsHooks.changeStringData = (st: StringTunings, stringData: StringData): void => {
+    st.score().undo(new ChangeStringData({ stringTunings: st }, stringData))
 }
 
 // ---------------------------------------------------------

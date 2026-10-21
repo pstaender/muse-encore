@@ -112,7 +112,8 @@ export class MasterNotation {
         this.parts().setParts(scoreOptions.parts, scoreOptions.order)
 
         score.checkChordList()
-        // TODO(port): score->updateSwing(), score->updateCapo() (playback)
+        // TODO(port): score->updateSwing() (playback)
+        score.updateCapo()
 
         this.applyOptions(score, scoreOptions)
 

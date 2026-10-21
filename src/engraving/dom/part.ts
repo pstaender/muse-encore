@@ -15,6 +15,9 @@ import { Pid } from './property'
 import type { Score } from './score'
 import type { Staff } from './staff'
 import type { StringData } from './stringdata'
+import type { StringTunings } from './stringtunings'
+import type { HarpPedalDiagram } from './harppedaldiagram'
+import { SortedMap } from '../../framework/global/sortedmap'
 
 export class Part extends EngravingObject {
     static readonly MAIN_INSTRUMENT_TICK = new Fraction(-1, 1)
@@ -30,6 +33,9 @@ export class Part extends EngravingObject {
     private m_hideWhenEmpty: AutoOnOff = AutoOnOff.AUTO
     private m_hideStavesWhenIndividuallyEmpty = false
     private m_preferSharpFlat: PreferSharpFlat = PreferSharpFlat.AUTO
+    private m_stringTunings = new SortedMap<StringTunings>()
+    /** C++ public member harpDiagrams */
+    harpDiagrams = new SortedMap<HarpPedalDiagram>()
 
     constructor(score: Score) {
         super(ElementType.PART, score)
@@ -72,9 +78,92 @@ export class Part extends EngravingObject {
         return this.m_staves[this.m_staves.length - 1].idx() * VOICES + VOICES
     }
 
-    /** TODO(port): StringTunings */
     stringData(tick: Fraction, _staffIdx: staff_idx_t): StringData {
-        return this.instrument(tick).stringData()
+        const instrument = this.instrument(tick)
+
+        // C++ reads Staff::reflectTranspositionInLinkedTab() of the primary staff of a TAB staff; the port's Staff has no
+        // such setting (it is not stored in the file and true by default)
+        let stringTunings: StringTunings | null = null
+        const i = this.m_stringTunings.upperBound(tick.ticks()) - 1 // muse::findLessOrEqual
+        if (i >= 0) {
+            stringTunings = this.m_stringTunings.valueAt(i)
+        }
+
+        if (stringTunings) {
+            //!NOTE: if there is string tunings element between current instrument and current tick,
+            //! then return string data from string tunings element
+            const stringTuningsInstrument = this.instrument(stringTunings.tick())
+            if (instrument === stringTuningsInstrument) {
+                return stringTunings.stringData()
+            }
+        }
+
+        return instrument.stringData()
+    }
+
+    stringTunings(): SortedMap<StringTunings> { return this.m_stringTunings }
+
+    addStringTunings(stringTunings: StringTunings): void {
+        this.m_stringTunings.set(stringTunings.segment()!.tick().ticks(), stringTunings)
+    }
+
+    removeStringTunings(stringTunings: StringTunings): void {
+        const t = stringTunings.segment()!.tick().ticks()
+        if (this.m_stringTunings.get(t) === stringTunings) {
+            this.m_stringTunings.erase(t)
+        }
+    }
+
+    addHarpDiagram(harpDiagram: HarpPedalDiagram): void {
+        this.harpDiagrams.set(harpDiagram.segment()!.tick().ticks(), harpDiagram)
+    }
+
+    removeHarpDiagram(harpDiagram: HarpPedalDiagram): void {
+        const t = harpDiagram.segment()!.tick().ticks()
+        if (this.harpDiagrams.get(t) === harpDiagram) {
+            this.harpDiagrams.erase(t)
+        }
+    }
+
+    clearHarpDiagrams(): void {
+        this.harpDiagrams.clear()
+    }
+
+    currentHarpDiagram(tick: Fraction): HarpPedalDiagram | null {
+        let i = this.harpDiagrams.upperBound(tick.ticks())
+        if (i !== 0) {
+            --i
+        }
+        if (i === this.harpDiagrams.size()) {
+            return null
+        } else if (tick.lt(Fraction.fromTicks(this.harpDiagrams.keyAt(i)))) {
+            return null
+        }
+        return this.harpDiagrams.valueAt(i)
+    }
+
+    nextHarpDiagram(tick: Fraction): HarpPedalDiagram | null {
+        const i = this.harpDiagrams.upperBound(tick.ticks())
+        return i === this.harpDiagrams.size() ? null : this.harpDiagrams.valueAt(i)
+    }
+
+    prevHarpDiagram(tick: Fraction): HarpPedalDiagram | null {
+        const i = this.harpDiagrams.lowerBound(tick.ticks())
+        if (i === 0) {
+            return null
+        }
+        return this.harpDiagrams.valueAt(i - 1)
+    }
+
+    currentHarpDiagramTick(tick: Fraction): Fraction {
+        if (this.harpDiagrams.empty()) {
+            return new Fraction(0, 1)
+        }
+        const i = this.harpDiagrams.upperBound(tick.ticks())
+        if (i === 0) {
+            return new Fraction(0, 1)
+        }
+        return Fraction.fromTicks(this.harpDiagrams.keyAt(i - 1))
     }
 
     instrument(tick: Fraction = new Fraction(-1, 1)): Instrument {
@@ -98,7 +187,9 @@ export class Part extends EngravingObject {
             // remove instruments between tickpos >= tick and tickpos < (tick+len)
             // ownership goes back to class InstrumentChange()
             this.m_instruments.eraseRange(this.m_instruments.lowerBound(tick.ticks()), this.m_instruments.lowerBound(tick.minus(len).ticks()))
-            // TODO(port): harp pedal diagrams
+
+            // remove harp pedal diagrams between tickpo >= tick
+            this.harpDiagrams.eraseRange(this.harpDiagrams.lowerBound(tick.ticks()), this.harpDiagrams.lowerBound(tick.minus(len).ticks()))
         }
 
         const il: [number, Instrument][] = []
@@ -111,7 +202,15 @@ export class Part extends EngravingObject {
                 this.m_instruments.set(t, instrument)
             }
         }
-        // TODO(port): harp pedal diagrams, capo
+
+        const hd2: [number, HarpPedalDiagram][] = []
+        for (let h = this.harpDiagrams.lowerBound(tick.ticks()); h < this.harpDiagrams.size();) {
+            hd2.push([this.harpDiagrams.keyAt(h) + len.ticks(), this.harpDiagrams.valueAt(h)])
+            this.harpDiagrams.eraseAt(h)
+        }
+        for (const [t, diagram] of hd2) {
+            this.harpDiagrams.insert(t, diagram)
+        }
     }
 
     removeInstrument(tick: Fraction): void {

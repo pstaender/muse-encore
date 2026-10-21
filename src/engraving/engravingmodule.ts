@@ -10,6 +10,7 @@
 import { fontsDatabase } from './infrastructure/engravingcontext'
 import { engravingFonts } from './infrastructure/engravingfont'
 import { StaffType } from './dom/stafftype'
+import { FiguredBass } from './dom/figuredbass'
 import { CHORD_LIST_FILES, registerChordListFile } from './dom/chordlist'
 import { DefaultStyle } from './style/defaultstyle'
 
@@ -48,6 +49,7 @@ const TEXT_FONTS: FontFile[] = [
     { family: 'FreeSerif', path: 'freefont/FreeSerifBoldItalic.ttf', bold: true, italic: true },
     { family: 'FreeSans', path: 'freefont/FreeSans.ttf' },
     { family: 'MScoreTabulature', path: 'mscoretab/mscoreTab.ttf' },
+    { family: 'MScoreBC', path: 'mscorebc/mscore-BC.ttf' }, // C++ registers it as "MscoreBC" (Qt matches case-insensitively)
 ]
 
 const MUSIC_FONTS: { name: string; family: string; path: string; metadata: string }[] = [
@@ -70,8 +72,9 @@ export async function initEngravingFonts(load: FontFileLoader): Promise<void> {
     const decoder = new TextDecoder()
     const toBytes = (d: ArrayBuffer | Uint8Array): Uint8Array => d instanceof Uint8Array ? d : new Uint8Array(d)
 
-    const [tabConfig] = await Promise.all([
+    const [tabConfig, fbConfig] = await Promise.all([
         load('fonts_tablature.xml'),
+        load('fonts_figuredbass.xml'),
         ...CHORD_LIST_FILES.map(async (f) => registerChordListFile(f, toBytes(await load('chords/' + f)))),
         ...LEGACY_STYLE_FILES.map(async ([v, f]) => DefaultStyle.registerLegacyStyle(v, decoder.decode(toBytes(await load('styles/' + f))))),
         ...TEXT_FONTS.map(async (f) => fdb.addFont(f.family, await load(f.path), { bold: f.bold, italic: f.italic })),
@@ -84,6 +87,8 @@ export async function initEngravingFonts(load: FontFileLoader): Promise<void> {
 
     // C++ StaffType::initStaffTypes() -> readTabConfigFile()
     StaffType.readTabConfig(toBytes(tabConfig))
+    // C++ EngravingModule::onInit -> FiguredBass::readConfigFile(String())
+    FiguredBass.readConfigFile(toBytes(fbConfig as ArrayBuffer | Uint8Array))
 
     fdb.setDefaultTextFamily('Edwin')
     fdb.setDefaultSymbolFamily('Bravura')

@@ -93,6 +93,11 @@ import { Fingering } from './fingering'
 import { ChordLine } from './chordline'
 import { Ambitus } from './ambitus'
 import { InstrumentChange } from './instrchange'
+import { Sticking } from './sticking'
+import { Capo } from './capo'
+import { StringTunings } from './stringtunings'
+import { HarpPedalDiagram } from './harppedaldiagram'
+import { FiguredBass } from './figuredbass'
 
 type Parent = EngravingObject | null
 
@@ -202,6 +207,11 @@ export class Factory {
         case ElementType.ACTION_ICON: return new ActionIcon(itemOrDummy())
         case ElementType.BAGPIPE_EMBELLISHMENT: return new BagpipeEmbellishment(itemOrDummy())
         case ElementType.PLAYTECH_ANNOTATION: return new PlayTechAnnotation(segmentOrDummy())
+        case ElementType.STICKING: return new Sticking(segmentOrDummy())
+        case ElementType.CAPO: return new Capo(segmentOrDummy())
+        case ElementType.STRING_TUNINGS: return new StringTunings(segmentOrDummy())
+        case ElementType.HARP_DIAGRAM: return new HarpPedalDiagram(segmentOrDummy())
+        case ElementType.FIGURED_BASS: return new FiguredBass(segmentOrDummy())
         default:
             // TODO(port): element type not ported yet
             return null

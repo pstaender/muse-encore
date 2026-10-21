@@ -15,7 +15,7 @@ import { Color } from '../../../framework/draw/types/color'
 import { LineF, PointF, RectF } from '../../../framework/draw/types/geometry'
 import { Font, FontType } from '../../../framework/draw/types/font'
 import { FontMetrics } from '../../../framework/draw/fontmetrics'
-import { FillRule } from '../../../framework/draw/types/painterpath'
+import { FillRule, PainterPath } from '../../../framework/draw/types/painterpath'
 import type { Painter } from '../../../framework/draw/painter'
 import { RealIsNull } from '../../../framework/global/realfn'
 import { SmuflAnchorId, SymId } from '../../types/symid'
@@ -26,6 +26,8 @@ import { CrossMeasure } from '../../dom/chordrest'
 import { Pid } from '../../dom/property'
 import { Accidental as DrawAccidental, type Accidental } from '../../dom/accidental'
 import type { ShadowNote } from '../../dom/shadownote'
+import type { StringTunings } from '../../dom/stringtunings'
+import { FiguredBass, FiguredBassContLine, FiguredBassParenthesis, type FiguredBassItem } from '../../dom/figuredbass'
 import { Rest as DrawRest } from '../../dom/rest'
 import type { MMRest } from '../../dom/mmrest'
 import type { Breath } from '../../dom/breath'
@@ -221,7 +223,15 @@ export class TDraw {
         case ElementType.GUITAR_BEND_TEXT:
         case ElementType.FINGERING:
         case ElementType.HAMMER_ON_PULL_OFF_TEXT:
+        case ElementType.STICKING:
+        case ElementType.CAPO:
+        case ElementType.HARP_DIAGRAM:
+        case ElementType.PLAYTECH_ANNOTATION:
             TDraw.drawTextBase(item as TextBase, painter, opt)
+            break
+        case ElementType.STRING_TUNINGS: TDraw.drawStringTunings(item as StringTunings, painter, opt)
+            break
+        case ElementType.FIGURED_BASS: TDraw.drawFiguredBass(item as FiguredBass, painter, opt)
             break
         default:
             // PAGE, SYSTEM, MEASURE, SEGMENT, CHORD, ... and types not ported yet
@@ -1696,6 +1706,130 @@ export class TDraw {
                 painter.drawPolyline(item.bracketL.slice(0, 3))
                 painter.drawPolyline(item.bracketR.slice(0, 3))
             }
+        }
+    }
+
+    static drawFiguredBass(item: FiguredBass, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+        // if not printing, draw duration line(s)
+        if (!opt.isPrinting && item.score().showUnprintable()) {
+            for (const len of ldata.lineLengths) {
+                if (len > 0) {
+                    painter.setPen(new Pen(EngravingConfiguration.invisibleColor(), 3))
+                    painter.drawLine(new LineF(0.0, -2, len, -2)) // -2: 2 rast. un. above digits
+                }
+            }
+        }
+
+        if (item.items().length < 1) { // if not parseable into f.b. items
+            TDraw.drawTextBase(item, painter, opt) // draw as standard text
+        } else {
+            for (const fi of item.items()) { // if parseable into f.b. items
+                painter.translate(fi.pos()) // draw each item in its proper position
+                TDraw.drawFiguredBassItem(fi, painter, opt)
+                painter.translate(fi.pos().neg())
+            }
+        }
+    }
+
+    static drawFiguredBassItem(item: FiguredBassItem, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+        const font = 0
+        const _spatium = item.spatium()
+        const fbFont = FiguredBass.FBFonts()[font]
+        // set font from general style
+        const f = new Font(fbFont.family, FontType.Tablature)
+
+        // (use the same font selection as used in layout() above)
+        const m = item.style().styleD(Sid.figuredBassFontSize) * item.spatium() / item.defaultSpatium()
+        f.setPointSizeF(m)
+
+        painter.setFont(f)
+        painter.setBrush(BrushStyle.NoBrush)
+        const pen = new Pen(item.figuredBass().curColor(opt), FiguredBass.FB_CONTLINE_THICKNESS * _spatium, PenStyle.SolidLine,
+            PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawTextInRect(ldata.bbox(), AlignmentFlag.TextDontClip | AlignmentFlag.AlignLeft | AlignmentFlag.AlignTop,
+            ldata.displayText)
+
+        // continuation line
+        let lineEndX = 0.0
+        if (item.contLine() !== FiguredBassContLine.NONE) {
+            let lineStartX = ldata.textWidth // by default, line starts right after text
+            if (lineStartX > 0.0) {
+                lineStartX += _spatium * FiguredBass.FB_CONTLINE_LEFT_PADDING // if some text, give some room after it
+            }
+            lineEndX = item.figuredBass().ldata().printedLineLength // by default, line ends with item duration
+            if (lineEndX - lineStartX < 1.0) { // if line length < 1 sp, ignore it
+                lineEndX = 0.0
+            }
+
+            // if extended cont.line and no closing parenthesis: look at next FB element
+            if (item.contLine() > FiguredBassContLine.SIMPLE && item.parenth5() === FiguredBassParenthesis.NONE) {
+                // if there is a contiguous FB element
+                const nextFB = item.figuredBass().nextFiguredBass()
+                if (nextFB) {
+                    // retrieve the X position (in page coords) of a possible cont. line of nextFB
+                    // on the same line of 'this'
+                    const pgPos = item.pagePos()
+                    const nextContPageX = nextFB.additionalContLineX(pgPos.y())
+                    // if an additional cont. line has been found, extend up to its initial X coord
+                    if (nextContPageX > 0) {
+                        lineEndX = nextContPageX - pgPos.x() + _spatium * FiguredBass.FB_CONTLINE_OVERLAP
+                    } else {
+                        // with a little bit of overlap
+                        lineEndX = item.figuredBass().ldata().lineLength(0) // if none found, draw to the duration end
+                    }
+                }
+            }
+            // if some line, draw it
+            if (lineEndX > 0.0) {
+                const h = ldata.bbox().height() * FiguredBass.FB_CONTLINE_HEIGHT
+                painter.drawLine(new LineF(lineStartX, h, lineEndX - ldata.pos().x(), h))
+            }
+        }
+
+        // closing cont.line parenthesis
+        if (item.parenth5() !== FiguredBassParenthesis.NONE) {
+            const x = Math.trunc(lineEndX > 0.0 ? lineEndX : ldata.textWidth) // C++ int x
+            painter.drawTextInRect(new RectF(x, 0, ldata.bbox().width(), ldata.bbox().height()),
+                AlignmentFlag.AlignLeft | AlignmentFlag.AlignTop, fbFont.displayParenthesis[item.parenth5()])
+        }
+    }
+
+    static drawStringTunings(item: StringTunings, painter: Painter, opt: PaintOptions): void {
+        if (item.noStringVisible()) {
+            const data = item.ldata()
+
+            const spatium = item.spatium()
+            const lineWidth = spatium * 0.15
+
+            const pen = new Pen(item.curColor(opt), lineWidth, PenStyle.SolidLine, PenCapStyle.RoundCap, PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            painter.setBrush(new Brush(item.curColor(opt)))
+
+            const rect = data.bbox()
+
+            const x = rect.x()
+            const y = rect.y()
+            const width = rect.width()
+            const height = rect.height()
+            const topPartHeight = height * 0.66
+            const cornerRadius = height * 0.1
+
+            const path = new PainterPath()
+            path.moveTo(x, y)
+            path.arcTo(new RectF(x, y + (topPartHeight - 2 * cornerRadius), 2 * cornerRadius, 2 * cornerRadius), 180.0, 90.0)
+            path.arcTo(new RectF(x + width - 2 * cornerRadius, y + (topPartHeight - 2 * cornerRadius), 2 * cornerRadius, 2 * cornerRadius),
+                270, 90)
+            path.lineTo(x + width, y)
+            path.moveTo(x + width / 2, y + topPartHeight)
+            path.lineTo(x + width / 2, y + height)
+
+            painter.setBrush(BrushStyle.NoBrush)
+            painter.drawPath(path)
+        } else {
+            TDraw.drawTextBase(item, painter, opt)
         }
     }
 

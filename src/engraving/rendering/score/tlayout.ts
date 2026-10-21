@@ -12,13 +12,14 @@
 
 import { LineF, PointF, PolygonF, RectF, SizeF } from '../../../framework/draw/types/geometry'
 import { PainterPath } from '../../../framework/draw/types/painterpath'
+import { Font, FontType } from '../../../framework/draw/types/font'
 import type { Color } from '../../../framework/draw/types/color'
 import { FontMetrics } from '../../../framework/draw/fontmetrics'
 import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionH, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
     StaffGroup, TextStyleType, TimeSigPlacement, TimeSigStyle, VOICES, track2staff, SpannerSegmentType, LineType, PlacementV,
-    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType, ArpeggioType, GuitarBendType, ChordLineType, VibratoType, GlissandoStyle, nidx } from '../../types/types'
+    HookType, TextPlace, Align, BeamMode, Orientation, staff2track, TrillType, ArpeggioType, GuitarBendType, ChordLineType, VibratoType, GlissandoStyle, nidx, trackZeroVoice } from '../../types/types'
 import { SymNames } from '../../types/symnames'
 import { RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull } from '../../../framework/global/realfn'
 import { Pid, PropertyFlags } from '../../dom/property'
@@ -85,6 +86,13 @@ import { HorizontalSpacing } from './horizontalspacing'
 import type { Breath } from '../../dom/breath'
 import type { Dynamic } from '../../dom/dynamic'
 import type { Expression } from '../../dom/expression'
+import type { PlayTechAnnotation } from '../../dom/playtechannotation'
+import {
+    FBIDigitNone, FiguredBass, FiguredBassContLine, FiguredBassModifier, FiguredBassParenthesis, type FiguredBassItem,
+} from '../../dom/figuredbass'
+import type { Capo } from '../../dom/capo'
+import type { StringTunings } from '../../dom/stringtunings'
+import type { HarpPedalDiagram } from '../../dom/harppedaldiagram'
 import type { Fermata } from '../../dom/fermata'
 import type { RehearsalMark } from '../../dom/rehearsalmark'
 import type { StaffText, SystemText } from '../../dom/stafftextbase'
@@ -323,6 +331,12 @@ export class TLayout {
         case ElementType.INSTRUMENT_CHANGE: TLayout.layoutInstrumentChange(item as TextBase, ctx); break
         case ElementType.SYSTEM_TEXT: TLayout.layoutSystemText(item as SystemText, ctx); break
         case ElementType.TEMPO_TEXT: TLayout.layoutTempoText(item as TempoText, ctx); break
+        case ElementType.STICKING: TLayout.layoutSticking(item as TextBase, ctx); break
+        case ElementType.CAPO: TLayout.layoutCapo(item as Capo, ctx); break
+        case ElementType.STRING_TUNINGS: TLayout.layoutStringTunings(item as StringTunings, ctx); break
+        case ElementType.HARP_DIAGRAM: TLayout.layoutHarpPedalDiagram(item as HarpPedalDiagram, ctx); break
+        case ElementType.PLAYTECH_ANNOTATION: TLayout.layoutPlayTechAnnotation(item as PlayTechAnnotation, ctx); break
+        case ElementType.FIGURED_BASS: TLayout.layoutFiguredBass(item as FiguredBass, ctx); break
         default:
             if (item.isTextBase()) {
                 // TODO(port): specific text types (staff text, tempo text, rehearsal marks, ...)
@@ -1655,6 +1669,265 @@ export class TLayout {
         Autoplace.autoplaceSegmentElement(item, ldata)
     }
 
+    //---------------------------------------------------------
+    //   FiguredBassItem layout
+    //    creates the display text (set as element text) and computes
+    //    the horiz. offset needed to align the right part as well as the vert. offset
+    //---------------------------------------------------------
+    static layoutFiguredBassItem(item: FiguredBassItem, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        const fbFonts = FiguredBass.FBFonts()
+        // construct font metrics
+        const fontIdx = 0
+        const f = new Font(fbFonts[fontIdx].family, FontType.Tablature)
+
+        // font size in pixels, scaled according to spatium()
+        // (use the same font selection as used in draw() below)
+        const m = ctx.conf().styleD(Sid.figuredBassFontSize) * item.spatium() / item.defaultSpatium()
+        f.setPointSizeF(m)
+        const fm = new FontMetrics(f)
+
+        let str = ''
+        let x = item.symWidth(SymId.noteheadBlack) * 0.5
+        let x1 = 0.0
+        let x2 = 0.0
+
+        // create display text
+        const font = 0
+        const style = ctx.conf().styleI(Sid.figuredBassStyle)
+        const fbFont = fbFonts[font]
+
+        if (item.parenth1() !== FiguredBassParenthesis.NONE) {
+            str += fbFont.displayParenthesis[item.parenth1()]
+        }
+
+        // prefix
+        if (item.prefix() !== FiguredBassModifier.NONE) {
+            // if no digit, the string created so far 'hangs' to the left of the note
+            if (item.digit() === FBIDigitNone) {
+                x1 = fm.width(str)
+            }
+            str += fbFont.displayAccidental[item.prefix()]
+            // if no digit, the string from here onward 'hangs' to the right of the note
+            if (item.digit() === FBIDigitNone) {
+                x2 = fm.width(str)
+            }
+        }
+
+        if (item.parenth2() !== FiguredBassParenthesis.NONE) {
+            str += fbFont.displayParenthesis[item.parenth2()]
+        }
+
+        // digit
+        if (item.digit() !== FBIDigitNone) {
+            // if some digit, the string created so far 'hangs' to the left of the note
+            x1 = fm.width(str)
+            // if suffix is a combining shape, combine it with digit (multi-digit numbers cannot be combined)
+            // unless there is a parenthesis in between
+            if ((item.digit() < 10)
+                && (item.suffix() === FiguredBassModifier.CROSS
+                    || item.suffix() === FiguredBassModifier.BACKSLASH
+                    || item.suffix() === FiguredBassModifier.SLASH)
+                && item.parenth3() === FiguredBassParenthesis.NONE) {
+                str += fbFont.displayDigit[style][item.digit()][item.suffix() - (FiguredBassModifier.CROSS - 1)]
+            } else {
+                // if several digits or no shape combination, convert _digit to font styled chars
+                let digits = ''
+                let digit = item.digit()
+                while (true) {
+                    digits = fbFont.displayDigit[style][digit % 10][0] + digits
+                    digit = Math.trunc(digit / 10)
+                    if (digit === 0) {
+                        break
+                    }
+                }
+                str += digits
+            }
+            // if some digit, the string from here onward 'hangs' to the right of the note
+            x2 = fm.width(str)
+        }
+
+        if (item.parenth3() !== FiguredBassParenthesis.NONE) {
+            str += fbFont.displayParenthesis[item.parenth3()]
+        }
+
+        // suffix
+        // append only if non-combining shape or cannot combine (no digit or parenthesis in between)
+        if (item.suffix() !== FiguredBassModifier.NONE
+            && ((item.suffix() !== FiguredBassModifier.CROSS
+                 && item.suffix() !== FiguredBassModifier.BACKSLASH
+                 && item.suffix() !== FiguredBassModifier.SLASH)
+                || item.digit() === FBIDigitNone
+                || item.parenth3() !== FiguredBassParenthesis.NONE)) {
+            str += fbFont.displayAccidental[item.suffix()]
+        }
+
+        if (item.parenth4() !== FiguredBassParenthesis.NONE) {
+            str += fbFont.displayParenthesis[item.parenth4()]
+        }
+
+        //! NOTE Look like, this text not layout data (not depends by position)
+        ldata.displayText = str // this text will be displayed
+
+        if (str.length) { // if some text
+            x = x - (x1 + x2) * 0.5 // position the text so that [x1<-->x2] is centered below the note
+        } else { // if no text (but possibly a line)
+            x = 0 // start at note left margin
+        }
+        // vertical position
+        let h = fm.lineSpacing()
+        h *= ctx.conf().styleD(Sid.figuredBassLineHeight)
+        let y = 0.0
+        if (ctx.conf().styleI(Sid.figuredBassAlignment) === 0) { // top alignment: stack down from first item
+            y = h * item.ord()
+        } else { // bottom alignment: stack up from last item
+            y = -h * (item.figuredBass().itemsCount() - item.ord())
+        }
+        ldata.setPos(x, y)
+        // determine bbox from text width
+        let w = fm.width(str)
+        ldata.textWidth = w
+        // if there is a cont.line, extend width to cover the whole FB element duration line
+        let lineLen = 0
+        if (item.contLine() !== FiguredBassContLine.NONE
+            && (lineLen = Math.trunc(item.figuredBass().ldata().lineLength(0))) > w) { // C++ int lineLen
+            w = lineLen
+        }
+        ldata.setBbox(0, 0, w, h)
+    }
+
+    //    lays out the duration indicator line(s), filling the _lineLengths array
+    //    and the length of printed lines (used by continuation lines)
+
+    private static layoutFiguredBassLines(item: FiguredBass, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        const lineLengths = [...ldata.lineLengths]
+        if (item.ticks().le(new Fraction(0, 1)) || !item.segment()) {
+            ldata.lineLengths = [0] // be sure to always have at least 1 item in array
+            return
+        }
+
+        let lastCR: ChordRest | null = null // the last ChordRest of this
+        let nextSegm: Segment | null = null // the Segment beyond this' segment
+        const nextTick = item.segment()!.tick().plus(item.ticks()) // the tick beyond this' duration
+
+        // locate the measure containing the last tick of this; it is either:
+        // the same measure containing nextTick, if nextTick is not the first tick of a measure
+        //    (and line should stop right before it)
+        // or the previous measure, if nextTick is the first tick of a measure
+        //    (and line should stop before any measure terminal segment (bar, clef, ...) )
+
+        const m = ctx.dom().tick2measure(nextTick.minus(Fraction.eps()))
+        if (m) {
+            // locate the first segment (of ANY type) right after this' last tick
+            for (nextSegm = m.first(SegmentType.All); nextSegm; nextSegm = nextSegm.next()) {
+                if (nextSegm.tick().ge(nextTick)) {
+                    break
+                }
+            }
+            // locate the last ChordRest of this
+            if (nextSegm) {
+                const startTrack = trackZeroVoice(item.track())
+                const endTrack = startTrack + VOICES
+                for (let seg = nextSegm.prev1(); seg; seg = seg.prev1()) {
+                    for (let t = startTrack; t < endTrack; ++t) {
+                        const el = seg.element(t)
+                        if (el && el.isChordRest()) {
+                            lastCR = el as ChordRest
+                            break
+                        }
+                    }
+                    if (lastCR) {
+                        break
+                    }
+                }
+            }
+        }
+        if (!m || !nextSegm) {
+            // C++ LOGD("FiguredBass layout: no segment found for tick %d", nextTick.ticks())
+            ldata.lineLengths = [0] // be sure to always have at least 1 item in array
+            return
+        }
+
+        // get length of printed lines from horiz. page position of lastCR
+        // (enter a bit 'into' the ChordRest for clarity)
+        const printedLineLength = lastCR ? lastCR.pageX() - item.pageX() + 1.5 * item.spatium() : 3 * item.spatium()
+        ldata.printedLineLength = printedLineLength
+
+        // get duration indicator line(s) from page position of nextSegm
+        const systems = ctx.dom().systems()
+        const s1 = item.segment()!.measure().system()
+        const s2 = nextSegm.measure().system()
+        const sysIdx1 = s1 ? systems.indexOf(s1) : -1
+        let sysIdx2 = s2 ? systems.indexOf(s2) : -1
+
+        if (sysIdx2 === -1 || sysIdx2 < sysIdx1) {
+            sysIdx2 = sysIdx1
+            nextSegm = item.segment()!.next1()
+            // TODO
+            // During layout of figured bass next systems' numbers may be still
+            // undefined (then sysIdx2 == muse::nidx) or change in the future.
+            // A layoutSystem() approach similar to that for spanners should
+            // probably be implemented.
+        }
+
+        let segIdx = 0
+        for (let i = sysIdx1; i <= sysIdx2; ++i, ++segIdx) {
+            let len = 0 // C++ int len
+            if (sysIdx1 === sysIdx2 || i === sysIdx1) {
+                // single line
+                len = Math.trunc(nextSegm!.pageX() - item.pageX() - 4) // stop 4 raster units before next segm
+            } else if (i === sysIdx1) {
+                // initial line
+                const w = s1!.staff(item.staffIdx())!.bbox().right()
+                const x = s1!.pageX() + w
+                len = Math.trunc(x - item.pageX())
+            } else if (i > 0 && i !== sysIdx2) {
+                // middle line
+                // C++ LOGD("FiguredBass: duration indicator middle line not implemented")
+            } else if (i === sysIdx2) {
+                // end line
+                // C++ LOGD("FiguredBass: duration indicator end line not implemented")
+            }
+            // store length item, reusing array items if already present
+            if (lineLengths.length <= segIdx) {
+                lineLengths.push(len)
+            } else {
+                lineLengths[segIdx] = len
+            }
+        }
+        // if more array items than needed, truncate array
+        if (lineLengths.length > segIdx) {
+            lineLengths.length = segIdx
+        }
+        ldata.lineLengths = lineLengths
+    }
+
+    static layoutFiguredBass(item: FiguredBass, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        // VERTICAL POSITION:
+        const y = ctx.conf().styleD(Sid.figuredBassYOffset) * item.spatium()
+        ldata.setPos(new PointF(0.0, y))
+
+        // BOUNDING BOX and individual item layout (if required)
+        TextLayout.layoutBaseTextBase1(item, ldata) // prepare structs and data expected by Text methods
+        // if element could be parsed into items, layout each element
+        // Items list will be empty in edit mode (see FiguredBass::startEdit).
+        // TODO: consider disabling specific layout in case text style is changed (tid() != TextStyleName::FIGURED_BASS).
+        if (item.items().length > 0) {
+            const shape = new Shape()
+            TLayout.layoutFiguredBassLines(item, ctx)
+            // layout each item and enlarge bbox to include items bboxes
+            for (const fit of item.items()) {
+                const fildata = fit.mutldata()
+                TLayout.layoutFiguredBassItem(fit, ctx)
+                shape.add(fildata.bbox().translated(fit.pos()), fit)
+            }
+            ldata.setShape(shape)
+        }
+    }
+
+
     static layoutFermata(item: Fermata, _ctx: LayoutContext): void {
         const ldata = item.mutldata()
         const stType = item.staffType()
@@ -1799,6 +2072,122 @@ export class TLayout {
         TextLayout.layoutBaseTextBase(item, ctx)
         Autoplace.autoplaceSegmentElement(item, item.mutldata())
         // TODO(port): sound flags
+    }
+
+    static layoutSticking(item: TextBase, ctx: LayoutContext): void {
+        TextLayout.layoutBaseTextBase(item, ctx)
+        Autoplace.autoplaceSegmentElement(item, item.mutldata())
+    }
+
+    static layoutCapo(item: Capo, ctx: LayoutContext): void {
+        //! NOTE Looks like it doesn't belong here
+        if (item.shouldAutomaticallyGenerateText() || item.empty()) {
+            const part = item.part()
+            if (part) {
+                const stringData = part.stringData(item.tick(), item.staff()!.idx())
+                if (stringData) {
+                    const text = item.generateText(stringData.strings())
+                    item.setXmlText(text)
+                }
+            }
+        }
+
+        TextLayout.layoutBaseTextBase(item, ctx)
+        Autoplace.autoplaceSegmentElement(item, item.mutldata())
+    }
+
+    static layoutHarpPedalDiagram(item: HarpPedalDiagram, ctx: LayoutContext): void {
+        item.updateDiagramText()
+
+        TextLayout.layoutBaseTextBase(item, ctx)
+        Autoplace.autoplaceSegmentElement(item, item.mutldata())
+    }
+
+    static layoutPlayTechAnnotation(item: PlayTechAnnotation, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        TextLayout.layoutBaseTextBase(item, ctx)
+
+        if (item.isHandbellsSymbol()) {
+            let chord: Chord | null = null
+            const seg = item.segment()!
+            const sTrack = staff2track(item.staffIdx())
+            const eTrack = sTrack + VOICES
+            for (let track = sTrack; track < eTrack; ++track) {
+                const e = seg.element(track)
+                if (e && e.isChord()) {
+                    chord = e as Chord
+                    break
+                }
+            }
+            let center = 0.0
+            if (chord) {
+                const refNote = item.placeAbove() ? chord.upNote() : chord.downNote()
+                center = 0.5 * refNote.width() + refNote.x() + chord.x()
+            } else {
+                center = 0.5 * item.score().noteHeadWidth()
+            }
+            ldata.setPosX(center - 0.5 * (ldata.bbox().right() - ldata.bbox().left()))
+        }
+
+        Autoplace.autoplaceSegmentElement(item, ldata)
+    }
+
+    static layoutStringTunings(item: StringTunings, ctx: LayoutContext): void {
+        item.updateText()
+
+        TextLayout.layoutBaseTextBase(item, ctx)
+
+        const spatium = item.spatium()
+
+        if (item.noStringVisible()) {
+            const rect = new RectF()
+            rect.setTopLeft(new PointF(0, item.ldata().bbox().y() - 2.5 * spatium))
+            rect.setSize(new SizeF(spatium, 2.5 * spatium))
+
+            item.setbbox(rect)
+        }
+
+        for (const block of item.mutldata().blocks) {
+            for (const fragment of block.fragments()) {
+                const font = fragment.font(item)
+                if (font.type() === FontType.MusicSymbol) {
+                    // HACK: the music symbol doesn't have a good baseline
+                    // to go with text so we correct it here
+                    const baselineAdjustment = 0.35 * spatium * item.symbolScale()
+                    fragment.pos.setY(fragment.pos.y() + baselineAdjustment)
+                }
+            }
+        }
+
+        let secondStringXAlign = 0.0
+        for (const block of item.ldata().blocks) {
+            for (const fragment of block.fragments()) {
+                if (fragment.font(item).type() === FontType.MusicSymbol) {
+                    secondStringXAlign = Math.max(secondStringXAlign, fragment.pos.x())
+                }
+            }
+        }
+
+        for (const block of item.mutldata().blocks) {
+            let xMove = 0.0
+            const fragments = block.fragments()
+            for (let i = 0; i < fragments.length; ++i) {
+                const fragment = fragments[i]
+                if (i === 0) { // skip first
+                    continue
+                }
+
+                if (fragment.font(item).type() === FontType.MusicSymbol) {
+                    xMove = secondStringXAlign - fragment.pos.x()
+                }
+                fragment.pos.setX(fragment.pos.x() + xMove)
+            }
+        }
+
+        const parentSegment = item.segment()!
+        item.move(new PointF(-parentSegment.x() + item.spatium(), 0.0))
+
+        Autoplace.autoplaceSegmentElement(item, item.mutldata())
     }
 
     static layoutInstrumentChange(item: TextBase, ctx: LayoutContext): void {

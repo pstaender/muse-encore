@@ -326,9 +326,16 @@ export class MeasureRead {
                     el.setTrack(0) // original system object always goes on top
                 }
                 segment.add(el)
-            } else if (tag === 'SystemText' || tag === 'RehearsalMark' || tag === 'InstrumentChange') {
-                // TODO(port): Sticking, PlayTechAnnotation, Capo, StringTunings, StaffState,
-                // FiguredBass, HarpPedalDiagram
+            } else if (tag === 'Sticking'
+                       || tag === 'SystemText'
+                       || tag === 'PlayTechAnnotation'
+                       || tag === 'Capo'
+                       || tag === 'StringTunings'
+                       || tag === 'RehearsalMark'
+                       || tag === 'InstrumentChange'
+                       || tag === 'FiguredBass'
+                       || tag === 'HarpPedalDiagram') {
+                // TODO(port): StaffState
                 const el = Factory.createItemByName(tag, ctx.score())!
                 if (el.allowTimeAnchor()) {
                     segment = measure.getChordRestOrTimeTickSegment(ctx.tick())

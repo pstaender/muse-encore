@@ -30,7 +30,7 @@ import type { Staff } from './staff'
 import type { Selection } from './select'
 import type { NoteVal } from './input'
 import { Sid } from '../style/styledef'
-import { Tpc, tpc2alter } from './pitchspelling'
+import { INVALID_PITCH, Tpc, pitchIsValid, tpc2alter } from './pitchspelling'
 
 const PTAB: number[][] = [
     //   c  d  e  f  g   a  b
@@ -120,6 +120,55 @@ export function pitch2step(pitch: number): number {
 export function step2pitch(step: number): number {
     const tab = [0, 2, 4, 5, 7, 9, 11]
     return tab[step % 7]
+}
+
+const valSharp = ['c', 'c♯', 'd', 'd♯', 'e', 'f', 'f♯', 'g', 'g♯', 'a', 'a♯', 'b']
+const valFlat = ['c', 'd♭', 'd', 'e♭', 'e', 'f', 'g♭', 'g', 'a♭', 'a', 'b♭', 'b']
+
+/** Returns the latin letter name, accidental, and octave numeral of the pitch. Uses upper case only for pitches 0-24. */
+export function pitch2string(v: number, useFlats = false): string {
+    if (!pitchIsValid(v)) {
+        return '----'
+    }
+    const octave = Math.trunc(v / PITCH_DELTA_OCTAVE) - 1
+    const o = String(octave)
+    const i = v % PITCH_DELTA_OCTAVE
+
+    let pitchStr = useFlats ? valFlat[i] : valSharp[i]
+    if (octave < 0) {
+        pitchStr = pitchStr.toUpperCase()
+    }
+
+    return pitchStr + o
+}
+
+/** Returns the pitch number of the string representation of a note (pitch2string) */
+export function string2pitch(s: string): number {
+    if (s === '----') {
+        return INVALID_PITCH
+    }
+
+    const negative = s.includes('-')
+    const octave = (parseInt(s[s.length - 1], 10) || 0) * (negative ? -1 : 1)
+    if (octave < -1 || octave > 9) {
+        return -1
+    }
+
+    const value = s.substring(0, s.length - (negative ? 2 : 1)).toLowerCase()
+
+    let pitchIndex = -1
+    for (let i = 0; i < PITCH_DELTA_OCTAVE; ++i) {
+        if (value === valFlat[i] || value === valSharp[i]) {
+            pitchIndex = i
+            break
+        }
+    }
+
+    if (pitchIndex === -1) {
+        return -1
+    }
+
+    return (octave + 1) * PITCH_DELTA_OCTAVE + pitchIndex
 }
 
 const TS_DICT: Record<string, SymId> = {

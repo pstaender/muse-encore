@@ -23,6 +23,8 @@ import type { Measure } from './measure'
 import type { System } from './system'
 import type { ChordRest } from './chordrest'
 import type { Chord } from './chord'
+import type { StringTunings } from './stringtunings'
+import type { HarpPedalDiagram } from './harppedaldiagram'
 import type { DurationElement } from './durationelement'
 import type { Rest } from './rest'
 import type { Clef } from './clef'
@@ -619,9 +621,12 @@ export class Segment extends EngravingItem {
         case ElementType.FIGURED_BASS:
         case ElementType.FERMATA:
         case ElementType.STICKING:
-        case ElementType.STRING_TUNINGS:
-        case ElementType.STAFF_STATE:
+        case ElementType.STAFF_STATE: // TODO(port): StaffState (instrument changes of 3.x files)
             this.m_annotations.push(el)
+            break
+        case ElementType.STRING_TUNINGS:
+            this.m_annotations.push(el)
+            el.part()!.addStringTunings(el as unknown as StringTunings)
             break
         case ElementType.INSTRUMENT_CHANGE: {
             const part = el.part()!
@@ -630,7 +635,11 @@ export class Segment extends EngravingItem {
             break
         }
         case ElementType.HARP_DIAGRAM:
-            // TODO(port): harp diagrams
+            // already a diagram in this segment
+            if (el.part()!.harpDiagrams.has((el as unknown as HarpPedalDiagram).segment()!.tick().ticks())) {
+                break
+            }
+            el.part()!.addHarpDiagram(el as unknown as HarpPedalDiagram)
             this.m_annotations.push(el)
             break
         case ElementType.PLAY_COUNT_TEXT:
@@ -743,6 +752,20 @@ export class Segment extends EngravingItem {
             if (!this.isMMRestSegment()) {
                 el.part()!.removeInstrument(this.tick())
             }
+            this.removeAnnotation(el)
+            break
+        case ElementType.CAPO:
+            for (const staff of el.part()!.staves()) {
+                staff.removeCapoParams(el.tick())
+            }
+            this.removeAnnotation(el)
+            break
+        case ElementType.STRING_TUNINGS:
+            el.part()!.removeStringTunings(el as unknown as StringTunings)
+            this.removeAnnotation(el)
+            break
+        case ElementType.HARP_DIAGRAM:
+            el.part()!.removeHarpDiagram(el as unknown as HarpPedalDiagram)
             this.removeAnnotation(el)
             break
         default:

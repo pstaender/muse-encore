@@ -123,7 +123,7 @@ Score.prototype.noteValForPosition = function (this: Score, pos: Position, at: A
         if (nval.fret > 0 && stringData.stringList()[strgDataIdx].open) {
             nval.fret = 0
         }
-        nval.pitch = stringData.getPitch(line, nval.fret, StringData.pitchOffsetAt(st, pos.segment!.tick()))
+        nval.pitch = stringData.getPitchAt(line, nval.fret, st, pos.segment!.tick())
         break
     }
 

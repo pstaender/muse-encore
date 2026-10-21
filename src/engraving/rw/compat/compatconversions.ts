@@ -6,15 +6,14 @@
  * Port of CompatUtils::doCompatibilityConversions() and the conversions it calls (src/engraving/rw/compat/compatutils.cpp).
  * Separate from compatutils.ts because these need the Factory (compatutils.ts is imported by dom/chordlist.ts).
  * Only the master score is handled (no excerpts); linked elements are not handled.
- * TODO(port): replaceStaffTextWithPlayTechniqueAnnotation (PlayTechAnnotation), replaceStaffTextWithCapo (Capo),
- * convertTextLineToNoteAnchoredLine (NoteLine); the replaced elements render like the old staff texts/text lines
+ * TODO(port): convertTextLineToNoteAnchoredLine (NoteLine); the replaced text lines render like the old ones
  */
 
 import { PointF } from '../../../framework/draw/types/geometry'
 import { Fraction } from '../../types/fraction'
 import { Spatium } from '../../types/dimension'
 import { SymId } from '../../types/symid'
-import { DynamicType, ElementType, Key, TextStyleType } from '../../types/types'
+import { CapoParams, DynamicType, ElementType, Key, PlayingTechniqueType, TextStyleType } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { textStyle, TEXT_STYLE_SIZE } from '../../style/textstyle'
 import { Factory } from '../../dom/factory'
@@ -29,7 +28,10 @@ import type { Articulation } from '../../dom/articulation'
 import type { Chord } from '../../dom/chord'
 import type { Expression } from '../../dom/expression'
 import type { Ornament } from '../../dom/ornament'
-import type { StaffText } from '../../dom/stafftextbase'
+import type { StaffText, StaffTextBase } from '../../dom/stafftextbase'
+import { PlayTechAnnotation } from '../../dom/playtechannotation'
+import type { Capo } from '../../dom/capo'
+import type { EngravingObject } from '../../dom/engravingobject'
 import type { Rest } from '../../dom/rest'
 import type { Segment } from '../../dom/segment'
 import type { EngravingItem } from '../../dom/engravingitem'
@@ -111,6 +113,9 @@ export class CompatConversions {
             return
         }
 
+        if (masterScore.mscVersion() < 400) {
+            CompatConversions.replaceStaffTextWithPlayTechniqueAnnotation(masterScore)
+        }
         if (masterScore.mscVersion() < 410) {
             CompatConversions.reconstructTypeOfCustomDynamics(masterScore)
             CompatConversions.replaceOldWithNewExpressions(masterScore)
@@ -119,6 +124,7 @@ export class CompatConversions {
             CompatConversions.splitArticulations(masterScore)
             CompatConversions.resetArticulationOffsets(masterScore)
             CompatConversions.resetStemLengthsForTwoNoteTrems(masterScore)
+            CompatConversions.replaceStaffTextWithCapo(masterScore)
         }
         if (masterScore.mscVersion() < 420) {
             CompatConversions.addMissingInitKeyForTransposingInstrument(masterScore)
@@ -130,6 +136,138 @@ export class CompatConversions {
 
         if (masterScore.mscVersion() < 450) {
             CompatConversions.convertLaissezVibArticToTie(masterScore)
+        }
+    }
+
+    private static replaceStaffTextWithPlayTechniqueAnnotation(score: MasterScore): void {
+        //! NOTE: Before MU4, they were available in the Staff Text Properties dialog (Change Channel page)
+        const textToPlayTechniqueType = new Map<string, PlayingTechniqueType>([
+            ['natural', PlayingTechniqueType.Natural],
+            ['normal', PlayingTechniqueType.Natural],
+
+            ['open', PlayingTechniqueType.Open],
+            ['mute', PlayingTechniqueType.Mute],
+
+            ['distortion', PlayingTechniqueType.Distortion],
+            ['overdriven', PlayingTechniqueType.Overdrive],
+            ['harmonics', PlayingTechniqueType.Harmonics],
+            ['jazz', PlayingTechniqueType.JazzTone],
+
+            ['arco', PlayingTechniqueType.Natural],
+            ['pizzicato', PlayingTechniqueType.Pizzicato],
+            ['tremolo', PlayingTechniqueType.Tremolo],
+        ])
+
+        // C++ std::map keyed by pointer (no defined order); here in the order of the score
+        const oldPlayTechniquesAndNewTypes = new Map<StaffTextBase, PlayingTechniqueType>()
+
+        annotationsOf(score, (annotation) => {
+            if (!annotation.isStaffTextBase()) {
+                return
+            }
+
+            const text = annotation as StaffTextBase
+            let type = textToPlayTechniqueType.get(text.plainText().toLowerCase()) ?? PlayingTechniqueType.Undefined
+
+            if (type === PlayingTechniqueType.Undefined) {
+                const channelName = text.channelName(0).toLowerCase()
+
+                if (channelName) {
+                    type = textToPlayTechniqueType.get(channelName) ?? PlayingTechniqueType.Undefined
+                }
+            }
+
+            if (type === PlayingTechniqueType.Undefined) {
+                return
+            }
+
+            if (!oldPlayTechniquesAndNewTypes.has(text)) {
+                oldPlayTechniquesAndNewTypes.set(text, type)
+            }
+            const links = text.links()
+            if (!links || !links.length) {
+                return
+            }
+            for (const linked of links) {
+                if (linked !== text && !oldPlayTechniquesAndNewTypes.has(linked as StaffTextBase)) {
+                    oldPlayTechniquesAndNewTypes.set(linked as StaffTextBase, type)
+                }
+            }
+        })
+
+        for (const [oldPlayTech, type] of oldPlayTechniquesAndNewTypes) {
+            const parentSegment = oldPlayTech.segment()!
+
+            const newPlayTech = new PlayTechAnnotation(parentSegment, type, oldPlayTech.textStyleType())
+            newPlayTech.setXmlText(oldPlayTech.xmlText())
+            newPlayTech.setTrack(oldPlayTech.track())
+
+            CompatConversions.takeOverLinks(oldPlayTech, newPlayTech)
+            parentSegment.add(newPlayTech)
+            parentSegment.removeAnnotation(oldPlayTech)
+        }
+    }
+
+    private static replaceStaffTextWithCapo(score: MasterScore): void {
+        const oldCapoSet = new Set<StaffTextBase>()
+
+        annotationsOf(score, (annotation) => {
+            if (!annotation.isStaffTextBase()) {
+                return
+            }
+
+            const text = annotation as StaffTextBase
+
+            if (text.capo() > 0) {
+                oldCapoSet.add(text)
+            } else {
+                return
+            }
+
+            const links = text.links()
+            if (!links || !links.length) {
+                return
+            }
+
+            for (const linked of links) {
+                if (linked !== text && linked && linked.isStaffTextBase()) {
+                    oldCapoSet.add(linked as StaffTextBase)
+                }
+            }
+        })
+
+        for (const oldCapo of oldCapoSet) {
+            const parentSegment = oldCapo.segment()!
+            const newCapo = Factory.createItem(ElementType.CAPO, parentSegment) as Capo
+
+            const capoFretPosition = oldCapo.capo() - 1
+
+            const params = new CapoParams()
+            params.active = capoFretPosition > 0
+            params.fretPosition = capoFretPosition
+
+            newCapo.setTrack(oldCapo.track())
+            newCapo.setParams(params)
+            newCapo.setProperty(Pid.PLACEMENT, oldCapo.placement())
+
+            CompatConversions.takeOverLinks(oldCapo, newCapo)
+
+            parentSegment.add(newCapo)
+            parentSegment.removeAnnotation(oldCapo)
+        }
+    }
+
+    /** C++: newItem->setLinks(old->links()); links->push_back(newItem); delete old (removes it from the links) */
+    private static takeOverLinks(oldItem: EngravingObject, newItem: EngravingObject): void {
+        const links = oldItem.links() as EngravingObject[] | null
+        newItem.setLinks(links)
+        if (links) {
+            links.push(newItem)
+            const i = links.indexOf(oldItem)
+            if (i >= 0) {
+                links.splice(i, 1)
+            }
+            oldItem.setLinks(null)
         }
     }
 

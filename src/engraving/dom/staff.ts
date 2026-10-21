@@ -12,7 +12,7 @@ import { Spatium } from '../types/dimension'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import {
-    AutoOnOff, BracketType, ClefType, ElementType, Key, MeasureNumberPlacement, StaffGroup, VOICES, nidx,
+    AutoOnOff, BracketType, CapoParams, CapoTransposeMode, ClefType, ElementType, Key, MeasureNumberPlacement, StaffGroup, VOICES, nidx,
     type staff_idx_t,
 } from '../types/types'
 import { Sid } from '../style/styledef'
@@ -22,6 +22,7 @@ import { KeyList, KeySigEvent } from './key'
 import { Pid } from './property'
 import { Interval } from './interval'
 import { Transpose } from '../editing/transpose'
+import { EditCapo } from '../editing/editcapo'
 import { StaffType, StaffTypeList } from './stafftype'
 import type { Part } from './part'
 import type { InstrumentTemplate } from './instrtemplate'
@@ -62,6 +63,7 @@ export class Staff extends EngravingItem {
     private m_showMeasureNumbers: AutoOnOff = AutoOnOff.AUTO
     private m_visibilityVoices = [true, true, true, true]
     private m_pitchOffsetMap = new Map<number, number>()
+    private m_capoMap = new SortedMap<CapoParams>()
 
     constructor(part: Part) {
         super(ElementType.STAFF, null)
@@ -667,6 +669,100 @@ export class Staff extends EngravingItem {
             }
         }
         return val
+    }
+
+    private static readonly DUMMY_CAPO = new CapoParams()
+
+    capo(tick: Fraction): CapoParams {
+        if (this.m_capoMap.empty()) {
+            return Staff.DUMMY_CAPO
+        }
+        // C++ muse::findLessOrEqual
+        const i = this.m_capoMap.upperBound(tick.ticks()) - 1
+        return i < 0 ? Staff.DUMMY_CAPO : this.m_capoMap.valueAt(i)
+    }
+
+    insertCapoParams(tick: Fraction, params: CapoParams, ignoreNotationUpdate = false): void {
+        if (ignoreNotationUpdate) {
+            this.m_capoMap.set(tick.ticks(), params)
+            return
+        }
+        const isNeedUpdate = (oldParams: CapoParams, newParams: CapoParams): boolean => {
+            return !(oldParams.active === newParams.active
+                     && oldParams.transposeMode === newParams.transposeMode
+                     && oldParams.fretPosition === newParams.fretPosition
+                     && oldParams.ignoredStrings.size === newParams.ignoredStrings.size
+                     && [...oldParams.ignoredStrings].every(s => newParams.ignoredStrings.has(s)))
+        }
+
+        const startTick = tick.ticks()
+        let endTick = -1
+
+        const it = this.m_capoMap.find(startTick)
+        if (it < 0) {
+            this.m_capoMap.set(startTick, params)
+            const idx = this.m_capoMap.find(startTick)
+            if (idx + 1 < this.m_capoMap.size()) {
+                endTick = this.m_capoMap.keyAt(idx + 1)
+            }
+            if (idx > 0) {
+                const oldParams = this.m_capoMap.valueAt(idx - 1)
+                // We don't need to apply any changes if the previous capo is inactive
+                if (oldParams.active) {
+                    EditCapo.updateNotationForCapoChange(oldParams, params, this, startTick, endTick)
+                }
+                // This is an undo action
+            } else if (CapoTransposeMode.PLAYBACK_ONLY !== params.transposeMode && params.active) {
+                const oldParams = new CapoParams()
+                oldParams.transposeMode = CapoTransposeMode.PLAYBACK_ONLY
+                oldParams.fretPosition = params.fretPosition
+                oldParams.active = params.active
+                oldParams.ignoredStrings = new Set(params.ignoredStrings)
+                EditCapo.updateNotationForCapoChange(oldParams, params, this, startTick, endTick)
+            }
+        } else {
+            const oldParams = this.m_capoMap.valueAt(it)
+            if (!isNeedUpdate(oldParams, params)) {
+                return
+            }
+            this.m_capoMap.setValueAt(it, params)
+            if (it + 1 < this.m_capoMap.size()) {
+                endTick = this.m_capoMap.keyAt(it + 1)
+            }
+            EditCapo.updateNotationForCapoChange(oldParams, params, this, startTick, endTick)
+        }
+    }
+
+    removeCapoParams(tick: Fraction): void {
+        const startTick = tick.ticks()
+
+        const it = this.m_capoMap.find(startTick)
+        if (it < 0) {
+            // C++: IF_ASSERT_FAILED "Key must exist in capo map!"
+            return
+        }
+
+        const endTick = it + 1 < this.m_capoMap.size() ? this.m_capoMap.keyAt(it + 1) : -1
+
+        let revertParams = new CapoParams()
+        revertParams.fretPosition = this.m_capoMap.valueAt(it).fretPosition
+
+        const oldParams = this.m_capoMap.valueAt(it).clone()
+        // If this capo is inactive, it is treated as PLAYBACK_ONLY mode capo
+        if (!oldParams.active) {
+            oldParams.transposeMode = CapoTransposeMode.PLAYBACK_ONLY
+        }
+
+        if (it > 0) {
+            revertParams = this.m_capoMap.valueAt(it - 1).clone()
+            // If not active, treat as PLAYBACK_ONLY
+            if (!revertParams.active) {
+                revertParams.transposeMode = CapoTransposeMode.PLAYBACK_ONLY
+            }
+        }
+        EditCapo.updateNotationForCapoChange(oldParams, revertParams, this, startTick, endTick)
+
+        this.m_capoMap.erase(startTick)
     }
 
     override getProperty(id: Pid): PropertyValue {

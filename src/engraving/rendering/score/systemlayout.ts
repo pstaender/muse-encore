@@ -1007,6 +1007,18 @@ export class SystemLayout {
         }
     }
 
+    private static layoutSticking(stickings: readonly EngravingItem[], system: System, ctx: LayoutContext): void {
+        if (!stickings.length) {
+            return
+        }
+
+        for (const sticking of stickings) {
+            TLayout.layoutItem(sticking, ctx)
+        }
+
+        AlignmentLayout.alignItemsForSystem(stickings, system)
+    }
+
     private static layoutLyrics(elements: ElementsToLayout, ctx: LayoutContext): void {
         const system = elements.system
         // NOTE: in continuous view, this means we layout spanners for the entire score.
@@ -1156,9 +1168,7 @@ export class SystemLayout {
 
         SystemLayout.processLines(system, ctx, elementsToLayout.trills)
 
-        for (const item of elementsToLayout.stickings) {
-            TLayout.layoutItem(item, ctx)
-        }
+        SystemLayout.layoutSticking(elementsToLayout.stickings, system, ctx)
 
         for (const item of elementsToLayout.fermatasAndTremoloBars) {
             TLayout.layoutItem(item, ctx)
@@ -1167,7 +1177,7 @@ export class SystemLayout {
         for (const item of elementsToLayout.figuredBass) {
             TLayout.layoutItem(item, ctx)
             if (item.autoplace()) {
-                Autoplace.autoplaceSegmentElement(item, item.mutldata(), true)
+                Autoplace.autoplaceSegmentElement(item, item.mutldata(), item.placeAbove(), true)
             }
         }
 

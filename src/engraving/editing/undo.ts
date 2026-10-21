@@ -204,9 +204,12 @@ export function compoundObjects(object: EngravingObject): EngravingObject[] {
     return objects
 }
 
-/** C++ updateStaffTextCache(): capo and swing are playback data (not ported) */
-export function updateStaffTextCache(_text: EngravingItem, _score: Score): void {
-    // TODO(port): Score::updateCapo(), Score::updateSwing() (playback)
+/** C++ updateStaffTextCache() */
+export function updateStaffTextCache(text: EngravingItem, score: Score): void {
+    if (text.isCapo()) {
+        score.updateCapo()
+    }
+    // TODO(port): else if (text->swing()) score->updateSwing() (playback)
 }
 
 export enum UndoCommandFilter {

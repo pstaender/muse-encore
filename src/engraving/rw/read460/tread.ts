@@ -90,6 +90,11 @@ import { smDrumset } from '../../dom/drumset'
 import { type StaffText, type StaffTextBase } from '../../dom/stafftextbase'
 import { type TempoText, TempoTextType } from '../../dom/tempotext'
 import type { Expression } from '../../dom/expression'
+import type { PlayTechAnnotation } from '../../dom/playtechannotation'
+import type { FiguredBass, FiguredBassItem } from '../../dom/figuredbass'
+import type { Capo } from '../../dom/capo'
+import type { StringTunings } from '../../dom/stringtunings'
+import type { HarpPedalDiagram, HarpStringType, PedalPosition } from '../../dom/harppedaldiagram'
 import type { Dynamic } from '../../dom/dynamic'
 import type { Fermata } from '../../dom/fermata'
 import type { Breath } from '../../dom/breath'
@@ -120,7 +125,7 @@ import { FretItem, FretMarkerType, type FretDiagram } from '../../dom/fret'
 import { Ornament } from '../../dom/ornament'
 import type { Trill } from '../../dom/trill'
 import { GuitarBendHold, GuitarBendText, type GuitarBend, type GuitarBendSegment } from '../../dom/guitarbend'
-import { InstrString, type StringData } from '../../dom/stringdata'
+import { InstrString, StringData } from '../../dom/stringdata'
 import { Transpose } from '../../editing/transpose'
 import type { Vibrato } from '../../dom/vibrato'
 import type { Glissando } from '../../dom/glissando'
@@ -308,6 +313,12 @@ export class TRead {
         case ElementType.VIBRATO: TRead.readVibrato(item as Vibrato, xml, ctx); break
         case ElementType.GLISSANDO: TRead.readGlissando(item as Glissando, xml, ctx); break
         case ElementType.GRADUAL_TEMPO_CHANGE: TRead.readGradualTempoChange(item as GradualTempoChange, xml, ctx); break
+        case ElementType.STICKING: TRead.readTextBase(item as TextBase, xml, ctx); break // C++ read(Sticking*)
+        case ElementType.PLAYTECH_ANNOTATION: TRead.readPlayTechAnnotation(item as PlayTechAnnotation, xml, ctx); break
+        case ElementType.CAPO: TRead.readCapo(item as Capo, xml, ctx); break
+        case ElementType.STRING_TUNINGS: TRead.readStringTunings(item as StringTunings, xml, ctx); break
+        case ElementType.HARP_DIAGRAM: TRead.readHarpPedalDiagram(item as HarpPedalDiagram, xml, ctx); break
+        case ElementType.FIGURED_BASS: TRead.readFiguredBass(item as FiguredBass, xml, ctx); break
         default:
             // TODO(port): element type not ported yet
             xml.skipCurrentElement()
@@ -743,6 +754,152 @@ export class TRead {
             return false
         }
         return true
+    }
+
+    static readFiguredBass(b: FiguredBass, e: XmlReader, ctx: ReadContext): void {
+        let normalizedText = ''
+        let idx = 0
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'ticks') {
+                b.setTicks(e.readFraction())
+            } else if (tag === 'onNote') {
+                b.setOnNote(e.readInt() !== 0)
+            } else if (tag === 'FiguredBassItem') {
+                const pItem = b.createItem(idx++)
+                pItem.setTrack(b.track())
+                pItem.setParent(b)
+                TRead.readFiguredBassItem(pItem, e, ctx)
+                b.appendItem(pItem)
+                // add item normalized text
+                if (normalizedText.length) {
+                    normalizedText += '\n'
+                }
+                normalizedText += pItem.normalizedText()
+            } else if (!TRead.readTextBaseProperties(b, e, ctx)) {
+                e.unknown()
+            }
+        }
+        // if items could be parsed set normalized text
+        if (b.items().length > 0) {
+            b.setXmlText(normalizedText) // this is the text to show while editing
+        }
+    }
+
+    static readFiguredBassItem(i: FiguredBassItem, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+
+            if (tag === 'brackets') {
+                i.setParenth1(e.intAttribute('b0'))
+                i.setParenth2(e.intAttribute('b1'))
+                i.setParenth3(e.intAttribute('b2'))
+                i.setParenth4(e.intAttribute('b3'))
+                i.setParenth5(e.intAttribute('b4'))
+                e.skipCurrentElement()
+            } else if (tag === 'prefix') {
+                i.setPrefix(e.readInt())
+            } else if (tag === 'digit') {
+                i.setDigit(e.readInt())
+            } else if (tag === 'suffix') {
+                i.setSuffix(e.readInt())
+            } else if (tag === 'continuationLine') {
+                i.setContLine(e.readInt())
+            } else if (!TRead.readItemProperties(i, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readPlayTechAnnotation(a: PlayTechAnnotation, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+
+            if (TRead.readPropertyIfTag(a, tag, xml, ctx, Pid.PLAY_TECH_TYPE)) {
+            } else if (TRead.readPropertyIfTag(a, tag, xml, ctx, Pid.PLAY)) {
+            } else if (!TRead.readStaffTextBaseProperties(a, xml, ctx)) {
+                xml.unknown()
+            }
+        }
+    }
+
+    static readCapo(c: Capo, xml: XmlReader, ctx: ReadContext): void {
+        const params = c.params().clone()
+
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+
+            if (tag === 'active') {
+                params.active = xml.readBool()
+            } else if (tag === 'fretPosition') {
+                params.fretPosition = xml.readInt()
+            } else if (tag === 'string') {
+                const idx = xml.intAttribute('no')
+
+                while (xml.readNextStartElement()) {
+                    const stringTag = xml.name()
+
+                    if (stringTag === 'apply') {
+                        const apply = xml.readBool()
+                        if (!apply) {
+                            params.ignoredStrings.add(idx)
+                        }
+                    } else {
+                        xml.unknown()
+                    }
+                }
+            } else if (tag === 'generateText') {
+                c.setProperty(Pid.CAPO_GENERATE_TEXT, xml.readBool())
+            } else if (TRead.readPropertyIfTag(c, tag, xml, ctx, Pid.CAPO_TRANSPOSE_MODE)) {
+                continue
+            } else if (!TRead.readStaffTextBaseProperties(c, xml, ctx)) {
+                xml.unknown()
+            }
+        }
+        params.transposeMode = c.params().transposeMode
+
+        c.setParams(params)
+    }
+
+    static readStringTunings(s: StringTunings, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+
+            if (tag === 'preset') {
+                s.setPreset(xml.readText())
+            } else if (tag === 'StringData') {
+                const sd = new StringData()
+                TRead.readStringData(sd, xml)
+                s.setStringData(sd)
+            } else if (tag === 'visibleStrings') {
+                s.setVisibleStrings(parseIntVec(xml.readText()))
+            } else if (!TRead.readStaffTextBaseProperties(s, xml, ctx)) {
+                xml.unknown()
+            }
+        }
+    }
+
+    static readHarpPedalDiagram(h: HarpPedalDiagram, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+            if (tag === 'isDiagram') {
+                h.setIsDiagram(xml.readBool())
+            } else if (tag === 'pedalState') {
+                while (xml.readNextStartElement()) {
+                    const stringTag = xml.name()
+                    if (stringTag === 'string') {
+                        const str = xml.intAttribute('name') as HarpStringType
+                        const pos = xml.readInt() as PedalPosition
+                        h.setPedal(str, pos)
+                    } else {
+                        xml.unknown()
+                    }
+                }
+                h.setPlayableTpcs()
+            } else if (!TRead.readTextBaseProperties(h, xml, ctx)) {
+                xml.unknown()
+            }
+        }
     }
 
     static readDynamic(d: Dynamic, e: XmlReader, ctx: ReadContext): void {

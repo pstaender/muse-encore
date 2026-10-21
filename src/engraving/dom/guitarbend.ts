@@ -57,6 +57,31 @@ export class GuitarBend extends SLine {
     private m_isSlack = false
     private m_targetTimeFactor: number | null = null
 
+    static fixNotesFrettingForStandardBend(startNote: Note, endNote: Note): void {
+        const curStaff = startNote.staff()
+        const curPart = startNote.part()
+        if (!curStaff || !curPart) {
+            return
+        }
+
+        const stringData = curPart.stringData(startNote.tick(), curStaff.idx())
+        let startFret = startNote.fret()
+        let startString = startNote.string()
+        if (startFret === 0) {
+            // Bend can't start from empty string
+            startString += 1
+            startFret = stringData.fretForStaff(startNote.pitch() + curStaff.pitchOffset(startNote.tick()), startString, curStaff)
+            startNote.undoChangeProperty(Pid.STRING, startString)
+            startNote.undoChangeProperty(Pid.FRET, startFret)
+        }
+
+        if (endNote.string() !== startString) {
+            endNote.undoChangeProperty(Pid.STRING, startString)
+            const endFret = stringData.fretForStaff(endNote.pitch() + curStaff.pitchOffset(endNote.tick()), startString, curStaff)
+            endNote.undoChangeProperty(Pid.FRET, endFret)
+        }
+    }
+
     constructor(parent: EngravingObject | null) {
         super(ElementType.GUITAR_BEND, parent, ElementFlag.MOVABLE)
     }

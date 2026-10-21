@@ -5,11 +5,11 @@
  *
  * Port of src/engraving/dom/stringdata.h/.cpp
  *
- * TODO(port): capos (Staff::capo()), sortChordNotesUseSameString (configuration()->preferSameStringForTranspose() is off by default)
+ * TODO(port): sortChordNotesUseSameString (configuration()->preferSameStringForTranspose() is off by default)
  */
 
 import type { Fraction } from '../types/fraction'
-import { INVALID_FRET_INDEX, INVALID_STRING_INDEX, VOICES } from '../types/types'
+import { CapoParams, CapoTransposeMode, INVALID_FRET_INDEX, INVALID_STRING_INDEX, VOICES } from '../types/types'
 import type { Chord } from './chord'
 import { DisplayFretOption, type Note } from './note'
 import { INVALID_PITCH, pitchIsValid } from './pitchspelling'
@@ -42,6 +42,25 @@ export class StringData {
         return d
     }
 
+    /** C++ set(const StringData&): called from import and by StringTunings */
+    set(src: StringData): void {
+        const c = src.clone()
+        this.m_stringTable = c.m_stringTable
+        this.m_frets = c.m_frets
+        this.m_useFlats = c.m_useFlats
+        if (this.isFiveStringBanjo()) {
+            this.configBanjo5thString()
+        }
+    }
+
+    /** C++ StringData(int numFrets, std::vector<instrString>& strings) */
+    static fromStrings(numFrets: number, strings: readonly InstrString[]): StringData {
+        const d = new StringData()
+        d.m_frets = numFrets
+        d.m_stringTable = strings.map(s => new InstrString(s.pitch, s.open, s.startFret, s.useFlat))
+        return d
+    }
+
     isNull(): boolean {
         return this.m_frets === 0 && this.m_stringTable.length === 0
     }
@@ -71,6 +90,26 @@ export class StringData {
 
     fretForStaff(pitch: number, string: number, staff: Staff | null, tick?: Fraction): number {
         return this.fret(pitch, string, tick ? StringData.pitchOffsetAt(staff, tick) : StringData.pitchOffsetAtStaff(staff))
+    }
+
+    /** C++ getPitch(string, fret, staff): the pitch of the string / fret combination at the given staff */
+    getPitchForStaff(string: number, fret: number, staff: Staff | null): number {
+        return this.getPitch(string, fret, StringData.pitchOffsetAtStaff(staff))
+    }
+
+    //---------------------------------------------------------
+    //   getPitch
+    //    Returns the pitch corresponding to the string / fret combination
+    //    at given tick of given staff (C++ getPitch(string, fret, staff, tick)).
+    //    Returns INVALID_PITCH if not possible
+    //    Note: frets above max fret are accepted.
+    //---------------------------------------------------------
+
+    getPitchAt(string: number, fret: number, staff: Staff, tick: Fraction): number {
+        const capo = staff.capo(tick)
+        const ignoredString = capo.active && capo.ignoredStrings.has(string)
+        return ignoredString ? this.getPitch(string, fret, StringData.pitchOffsetAtStaff(staff))
+            : this.getPitch(string, fret, StringData.pitchOffsetAt(staff, tick))
     }
 
     //---------------------------------------------------------
@@ -150,13 +189,14 @@ export class StringData {
             note.setFretConflict(false) // assume no conflicts on this note
             // if no fretting (any invalid fretting has been erased by sortChordNotes() )
             if (nString === INVALID_STRING_INDEX) {
+                const capo = note.staff()!.capo(note.tick())
                 // get a new fretting
-                const res = this.convertPitch(note.pitch(), StringData.pitchOffsetAt(chord.staff(), chord.tick()))
+                const res = this.convertPitch(note.pitch(), StringData.pitchOffsetAt(chord.staff(), chord.tick()), capo)
                 nNewString = res.string
                 nNewFret = res.fret
                 if (res.ok && note.displayFret() === DisplayFretOption.NoHarmonic && !note.negativeFretUsed()) {
                     // Check if this string should be ignored in capo params and updated fret
-                    nNewFret = this.fret(note.pitch(), nNewString, StringData.pitchOffsetAt(chord.staff(), chord.tick()))
+                    nNewFret = this.fret(note.pitch(), nNewString, StringData.pitchOffsetAt(chord.staff(), chord.tick(), nNewString))
                     // note can be fretted: use string
                     bUsed[nNewString]++
                 } else {
@@ -181,7 +221,7 @@ export class StringData {
                     let nTempFret: number
                     if (bUsed[nTempString] < 1
                         && (nTempFret = this.fret(note.pitch(), nTempString,
-                            StringData.pitchOffsetAt(chord.staff(), chord.tick()))) !== INVALID_FRET_INDEX) {
+                            StringData.pitchOffsetAt(chord.staff(), chord.tick(), nTempString))) !== INVALID_FRET_INDEX) {
                         bUsed[nNewString]-- // free previous string
                         bUsed[nTempString]++ // and occupy new string
                         nNewFret = nTempFret
@@ -221,13 +261,28 @@ export class StringData {
         return -(staff ? staff.part()!.instrument().transpose().chromatic : 0)
     }
 
-    static pitchOffsetAt(staff: Staff | null, tick: Fraction): number {
+    /** C++ pitchOffsetAt(staff, tick) and pitchOffsetAt(staff, tick, string) */
+    static pitchOffsetAt(staff: Staff | null, tick: Fraction, string?: number): number {
         if (!staff) {
             return 0
         }
         const transp = staff.part()!.instrument(tick).transpose().chromatic
-        // TODO(port): capo offset
-        return -transp + staff.pitchOffset(tick)
+        let offset = -transp + staff.pitchOffset(tick)
+        const capo = staff.capo(tick)
+        if (string !== undefined && capo.active && capo.ignoredStrings.has(string)) {
+            return offset
+        }
+        if (capo.active) {
+            switch (capo.transposeMode) {
+            case CapoTransposeMode.PLAYBACK_ONLY:
+                break
+            case CapoTransposeMode.STANDARD_ONLY:
+            case CapoTransposeMode.TAB_ONLY:
+                offset -= capo.fretPosition
+                break
+            }
+        }
+        return offset
     }
 
     //---------------------------------------------------------
@@ -243,7 +298,7 @@ export class StringData {
     //          from highest (0) to lowest (strings()-1)
     //---------------------------------------------------------
 
-    convertPitch(pitch: number, pitchOffset: number): { ok: boolean; string: number; fret: number } {
+    convertPitch(pitch: number, pitchOffset: number, capo: CapoParams = new CapoParams()): { ok: boolean; string: number; fret: number } {
         const strings = this.m_stringTable.length
         if (strings < 1) {
             return { ok: false, string: INVALID_STRING_INDEX, fret: INVALID_FRET_INDEX }
@@ -275,7 +330,9 @@ export class StringData {
             for (let i = strings - 1; i >= 0; i--) {
                 const strg = this.m_stringTable[i]
                 if (pitch >= strg.pitch) {
-                    return { ok: true, string: strings - i - 1, fret: pitch - strg.pitch }
+                    const string = strings - i - 1
+                    const fretCorrection = (capo.active && capo.ignoredStrings.has(string)) ? capo.fretPosition : 0
+                    return { ok: true, string, fret: pitch - strg.pitch + fretCorrection }
                 }
             }
         }
@@ -359,7 +416,7 @@ export class StringData {
             const string = note.string()
             const noteFret = note.fret()
 
-            const pitch = this.getPitch(string, noteFret, StringData.pitchOffsetAt(chord.staff(), chord.tick()))
+            const pitch = this.getPitch(string, noteFret, StringData.pitchOffsetAt(chord.staff(), chord.tick(), string))
             // if note not fretted yet or current fretting no longer valid,
             // use most convenient string as key
             if (!note.negativeFretUsed() && (string <= INVALID_STRING_INDEX || noteFret <= INVALID_FRET_INDEX

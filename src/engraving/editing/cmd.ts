@@ -1599,7 +1599,7 @@ Score.prototype.upDown = function (this: Score, up: boolean, mode: UpDownMode): 
                 }
                 // update pitch and tpc's and check it matches stringData
                 applyChromatic()
-                if (newPitch + pitchOffset !== stringData.getPitch(string, fret, StringData.pitchOffsetAt(staff, oNote.tick()))
+                if (newPitch + pitchOffset !== stringData.getPitchAt(string, fret, staff, oNote.tick())
                     && !oNote.bendBack()) {
                     // oh-oh: something went very wrong!
                     // C++: LOGD("upDown tab in-string: pitch mismatch")

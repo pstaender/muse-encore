@@ -68,6 +68,9 @@ import type { NotationKeyEvent } from './notation/internal/notationinteraction'
 // (imports of the parts section)
 import { MasterNotationParts } from './notation/internal/masternotationparts'
 import { InsertMode as PartsInsertMode } from './notation/internal/notationparts'
+// (editing modules that register the undo commands of DOM classes: dom -> editing hooks)
+import './engraving/editing/editpart'
+import './engraving/editing/editharppedaldiagram'
 import { customOrder, type PartInstrumentList } from './notation/notationtypes'
 
 export { initEngravingFonts, fontsInitialized, type FontFileLoader } from './engraving/engravingmodule'
@@ -125,6 +128,7 @@ export function layoutScore(score: MasterScore): void {
     if (firstLayout) {
         s_compatDone.add(score)
         EngravingCompat.doPreLayoutCompatIfNeeded(score)
+        score.updateCapo(/* ignoreNotationUpdate */ true)
     }
     ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
     if (firstLayout && EngravingCompat.doPostLayoutCompatIfNeeded(score)) {

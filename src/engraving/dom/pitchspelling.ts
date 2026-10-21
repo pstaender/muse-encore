@@ -234,7 +234,7 @@ const ACCIDENTALS_NAMES: { accidental: AccidentalVal, name: string, fullName: st
 ]
 
 /** muse::mtrc("engraving", TConv::userName(accidental, full)) */
-function accidentalUserName(accidental: AccidentalVal, full: boolean): string {
+export function accidentalUserName(accidental: AccidentalVal, full: boolean): string {
     const it = ACCIDENTALS_NAMES.find(i => i.accidental === accidental)
     return mtrc('engraving', it ? (full ? it.fullName : it.name) : '')
 }
