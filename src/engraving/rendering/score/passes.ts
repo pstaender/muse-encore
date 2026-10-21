@@ -11,6 +11,9 @@ import { ElementType } from '../../types/types'
 import type { EngravingItem } from '../../dom/engravingitem'
 import type { EngravingObject } from '../../dom/engravingobject'
 import type { Score } from '../../dom/score'
+import type { Measure } from '../../dom/measure'
+import type { ChordRest } from '../../dom/chordrest'
+import { SegmentType } from '../../dom/segment'
 import type { LayoutContext } from './layoutcontext'
 import { TLayout } from './tlayout'
 
@@ -31,6 +34,33 @@ export class PassResetLayoutData {
     run(score: Score, ctx: LayoutContext): void {
         if (ctx.state().isLayoutAll()) {
             resetLayoutData(score)
+            // C++ resets the tree of the RootItem: ScorePageViewLayout::prepareScore has deleted the systems and pages,
+            // ~EngravingObject moved their children (measures, spanner segments) to the dummy, multimeasure rests
+            // are moved there explicitly and spanners are children of the dummy anyway. In the port these objects
+            // keep their detached parents, so they are reset here explicitly.
+            for (let mb = score.first(); mb; mb = mb.next()) {
+                resetLayoutData(mb)
+                if (mb.isMeasure() && (mb as Measure).mmRest()) {
+                    resetLayoutData((mb as Measure).mmRest()!)
+                }
+                if (mb.isMeasure()) {
+                    // beams are children of their system
+                    for (let s = (mb as Measure).first(SegmentType.ChordRest); s; s = s.next(SegmentType.ChordRest)) {
+                        for (const e of s.elist()) {
+                            const beam = e && e.isChordRest() ? (e as ChordRest).beam() : null
+                            if (beam && beam.elements()[0] === e) {
+                                resetLayoutData(beam)
+                            }
+                        }
+                    }
+                }
+            }
+            for (const sp of [...score.spanner(), ...score.unmanagedSpanners()]) {
+                resetLayoutData(sp)
+                for (const ss of sp.spannerSegments()) {
+                    resetLayoutData(ss)
+                }
+            }
         } else {
             let m = ctx.mutState().nextMeasure()
             while (m && m.tick().le(ctx.state().endTick())) {

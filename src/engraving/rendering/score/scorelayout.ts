@@ -213,6 +213,9 @@ export class ScorePageViewLayout {
         const state = ctx.mutState()
         if (!state.curSystem()) {
             // The end of the score. The remaining systems are not needed...
+            for (const s of state.systemList()) {
+                s.destroy() // C++ muse::DeleteAll(state.systemList())
+            }
             state.setSystemList([])
             // ...and the remaining pages too
             while (score.npages() > state.pageIdx()) {

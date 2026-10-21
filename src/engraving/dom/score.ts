@@ -1734,13 +1734,30 @@ export class Score extends EngravingObject {
     spanner(): readonly Spanner[] { return this.m_spanner.all() }
     unmanagedSpanners(): Set<Spanner> { return this.m_unmanagedSpanners }
 
-    addSpanner(s: Spanner): void {
+    addSpanner(s: Spanner, computeStartEnd = true): void {
         this.m_spanner.addSpanner(s)
         s.added()
+        if (computeStartEnd) {
+            s.computeStartElement()
+            s.computeEndElement()
+        }
     }
 
     removeSpanner(s: Spanner): void {
         this.m_spanner.removeSpanner(s)
+        s.removed()
+
+        const startElement = s.startElement()
+        const startChord = startElement && startElement.isChord() ? startElement as unknown as Chord : null
+        if (startChord) {
+            startChord.removeStartingSpanner(s)
+        }
+
+        const endElement = s.endElement()
+        const endChord = endElement && endElement.isChord() ? endElement as unknown as Chord : null
+        if (endChord) {
+            endChord.removeEndingSpanner(s)
+        }
     }
 
     // ---------------------------------------------------------
@@ -2059,22 +2076,21 @@ export class Score extends EngravingObject {
         case ElementType.PICK_SCRAPE:
         case ElementType.TEXTLINE:
         case ElementType.HAIRPIN:
-        case ElementType.PARTIAL_LYRICSLINE:
+        case ElementType.PARTIAL_LYRICSLINE: {
+            const spanner = element as unknown as Spanner
+            if (et === ElementType.TEXTLINE && spanner.anchor() === 3 /* Spanner::Anchor::NOTE */) {
+                break
+            }
+            // the segments stay in their systems (like C++) until these are laid out again
+            spanner.triggerLayout()
+            this.removeSpanner(spanner)
+            break
+        }
         case ElementType.OTTAVA: {
-            const s = element as unknown as Spanner
-            this.removeSpanner(s)
-            for (const ss of s.spannerSegments()) {
-                if (ss.system()) {
-                    ss.system()!.remove(ss)
-                    // the segment is not in the system's list any more, so ~System (System.destroy()) would not
-                    // detach it: a system replaced by the layout must not stay its parent (the spanner may be
-                    // added again by undo, the layout then reuses the segment)
-                    ss.resetExplicitParent()
-                }
-            }
-            if (et === ElementType.OTTAVA) {
-                s.staff()?.updateOttava()
-            }
+            const o = element as unknown as Spanner
+            o.triggerLayout()
+            this.removeSpanner(o)
+            o.staff()?.updateOttava()
             break
         }
         case ElementType.CHORD:

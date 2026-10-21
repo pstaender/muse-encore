@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The layout of the changed range after a command (ScorePageViewLayout::initLayoutContext for !isLayoutAll) gives the
-// same result as a layout of the whole score.
+// same result as a layout of the whole score: the same commands are applied to two instances of a score, one laid out
+// partially (Score.partialLayout), the other one completely after every command.
+// (Comparing the partial layout with a second full layout of the same instance is not the same: like in C++, the
+// layout is not always idempotent, e.g. Note::updateAccidental depends on accidentals added earlier in the same pass,
+// and a trill cue note is only laid out once Chord::startingSpanners is up to date.)
+import { createHash } from 'node:crypto'
+import { readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 // first: the library's import order (the DOM modules have import cycles)
-import { TEST_FILES, VTEST, hasSubmodule, openScore, scoreHash } from './helpers'
+import { TEST_FILES, VTEST, hasSubmodule, openScore } from './helpers'
+import { drawPageSvg } from '../src/index'
 import { Score } from '../src/engraving/dom/score'
 import { SegmentType } from '../src/engraving/dom/segment'
 import { SelectType } from '../src/engraving/dom/select'
@@ -17,7 +24,7 @@ import type { ChordRest } from '../src/engraving/dom/chordrest'
 
 function chordRests(score: MasterScore): ChordRest[] {
     const res: ChordRest[] = []
-    for (let s = score.firstMeasure()!.first(SegmentType.ChordRest); s; s = s.next1(SegmentType.ChordRest)) {
+    for (let s = score.firstMeasure()?.first(SegmentType.ChordRest) ?? null; s; s = s.next1(SegmentType.ChordRest)) {
         for (let track = 0; track < score.ntracks(); ++track) {
             const e = s.element(track)
             if (e && e.isChordRest()) {
@@ -28,18 +35,22 @@ function chordRests(score: MasterScore): ChordRest[] {
     return res
 }
 
-/** the hash of a full layout of the score in its current state */
-function fullLayoutHash(score: MasterScore): string {
-    Score.partialLayout = false
-    try {
-        score.doLayout()
-    } finally {
-        Score.partialLayout = true
+/**
+ * A hash of the SVG of all pages that does not depend on the drawing order: items with the same z value have no
+ * defined order (C++ paints them sorted with the unstable std::sort; the order of the spanner segments of a system
+ * depends on the order in which they were laid out, which is not the same in a partial and in a full layout).
+ */
+function layoutHash(score: MasterScore): string {
+    const h = createHash('sha256')
+    for (let i = 0; i < score.npages(); ++i) {
+        h.update(drawPageSvg(score, i, { printing: true }).split('><').sort().join('>\n<'))
     }
-    return scoreHash(score)
+    return h.digest('hex')
 }
 
-const EDITS: [string, (score: MasterScore, cr: ChordRest) => void][] = [
+type Edit = [string, (score: MasterScore, cr: ChordRest) => void]
+
+const EDITS: Edit[] = [
     ['pitch up', (score) => score.upDown(true, UpDownMode.CHROMATIC)],
     ['octave down', (score) => score.upDown(false, UpDownMode.OCTAVE)],
     ['sharp', (score) => score.changeAccidental(AccidentalType.SHARP)],
@@ -50,30 +61,147 @@ const EDITS: [string, (score: MasterScore, cr: ChordRest) => void][] = [
     ['delete', (score) => score.cmdDeleteSelection()],
 ]
 
-describe.runIf(hasSubmodule)('partial layout', () => {
-    for (const file of [`${TEST_FILES}/Chopin_-_Nocturne_Op_9_No_2_E_Flat_Major.mscz`, `${VTEST}/beams-1.mscz`, `${VTEST}/accidental-1.mscx`]) {
-        it(`equals the full layout after edits: ${file.split('/').pop()}`, async () => {
-            const score = await openScore(file)
-            const crs = chordRests(score)
-            // chords in the middle and near the end of the score
-            const picks = [crs[Math.floor(crs.length / 2)], crs[Math.floor(crs.length * 0.8)], crs[3]].filter(Boolean)
-            for (const cr of picks) {
-                for (const [name, edit] of EDITS) {
+/**
+ * Edits (file name: edit names, or all edits) whose partial layout differs from the full layout in C++ as well (same
+ * code paths); they are not applied.
+ */
+const KNOWN_EXCEPTIONS: Record<string, string[] | 'all'> = {
+    // The range ends with the system before the edit's next system: SystemLayout::collectSystem restores the header of
+    // the next system's first measure (addSystemHeader in the "rangeDone" branch) after setRepeatCourtesiesAndParens
+    // -> removeRepeatCourtesies has reset hasCourtesyKeySig of the previous measure, and the system trailer that sets it
+    // again comes later, so the header key signature shows naturals that the full layout does not show.
+    'layout-6.mscx': 'all',
+    // The repeat courtesy key signature parentheses of the measure after the range keep the layout data of the
+    // previous layout (PassResetLayoutData only resets the measures of the range, the full layout resets everything),
+    // so the segment shape is wider when the measure is tried for the system and the system breaks differently.
+    'courtesyKeysigParens.mscz': ['half'],
+    // A big time signature (timeSigPlacement ACROSS_STAVES) at the start of the system after the range: the "rangeDone"
+    // restore of that measure lays out the time signature again (MeasureLayout::layoutMeasureElements) but does not
+    // autoplace it again (SystemLayout::layoutParenthesisAndBigTimeSigs is only called for collected systems).
+    'bigTimeSig-1.mscz': 'all',
+    'bigTimeSig-2.mscz': 'all',
+    // The same "rangeDone" restore of the next system's first measure: system level layout of that measure (the x
+    // position of a cross-staff arpeggio, rests positioned by SystemLayout/beams) is not redone (checked: the
+    // differences disappear when the layout does not stop at the range end).
+    'arpeggio-3.mscz': 'all',
+    'beams-24.mscz': 'all',
+    'rests-3.mscz': 'all',
+    // Undo of a command that moved the last system to the next page: PageLayout::collectPage takes the systems after
+    // the range unchanged ("rangeDone") and checks whether the next one fits with its height from the previous layout,
+    // which includes the vertical spread of its page (restoreLayout2 is only applied when it is appended).
+    'tie-18.mscz': ['eighth'],
+    // A slur that spanned two systems before the undo keeps its second (now unused) segment: getNextLayoutSystemSegment
+    // only reuses free segments and layoutSystemsDone never runs (LayoutState::processedSpanners is never filled, also
+    // in C++); ChordLayout::layoutArticulations3 places the articulations of the end chord against backSegment(), whose
+    // layout data is stale in the partial layout and reset in the full layout.
+    'slurs-2.mscx': ['eighth'],
+    // The measures of the range are laid out (MeasureLayout::getNextMeasure -> Segment::createShapes,
+    // Measure::computeTicks) while they still belong to their old system, so a staff hidden there (hideEmptyStaves)
+    // makes the segments of that staff invisible and changes the segment durations; in a full layout the measures have
+    // no system yet (prepareScore resets the explicit parents).
+    'paren-ll.mscz': ['eighth'],
+    'gliss-3.mscz': 'all',
+    // The partial layout starts with the system of the measure before the range (initLayoutContext goes back one
+    // measure, here a multimeasure rest that is split by the edit), so a shorter first measure cannot move up into the
+    // previous system.
+    'mmrest-10.mscx': 'all',
+    // The partial layout reuses the old System objects (getNextSystem takes them from the system list): their SysStaff
+    // data from the previous layout (positions restored by restoreLayout, beams parented to the system) is used before
+    // the system is laid out again, e.g. for a cross-staff laissez vibrer (checked: the differences disappear with new
+    // systems).
+    'lv-7.mscz': ['flip'],
+    'trem-beam-small.mscz': 'all',
+}
+
+function withLayoutMode<T>(partial: boolean, f: () => T): T {
+    Score.partialLayout = partial
+    try {
+        return f()
+    } finally {
+        Score.partialLayout = true
+    }
+}
+
+/**
+ * Applies the edits (each one followed by its undo) to the chord/rests picked from the list of all chord/rests (indices
+ * for its length) of both instances and compares them after every command.
+ */
+async function checkEdits(file: string, picks: (n: number) => number[], edits: Edit[], onLoadError?: () => void): Promise<void> {
+    let partial: MasterScore
+    let full: MasterScore
+    try {
+        partial = await openScore(file)
+        full = await openScore(file)
+    } catch (e) {
+        if (!onLoadError) {
+            throw e
+        }
+        onLoadError()
+        return
+    }
+    const exceptions = KNOWN_EXCEPTIONS[file.split('/').pop()!] ?? []
+    const crsP = chordRests(partial)
+    const crsF = chordRests(full)
+    const indices = [...new Set(picks(crsP.length).map((i) => Math.floor(i)))].filter((i) => i >= 0 && i < crsP.length)
+    for (const i of indices) {
+        const crP = crsP[i]
+        const crF = crsF[i]
+        for (const [name, edit] of edits) {
+            if (!crP.explicitParent() || exceptions === 'all' || exceptions.includes(name)) {
+                continue
+            }
+            const at = `${name} at tick ${crP.tick().ticks()} (track ${crP.track()})`
+            for (const [score, cr, isPartial] of [[partial, crP, true], [full, crF, false]] as const) {
+                withLayoutMode(isPartial, () => {
                     score.deselectAll()
                     score.select(cr.isChord() ? (cr as Chord).upNote() : cr, SelectType.SINGLE)
-                    if (!cr.explicitParent()) {
-                        continue
-                    }
                     score.startCmd()
                     edit(score, cr)
                     score.endCmd()
-                    const partial = scoreHash(score)
-                    expect(fullLayoutHash(score), `${name} at tick ${cr.tick().ticks()}`).toBe(partial)
-                    score.undoRedo(true)
-                    const undone = scoreHash(score)
-                    expect(fullLayoutHash(score), `undo ${name} at tick ${cr.tick().ticks()}`).toBe(undone)
-                }
+                })
             }
+            expect(layoutHash(partial), at).toBe(layoutHash(full))
+            withLayoutMode(true, () => partial.undoRedo(true))
+            withLayoutMode(false, () => full.undoRedo(true))
+            expect(layoutHash(partial), `undo ${at}`).toBe(layoutHash(full))
+        }
+    }
+}
+
+/** a deterministic selection of about `count` vtest scores (every n-th file in alphabetical order) */
+function vtestSelection(count: number): string[] {
+    const files = readdirSync(VTEST).filter((f) => /\.msc[zx]$/.test(f)).sort()
+    const step = Math.max(1, Math.floor(files.length / count))
+    return files.filter((_, i) => i % step === 0).slice(0, count)
+}
+
+describe.runIf(hasSubmodule)('partial layout', () => {
+    const files = [
+        `${TEST_FILES}/Chopin_-_Nocturne_Op_9_No_2_E_Flat_Major.mscz`, `${VTEST}/beams-1.mscz`, `${VTEST}/accidental-1.mscx`,
+        `${VTEST}/ornament-7.mscz`, `${VTEST}/tie-9.mscz`, `${VTEST}/lyrics-14.mscz`, `${VTEST}/articulation-5.mscz`,
+        `${VTEST}/note-line.mscz`, `${VTEST}/slurs-27.mscz`,
+    ]
+    for (const file of files) {
+        it(`equals the full layout after edits: ${file.split('/').pop()}`, async () => {
+            // chords in the middle and near the end of the score, and the 4th chord/rest
+            await checkEdits(file, (n) => [n / 2, n * 0.8, 3], EDITS)
+        }, 120000)
+    }
+})
+
+/**
+ * Many vtest scores with fewer edits (one chord/rest in the middle of the score) to keep the runtime acceptable.
+ * PL_COUNT=900 PL_ALL_EDITS=1 checks all vtest scores with all edits (several minutes; run it in slices with
+ * PL_SLICE=from,to if the worker runs out of memory).
+ */
+const LARGE_SET_EDITS = process.env.PL_ALL_EDITS ? EDITS : EDITS.filter(([name]) => ['pitch up', 'half', 'delete'].includes(name))
+
+describe.runIf(hasSubmodule)('partial layout of many vtest scores', () => {
+    const slice = (process.env.PL_SLICE ?? '0').split(',').map(Number)
+    for (const f of vtestSelection(Number(process.env.PL_COUNT ?? 150)).slice(...slice)) {
+        it(`equals the full layout after edits: ${f}`, async (ctx) => {
+            // scores the port cannot load are skipped
+            await checkEdits(`${VTEST}/${f}`, (n) => [n / 2], LARGE_SET_EDITS, () => ctx.skip())
         }, 120000)
     }
 })

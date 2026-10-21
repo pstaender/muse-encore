@@ -88,8 +88,7 @@ export class Lyrics extends TextBase {
         }
     }
 
-    override positionRelativeToNoteheadRest(): boolean { return true }
-
+    /** Lyrics::removeFromScore: called when the lyrics or its chord/rest is removed from the score */
     removeFromScore(): void {
         if (this.m_ticks.isNotZero()) {
             // clear melismaEnd flag from end cr
@@ -99,13 +98,20 @@ export class Lyrics extends TextBase {
             }
         }
 
-        // TODO(port): the previous partial lyrics line dash (findPrevPartialLyricsLineDash -> undoRemoveElement)
+        // TODO(port): PartialLyricsLine (findPrevPartialLyricsLineDash: remove the partial dash before this lyrics)
 
         if (this.m_separator) {
             this.m_separator.removeUnmanaged()
-            this.m_separator = null
+            this.m_separator = null // C++ deletes the separator
+        }
+        const prev = lyricsNavigation.prevLyrics(this)
+        if (prev) {
+            // check to make sure we haven't created an invalid segment by deleting this lyric
+            prev.setNeedRemoveInvalidSegments()
         }
     }
+
+    override positionRelativeToNoteheadRest(): boolean { return true }
 
     ticks(): Fraction { return this.m_ticks }
     setTicks(tick: Fraction): void { this.m_ticks = tick }
@@ -332,3 +338,4 @@ export class Lyrics extends TextBase {
         this.score().endCmd()
     }
 }
+
