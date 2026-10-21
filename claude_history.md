@@ -834,3 +834,20 @@
   reverse), a clef in the last rewritten measure lost on redo when its end barline segment is restored (InsertMeasures
   collects clefs before lm->last()), ties across cross-staff chords, the local time signature check only looks at
   staff 0 in the last measure (then CORRUPTED_MEASURE).
+
+## 2026-10-21 — Partial layout == full layout
+
+- Root causes of the differences between a partial layout (only the changed range) and a full layout: the port kept
+  state that C++ drops with the RootItem tree. A full layout now resets the layout data of everything (measures, mm
+  rests, spanners and their segments; rendering/score/passes.ts PassResetLayoutData) like C++ where
+  ScorePageViewLayout::prepareScore deletes systems/pages; System.destroy detaches its remaining children (~System),
+  ScoreLayout's layoutFinished destroys dropped systems; beams are reset in a full layout. Score.addSpanner/
+  removeSpanner compute/clear the start/end elements (starting/ending spanners of chords), Spanner.setProperty
+  triggers the layout, Score.removeElement leaves spanner segments in their systems like C++ (detached when the
+  system is destroyed), Lyrics.removeFromScore (+ prevLyrics through dom/navigate.ts), LyricsLine.removeUnmanaged,
+  TLayout.layoutBarLine lays out the barline fermata. ornament-7 (cue note mag) was the shared state of the shallow
+  Chord clone (fixed by the Chord copy constructor); tie-9 is a non-idempotent layout in C++ as well.
+- test/partiallayout.test.ts edits two instances of a score in parallel (one with partial, one with full layouts)
+  and compares the sorted SVG lines; ~150 vtest scores x 3 edits by default (PL_COUNT, PL_ALL_EDITS, PL_SLICE env);
+  the remaining C++-equivalent differences are listed with their reasons in KNOWN_EXCEPTIONS (the "rangeDone" restore
+  of the next system's first measure, page fill with stale heights, unused slur segments, ...).
