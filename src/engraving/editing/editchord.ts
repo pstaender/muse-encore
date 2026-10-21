@@ -9,7 +9,7 @@
 import { DirectionH, ElementType } from '../types/types'
 import { Factory } from '../dom/factory'
 import { NoteParenthesisInfo, type Chord } from '../dom/chord'
-import type { Note } from '../dom/note'
+import { noteParenthesesHooks, type Note } from '../dom/note'
 import type { Parenthesis } from '../dom/parenthesis'
 
 export class EditChord {
@@ -37,3 +37,6 @@ export class EditChord {
         chord.addNoteParenthesisInfo(new NoteParenthesisInfo(leftParen, rightParen, notes))
     }
 }
+
+noteParenthesesHooks.addChordParentheses = (chord, notes, addToLinked, generated) =>
+    EditChord.addChordParentheses(chord, notes, addToLinked, generated)

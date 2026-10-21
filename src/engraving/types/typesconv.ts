@@ -19,6 +19,7 @@ import {
     RepeatPlayCountPreset, StaffGroup, TextPlace, TextStyleType, TieDotsPlacement, TiePlacement, TimeSigPlacement,
     TimeSigStyle, TimeSigVSMargin, TremoloType, TrillType, VoiceAssignment, AutoCustomHide, LyricsDashSystemStart,
     ArpeggioType, JumpType, GlissandoType, VeloType, ArticulationTextType, VibratoType, PartialSpannerDirection, GradualTempoChangeType,
+    ParenthesesMode, LHTappingSymbol, RHTappingSymbol, PlayingTechniqueType, CapoTransposeMode, AccidentalRole,
 } from './types'
 import * as D from './typesconvdata'
 import type { Item } from './typesconvdata'
@@ -67,6 +68,34 @@ const ARTICULATION_TEXTS: Partial<Record<ArticulationTextType, string>> = {
 function findTypeByXmlTag<T>(cont: readonly Item<T>[], tag: string, def: T): T {
     const it = cont.find(i => i.xml === tag)
     return it ? it.type : def
+}
+
+/** C++ LH_TAPPING_SYMBOL, RH_TAPPING_SYMBOL, PARENTHESES_MODE (not in the generated tables) */
+const LH_TAPPING_SYMBOL: readonly Item<LHTappingSymbol>[] = [
+    { type: LHTappingSymbol.DOT, xml: 'dot', userName: '' },
+    { type: LHTappingSymbol.CIRCLED_T, xml: 'circledT', userName: '' },
+]
+const RH_TAPPING_SYMBOL: readonly Item<RHTappingSymbol>[] = [
+    { type: RHTappingSymbol.T, xml: 'T', userName: '' },
+    { type: RHTappingSymbol.PLUS, xml: 'plus', userName: '' },
+]
+const PARENTHESES_MODE: readonly Item<ParenthesesMode>[] = [
+    { type: ParenthesesMode.NONE, xml: 'none', userName: '' },
+    { type: ParenthesesMode.BOTH, xml: 'both', userName: '' },
+    { type: ParenthesesMode.LEFT, xml: 'left', userName: '' },
+    { type: ParenthesesMode.RIGHT, xml: 'right', userName: '' },
+]
+
+/** muse::String::number(double, prec): fixed notation, trailing zeros (and a trailing '.') removed, no "-0" */
+export function stringNumber(n: number, prec: number): string {
+    let s = n.toFixed(prec)
+    if (s.includes('.')) {
+        s = s.replace(/0+$/, '').replace(/\.$/, '')
+    }
+    if (s === '-0') {
+        s = '0'
+    }
+    return s
 }
 
 /** compatibility: old files may store enums as integers */
@@ -247,7 +276,7 @@ export const TConv = {
                 return LineType.SOLID
             case 2: // DashLine
             case 4: // DashDotLine
-            case 0x10: // CustomDashLine
+            case 6: // CustomDashLine (muse::draw::PenStyle)
                 return LineType.DASHED
             case 3: // DotLine
             case 5: // DashDotDotLine
@@ -340,4 +369,65 @@ export const TConv = {
         findTypeByXmlTag(D.LYRICS_DASH_SYSTEM_START_TYPES, tag, def),
     fromXmlMeasureNumberPlacement: (tag: string, def: MeasureNumberPlacement): MeasureNumberPlacement =>
         findTypeByXmlTag(D.MEASURE_NUMBER_MODES, tag, def),
+
+    // ---- toXml (used by the writer) ----
+    toXmlIntVec: (v: readonly number[]): string => v.map(i => String(i)).join(','),
+    toXmlOrnamentInterval: (v: OrnamentInterval): string =>
+        `${findXmlTagByType(D.INTERVAL_STEP, v.step)},${findXmlTagByType(D.INTERVAL_TYPE, v.type)}`,
+    toXmlTiePlacement: (v: TiePlacement): string => findXmlTagByType(D.TIE_PLACEMENT, v),
+    toXmlTieDotsPlacement: (v: TieDotsPlacement): string => findXmlTagByType(D.TIE_DOTS_PLACEMENT, v),
+    toXmlTimeSigPlacement: (v: TimeSigPlacement): string => findXmlTagByType(D.TIMESIG_PLACEMENT, v),
+    toXmlTimeSigStyle: (v: TimeSigStyle): string => findXmlTagByType(D.TIMESIG_STYLE, v),
+    toXmlTimeSigVSMargin: (v: TimeSigVSMargin): string => findXmlTagByType(D.TIMESIG_MARGIN, v),
+    toXmlNoteSpellingType: (v: NoteSpellingType): string => findXmlTagByType(D.NOTE_SPELLING_TYPE, v),
+    toXmlChordStylePreset: (v: ChordStylePreset): string => findXmlTagByType(D.CHORD_STYLE_PRESET, v),
+    toXmlLHTappingSymbol: (v: LHTappingSymbol): string => findXmlTagByType(LH_TAPPING_SYMBOL, v),
+    toXmlRHTappingSymbol: (v: RHTappingSymbol): string => findXmlTagByType(RH_TAPPING_SYMBOL, v),
+    toXmlParenthesesMode: (v: ParenthesesMode): string => findXmlTagByType(PARENTHESES_MODE, v),
+    fromXmlParenthesesMode: (tag: string, def: ParenthesesMode): ParenthesesMode => findTypeByXmlTag(PARENTHESES_MODE, tag, def),
+    toXmlRepeatPlayCountPreset: (v: RepeatPlayCountPreset): string => findXmlTagByType(D.REPEAT_COUNT_PRESET, v),
+    toXmlAutoCustomHide: (v: AutoCustomHide): string => findXmlTagByType(D.AUTO_CUSTOM_HIDE, v),
+    toXmlVoiceAssignment: (v: VoiceAssignment): string => findXmlTagByType(D.VOICE_ASSIGNMENT, v),
+    toXmlAutoOnOff: (v: AutoOnOff): string => findXmlTagByType(D.AUTO_ON_OFF, v),
+    toXmlCapoTransposeMode: (v: CapoTransposeMode): string => findXmlTagByType(D.CAPO_TRANSPOSE_MODE, v),
+    toXmlPartialSpannerDirection: (v: PartialSpannerDirection): string => findXmlTagByType(D.PARTIAL_SPANNER_DIRECTION, v),
+    toXmlOrientation: (v: Orientation): string => findXmlTagByType(D.ORIENTATION, v),
+    toXmlNoteHeadType: (v: NoteHeadType): string => findXmlTagByType(D.NOTEHEAD_TYPES, v),
+    toXmlNoteHeadScheme: (v: NoteHeadScheme): string => findXmlTagByType(D.NOTEHEAD_SCHEMES, v),
+    toXmlNoteHeadGroup: (v: NoteHeadGroup): string => findXmlTagByType(D.NOTEHEAD_GROUPS, v),
+    toXmlDynamicSpeed: (v: DynamicSpeed): string => findXmlTagByType(D.DYNAMIC_SPEEDS, v),
+    toXmlHookType: (v: HookType): string => String(v),
+    toXmlLineType: (v: LineType): string => findXmlTagByType(D.LINE_TYPES, v),
+    toXmlKeyMode: (v: KeyMode): string => findXmlTagByType(D.KEY_MODES, v),
+    toXmlChangeMethod: (v: ChangeMethod): string => findXmlTagByType(D.CHANGE_METHODS, v),
+    toXmlAccidentalRole: (v: AccidentalRole): string => String(v),
+    /** TConv::toXml(BeatsPerSecond, precision): String::number(v, precision) */
+    toXmlBeatsPerSecond: (v: number, precision: number): string => stringNumber(v, precision),
+    toXmlPlayingTechniqueType: (v: PlayingTechniqueType): string => findXmlTagByType(D.PLAY_TECH_TYPES, v),
+    fromXmlPlayingTechniqueType: (tag: string, def: PlayingTechniqueType): PlayingTechniqueType =>
+        findTypeByXmlTag(D.PLAY_TECH_TYPES, tag, def),
+    toXmlGradualTempoChangeType: (v: GradualTempoChangeType): string => findXmlTagByType(D.TEMPO_CHANGE_TYPES, v),
+    toXmlOrnamentStyle: (v: OrnamentStyle): string => findXmlTagByType(D.ORNAMENTSTYLE_TYPES, v),
+    toXmlPlacementV: (v: PlacementV): string => findXmlTagByType(D.PLACEMENTV_TYPES, v),
+    toXmlPlacementH: (v: PlacementH): string => findXmlTagByType(D.PLACEMENTH_TYPES, v),
+    toXmlTextPlace: (v: TextPlace): string => findXmlTagByType(D.TEXTPLACE_TYPES, v),
+    toXmlDirectionV: (v: DirectionV): string => findXmlTagByType(D.DIRECTIONV_TYPES, v),
+    toXmlDirectionH: (v: DirectionH): string => findXmlTagByType(D.DIRECTIONH_TYPES, v),
+    toXmlLayoutBreakType: (v: LayoutBreakType): string => findXmlTagByType(D.LAYOUTBREAK_TYPES, v),
+    toXmlVeloType: (v: VeloType): string => findXmlTagByType(D.VELO_TYPES, v),
+    toXmlBeamMode: (v: BeamMode): string => findXmlTagByType(D.BEAMMODE_TYPES, v),
+    toXmlGlissandoStyle: (v: GlissandoStyle): string => findXmlTagByType(D.GLISSANDOSTYLE_TYPES, v),
+    toXmlTremoloType: (v: TremoloType): string => findXmlTagByType(D.TREMOLO_TYPES, v),
+    toXmlBracketType: (v: BracketType): string => findXmlTagByType(D.BRACKET_TYPES, v),
+    toXmlArpeggioType: (v: ArpeggioType): string => findXmlTagByType(D.ARPEGGIO_TYPES, v),
+    toXmlGlissandoType: (v: GlissandoType): string => findXmlTagByType(D.GLISSANDO_TYPES, v),
+    toXmlJumpType: (v: JumpType): string => findXmlTagByType(D.JUMP_TYPES, v),
+    toXmlMarkerType: (v: MarkerType): string => findXmlTagByType(D.MARKER_TYPES, v),
+    toXmlStaffGroup: (v: StaffGroup): string => findXmlTagByType(D.STAFFGROUP_TYPES, v),
+    toXmlTrillType: (v: TrillType): string => findXmlTagByType(D.TRILL_TYPES, v),
+    toXmlVibratoType: (v: VibratoType): string => findXmlTagByType(D.VIBRATO_TYPES, v),
+    toXmlArticulationTextType: (v: ArticulationTextType): string => findXmlTagByType(D.ARTICULATIONTEXT_TYPES, v),
+    toXmlLyricsSyllabic: (v: LyricsSyllabic): string => findXmlTagByType(D.LYRICSSYLLABIC_TYPES, v),
+    toXmlLyricsDashSystemStart: (v: LyricsDashSystemStart): string => findXmlTagByType(D.LYRICS_DASH_SYSTEM_START_TYPES, v),
+    toXmlMeasureNumberPlacement: (v: MeasureNumberPlacement): string => findXmlTagByType(D.MEASURE_NUMBER_MODES, v),
 }

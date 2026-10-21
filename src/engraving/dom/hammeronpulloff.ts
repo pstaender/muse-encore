@@ -8,7 +8,8 @@
  * C++ curColor() colors invalid hammer-ons/pull-offs only when MScore::warnGuitarBends is set (off by default).
  */
 
-import type { PropertyValue } from '../types/propertyvalue'
+import { propertyValueEquals, type PropertyValue } from '../types/propertyvalue'
+import { textStyle } from '../style/textstyle'
 import { ElementType, PlacementV, TextStyleType, type track_idx_t } from '../types/types'
 import { Sid } from '../style/styledef'
 import type { Chord } from './chord'
@@ -56,6 +57,15 @@ export class HammerOnPullOffText extends TextBase {
     }
 
     override positionRelativeToNoteheadRest(): boolean { return false }
+
+    override isUserModified(): boolean {
+        for (const p of textStyle(this.textStyleType()) ?? []) {
+            if (!propertyValueEquals(this.getProperty(p.pid), this.propertyDefault(p.pid))) {
+                return true
+            }
+        }
+        return super.isUserModified()
+    }
 }
 
 interface HopoTextRegion {
@@ -155,6 +165,16 @@ export class HammerOnPullOffSegment extends SlurSegment {
     }
 
     hopoText(): readonly HammerOnPullOffText[] { return this.m_hopoText }
+    addHopoText(t: HammerOnPullOffText): void { this.m_hopoText.push(t) }
+
+    override isUserModified(): boolean {
+        for (const hopoText of this.m_hopoText) {
+            if (hopoText.isUserModified()) {
+                return true
+            }
+        }
+        return super.isUserModified()
+    }
 
     isValid(): boolean {
         for (const hopoText of this.m_hopoText) {

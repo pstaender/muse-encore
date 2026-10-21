@@ -10,7 +10,7 @@ import { Color } from '../../framework/draw/types/color'
 import { PointF, ScaleF, SizeF } from '../../framework/draw/types/geometry'
 import { Font, FontType } from '../../framework/draw/types/font'
 import { Spatium } from '../types/dimension'
-import { P_TYPE, type PropertyValue } from '../types/propertyvalue'
+import { P_TYPE, propertyValueEquals, type PropertyValue } from '../types/propertyvalue'
 import {
     Align, AlignH, ChordStylePreset, DirectionV, DPMM, FontStyle, GlissandoStyle, GlissandoType, HookType, LHTappingSymbol,
     LineType, MeasureNumberPlacement, NoteSpellingType, ParenthesesMode, PlacementH, PlacementV, RepeatPlayCountPreset,
@@ -19,6 +19,8 @@ import {
 } from '../types/types'
 import { TConv } from '../types/typesconv'
 import { XmlReader } from '../rw/xmlreader'
+import type { XmlWriter } from '../rw/xmlwriter'
+import { DefaultStyle } from './defaultstyle'
 import type { ReadChordListHook } from '../rw/compat/readchordlisthook'
 import { readPageFormat206 } from '../compat/pageformat'
 import { Pid } from '../dom/propertydata'
@@ -27,6 +29,25 @@ import { Sid, STYLE_VALUES } from './styledef'
 import { allTextStyles, textStyle } from './textstyle'
 
 export { Sid }
+
+/** Constants::MSC_VERSION_STR */
+const MSC_VERSION_STR = '4.70'
+
+/**
+ * C++ StyleDef::styleValues is in the order of styledef.cpp, which differs from the Sid enum in one place
+ * (palmMuteMusicalSymbolSize before whammyBarMusicalSymbolSize); the style is written in that order.
+ */
+let s_definitionOrder: typeof STYLE_VALUES | null = null
+function styleValuesInDefinitionOrder(): typeof STYLE_VALUES {
+    if (!s_definitionOrder) {
+        const list = [...STYLE_VALUES]
+        const a = list.findIndex(v => v.sid === Sid.whammyBarMusicalSymbolSize)
+        const b = list.findIndex(v => v.sid === Sid.palmMuteMusicalSymbolSize)
+        ;[list[a], list[b]] = [list[b], list[a]]
+        s_definitionOrder = list
+    }
+    return s_definitionOrder
+}
 
 const STYLES = Sid.STYLES
 
@@ -207,6 +228,118 @@ export class MStyle {
 
     // ---------------------------------------------------------------------------------
     // read
+    isDefault(idx: Sid): boolean {
+        return propertyValueEquals(this.value(idx), DefaultStyle.resolveStyleDefaults(this.defaultStyleVersion()).value(idx))
+    }
+
+    // ---------------------------------------------------------------------------------
+    // writing
+    // ---------------------------------------------------------------------------------
+
+    /** C++ MStyle::write(IODevice*): the style document (the writer must be empty) */
+    write(xml: XmlWriter): boolean {
+        xml.startDocument()
+        xml.startElement('museScore', [['version', MSC_VERSION_STR]])
+        this.save(xml, false)
+        xml.endElement()
+        return true
+    }
+
+    save(xml: XmlWriter, optimize: boolean): void {
+        xml.startElement('Style')
+
+        for (const st of styleValuesInDefinitionOrder()) {
+            const idx = st.sid
+            if (idx === Sid.spatium) { // special handling for spatium
+                continue
+            }
+            if (optimize && this.isDefault(idx)) {
+                continue
+            }
+            const type = st.type
+            const v = this.value(idx)
+            switch (type) {
+            case P_TYPE.SPATIUM:
+                xml.tag(st.xmlName, (v as Spatium).val())
+                break
+            case P_TYPE.DIRECTION_V:
+                xml.tag(st.xmlName, v as number)
+                break
+            case P_TYPE.ALIGN: {
+                const a = v as Align
+                // Don't write if it's the default value
+                if (optimize && a.equals(st.defaultValue as Align)) {
+                    continue
+                }
+                xml.tag(st.xmlName, TConv.toXmlAlign(a))
+                break
+            }
+            case P_TYPE.ALIGN_H:
+                xml.tag(st.xmlName, TConv.toXmlAlignH(v as AlignH))
+                break
+            case P_TYPE.LINE_TYPE:
+                xml.tagPropertyByName(st.xmlName, P_TYPE.LINE_TYPE, v)
+                break
+            case P_TYPE.TIE_PLACEMENT:
+                xml.tag(st.xmlName, TConv.toXmlTiePlacement(v as TiePlacement))
+                break
+            case P_TYPE.TIE_DOTS_PLACEMENT:
+                xml.tag(st.xmlName, TConv.toXmlTieDotsPlacement(v as TieDotsPlacement))
+                break
+            case P_TYPE.TIMESIG_PLACEMENT:
+                xml.tag(st.xmlName, TConv.toXmlTimeSigPlacement(v as TimeSigPlacement))
+                break
+            case P_TYPE.TIMESIG_STYLE:
+                xml.tag(st.xmlName, TConv.toXmlTimeSigStyle(v as TimeSigStyle))
+                break
+            case P_TYPE.TIMESIG_MARGIN:
+                xml.tag(st.xmlName, TConv.toXmlTimeSigVSMargin(v as TimeSigVSMargin))
+                break
+            case P_TYPE.CHORD_PRESET_TYPE:
+                xml.tag(st.xmlName, TConv.toXmlChordStylePreset(v as ChordStylePreset))
+                break
+            case P_TYPE.NOTE_SPELLING_TYPE:
+                xml.tag(st.xmlName, TConv.toXmlNoteSpellingType(v as NoteSpellingType))
+                break
+            case P_TYPE.LH_TAPPING_SYMBOL:
+                xml.tag(st.xmlName, TConv.toXmlLHTappingSymbol(v as LHTappingSymbol))
+                break
+            case P_TYPE.RH_TAPPING_SYMBOL:
+                xml.tag(st.xmlName, TConv.toXmlRHTappingSymbol(v as RHTappingSymbol))
+                break
+            case P_TYPE.TEXT_STYLE:
+                xml.tag(st.xmlName, TConv.toXmlTextStyleType(v as TextStyleType))
+                break
+            case P_TYPE.PARENTHESES_MODE:
+                xml.tag(st.xmlName, TConv.toXmlParenthesesMode(v as ParenthesesMode))
+                break
+            case P_TYPE.PLAY_COUNT_PRESET:
+                xml.tag(st.xmlName, TConv.toXmlRepeatPlayCountPreset(v as RepeatPlayCountPreset))
+                break
+            case P_TYPE.MEASURE_NUMBER_PLACEMENT:
+                xml.tag(st.xmlName, TConv.toXmlMeasureNumberPlacement(v as MeasureNumberPlacement))
+                break
+            case P_TYPE.BOOL:
+            case P_TYPE.INT:
+            case P_TYPE.REAL:
+            case P_TYPE.STRING:
+            case P_TYPE.POINT:
+            case P_TYPE.SIZE:
+            case P_TYPE.SCALE:
+            case P_TYPE.COLOR:
+                xml.tagPropertyByName(st.xmlName, type, v)
+                break
+            default:
+                //! NOTE for compatibility: enums are written as int
+                xml.tagPropertyByName(st.xmlName, P_TYPE.INT, v)
+                break
+            }
+        }
+
+        xml.tag('spatium', (this.value(Sid.spatium) as number) / DPMM)
+        xml.endElement()
+    }
+
     // ---------------------------------------------------------------------------------
 
     /** reads a full style document (<museScore><Style>...</Style></museScore>) */

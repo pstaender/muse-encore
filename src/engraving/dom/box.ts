@@ -330,6 +330,9 @@ export class FBox extends VBox {
         this.resetProperty(Pid.BOTTOM_MARGIN)
         this.resetProperty(Pid.TOP_GAP)
         this.resetProperty(Pid.BOTTOM_GAP)
+        this.resetProperty(Pid.EXCLUDE_FROM_OTHER_PARTS)
+        this.resetProperty(Pid.APPEARANCE_LINKED_TO_MASTER)
+        this.resetProperty(Pid.POSITION_LINKED_TO_MASTER)
     }
 
     override add(e: EngravingItem): void {
@@ -431,6 +434,9 @@ export class FBox extends VBox {
             return AlignH.HCENTER
         case Pid.EXCLUDE_FROM_OTHER_PARTS:
             return true
+        case Pid.APPEARANCE_LINKED_TO_MASTER:
+        case Pid.POSITION_LINKED_TO_MASTER:
+            return false
         default:
             return super.propertyDefault(propertyId)
         }

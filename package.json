@@ -29,7 +29,9 @@
     "build:musescoreweb": "vite build musescoreweb",
     "render": "tsx tools/render.ts",
     "compare": "tsx tools/compare.ts",
-    "compare:all": "tsx tools/compare-all.ts"
+    "compare:all": "tsx tools/compare-all.ts",
+    "compare:mscx": "tsx tools/compare-mscx.ts",
+    "roundtrip": "tsx tools/roundtrip.ts"
   },
   "dependencies": {
     "fflate": "^0.8.3",

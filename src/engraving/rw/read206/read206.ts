@@ -7,7 +7,7 @@
  *
  * Like C++, the elements that did not change are read with the read400 readers (here: the shared read460
  * readers, which contain the read400/read410 compat code).
- * TODO(port): excerpts (<Score> recursion), Audio, Synthesizer, images, old Bend, note events,
+ * TODO(port): excerpts (<Score> recursion), Audio, images, old Bend, note events,
  * MIDI data of instrument channels,
  * SystemDivider, tempo map, MIDI mapping, <ticklen> (< 1.12, needs the compat time sig map)
  */
@@ -46,7 +46,7 @@ import { scoreDummy } from '../../compat/dummyelement'
 import { readPageFormat206 } from '../../compat/pageformat'
 import { Factory } from '../../dom/factory'
 import { Part } from '../../dom/part'
-import { Instrument } from '../../dom/instrument'
+import { Instrument, InstrChannel } from '../../dom/instrument'
 import { StaffType } from '../../dom/stafftype'
 import { ClefTypeList } from '../../dom/clefinfo'
 import { Pid } from '../../dom/propertydata'
@@ -1277,8 +1277,10 @@ export class Read206 {
             } else if (tag === 'siglist') {
                 e.skipCurrentElement() // TODO(port): compat time sig map (only used for <ticklen>)
             } else if (tag === 'Omr' || tag === 'Audio' || tag === 'showOmr' || tag === 'LayerTag' || tag === 'Layer'
-                       || tag === 'currentLayer' || tag === 'Synthesizer') {
+                       || tag === 'currentLayer') {
                 e.skipCurrentElement()
+            } else if (tag === 'Synthesizer') {
+                score.synthesizerState().read(e)
             } else if (tag === 'playMode') {
                 e.skipCurrentElement()
             } else if (tag === 'page-offset') {
@@ -1499,6 +1501,7 @@ function readDrumset206(ds: Drumset, e: XmlReader): void {
 
 function readInstrument206(i: Instrument, p: Part, e: XmlReader, ctx: ReadContext): void {
     const customDrumset = { value: false }
+    i.clearChannels() // remove default channel
     while (e.readNextStartElement()) {
         const tag = e.name()
         if (tag === 'Drum') {
@@ -1520,7 +1523,26 @@ function readInstrument206(i: Instrument, p: Part, e: XmlReader, ctx: ReadContex
 
     i.updateInstrumentId()
 
-    // TODO(port): single note dynamics from template
+    // Read single-note dynamics from template
+    i.setSingleNoteDynamicsFromTemplate()
+
+    if (!i.channels().length) { // for backward compatibility
+        const a = new InstrChannel()
+        a.setName(InstrChannel.DEFAULT_NAME)
+        a.setProgram(i.recognizeMidiProgram())
+        a.setVolume(100)
+        a.setPan(60)
+        a.setReverb(30)
+        a.setChorus(30)
+        i.appendChannel(a)
+    } else if (i.channel(0)!.program() < 0) {
+        i.channel(0)!.setProgram(i.recognizeMidiProgram())
+    }
+    if (i.useDrumset()) {
+        if (i.channel(0)!.bank() === 0) {
+            i.channel(0)!.setBank(128)
+        }
+    }
 }
 
 //---------------------------------------------------------

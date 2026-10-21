@@ -3,13 +3,14 @@
  * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
- * Port of src/engraving/dom/instrument.h/.cpp (only what is needed for engraving:
- * names, clefs, transposition; of the MIDI data only what identifies the instrument)
+ * Port of src/engraving/dom/instrument.h/.cpp (only what is needed for engraving and for reading/writing files:
+ * names, clefs, transposition, the MIDI data of the channels; no playback state)
  */
 
 import { SortedMap } from '../../framework/global/sortedmap'
 import { ClefType, GlissandoStyle } from '../types/types'
 import { ClefTypeList } from './clefinfo'
+import { CTRL_CHORUS_SEND, CTRL_HBANK, CTRL_LBANK, CTRL_PANPOT, CTRL_PROGRAM, CTRL_REVERB_SEND, CTRL_VOLUME, ME_CONTROLLER, MidiCoreEvent } from '../compat/midi/midicoreevent'
 import { Interval } from './interval'
 import { StringData } from './stringdata'
 import { type Drumset, smDrumset } from './drumset'
@@ -51,20 +52,120 @@ export class Trait {
 
 
 /** InstrChannel: only name, bank and program (used to recognize the instrument of old scores); no playback data */
+export interface NamedEventList {
+    name: string
+    descr: string
+    events: MidiCoreEvent[]
+}
+
+export interface MidiArticulation {
+    name: string
+    descr: string
+    velocity: number // velocity change: -100% - +100%
+    gateTime: number // gate time change: -100% - +100%
+}
+
+/** C++ InstrChannel (without playback state: mute/solo, notifications) */
 export class InstrChannel {
     static readonly DEFAULT_NAME = 'normal'
+    static readonly DEFAULT_COLOR = 0x3399ff
+    static readonly defaultVolume = 100
+
+    // the indices of the init list (C++ enum class A)
+    static readonly A_HBANK = 0
+    static readonly A_LBANK = 1
+    static readonly A_PROGRAM = 2
+    static readonly A_VOLUME = 3
+    static readonly A_PAN = 4
+    static readonly A_CHORUS = 5
+    static readonly A_REVERB = 6
+    static readonly A_INIT_COUNT = 7
 
     private m_name = ''
     private m_program = -1
     private m_bank = 0
+    private m_synti = 'Fluid' // default synthesizer
+    private m_color = InstrChannel.DEFAULT_COLOR
+    private m_volume = InstrChannel.defaultVolume
+    private m_pan = 64 // actually 63.5 for center
+    private m_chorus = 0
+    private m_reverb = 0
+    private m_userBankController = false
+    private m_init: MidiCoreEvent[] = Array.from({ length: InstrChannel.A_INIT_COUNT }, () => new MidiCoreEvent())
+    private m_mustUpdateInit = true
+
+    midiActions: NamedEventList[] = []
+    articulation: MidiArticulation[] = []
 
     name(): string { return this.m_name }
     setName(n: string): void { this.m_name = n }
     program(): number { return this.m_program }
-    setProgram(v: number): void { this.m_program = v }
+    setProgram(v: number): void {
+        this.m_program = v
+        this.m_mustUpdateInit = true
+    }
     bank(): number { return this.m_bank }
-    setBank(v: number): void { this.m_bank = v }
-    clone(): InstrChannel { return Object.assign(new InstrChannel(), this) }
+    setBank(v: number): void {
+        this.m_bank = v
+        this.m_mustUpdateInit = true
+    }
+    synti(): string { return this.m_synti }
+    setSynti(v: string): void { this.m_synti = v }
+    color(): number { return this.m_color }
+    setColor(v: number): void { this.m_color = v }
+    volume(): number { return this.m_volume }
+    setVolume(v: number): void {
+        this.m_volume = v
+        this.m_mustUpdateInit = true
+    }
+    pan(): number { return this.m_pan }
+    setPan(v: number): void {
+        this.m_pan = v
+        this.m_mustUpdateInit = true
+    }
+    chorus(): number { return this.m_chorus }
+    setChorus(v: number): void {
+        this.m_chorus = v
+        this.m_mustUpdateInit = true
+    }
+    reverb(): number { return this.m_reverb }
+    setReverb(v: number): void {
+        this.m_reverb = v
+        this.m_mustUpdateInit = true
+    }
+    userBankController(): boolean { return this.m_userBankController }
+    setUserBankController(v: boolean): void { this.m_userBankController = v }
+    setMustUpdateInit(v: boolean): void { this.m_mustUpdateInit = v }
+
+    addToInit(e: MidiCoreEvent): void { this.m_init.push(e) }
+
+    initList(): readonly MidiCoreEvent[] {
+        if (this.m_mustUpdateInit) {
+            this.updateInitList()
+            this.m_mustUpdateInit = false
+        }
+        return this.m_init
+    }
+
+    private updateInitList(): void {
+        if (this.m_program !== -1) {
+            this.m_init[InstrChannel.A_PROGRAM] = new MidiCoreEvent(ME_CONTROLLER, 0, CTRL_PROGRAM, this.m_program)
+        }
+        this.m_init[InstrChannel.A_HBANK] = new MidiCoreEvent(ME_CONTROLLER, 0, CTRL_HBANK, (this.m_bank >> 7) & 0x7f)
+        this.m_init[InstrChannel.A_LBANK] = new MidiCoreEvent(ME_CONTROLLER, 0, CTRL_LBANK, this.m_bank & 0x7f)
+        this.m_init[InstrChannel.A_VOLUME] = new MidiCoreEvent(ME_CONTROLLER, 0, CTRL_VOLUME, this.m_volume)
+        this.m_init[InstrChannel.A_PAN] = new MidiCoreEvent(ME_CONTROLLER, 0, CTRL_PANPOT, this.m_pan)
+        this.m_init[InstrChannel.A_CHORUS] = new MidiCoreEvent(ME_CONTROLLER, 0, CTRL_CHORUS_SEND, this.m_chorus)
+        this.m_init[InstrChannel.A_REVERB] = new MidiCoreEvent(ME_CONTROLLER, 0, CTRL_REVERB_SEND, this.m_reverb)
+    }
+
+    clone(): InstrChannel {
+        const c = Object.assign(new InstrChannel(), this)
+        c.m_init = this.m_init.map(e => e.clone())
+        c.midiActions = this.midiActions.map(a => ({ ...a, events: a.events.map(e => e.clone()) }))
+        c.articulation = this.articulation.map(a => ({ ...a }))
+        return c
+    }
 }
 
 export class Instrument {
@@ -83,7 +184,8 @@ export class Instrument {
     private m_soundId = ''
     private m_drumset: Drumset | null = null
     private m_channel: InstrChannel[] = []
-    // TODO(port): articulations, MIDI actions
+    private m_midiActions: NamedEventList[] = []
+    private m_articulation: MidiArticulation[] = []
     private m_stringData = new StringData()
     private m_singleNoteDynamics = true
     private m_trait = new Trait()
@@ -153,12 +255,32 @@ export class Instrument {
         this.m_clefType = i.m_clefType.map(c => c.clone())
         this.m_drumset = i.m_drumset ? i.m_drumset.clone() : null
         this.m_channel = i.m_channel.map(c => c.clone())
+        this.m_midiActions = i.m_midiActions.map(a => ({ ...a, events: a.events.map(e => e.clone()) }))
+        this.m_articulation = i.m_articulation.map(a => ({ ...a }))
         this.m_stringData = i.m_stringData.clone()
         this.m_trait = i.m_trait.clone()
     }
 
+    cleffTypeCount(): number { return this.m_clefType.length }
+
+    recognizeMidiProgram(): number {
+        const tp = searchTemplate(this.m_id)
+        if (tp && tp.channel.length && tp.channel[0].program >= 0) {
+            return tp.channel[0].program
+        }
+        return 0
+    }
+
     channel(idx: number): InstrChannel | null { return this.m_channel[idx] ?? null }
+    /** C++ channel() (the list) */
+    channels(): readonly InstrChannel[] { return this.m_channel }
     appendChannel(c: InstrChannel): void { this.m_channel.push(c) }
+    clearChannels(): void { this.m_channel = [] }
+
+    midiActions(): readonly NamedEventList[] { return this.m_midiActions }
+    addMidiAction(a: NamedEventList): void { this.m_midiActions.push(a) }
+    articulation(): readonly MidiArticulation[] { return this.m_articulation }
+    addMidiArticulation(a: MidiArticulation): void { this.m_articulation.push(a) }
 
     channelIdx(s: string): number {
         let idx = 0
@@ -303,6 +425,20 @@ export class Instrument {
     trait(): Trait { return this.m_trait }
     setTrait(t: Trait): void { this.m_trait = t }
     glissandoStyle(): GlissandoStyle { return this.m_glissandoStyle }
+    setGlissandoStyle(v: GlissandoStyle): void { this.m_glissandoStyle = v }
+
+    getSingleNoteDynamicsFromTemplate(): boolean {
+        const templateName = this.trackName().toLowerCase().replace(/ /g, '-').replace(/♭/g, 'b')
+        const tp = searchTemplate(templateName)
+        if (tp) {
+            return tp.singleNoteDynamics
+        }
+        return true
+    }
+
+    setSingleNoteDynamicsFromTemplate(): void {
+        this.setSingleNoteDynamics(this.getSingleNoteDynamicsFromTemplate())
+    }
     hasStrings(): boolean { return this.m_stringData.strings() > 0 }
     setId(id: string): void { this.m_id = id }
     instrumentId(): string { return this.m_instrumentId }
@@ -394,7 +530,7 @@ export class Instrument {
 
     setClefType(staffIdx: number, c: ClefTypeList): void {
         while (this.m_clefType.length <= staffIdx) {
-            this.m_clefType.push(new ClefTypeList(ClefType.INVALID))
+            this.m_clefType.push(new ClefTypeList())
         }
         this.m_clefType[staffIdx] = c
     }

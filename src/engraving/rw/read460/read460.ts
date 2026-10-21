@@ -16,15 +16,19 @@ import type { MasterScore } from '../../dom/masterscore'
 import type { Spanner } from '../../dom/spanner'
 import type { Text } from '../../dom/text'
 import type { XmlReader } from '../xmlreader'
-import { ReadContext } from './readcontext'
+import { ReadContext, type ReadLinks } from './readcontext'
 import { StaffRead } from './staffread'
 import { ScoreOrder } from '../../dom/scoreorder'
 import { TRead } from './tread'
 import { ReadChordListHook } from '../compat/readchordlisthook'
 
 export class Read460 {
-    readScoreFile(score: Score, e: XmlReader): boolean {
+    /** `data`: C++ ReadInOutData (the links of the master score are passed to the excerpts) */
+    readScoreFile(score: Score, e: XmlReader, data: { links?: ReadLinks } | null = null): boolean {
         const ctx = new ReadContext(score)
+        if (!score.isMaster() && data && data.links) {
+            ctx.initLinks(data.links)
+        }
         while (e.readNextStartElement()) {
             const tag = e.name()
             if (tag === 'programVersion') {
@@ -49,7 +53,15 @@ export class Read460 {
                 e.skipCurrentElement()
             }
         }
+        if (!score.isMaster()) {
+            score.excerpt()!.setTracksMapping([...ctx.tracks()])
+        }
+
         ctx.clearOrphanedConnectors()
+
+        if (data) {
+            data.links = ctx.readLinks()
+        }
         return true
     }
 
@@ -59,12 +71,16 @@ export class Read460 {
             ctx.setTrack(-1)
             const tag = e.name()
             if (tag === 'eid') {
-                e.skipCurrentElement()
+                TRead.readItemEID(score, e, ctx)
             } else if (tag === 'Staff') {
                 StaffRead.readStaff(score, e, ctx)
             } else if (tag === 'Omr' || tag === 'Audio' || tag === 'showOmr' || tag === 'LayerTag' || tag === 'Layer'
-                       || tag === 'currentLayer' || tag === 'Synthesizer' || tag === 'playMode' || tag === 'open') {
+                       || tag === 'currentLayer' || tag === 'playMode') {
                 e.skipCurrentElement()
+            } else if (tag === 'Synthesizer') {
+                score.synthesizerState().read(e)
+            } else if (tag === 'open') {
+                score.setIsOpen(e.readBool())
             } else if (tag === 'page-offset') {
                 score.setPageNumberOffset(e.readInt())
             } else if (tag === 'Division') {
@@ -140,8 +156,24 @@ export class Read460 {
                 }
                 TRead.readItem(s, e, ctx)
                 score.addSpanner(s)
-            } else if (tag === 'initialPartId' || tag === 'Tracklist' || tag === 'name') {
+            } else if (tag === 'initialPartId') {
+                if (score.excerpt()) {
+                    score.excerpt()!.setInitialPartId(String(e.readInt()))
+                } else {
+                    e.skipCurrentElement()
+                }
+            } else if (tag === 'Tracklist') {
+                const strack = e.intAttribute('sTrack', -1)
+                const dtrack = e.intAttribute('dstTrack', -1)
+                if (strack !== -1 && dtrack !== -1) {
+                    ctx.tracks().set(strack, dtrack)
+                }
                 e.skipCurrentElement()
+            } else if (tag === 'name') {
+                const n = e.readText()
+                if (!score.isMaster()) { // ignore the name if it's not a child score
+                    score.excerpt()!.setName(n)
+                }
             } else if (tag === 'Score') { // recursion (excerpts in old files)
                 e.skipCurrentElement() // TODO(port): excerpts
             } else if (tag === 'layoutMode') {

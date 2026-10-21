@@ -438,6 +438,13 @@ export class Chord extends ChordRest {
     setArpeggio(a: EngravingItem | null): void { this.m_arpeggio = a }
     stemSlash(): StemSlash | null { return this.m_stemSlash }
     showStemSlash(): boolean { return this.m_showStemSlash }
+
+    override isUserModified(): boolean {
+        if (this.showStemSlash() !== (this.propertyDefault(Pid.SHOW_STEM_SLASH) as boolean)) {
+            return true
+        }
+        return super.isUserModified()
+    }
     setShowStemSlash(show: boolean): void { this.m_showStemSlash = show }
 
     noteParentheses(): readonly NoteParenthesisInfo[] { return this.m_noteParens }

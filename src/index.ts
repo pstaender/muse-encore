@@ -24,6 +24,9 @@ import { Sid } from './engraving/style/styledef'
 import { fontProvider } from './engraving/infrastructure/engravingcontext'
 import { MscLoader, loadScore as loadMasterScore } from './engraving/rw/mscloader'
 import { MscReader } from './engraving/infrastructure/mscreader'
+import { MscWriter } from './engraving/infrastructure/mscwriter'
+import { MscSaver } from './engraving/rw/mscsaver'
+import { Writer } from './engraving/rw/write/writer'
 import { EngravingCompat } from './engraving/compat/engravingcompat'
 import { MasterScore } from './engraving/dom/masterscore'
 import { ScoreRenderer } from './engraving/rendering/score/scorerenderer'
@@ -47,7 +50,16 @@ export {
 
 /** Reads a .mscz (zip) or .mscx (xml) file. Fonts must be initialized before (initEngravingFonts). */
 export function loadScore(data: Uint8Array | ArrayBuffer): MasterScore {
-    return loadMasterScore(data)
+    const score = loadMasterScore(data)
+    // NotationProject::doLoad reads the cloud info with std::map::operator[], which adds these meta tags (saved files
+    // contain them)
+    for (const tag of ['source', 'sourceRevisionId', 'audioComUrl']) {
+        if (!score.metaTags().has(tag)) {
+            score.setMetaTag(tag, '')
+        }
+    }
+    score.setIsOpen(true) // GlobalContext::setCurrentNotation: the score is open (saved as <open>)
+    return score
 }
 
 /**
@@ -84,6 +96,30 @@ export function layoutScore(score: MasterScore): void {
 }
 
 const s_compatDone = new WeakSet<MasterScore>()
+
+/** MuseScore saves laid out scores (multimeasure rests, compatibility conversions of old files happen with the layout) */
+function ensureLaidOut(score: MasterScore): void {
+    if (!s_compatDone.has(score)) {
+        layoutScore(score)
+    }
+}
+
+/** The main .mscx file of the score as MuseScore 4.7.5 writes it (Writer::writeScore; the style is in score_style.mss) */
+export function writeMscx(score: MasterScore): string {
+    ensureLaidOut(score)
+    return Writer.writeScore(score)
+}
+
+/**
+ * A complete .mscz file (MasterScore::writeMscz: META-INF/container.xml, score_style.mss, the score, the parts
+ * (Excerpts/) and a custom chord list). `fileName` (e.g. "My Score.mscz") gives the name of the .mscx inside.
+ */
+export function saveMscz(score: MasterScore, fileName?: string): Uint8Array {
+    ensureLaidOut(score)
+    const writer = new MscWriter({ filePath: fileName })
+    new MscSaver().writeMscz(score, writer)
+    return writer.zipData()
+}
 
 export function pageCount(score: MasterScore): number {
     return score.npages()
@@ -321,6 +357,7 @@ export function createScore(options: NewScoreOptions): MasterScore {
 
     const score = new NotationProject().createNew(projectOptions)
     s_compatDone.add(score) // laid out like MuseScore does for a new score (once, no compatibility conversions)
+    score.setIsOpen(true) // GlobalContext::setCurrentNotation: the score is open (saved as <open>)
     return score
 }
 

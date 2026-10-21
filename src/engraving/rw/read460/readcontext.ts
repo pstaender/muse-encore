@@ -12,6 +12,7 @@ import type { MStyle } from '../../style/style'
 import { Interval } from '../../dom/interval'
 import { Location } from '../../dom/location'
 import { INT_MAX } from '../../dom/connector'
+import { linkedObjectsMainElement } from '../../dom/linkedobjects'
 import type { EngravingObject } from '../../dom/engravingobject'
 import type { Measure } from '../../dom/measure'
 import type { Score } from '../../dom/score'
@@ -39,7 +40,14 @@ export enum StaffHideMode {
 }
 
 /** C++ rw/linksindexer.h */
-class LinksIndexer {
+export class LinksIndexer {
+    clone(): LinksIndexer {
+        const l = new LinksIndexer()
+        l.m_lastLocalIndex = this.m_lastLocalIndex
+        l.m_lastLinkedElementLoc = this.m_lastLinkedElementLoc.clone()
+        return l
+    }
+
     private m_lastLocalIndex = -1
     private m_lastLinkedElementLoc = Location.absolute()
 
@@ -53,6 +61,12 @@ class LinksIndexer {
 
         return 0
     }
+}
+
+/** C++ rw::ReadLinks (inoutdata.h) */
+export interface ReadLinks {
+    staffLinkedElements: Map<number, [EngravingObject[], Location][]> // one list per staff
+    linksIndexer: LinksIndexer
 }
 
 export class ReadContext {
@@ -79,7 +93,7 @@ export class ReadContext {
 
     // read410 compat: elements linked with <linked>/<linkedMain> (one list per staff)
     private m_staffLinkedElements = new Map<number, [EngravingObject[], Location][]>()
-    private m_linksIndexer = new LinksIndexer()
+    private m_linksIndexer: LinksIndexer = new LinksIndexer()
 
     // read206 (read400 ReadContext): elements referenced by id
     private m_beams = new Map<number, Beam>()
@@ -173,21 +187,47 @@ export class ReadContext {
         }
     }
 
-    /** read410 ReadContext::addLink (master score only) */
+    /** read410 ReadContext::readLinks(): the links of the master score, passed to the excerpts (ReadInOutData::links) */
+    readLinks(): ReadLinks {
+        return {
+            linksIndexer: this.m_linksIndexer.clone(),
+            staffLinkedElements: new Map([...this.m_staffLinkedElements].map(([k, v]) => [k, [...v]])),
+        }
+    }
+
+    initLinks(l: ReadLinks): void {
+        this.m_linksIndexer = l.linksIndexer.clone()
+        this.m_staffLinkedElements = new Map([...l.staffLinkedElements].map(([k, v]) => [k, [...v]]))
+    }
+
+    /** read410 ReadContext::addLink */
     addLink(staff: Staff, link: EngravingObject[], location: Location): void {
-        const staffIndex = staff.idx()
+        let staffIndex = staff.idx()
+        const isMasterScore = staff.score().isMaster()
+        if (!isMasterScore) {
+            staffIndex *= -1
+        }
         let staffLinks = this.m_staffLinkedElements.get(staffIndex)
         if (!staffLinks) {
             staffLinks = []
             this.m_staffLinkedElements.set(staffIndex, staffLinks)
         }
+        if (!isMasterScore) {
+            if (staffLinks.length
+                && linkedObjectsMainElement(link)!.score() !== linkedObjectsMainElement(staffLinks[0][0])!.score()) {
+                staffLinks.length = 0
+            }
+        }
         this.m_linksIndexer.assignLocalIndex(location)
         staffLinks.push([link, location])
     }
 
-    /** read410 ReadContext::getLink (master score only) */
-    getLink(location: Location, localIndexDiff: number): EngravingObject[] | null {
-        const staffIndex = location.staff()
+    /** read410 ReadContext::getLink */
+    getLink(isMasterScore: boolean, location: Location, localIndexDiff: number): EngravingObject[] | null {
+        let staffIndex = location.staff()
+        if (!isMasterScore) {
+            staffIndex *= -1
+        }
         const localIndex = this.m_linksIndexer.assignLocalIndex(location) + localIndexDiff
         let staffLinks = this.m_staffLinkedElements.get(staffIndex)
         if (!staffLinks) {

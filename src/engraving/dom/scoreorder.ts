@@ -3,11 +3,12 @@
  * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
- * Port of src/engraving/dom/scoreorder.h/.cpp (TODO(port): ScoreOrder::write)
+ * Port of src/engraving/dom/scoreorder.h/.cpp
  */
 
 import { BracketType } from '../types/types'
 import type { XmlReader } from '../rw/xmlreader'
+import type { XmlWriter } from '../rw/xmlwriter'
 import { Pid } from './property'
 import { instrumentGroups, searchTemplate, searchTemplateIndexForId, type InstrumentTemplate } from './instrtemplate'
 import type { Score } from './score'
@@ -412,5 +413,50 @@ export class ScoreOrder {
                 this.instrumentMap.set(ii.instrTemplate.id, { id: ii.instrTemplate.family.id, name: ii.instrTemplate.family.name })
             }
         }
+    }
+
+    write(xml: XmlWriter): void {
+        if (!this.isValid()) {
+            return
+        }
+
+        xml.startElement('Order', [['id', this.id]])
+        xml.tag('name', this.name)
+
+        // std::map: sorted by key
+        for (const [key, io] of [...this.instrumentMap].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+            xml.startElement('instrument', [['id', key]])
+            xml.tag('family', [['id', io.id]], io.name)
+            xml.endElement()
+        }
+
+        let section = ''
+        for (const sg of this.groups) {
+            if (sg.section !== section) {
+                if (section) {
+                    xml.endElement()
+                }
+                if (sg.section) {
+                    xml.startElement('section', [['id', sg.section],
+                        ['brackets', sg.bracket ? 'true' : 'false'],
+                        ['barLineSpan', sg.barLineSpan ? 'true' : 'false'],
+                        ['thinBrackets', sg.thinBracket ? 'true' : 'false']])
+                }
+                section = sg.section
+            }
+            if (sg.family === SOLOISTS_ID) {
+                xml.tag('soloists')
+            } else if (sg.notUnsorted) {
+                xml.tag('family', sg.family)
+            } else if (!sg.unsorted) {
+                xml.tag('unsorted')
+            } else {
+                xml.tag('unsorted', [['group', sg.unsorted]])
+            }
+        }
+        if (section) {
+            xml.endElement()
+        }
+        xml.endElement()
     }
 }

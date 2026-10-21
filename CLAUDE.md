@@ -28,7 +28,9 @@ src/
   engraving/infrastructure  Shape, Skyline, Smufl, MscReader (zip)
   engraving/dom         the score object model (Score, Measure, Segment, Chord, Note, ...)
   engraving/rw          XmlReader, readers (read460 for 4.x incl. read400/read410 compat, read302 for 3.x, read206 for 2.x),
-                        rw/compat (chord list hook, CompatUtils incl. doCompatibilityConversions = compatconversions.ts)
+                        rw/compat (chord list hook, CompatUtils incl. doCompatibilityConversions = compatconversions.ts),
+                        XmlWriter, rw/write (Writer, TWrite, MeasureWrite, StaffWrite, ConnectorInfoWriter, WriteContext),
+                        MscSaver (.mscz contents); infrastructure/MscWriter (zip via fflate), EID/EIDRegister
   engraving/compat      EngravingCompat (pre/post layout conversions of old files), page format, dummy element
   engraving/rendering/score  layout (ScoreLayout, SystemLayout, ChordLayout, ...) and painting (TDraw)
   engraving/editing     score changes (edit.cpp etc.; no undo stack yet: commands are applied directly)
@@ -88,6 +90,10 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
   the same 1200 DPI coordinates as the layout.
 - `npm run compare:all` - compare all vtest scores and `mscz-test-files/` with MuseScore against
   `test/compare-baseline.csv` (regressions fail); `-- --update-baseline` after intended changes
+- `npm run roundtrip` - load -> saveMscz -> load every baseline score and compare the SVG of every page (exact, or
+  equal within the rounding of 6-digit values; a second round trip must be exact)
+- `npm run compare:mscx` - diff writeMscx/saveMscz output (main .mscx, style, parts) against MuseScore's own re-save
+  (`mscore -o out.mscx`, cached in compare-out/mscx/ref); EIDs are normalized
 - `npx tsx tools/gen/<gen-*.ts> MuseScore` - regenerate tables from the reference sources (symids, styledef,
   property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates, scoreorders, uiactions [-> musescoreweb/actions])
 
