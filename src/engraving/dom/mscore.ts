@@ -49,11 +49,24 @@ export enum MsError {
     CANNOT_EXPLODE_IMPLODE_LOCAL_TIMESIG,
 }
 
+/** the clipboard formats (C++ mscore.h) */
+export const mimeSymbolFormat = 'application/musescore/symbol'
+export const mimeSymbolListFormat = 'application/musescore/symbollist'
+export const mimeStaffListFormat = 'application/musescore/stafflist'
+
 export class MScore {
     // engravingmodule.cpp: MScore::setNudgeStep(0.1) etc.
     static nudgeStep = 0.1 // cursor key (default 0.1)
     static nudgeStep10 = 1.0 // Ctrl + cursor key (default 1.0)
     static nudgeStep50 = 0.01 // Alt  + cursor key (default 0.01)
+
+    // the snap-to-grid raster (NotationConfiguration: horizontal/vertical grid size, default 2 per spatium)
+    private static s_hRaster = 2
+    private static s_vRaster = 2
+    static hRaster(): number { return MScore.s_hRaster }
+    static vRaster(): number { return MScore.s_vRaster }
+    static setHRaster(val: number): void { MScore.s_hRaster = val }
+    static setVRaster(val: number): void { MScore.s_vRaster = val }
 
     private static s_error = MsError.MS_NO_ERROR
     private static s_errorIsWarning = false

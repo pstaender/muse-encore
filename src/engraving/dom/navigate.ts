@@ -15,6 +15,7 @@ import type { ChordRest } from './chordrest'
 import type { Chord } from './chord'
 import type { Note } from './note'
 import type { Measure } from './measure'
+import { lyricsNavigation, type Lyrics } from './lyrics'
 
 declare module './score' {
     interface Score {
@@ -354,3 +355,48 @@ Score.prototype.lastSegmentMM = function (this: Score): Segment | null {
     const m = this.lastMeasureMM()
     return m ? m.last() : null
 }
+
+// =====================================================================================================================
+//   lyrics navigation (navigate.cpp: prevLyrics, nextLyrics), used by text editing
+// =====================================================================================================================
+
+export function prevLyrics(lyrics: Lyrics): Lyrics | null {
+    let seg: Segment | null = lyrics.explicitParent() ? lyrics.segment() : null
+    if (!seg) {
+        return null
+    }
+    while ((seg = seg.prev1(SegmentType.ChordRest))) {
+        const strack = lyrics.staffIdx() * VOICES
+        const etrack = strack + VOICES
+        for (let track = strack; track < etrack; ++track) {
+            const el = seg.element(track)
+            const prev = el && el.isChord() ? (el as unknown as ChordRest).lyricsVerse(lyrics.verse(), lyrics.placement()) : null
+            if (prev) {
+                return prev
+            }
+        }
+    }
+    return null
+}
+
+export function nextLyrics(lyrics: Lyrics): Lyrics | null {
+    const seg: Segment | null = lyrics.explicitParent() ? lyrics.segment() : null
+    if (!seg) {
+        return null
+    }
+    let nextSegment: Segment | null = seg
+    while ((nextSegment = nextSegment.next1(SegmentType.ChordRest))) {
+        const strack = lyrics.staffIdx() * VOICES
+        const etrack = strack + VOICES
+        for (let track = strack; track < etrack; ++track) {
+            const el = nextSegment.element(track)
+            const next = el && el.isChord() ? (el as unknown as ChordRest).lyricsVerse(lyrics.verse(), lyrics.placement()) : null
+            if (next) {
+                return next
+            }
+        }
+    }
+    return null
+}
+
+lyricsNavigation.prevLyrics = prevLyrics

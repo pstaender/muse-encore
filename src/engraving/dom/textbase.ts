@@ -31,6 +31,21 @@ import { Pid, PropertyFlags } from './property'
 import type { PaintOptions } from '../rendering/paintoptions'
 import type { TranslatableString } from '../../framework/global/types/translatablestring'
 import { TConv } from '../types/typesconv'
+// (imports of the editing section)
+import { DPMM, ElementType as ElementTypeValue } from '../types/types'
+import { LineF } from '../../framework/draw/types/geometry'
+import { EditDataType } from '../editing/elementeditdata'
+import { MScore } from './mscore'
+import { TextEditingControlModifier, type EditData } from '../editing/editdata'
+
+/** C++ renderer()->layoutText1() / layoutItem() calls of the text editing; set by rendering/score/scorerenderer.ts */
+export const textBaseRenderer: {
+    layoutText1(item: TextBase, base?: boolean): void
+    layoutItem(item: EngravingItem): void
+} = {
+    layoutText1: () => {},
+    layoutItem: () => {},
+}
 
 export const SUBSCRIPT_SIZE = 0.6
 export const SUBSCRIPT_OFFSET = 0.5 // of x-height
@@ -296,6 +311,331 @@ export class TextCursor {
         defaultFormat.setValign(this.m_text.propertyDefault(Pid.TEXT_SCRIPT_ALIGN) as VerticalAlignment)
         return defaultFormat
     }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    //   editing (cursor movement, selection)
+    // -----------------------------------------------------------------------------------------------------------------
+
+    /** C++ operator= (the edit data's cursor is the text's cursor; undo commands keep copies) */
+    assign(c: TextCursor): void {
+        this.m_text = c.m_text
+        this.m_format = c.m_format.clone()
+        this.m_row = c.m_row
+        this.m_column = c.m_column
+        this.m_selectLine = c.m_selectLine
+        this.m_selectColumn = c.m_selectColumn
+        this.m_editing = c.m_editing
+    }
+
+    startEdit(): void {
+        this.setRow(0)
+        this.setColumn(0)
+        this.clearSelection()
+        this.m_editing = true
+    }
+
+    endEdit(): void {
+        this.setRow(0)
+        this.setColumn(0)
+        this.clearSelection()
+        this.m_editing = false
+    }
+
+    currentPosition(): number {
+        return this.position(this.row(), this.column())
+    }
+
+    columns(): number {
+        return this.m_text.ldata().textBlock(this.m_row).columns()
+    }
+
+    /** the character at the cursor ('' if none) */
+    currentCharacter(): string {
+        const ldata = this.m_text.ldata()
+        const t = ldata.blocks[this.row()]
+        let s = t.text(this.column(), 1)
+        s = TextBase.unEscape(s)
+        if (s.length === 0) {
+            return ''
+        }
+        return s[0]
+    }
+
+    updateCursorFormat(): void {
+        const ldata = this.m_text.ldata()
+        const block = ldata.blocks[this.m_row]
+
+        const col = this.hasSelection() ? this.selectColumn() : this.column()
+        // Get format at the LEFT of the cursor position
+        const format = block.formatAt(Math.max(col - 1, 0))
+        if (!format) {
+            this.init()
+        } else {
+            this.setFormatObj(format)
+        }
+    }
+
+    cursorRect(): RectF {
+        const tline = this.curLine()
+        const fragment = tline.fragment(this.column())
+
+        const font = fragment ? fragment.font(this.m_text) : this.m_text.font()
+        if (fragment && font.type() === FontType.MusicSymbol) {
+            // Ensure the cursor height matches that of the associated text font
+            const textFontId = font.family() + ' Text'
+            font.setFamily(textFontId, FontType.MusicSymbolText)
+            font.setPointSizeF(fragment.format.fontSize())
+        }
+
+        const ascent = FontMetrics.ascent(font)
+        const h = ascent
+        const x = tline.xpos(this.column(), this.m_text)
+        const y = tline.y() - ascent * 0.9
+        return new RectF(x, y, 4.0, h)
+    }
+
+    movePosition(op: TextCursorMoveOperation, mode: TextCursorMoveMode = TextCursorMoveMode.MoveAnchor, count = 1): boolean {
+        for (let i = 0; i < count; i++) {
+            switch (op) {
+            case TextCursorMoveOperation.Left:
+                if (this.hasSelection() && mode === TextCursorMoveMode.MoveAnchor) {
+                    const [r1, c1] = TextBase.sort(this.m_selectLine, this.m_selectColumn, this.m_row, this.m_column)
+                    this.clearSelection()
+                    this.m_row = r1
+                    this.m_column = c1
+                } else if (this.m_column === 0) {
+                    if (this.m_row === 0) {
+                        return false
+                    }
+                    --this.m_row
+                    this.m_column = this.curLine().columns()
+                } else {
+                    --this.m_column
+                }
+                break
+
+            case TextCursorMoveOperation.Right:
+                if (this.hasSelection() && mode === TextCursorMoveMode.MoveAnchor) {
+                    const [, , r2, c2] = TextBase.sort(this.m_selectLine, this.m_selectColumn, this.m_row, this.m_column)
+                    this.clearSelection()
+                    this.m_row = r2
+                    this.m_column = c2
+                } else if (this.column() >= this.curLine().columns()) {
+                    if (this.m_row >= this.m_text.ldata().rows() - 1) {
+                        return false
+                    }
+                    ++this.m_row
+                    this.m_column = 0
+                } else {
+                    ++this.m_column
+                }
+                break
+
+            case TextCursorMoveOperation.Up:
+                if (this.m_row === 0) {
+                    return false
+                }
+                --this.m_row
+                if (this.m_column > this.curLine().columns()) {
+                    this.m_column = this.curLine().columns()
+                }
+                break
+
+            case TextCursorMoveOperation.Down:
+                if (this.m_row >= this.m_text.ldata().rows() - 1) {
+                    return false
+                }
+                ++this.m_row
+                if (this.m_column > this.curLine().columns()) {
+                    this.m_column = this.curLine().columns()
+                }
+                break
+
+            case TextCursorMoveOperation.Start:
+                this.m_row = 0
+                this.m_column = 0
+                break
+
+            case TextCursorMoveOperation.End:
+                this.m_row = this.m_text.ldata().rows() - 1
+                this.m_column = this.curLine().columns()
+                break
+
+            case TextCursorMoveOperation.StartOfLine:
+                this.m_column = 0
+                break
+
+            case TextCursorMoveOperation.EndOfLine:
+                this.m_column = this.curLine().columns()
+                break
+
+            case TextCursorMoveOperation.WordLeft:
+                if (this.m_column > 0) {
+                    --this.m_column
+                    while (this.m_column > 0 && isSpace(this.currentCharacter())) {
+                        --this.m_column
+                    }
+                    while (this.m_column > 0 && !isSpace(this.currentCharacter())) {
+                        --this.m_column
+                    }
+                    if (isSpace(this.currentCharacter())) {
+                        ++this.m_column
+                    }
+                }
+                break
+
+            case TextCursorMoveOperation.NextWord: {
+                const cols = this.columns()
+                if (this.m_column < cols) {
+                    ++this.m_column
+                    while (this.m_column < cols && !isSpace(this.currentCharacter())) {
+                        ++this.m_column
+                    }
+                    while (this.m_column < cols && isSpace(this.currentCharacter())) {
+                        ++this.m_column
+                    }
+                }
+                break
+            }
+
+            default:
+                return false
+            }
+            if (mode === TextCursorMoveMode.MoveAnchor) {
+                this.clearSelection()
+            }
+        }
+
+        this.updateCursorFormat()
+
+        return true
+    }
+
+    moveCursorToEnd(): void { this.movePosition(TextCursorMoveOperation.End) }
+    moveCursorToStart(): void { this.movePosition(TextCursorMoveOperation.Start) }
+
+    /** C++ doubleClickSelect */
+    selectWord(): void {
+        this.clearSelection()
+
+        // if clicked on a space, select surrounding spaces
+        // otherwise select surround non-spaces
+        const selectSpaces = isSpace(this.currentCharacter())
+
+        //handle double-clicking inside a word
+        const startPosition = this.m_column
+
+        while (this.m_column > 0 && isSpace(this.currentCharacter()) === selectSpaces) {
+            --this.m_column
+        }
+
+        if (isSpace(this.currentCharacter()) !== selectSpaces) {
+            ++this.m_column
+        }
+
+        this.m_selectColumn = this.m_column
+
+        this.m_column = startPosition
+        while (this.m_column < this.curLine().columns() && isSpace(this.currentCharacter()) === selectSpaces) {
+            ++this.m_column
+        }
+
+        this.updateCursorFormat()
+    }
+
+    /** sets the cursor to the canvas position p; returns false if p is not in the text */
+    set(p: PointF, mode: TextCursorMoveMode = TextCursorMoveMode.MoveAnchor): boolean {
+        const pt = p.minus(this.m_text.canvasPos())
+        if (!this.m_text.ldata().bbox().contains(pt)) {
+            return false
+        }
+
+        this.m_row = 0
+
+        const ldata = this.m_text.ldata()
+        for (let row = 0; row < ldata.blocks.length; ++row) {
+            const l = ldata.blocks[row]
+            if (l.y() > pt.y()) {
+                this.m_row = row
+                break
+            }
+        }
+        this.m_column = this.curLine().column(pt.x(), this.m_text)
+
+        if (mode === TextCursorMoveMode.MoveAnchor) {
+            this.clearSelection()
+        }
+        this.updateCursorFormat()
+
+        return true
+    }
+
+    /** return current selection */
+    selectedText(withFormat = false): string {
+        const [r1, c1, r2, c2] = TextBase.sort(this.selectLine(), this.selectColumn(), this.m_row, this.column())
+        return this.extractText(r1, c1, r2, c2, withFormat)
+    }
+
+    /** return text between (r1,c1) and (r2,c2). */
+    extractText(r1: number, c1: number, r2: number, c2: number, withFormat = false): string {
+        const tb = this.m_text.ldata().blocks
+
+        if (r1 === r2) {
+            return tb[r1].text(c1, c2 - c1, withFormat)
+        }
+
+        let str = tb[r1].text(c1, -1, withFormat) + '\n'
+
+        for (let r = r1 + 1; r < r2; ++r) {
+            str += tb[r].text(0, -1, withFormat) + '\n'
+        }
+
+        str += tb[r2].text(0, c2, withFormat)
+        return str
+    }
+
+    position(row: number, column: number): number {
+        const ldata = this.m_text.ldata()
+        let result = 0
+        for (let i = 0; i < row; ++i) {
+            result += ldata.blocks[i].columns()
+        }
+        result += column
+        return result
+    }
+}
+
+export enum TextCursorMoveOperation {
+    Start,
+    Up,
+    StartOfLine,
+    Left,
+    WordLeft,
+    End,
+    Down,
+    EndOfLine,
+    NextWord,
+    Right,
+}
+
+export enum TextCursorMoveMode {
+    MoveAnchor,
+    KeepAnchor,
+}
+
+export enum SelectTextType {
+    Word, All,
+}
+
+/** textbase.h isTextNavigationKey(): Space (without TextEditingControlModifier) and Tab */
+export function isTextNavigationKey(key: number, modifiers: number): boolean {
+    // space + TextEditingControlModifier = insert nonbreaking space, so that's *not* a navigation key
+    return (key === 0x20 /* Key_Space */ && modifiers !== TextEditingControlModifier) || key === 0x01000001 /* Key_Tab */
+}
+
+/** QChar::isSpace */
+function isSpace(c: string): boolean {
+    return c.length > 0 && /\s/.test(c)
 }
 
 // ---------------------------------------------------------
@@ -471,7 +811,192 @@ export class TextBlock {
     fragmentsWithoutEmpty(): TextFragment[] { return this.m_fragments.filter(x => x.text.length > 0) }
 
     shape(): Shape { return this.m_shape }
-    boundingRect(): RectF { return this.m_shape.bbox() }
+
+    /** C++ boundingRect() and boundingRect(col1, col2, t) */
+    boundingRect(col1?: number, col2?: number, t?: TextBase): RectF {
+        if (col1 === undefined || col2 === undefined || !t) {
+            return this.m_shape.bbox()
+        }
+        const x1 = this.xpos(col1, t)
+        const x2 = this.xpos(col2, t)
+        const bbox = this.m_shape.bbox()
+        return new RectF(x1, bbox.y(), x2 - x1, bbox.height())
+    }
+
+    /** Return nearest column for position x. X is in Text coordinate system */
+    column(x: number, t: TextBase): number {
+        let col = 0
+        for (const f of this.m_fragments) {
+            let idx = 0
+            if (x <= f.pos.x()) {
+                return col
+            }
+            let px = 0.0
+            for (let i = 0; i < f.text.length; ++i) {
+                ++idx
+                if (isHighSurrogate(f.text.charCodeAt(i))) {
+                    continue
+                }
+                const fm = new FontMetrics(f.font(t))
+                const xo = fm.width(f.text.substring(0, idx))
+                if (x <= f.pos.x() + px + (xo - px) * 0.5) {
+                    return col
+                }
+                ++col
+                px = xo
+            }
+        }
+        return this.columns()
+    }
+
+    /** removes the character at column; returns it */
+    remove(column: number, cursor: TextCursor): string {
+        let col = 0
+        let s = ''
+        for (let it = 0; it < this.m_fragments.length; ++it) {
+            const f = this.m_fragments[it]
+            let idx = 0
+
+            for (let i = 0; i < f.text.length; ++i) {
+                if (col === column) {
+                    const c = f.text.charCodeAt(i)
+                    if (c >= 0xD800 && c <= 0xDFFF) { // isSurrogate
+                        s = f.text.substring(idx, idx + 2)
+                        f.text = f.text.substring(0, idx) + f.text.substring(idx + 2)
+                    } else {
+                        s = f.text.substring(idx, idx + 1)
+                        f.text = f.text.substring(0, idx) + f.text.substring(idx + 1)
+                    }
+                    if (f.text.length === 0) {
+                        this.m_fragments.splice(it, 1)
+                    }
+                    this.simplify()
+                    this.insertEmptyFragmentIfNeeded(cursor) // without this, cursorRect can't calculate the y position of the cursor correctly
+                    return s
+                }
+                ++idx
+                if (isHighSurrogate(f.text.charCodeAt(i))) {
+                    continue
+                }
+                ++col
+            }
+        }
+        this.insertEmptyFragmentIfNeeded(cursor) // without this, cursorRect can't calculate the y position of the cursor correctly
+        return s
+    }
+
+    simplify(): void {
+        if (this.m_fragments.length < 2) {
+            return
+        }
+        let fi = 0
+        let i = 1
+        while (i < this.m_fragments.length) {
+            const f = this.m_fragments[fi]
+            while (i < this.m_fragments.length && this.m_fragments[i].format.equals(f.format)) {
+                f.text += this.m_fragments[i].text
+                this.m_fragments.splice(i, 1)
+            }
+            if (i >= this.m_fragments.length) {
+                break
+            }
+            fi = i
+            ++i
+        }
+    }
+
+    /** C++ remove(int start, int n, TextCursor*) (renamed: no overloads in TS) */
+    removeRange(start: number, n: number, cursor: TextCursor): string {
+        if (n === 0) {
+            return ''
+        }
+        let col = 0
+        let s = ''
+        for (let i = 0; i < this.m_fragments.length;) {
+            let inc = true
+            const f = this.m_fragments[i]
+            for (let idx = 0; idx < f.text.length;) {
+                let c = f.text[idx]
+                if (col === start) {
+                    if (isHighSurrogate(c.charCodeAt(0))) {
+                        s += c
+                        f.text = f.text.substring(0, idx) + f.text.substring(idx + 1)
+                        c = f.text[idx]
+                    }
+                    s += c
+                    f.text = f.text.substring(0, idx) + f.text.substring(idx + 1)
+                    if (f.text.length === 0 && this.m_fragments.length > 1) {
+                        this.m_fragments.splice(i, 1)
+                        inc = false
+                    }
+                    --n
+                    if (n === 0) {
+                        this.insertEmptyFragmentIfNeeded(cursor) // without this, cursorRect can't calculate the y position of the cursor correctly
+                        return s
+                    }
+                    if (!inc) {
+                        break
+                    }
+                    continue
+                }
+                ++idx
+                if (isHighSurrogate(c.charCodeAt(0))) {
+                    continue
+                }
+                ++col
+            }
+            if (inc) {
+                ++i
+            }
+        }
+        this.insertEmptyFragmentIfNeeded(cursor) // without this, cursorRect can't calculate the y position of the cursor correctly
+        return s
+    }
+
+    /** splits the block at column: this keeps the text before, the returned block gets the rest */
+    split(column: number, cursor: TextCursor): TextBlock {
+        const tl = new TextBlock()
+
+        let col = 0
+        for (let it = 0; it < this.m_fragments.length; ++it) {
+            const f = this.m_fragments[it]
+            let idx = 0
+            for (let i = 0; i < f.text.length; ++i) {
+                if (col === column) {
+                    if (idx) {
+                        if (idx < f.text.length) {
+                            const tf = new TextFragment(f.text.substring(idx))
+                            tf.format = f.format.clone()
+                            tl.m_fragments.push(tf)
+                            f.text = f.text.substring(0, idx)
+                            ++it
+                        }
+                    }
+                    tl.m_fragments.push(...this.m_fragments.splice(it))
+
+                    if (this.m_fragments.length === 0) {
+                        this.insertEmptyFragmentIfNeeded(cursor)
+                    }
+                    return tl
+                }
+                ++idx
+                if (isHighSurrogate(f.text.charCodeAt(i))) {
+                    continue
+                }
+                ++col
+            }
+        }
+
+        const tf = new TextFragment('')
+        if (this.m_fragments.length > 0) {
+            tf.format = this.m_fragments[this.m_fragments.length - 1].format.clone()
+        } else {
+            this.insertEmptyFragmentIfNeeded(cursor)
+        }
+
+        tl.m_fragments.push(tf)
+        return tl
+    }
 
     columns(): number {
         let col = 0
@@ -1675,6 +2200,155 @@ export abstract class TextBase extends EngravingItem {
 
     override subtypeUserName(): TranslatableString {
         return this.score() ? this.score().getTextStyleUserName(this.textStyleType()) : TConv.userNameTextStyleType(this.textStyleType())
+    }
+
+    // =================================================================================================================
+    //   editing (textbase.cpp; the edit functions of editing/textedit.cpp are added by that module)
+    // =================================================================================================================
+
+    /** C++ m_hexState: -1 = not in hex input state */
+    m_hexState = -1
+    private m_primed = false
+
+    isPrimed(): boolean { return this.m_primed }
+    setPrimed(primed: boolean): void { this.m_primed = primed }
+    inHexState(): boolean { return this.m_hexState >= 0 }
+
+    select(editData: EditData, type: SelectTextType): void {
+        switch (type) {
+        case SelectTextType.Word:
+            this.cursorFromEditData(editData).selectWord()
+            break
+        case SelectTextType.All:
+            this.selectAll(this.cursorFromEditData(editData))
+            break
+        }
+    }
+
+    pageRectangle(): RectF {
+        const p = this.explicitParent()
+        if (p && (p.isHBox() || p.isVBox() || p.isTBox())) {
+            const box = p as unknown as { pageBoundingRect(): RectF; leftMargin(): number; topMargin(): number; rightMargin(): number; bottomMargin(): number }
+            const r = box.pageBoundingRect()
+            const x = r.x() + box.leftMargin() * DPMM
+            const y = r.y() + box.topMargin() * DPMM
+            const h = r.height() - (box.topMargin() + box.bottomMargin()) * DPMM
+            const w = r.width() - (box.leftMargin() + box.rightMargin()) * DPMM
+            return new RectF(x, y, w, h)
+        }
+        if (p && p.isPage()) {
+            const box = p as unknown as { pageBoundingRect(): RectF; lm(): number; tm(): number; rm(): number; bm(): number }
+            const r = box.pageBoundingRect()
+            const x = r.x() + box.lm()
+            const y = r.y() + box.tm()
+            const h = r.height() - box.tm() - box.bm()
+            const w = r.width() - box.lm() - box.rm()
+            return new RectF(x, y, w, h)
+        }
+        return this.pageBoundingRect()
+    }
+
+    dragTo(ed: EditData): void {
+        const cursor = this.cursorFromEditData(ed)
+        cursor.set(ed.pos, TextCursorMoveMode.KeepAnchor)
+    }
+
+    override dragAnchorLines(): LineF[] {
+        const result = this.genericDragAnchorLines()
+
+        if (this.layoutToParentWidth() && result.length) {
+            const line = result[0]
+            line.setP2(line.p2().plus(this.ldata().bbox().topLeft()))
+        }
+
+        return result
+    }
+
+    /** set text cursor */
+    mousePress(ed: EditData): boolean {
+        const shift = (ed.modifiers & 0x02000000) !== 0 // ShiftModifier
+        if (!this.cursorFromEditData(ed).set(ed.startMove, shift ? TextCursorMoveMode.KeepAnchor : TextCursorMoveMode.MoveAnchor)) {
+            return false
+        }
+        return true
+    }
+
+    override acceptDrop(data: EditData): boolean {
+        // do not accept the drop if this text element is not being edited
+        const eed = data.getData(this)
+        if (!eed || eed.type() !== EditDataType.TextEditData) {
+            return false
+        }
+        const type = data.dropElement!.type()
+        return type === ElementTypeValue.SYMBOL || type === ElementTypeValue.FSYMBOL
+    }
+
+    override drag(ed: EditData): RectF {
+        const result = super.drag(ed)
+        // TODO(port): MoveElementAnchors::moveElementAnchorsOnDrag (time tick anchors)
+        return result
+    }
+
+    override endDrag(ed: EditData): void {
+        if (this.m_cursor.editing()) {
+            return
+        }
+        super.endDrag(ed)
+    }
+
+    override editCut(ed: EditData): void {
+        const ted = ed.getData(this) as unknown as { selectedText: string }
+        const cursor = this.cursorFromEditData(ed)
+        const s = cursor.selectedText(true)
+
+        if (s.length) {
+            ted.selectedText = cursor.selectedText(true)
+            ed.curGrip = 0 // Grip::START
+            ed.key = 0x01000007 // Key_Delete
+            ed.s = ''
+            this.edit(ed)
+        }
+    }
+
+    /** store selection as rich and plain text */
+    override editCopy(ed: EditData): void {
+        const ted = ed.getData(this) as unknown as { selectedText: string; selectedPlainText: string }
+        const cursor = this.cursorFromEditData(ed)
+        ted.selectedText = cursor.selectedText(true)
+        ted.selectedPlainText = cursor.selectedText(false)
+    }
+
+    nudge(ed: EditData): boolean {
+        const ctrlMod = (ed.modifiers & 0x04000000) !== 0 // ControlModifier
+        const step = this.spatium() * (ctrlMod ? MScore.nudgeStep10 : MScore.nudgeStep)
+        let addOffset = new PointF()
+        switch (ed.key) {
+        case 0x01000013: // Key_Up
+            addOffset = new PointF(0.0, -step)
+            break
+        case 0x01000015: // Key_Down
+            addOffset = new PointF(0.0, step)
+            break
+        case 0x01000012: // Key_Left
+            addOffset = new PointF(-step, 0.0)
+            break
+        case 0x01000014: // Key_Right
+            addOffset = new PointF(step, 0.0)
+            break
+        default:
+            return false
+        }
+        this.undoChangeProperty(Pid.OFFSET, this.offset().plus(addOffset), PropertyFlags.UNSTYLED)
+        return true
+    }
+
+    /** the cursor of the text edit data (the text's own cursor) */
+    cursorFromEditData(ed: EditData): TextCursor {
+        const ted = ed.getData(this)
+        if (!ted) {
+            throw new Error('TextBase::cursorFromEditData: no edit data')
+        }
+        return this.m_cursor
     }
 
     override accessibleInfo(): string {

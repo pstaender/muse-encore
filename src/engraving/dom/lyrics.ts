@@ -20,6 +20,16 @@ import type { ChordRest } from './chordrest'
 import type { Measure } from './measure'
 import type { Segment } from './segment'
 import type { Spanner } from './spanner'
+// (imports of the editing section)
+import { isTextNavigationKey } from './textbase'
+import { SegmentType } from './segment'
+import { KeyboardKey, KeyboardModifier, type EditData } from '../editing/editdata'
+import { TranslatableString } from '../../framework/global/types/translatablestring'
+
+/** C++ prevLyrics() of navigate.cpp, set by dom/navigate.ts (lyrics.ts cannot import it: import cycles) */
+export const lyricsNavigation: { prevLyrics(lyrics: Lyrics): Lyrics | null } = {
+    prevLyrics: () => null,
+}
 
 const lyricsElementStyle: ElementStyle = [
     { sid: Sid.lyricsPlacement, pid: Pid.PLACEMENT },
@@ -181,5 +191,112 @@ export class Lyrics extends TextBase {
         default:
             return super.propertyDefault(id)
         }
+    }
+
+    // =================================================================================================================
+    //   editing (lyrics.cpp)
+    // =================================================================================================================
+
+    /** THIS WAS A HORRIBLE HACK. At some point we must remove it and replace it with a proper solution. (M.S.) */
+    static readonly TEMP_MELISMA_TICKS = Fraction.eps()
+
+    override isEditAllowed(ed: EditData): boolean {
+        if (isTextNavigationKey(ed.key, ed.modifiers)) {
+            return false
+        }
+
+        const navigationModifiers = [KeyboardModifier.NoModifier, KeyboardModifier.KeypadModifier, KeyboardModifier.ShiftModifier]
+
+        if (navigationModifiers.includes(ed.modifiers)) {
+            const navigationKeys = [
+                KeyboardKey.Key_Underscore,
+                KeyboardKey.Key_Minus,
+                KeyboardKey.Key_Enter,
+                KeyboardKey.Key_Return,
+                KeyboardKey.Key_Up,
+                KeyboardKey.Key_Down,
+            ]
+
+            if (navigationKeys.includes(ed.key)) {
+                return false
+            }
+        }
+
+        if (ed.key === KeyboardKey.Key_Left || ed.key === KeyboardKey.Key_Backspace) {
+            return this.cursor().column() !== 0 || this.cursor().hasSelection()
+        }
+
+        if (ed.key === KeyboardKey.Key_Right) {
+            const cursorInLastColumn = this.cursor().column() === this.cursor().curLine().columns()
+            return !cursorInLastColumn || this.cursor().hasSelection()
+        }
+
+        return super.isEditAllowed(ed)
+    }
+
+    adjustPrevious(): void {
+        const prev = lyricsNavigation.prevLyrics(this)
+        if (prev) {
+            // search for lyric spanners to split at this point if necessary
+            if (prev.tick().plus(prev.ticks()).ge(this.tick())) {
+                // the previous lyric has a spanner attached that goes through this one
+                // we need to shorten it
+                let s = this.score().tick2segment(this.tick())
+                if (s) {
+                    s = s.prev1(SegmentType.ChordRest)!
+                    if (s.tick().gt(prev.tick())) {
+                        prev.undoChangeProperty(Pid.LYRIC_TICKS, s.tick().minus(prev.tick()))
+                    } else {
+                        prev.undoChangeProperty(Pid.LYRIC_TICKS, Fraction.eps())
+                    }
+                    prev.setNeedRemoveInvalidSegments()
+                    prev.triggerLayout()
+                }
+            }
+        }
+    }
+
+    override endEdit(ed: EditData): void {
+        super.endEdit(ed)
+
+        this.triggerLayout()
+        if (this.m_separator) {
+            this.m_separator.triggerLayout()
+        }
+    }
+
+    override paste(ed: EditData, txt: string): void {
+        if (txt.startsWith('<') && txt.includes('>')) {
+            super.paste(ed, txt)
+            return
+        }
+
+        const sl = txt.split(/[^\S  ]+/).filter(s => s.length > 0)
+        if (sl.length === 0) {
+            return
+        }
+
+        const hyph = sl[0].split('-')
+        this.score().startCmd(new TranslatableString('undoableAction', 'Paste lyrics'))
+
+        this.deleteSelectedText(ed)
+
+        // C++ score()->undo(new InsertText(cursorFromEditData(ed), s), &ed) = TextBase::insertText
+        const insert = (s: string): void => this.insertText(ed, s)
+        if (hyph.length > 1) {
+            insert(hyph[0])
+        } else if (sl.length > 1 && sl[1] === '-') {
+            insert(sl[0])
+        } else if (sl[0].startsWith('_')) {
+            // nothing to insert
+        } else if (sl[0].includes('_')) {
+            insert(sl[0])
+        } else if (sl.length > 1 && sl[1] === '_') {
+            insert(sl[0])
+        } else {
+            insert(sl[0])
+        }
+
+        this.score().endCmd()
     }
 }

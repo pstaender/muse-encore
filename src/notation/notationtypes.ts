@@ -7,7 +7,7 @@
  */
 
 import { Fraction } from '../engraving/types/fraction'
-import { DurationType, Key } from '../engraving/types/types'
+import { DurationType, Key, TextStyleType } from '../engraving/types/types'
 import { TimeSigType } from '../engraving/dom/timesig'
 import { ScoreOrder } from '../engraving/dom/scoreorder'
 import type { InstrumentTemplate } from '../engraving/dom/instrtemplate'
@@ -79,4 +79,15 @@ export enum PastingType {
     Half,
     Double,
     Special,
+}
+
+/** the text styles of texts in vertical frames (title, composer, ...) */
+export function isVerticalBoxTextStyle(type: TextStyleType): boolean {
+    return [
+        TextStyleType.TITLE,
+        TextStyleType.SUBTITLE,
+        TextStyleType.COMPOSER,
+        TextStyleType.LYRICIST,
+        TextStyleType.INSTRUMENT_EXCERPT,
+    ].includes(type)
 }

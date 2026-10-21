@@ -604,6 +604,33 @@ export class Chord extends ChordRest {
 
     graceNotes(): Chord[] { return this.m_graceNotes }
 
+    override removeMarkings(keepTremolo = false): void {
+        if (this.m_tremoloSingleChord && !keepTremolo) {
+            this.remove(this.m_tremoloSingleChord)
+        }
+
+        if (this.m_tremoloTwoChord && !keepTremolo) {
+            this.remove(this.m_tremoloTwoChord)
+        }
+
+        if (this.arpeggio()) {
+            this.remove(this.arpeggio()!)
+        }
+
+        if (this.m_spanArpeggio) {
+            this.m_spanArpeggio = null
+        }
+
+        this.m_graceNotes.length = 0
+        this.m_articulations.length = 0
+        for (const n of this.notes()) {
+            for (const e of [...n.el()]) {
+                n.remove(e)
+            }
+        }
+        super.removeMarkings(keepTremolo)
+    }
+
     firstGraceOrNote(): Note {
         const graceNotesBefore = this.graceNotesBefore().chords()
         if (graceNotesBefore.length) {

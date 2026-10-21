@@ -20,6 +20,7 @@ import { MScore, MsError, UpDownMode } from '../dom/mscore'
 import { Score, Position, type NoteInputParams } from '../dom/score'
 import { SelectType } from '../dom/select'
 import { SelectionFilter } from '../dom/selectionfilter'
+import { ElementsSelectionFilterTypes } from '../dom/selectionfilter' // (import of the copy/paste section)
 import { SegmentType } from '../dom/segment'
 import { TimeSigFrac } from '../dom/sig'
 import { nextChordRest, noteIsBefore, prevChordRest, type Chord } from '../dom/chord'
@@ -2629,5 +2630,63 @@ Score.prototype.cmdAddSpanner = function (this: Score, spanner: Spanner, staffId
 
     spanner.setTick2(tick2)
     this.undoAddElement(spanner, true, ctrlModifier)
+}
+
+// =====================================================================================================================
+//   copy/paste: makeGap1 (cmd.cpp), used by the paste of a staff list (Read460::pasteStaff)
+// =====================================================================================================================
+
+declare module '../dom/score' {
+    interface Score {
+        /**
+         * make time gap for each voice starting at tick+voiceOffset[voice] by removing/shortening chord/rest
+         * - cr is top level (not part of a tuplet)
+         * - do not stop at measure end
+         * - len and voiceOffset are in local (stretched) time
+         * voiceOffset: invalid fractions (Fraction(1, 0)) for voices without elements
+         */
+        makeGap1(baseTick: Fraction, staffIdx: number, len: Fraction, voiceOffset: readonly Fraction[]): boolean
+    }
+}
+
+Score.prototype.makeGap1 = function (this: Score, baseTick: Fraction, staffIdx: number, len: Fraction,
+    voiceOffset: readonly Fraction[]): boolean {
+    const m = this.tick2measure(baseTick)
+    if (!m) {
+        // C++: LOGD() << "No measure to paste at tick " << baseTick.toString()
+        return false
+    }
+
+    const strack = staffIdx * VOICES
+    for (let track = strack; track < strack + VOICES; track++) {
+        if (!voiceOffset[track - strack].isValid()) {
+            continue
+        }
+        const tick = baseTick.plus(actualTicks(voiceOffset[track - strack], null, this.staff(staffIdx)!.timeStretch(baseTick)))
+        const tm = this.tick2measure(tick)!
+        if ((track % VOICES) && !tm.hasVoices(staffIdx)) {
+            continue
+        }
+
+        const newLen = len.minus(voiceOffset[track - strack])
+
+        if (newLen.gt(new Fraction(0, 1))) {
+            const endTick = tick.plus(actualTicks(newLen, null, this.staff(staffIdx)!.timeStretch(tick)))
+
+            const filter = new SelectionFilter()
+            // chord symbols can exist without chord/rest so they should not be removed
+            filter.setFiltered(ElementsSelectionFilterTypes.CHORD_SYMBOL, false)
+
+            this.deleteAnnotationsFromRange(this.tick2rightSegment(tick), this.tick2rightSegment(endTick), track, track + 1, filter)
+            this.deleteOrShortenOutSpannersFromRange(tick, endTick, track, track + 1, filter)
+        }
+
+        const seg = tm.undoGetSegment(SegmentType.ChordRest, tick)
+        const result = this.makeGapVoice(seg, track, newLen, tick)
+        if (track === strack && !result) { // makeGap failed for first voice
+            return false
+        }
+    }
+    return true
 }
 

@@ -77,6 +77,13 @@ import type { Note } from '../dom/note'
 import type { Tuplet } from '../dom/tuplet'
 import type { Tie } from '../dom/tie'
 import type { Selection } from '../dom/select'
+// (imports of the text editing section)
+import { StaffText, SystemText } from '../dom/stafftextbase'
+import { Fingering } from '../dom/fingering'
+import { HarmonyType, type Harmony } from '../dom/harmony'
+import type { RehearsalMark } from '../dom/rehearsalmark'
+import type { TempoText } from '../dom/tempotext'
+import type { Lyrics } from '../dom/lyrics'
 import type { SelectionFilter } from '../dom/selectionfilter'
 import type { EngravingObject } from '../dom/engravingobject'
 import type { PropertyValue } from '../types/propertyvalue'
@@ -152,7 +159,7 @@ declare module '../dom/score' {
         undoChangeParent(element: EngravingItem | null, parent: EngravingItem | null, staffIdx: staff_idx_t): void
         undoChangeTpc(note: Note, tpc: number): void
         undoChangeChordRestLen(cr: ChordRest, d: TDuration): void
-        undoChangeElement(oldElement: EngravingItem, newElement: EngravingItem): void
+        undoChangeElement(oldElement: EngravingItem | null, newElement: EngravingItem): void
         undoChangeUserMirror(n: Note, d: DirectionH): void
         undoChangeSpannerElements(spanner: Spanner, startElement: EngravingItem | null, endElement: EngravingItem | null): void
         undoChangeStyleVal(idx: Sid, v: PropertyValue): void
@@ -856,7 +863,8 @@ Score.prototype.addText = function (this: Score, type: TextStyleType, destinatio
         break
     }
     default:
-        // TODO(port): rehearsal marks, staff/system texts, dynamics, expressions, ... (they need a chord/rest)
+        // the texts that need a chord/rest: in the text editing section below (addTextToChordRest)
+        textBox = addTextToChordRest(this, type, destinationElement)
         break
     }
 
@@ -4129,4 +4137,335 @@ Score.prototype.addHairpin = function (this: Score, hairpin: Hairpin, cr1: Chord
     hairpin.setTick2(endTick)
 
     this.undoAddElement(hairpin)
+}
+
+// =====================================================================================================================
+//   text editing: the texts of Score::addText that need a chord/rest (edit.cpp), the rehearsal mark texts (score.cpp)
+// =====================================================================================================================
+
+declare module '../dom/score' {
+    interface Score {
+        createRehearsalMarkText(current: RehearsalMark): string
+        nextRehearsalMarkText(previous: RehearsalMark, current: RehearsalMark | null): string
+    }
+}
+
+/** the cases of Score::addText for rehearsal marks, staff/system texts, dynamics, ..., chord symbols, lyrics, tempo */
+function addTextToChordRest(score: Score, type: TextStyleType, destinationElement: EngravingItem | null): TextBase | null {
+    let textBox: TextBase | null = null
+
+    switch (type) {
+    case TextStyleType.REHEARSAL_MARK: {
+        const chordRest = chordOrRest(destinationElement)
+        if (!chordRest) {
+            break
+        }
+        textBox = Factory.createItem(ElementType.REHEARSAL_MARK, chordRest.segment()) as unknown as TextBase
+        textBox.setParent(chordRest.segment())
+        textBox.setTrack(0)
+        textBox.setXmlText(score.createRehearsalMarkText(textBox as unknown as RehearsalMark))
+        chordRest.undoAddAnnotation(textBox)
+        break
+    }
+    case TextStyleType.STAFF: {
+        const chordRest = chordOrRest(destinationElement)
+        if (!chordRest) {
+            break
+        }
+        textBox = new StaffText(scoreDummy(score).segment(), TextStyleType.STAFF)
+        chordRest.undoAddAnnotation(textBox)
+        break
+    }
+    case TextStyleType.SYSTEM: {
+        const chordRest = chordOrRest(destinationElement)
+        if (!chordRest) {
+            break
+        }
+        textBox = new SystemText(scoreDummy(score).segment(), TextStyleType.SYSTEM)
+        chordRest.undoAddAnnotation(textBox)
+        break
+    }
+    case TextStyleType.DYNAMICS:
+    case TextStyleType.EXPRESSION:
+    case TextStyleType.INSTRUMENT_CHANGE: {
+        const chordRest = chordOrRest(destinationElement)
+        if (!chordRest) {
+            break
+        }
+        const elementType = type === TextStyleType.DYNAMICS ? ElementType.DYNAMIC
+            : type === TextStyleType.EXPRESSION ? ElementType.EXPRESSION : ElementType.INSTRUMENT_CHANGE
+        textBox = Factory.createItem(elementType, scoreDummy(score).segment()) as unknown as TextBase
+        chordRest.undoAddAnnotation(textBox)
+        break
+    }
+    case TextStyleType.STICKING:
+        // TODO(port): Sticking (element type not ported)
+        break
+    case TextStyleType.FINGERING:
+    case TextStyleType.LH_GUITAR_FINGERING:
+    case TextStyleType.RH_GUITAR_FINGERING:
+    case TextStyleType.STRING_NUMBER: {
+        if (!destinationElement || !destinationElement.isNote()) {
+            break
+        }
+
+        const staff = destinationElement.staff()!
+        const isTablature = staff.isTabStaff(destinationElement.tick())
+        const tabFingering = staff.staffType(destinationElement.tick()).showTabFingering()
+        if (isTablature && !tabFingering) {
+            break
+        }
+
+        textBox = new Fingering(destinationElement as unknown as Note, type)
+        textBox.setTrack(destinationElement.track())
+        textBox.setParent(destinationElement)
+        score.undoAddElement(textBox)
+        break
+    }
+    case TextStyleType.HARMONY_A:
+    case TextStyleType.HARMONY_ROMAN:
+    case TextStyleType.HARMONY_NASHVILLE: {
+        let track = nidx
+        let newParent: EngravingItem | null = null
+        if (destinationElement && destinationElement.isFretDiagram()) {
+            const fretDiagram = destinationElement as unknown as FretDiagram
+            track = fretDiagram.track()
+            newParent = fretDiagram.harmony() ? fretDiagram.segment() as unknown as EngravingItem : fretDiagram as unknown as EngravingItem
+        } else {
+            const chordRest = chordOrRest(destinationElement)
+            if (chordRest) {
+                track = chordRest.track()
+                newParent = chordRest.segment()
+            }
+        }
+
+        if (track === nidx || !newParent) {
+            break
+        }
+
+        const harmony = Factory.createItem(ElementType.HARMONY, newParent) as Harmony
+        harmony.setTrack(track)
+        harmony.setParent(newParent)
+
+        const harmonyTypes = new Map<TextStyleType, HarmonyType>([
+            [TextStyleType.HARMONY_A, HarmonyType.STANDARD],
+            [TextStyleType.HARMONY_ROMAN, HarmonyType.ROMAN],
+            [TextStyleType.HARMONY_NASHVILLE, HarmonyType.NASHVILLE],
+        ])
+        harmony.setHarmonyType(harmonyTypes.get(type)!)
+
+        textBox = harmony
+        score.undoAddElement(textBox)
+        break
+    }
+    case TextStyleType.LYRICS_ODD: {
+        if (!destinationElement || (!destinationElement.isNote() && !destinationElement.isLyrics() && !destinationElement.isRest())) {
+            break
+        }
+        let chordRest: ChordRest | null = null
+        if (destinationElement.isNote()) {
+            chordRest = (destinationElement as unknown as Note).chord()
+            if (chordRest.isGrace()) {
+                chordRest = chordRest.explicitParent() as unknown as ChordRest
+            }
+        } else if (destinationElement.isLyrics()) {
+            chordRest = (destinationElement as unknown as Lyrics).chordRest()
+        } else if (destinationElement.isRest()) {
+            chordRest = destinationElement as unknown as ChordRest
+        } else {
+            break
+        }
+
+        const no = chordRest.lyrics().length
+        // TODO(port): partial lyrics lines starting at the chord/rest (PartialLyricsLine) raise the verse number
+
+        const lyrics = Factory.createItem(ElementType.LYRICS, chordRest) as Lyrics
+        lyrics.setTrack(chordRest.track())
+        lyrics.setParent(chordRest)
+        lyrics.setProperty(Pid.VERSE, no)
+
+        textBox = lyrics
+        score.undoAddElement(textBox)
+        break
+    }
+    case TextStyleType.TEMPO: {
+        const chordRest = chordOrRest(destinationElement)
+        if (!chordRest) {
+            break
+        }
+
+        const event = score.sigmap().timesig(chordRest.tick())
+        const f = event.nominal()
+        let text = '<sym>metNoteQuarterUp</sym> = 80'
+        switch (f.denominator()) {
+        case 1:
+            text = '<sym>metNoteWhole</sym> = 80'
+            break
+        case 2:
+            text = '<sym>metNoteHalfUp</sym> = 80'
+            break
+        case 4:
+            text = '<sym>metNoteQuarterUp</sym> = 80'
+            break
+        case 8:
+            if (f.numerator() % 3 === 0) {
+                text = '<sym>metNoteQuarterUp</sym><sym>space</sym><sym>metAugmentationDot</sym> = 80'
+            } else {
+                text = '<sym>metNote8thUp</sym> = 80'
+            }
+            break
+        case 16:
+            if (f.numerator() % 3 === 0) {
+                text = '<sym>metNote8thUp</sym><sym>space</sym><sym>metAugmentationDot</sym> = 80'
+            } else {
+                text = '<sym>metNote16thUp</sym> = 80'
+            }
+            break
+        case 32:
+            if (f.numerator() % 3 === 0) {
+                text = '<sym>metNote16thUp</sym><sym>space</sym><sym>metAugmentationDot</sym> = 80'
+            } else {
+                text = '<sym>metNote32ndUp</sym> = 80'
+            }
+            break
+        case 64:
+            if (f.numerator() % 3 === 0) {
+                text = '<sym>metNote32ndUp</sym><sym>space</sym><sym>metAugmentationDot</sym> = 80'
+            } else {
+                text = '<sym>metNote64thUp</sym> = 80'
+            }
+            break
+        case 128:
+            if (f.numerator() % 3 === 0) {
+                text = '<sym>metNote64ndUp</sym><sym>space</sym><sym>metAugmentationDot</sym> = 80'
+            } else {
+                text = '<sym>metNote128thUp</sym> = 80'
+            }
+            break
+        default:
+            break
+        }
+
+        const tempoText = Factory.createItem(ElementType.TEMPO_TEXT, chordRest.segment()) as TempoText
+        tempoText.setParent(chordRest.segment())
+        tempoText.setTrack(0)
+        tempoText.setXmlText(text)
+        tempoText.setFollowText(true)
+        // TODO(port): tempoText->updateTempo() (the tempo of the playback)
+
+        textBox = tempoText
+        score.undoAddElement(textBox)
+        break
+    }
+    case TextStyleType.HARP_PEDAL_DIAGRAM:
+    case TextStyleType.HARP_PEDAL_TEXT_DIAGRAM:
+        // TODO(port): HarpPedalDiagram (element type not ported)
+        break
+    default:
+        break
+    }
+
+    return textBox
+}
+
+Score.prototype.createRehearsalMarkText = function (this: Score, current: RehearsalMark): string {
+    const tick = current.segment().tick()
+    let before: RehearsalMark | null = null
+    let after: RehearsalMark | null = null
+    const firstMeasure = this.firstMeasure() // C++ firstSegment(SegmentType::All)
+    for (let s = firstMeasure ? firstMeasure.first(SegmentType.All) : null; s; s = s.next1()) {
+        for (const e of s.annotations()) {
+            if (e && e.isRehearsalMark()) {
+                if (s.tick().lt(tick)) {
+                    before = e as unknown as RehearsalMark
+                } else if (s.tick().gt(tick)) {
+                    after = e as unknown as RehearsalMark
+                    break
+                }
+            }
+        }
+        if (after) {
+            break
+        }
+    }
+    let s = 'A'
+    const s1 = before ? before.xmlText() : ''
+    const s2 = after ? after.xmlText() : ''
+    if (s1.length === 0) {
+        return s
+    }
+    s = this.nextRehearsalMarkText(before!, current) // try to sequence
+    if (s === current.xmlText()) {
+        // no sequence detected (or current happens to be correct)
+        return s
+    } else if (s === s2) {
+        // next in sequence already present
+        if (isLetter(s1[0])) {
+            if (s1.length === 2) {
+                s = s1[0] + String.fromCharCode(s1.charCodeAt(1) + 1) // BB, BC, CC
+            } else {
+                s = s1 + '1' // B, B1, C
+            }
+        } else {
+            s = s1 + 'A' // 2, 2A, 3
+        }
+    }
+    return s
+}
+
+/**
+ * finds next rehearsal in sequence established by previous
+ *  Alphabetic sequences:
+ *   A, B, ..., Y, Z, AA, BB, ..., YY, ZZ
+ *   a, b, ..., y, z, aa, bb, ..., yy, zz
+ *  Numeric sequences:
+ *   1, 2, 3, ...
+ *   If number of previous rehearsal mark matches measure number, assume use of measure numbers throughout
+ */
+Score.prototype.nextRehearsalMarkText = function (this: Score, previous: RehearsalMark, current: RehearsalMark | null): string {
+    const previousText = previous.xmlText()
+    const fallback = current ? current.xmlText() : previousText + '\''
+
+    if (previousText.length === 1 && isLetter(previousText[0])) {
+        // single letter sequence
+        if (previousText === 'Z') {
+            return 'AA'
+        } else if (previousText === 'z') {
+            return 'aa'
+        } else {
+            return String.fromCharCode(previousText.charCodeAt(0) + 1)
+        }
+    } else if (previousText.length === 2 && isLetter(previousText[0]) && isLetter(previousText[1])) {
+        // double letter sequence
+        if (previousText[0] === previousText[1]) {
+            // repeated letter sequence
+            if (previousText.toUpperCase() !== 'ZZ') {
+                const c = String.fromCharCode(previousText.charCodeAt(0) + 1)
+                return c + c
+            } else {
+                return fallback
+            }
+        } else {
+            return fallback
+        }
+    } else {
+        // try to interpret as number
+        if (!/^\s*[+-]?\d+\s*$/.test(previousText)) {
+            return fallback
+        }
+        let n = parseInt(previousText, 10)
+        if (current && n === previous.segment().measure().no() + 1) {
+            // use measure number
+            n = current.segment().measure().no() + 1
+            return String(n)
+        } else {
+            // use number sequence
+            n = n + 1
+            return String(n)
+        }
+    }
+}
+
+function isLetter(c: string | undefined): boolean {
+    return !!c && /\p{L}/u.test(c)
 }

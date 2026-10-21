@@ -43,7 +43,7 @@ class LyricsVerse {
 const TEMP_MELISMA_TICKS = Fraction.eps()
 
 /** dom/utils.cpp searchNextLyrics() */
-function searchNextLyrics(s: Segment | null, staffIdx: staff_idx_t, verse: number, p: PlacementV): Lyrics | null {
+export function searchNextLyrics(s: Segment | null, staffIdx: staff_idx_t, verse: number, p: PlacementV): Lyrics | null {
     let l: Lyrics | null = null
     const originalSeg = s
     while ((s = s!.next1(SegmentType.ChordRest))) {

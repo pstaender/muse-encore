@@ -119,8 +119,9 @@ export class ConnectorInfoReader extends ConnectorInfo {
                 ConnectorInfoReader.readAddConnectorMeasure(recv as unknown as Measure, r, pasteMode)
             } else if (recv.isNote()) {
                 ConnectorInfoReader.readAddConnectorNote(recv as unknown as Note, r, pasteMode)
+            } else if (recv.isScore()) {
+                ConnectorInfoReader.readAddConnectorScore(recv as Score, r, pasteMode)
             }
-            // readAddConnector(Score*) is only used in paste mode
             r = r.next()
         }
     }
@@ -138,7 +139,7 @@ export class ConnectorInfoReader extends ConnectorInfo {
         return i ? i.m_connector : null
     }
 
-    static readAddConnectorChordRest(item: ChordRest, info: ConnectorInfoReader, _pasteMode: boolean): void {
+    static readAddConnectorChordRest(item: ChordRest, info: ConnectorInfoReader, pasteMode: boolean): void {
         switch (info.type()) {
         case ElementType.SLUR:
         case ElementType.HAMMER_ON_PULL_OFF: {
@@ -149,11 +150,17 @@ export class ConnectorInfoReader extends ConnectorInfo {
                 const startTick = item.isChord() && (item as unknown as Chord).isTrillCueNote() ? info.curTick() : item.tick()
                 spanner.setTick(startTick)
                 spanner.setStartElement(item)
-                item.score().addSpanner(spanner)
+                if (pasteMode) {
+                    item.score().undoAddElement(spanner)
+                    // TODO(port): the linked spanners of parts (excerpts)
+                } else {
+                    item.score().addSpanner(spanner)
+                }
             } else if (info.isEnd()) {
                 spanner.setTrack2(l.track())
                 spanner.setTick2(item.tick())
                 spanner.setEndElement(item)
+                // TODO(port): pasteMode: the linked spanners of parts (excerpts)
             }
             break
         }
@@ -199,7 +206,7 @@ export class ConnectorInfoReader extends ConnectorInfo {
         }
     }
 
-    static readAddConnectorNote(item: Note, info: ConnectorInfoReader, _pasteMode: boolean): void {
+    static readAddConnectorNote(item: Note, info: ConnectorInfoReader, pasteMode: boolean): void {
         const l = info.location()
         switch (info.type()) {
         case ElementType.TIE:
@@ -238,6 +245,59 @@ export class ConnectorInfoReader extends ConnectorInfo {
                         (item.explicitParent() as unknown as Chord).setEndsNoteAnchoredLine(true)
                     }
                     item.addSpannerBack(sp)
+                }
+
+                // As spanners get added after being fully read, they
+                // do not get cloned with the note when pasting to
+                // linked staves. So add this spanner explicitly.
+                if (pasteMode) {
+                    // TODO(port): tie->updatePossibleJumpPoints() (tie jump points)
+                    item.score().undoAddElement(sp)
+                }
+            }
+            break
+        }
+        default:
+            break
+        }
+    }
+
+    static readAddConnectorScore(item: Score, info: ConnectorInfoReader, pasteMode: boolean): void {
+        if (!pasteMode) {
+            // How did we get there?
+            return
+        }
+
+        if (info.connector()!.systemFlag()) {
+            return
+        }
+
+        switch (info.type()) {
+        case ElementType.HAIRPIN:
+        case ElementType.PEDAL:
+        case ElementType.OTTAVA:
+        case ElementType.TRILL:
+        case ElementType.TEXTLINE:
+        case ElementType.PALM_MUTE:
+        case ElementType.PARTIAL_LYRICSLINE:
+        case ElementType.WHAMMY_BAR:
+        case ElementType.RASGUEADO:
+        case ElementType.HARMONIC_MARK:
+        case ElementType.PICK_SCRAPE:
+        case ElementType.LET_RING:
+        case ElementType.VIBRATO: {
+            const sp = info.connector() as unknown as Spanner
+            const l = info.location()
+            if (info.isStart()) {
+                sp.setAnchor(SpannerAnchor.SEGMENT)
+                sp.setTrack(l.track())
+                sp.setTrack2(l.track())
+                sp.setTick(l.frac())
+            } else if (info.isEnd()) {
+                sp.setTick2(l.frac())
+                item.undoAddElement(sp)
+                if (sp.isOttava()) {
+                    sp.staff()!.updateOttava()
                 }
             }
             break

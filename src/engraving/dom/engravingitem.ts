@@ -38,6 +38,15 @@ import { TranslatableString } from '../../framework/global/types/translatablestr
 import { arg, mtrc } from '../../framework/global/translation'
 import { RealIsNull } from '../../framework/global/realfn'
 import { ticks_beat } from './sig'
+// (imports of the editing section)
+import { LineF } from '../../framework/draw/types/geometry'
+import { lrint } from '../../framework/global/realfn'
+import { ElementGroup, SingleElementGroup } from './elementgroup'
+import { ElementEditData } from '../editing/elementeditdata'
+import { Grip, KeyboardKey, KeyboardModifier } from '../editing/editdata'
+import { MScore } from './mscore'
+import { RWRegister } from '../rw/rwregister'
+import type { XmlWriter } from '../rw/xmlwriter'
 
 export enum ElementFlag {
     NOTHING = 0x00000000,
@@ -1573,6 +1582,275 @@ export abstract class EngravingItem extends EngravingObject {
     }
 
     symIsValid(id: SymId): boolean { return this.score().engravingFont().isValid(id) }
+
+    // =================================================================================================================
+    //   editing: drag, edit mode, grips, mime data (engravingitem.cpp)
+    // =================================================================================================================
+
+    getDragGroup(_isDragged: (e: EngravingItem) => boolean): ElementGroup {
+        return new SingleElementGroup(this)
+    }
+
+    startDrag(ed: EditData): void {
+        if (!this.isMovable()) {
+            return
+        }
+        const eed = new ElementEditData()
+        eed.e = this
+        eed.pushProperty(Pid.OFFSET)
+        eed.pushProperty(Pid.AUTOPLACE)
+        ed.addData(eed)
+        if (ed.modifiers & KeyboardModifier.AltModifier) {
+            this.setAutoplace(false)
+        }
+    }
+
+    /** Return update Rect relative to canvas. */
+    drag(ed: EditData): RectF {
+        if (!this.isMovable()) {
+            return new RectF()
+        }
+
+        const r0 = this.canvasBoundingRect()
+
+        const offset0 = ed.evtDelta.plus(this.offset())
+        let x = offset0.x()
+        let y = offset0.y()
+
+        const _spatium = this.spatium()
+        if (ed.hRaster) {
+            const hRaster = _spatium / MScore.hRaster()
+            const n = lrint(x / hRaster)
+            x = hRaster * n
+        }
+        if (ed.vRaster) {
+            const vRaster = _spatium / MScore.vRaster()
+            const n = lrint(y / vRaster)
+            y = vRaster * n
+        }
+
+        this.setOffset(new PointF(x, y))
+        this.setOffsetChanged(true)
+
+        if (this.isTextBase()) { // TODO: check for other types
+            //
+            // restrict move to page boundaries
+            //
+            const r = this.canvasBoundingRect()
+            let p: EngravingItem | null = null
+            let e: EngravingItem | null = this
+            while (e) {
+                if (e.isPage()) {
+                    p = e
+                    break
+                }
+                e = e.parentItem()
+            }
+            if (p) {
+                let move = false
+                const pr = p.canvasBoundingRect()
+                if (r.right() > pr.right()) {
+                    x -= r.right() - pr.right()
+                    move = true
+                } else if (r.left() < pr.left()) {
+                    x += pr.left() - r.left()
+                    move = true
+                }
+                if (r.bottom() > pr.bottom()) {
+                    y -= r.bottom() - pr.bottom()
+                    move = true
+                } else if (r.top() < pr.top()) {
+                    y += pr.top() - r.top()
+                    move = true
+                }
+                if (move) {
+                    this.setOffset(new PointF(x, y))
+                }
+            }
+        }
+        return this.canvasBoundingRect().united(r0)
+    }
+
+    endDrag(ed: EditData): void {
+        if (!this.isMovable()) {
+            return
+        }
+        const eed = ed.getData(this)
+        if (!eed) {
+            return
+        }
+        for (const { id, data: v, f } of eed.propertyData) {
+            this.setPropertyFlags(id, f) // reset initial property flags state
+            this.score().undoPropertyChangedItem(this, id, v, f === PropertyFlags.STYLED ? PropertyFlags.UNSTYLED : f)
+            this.setGenerated(false)
+        }
+        // TODO(port): score()->hideAnchors() (time tick anchors shown while dragging)
+    }
+
+    /** anchor lines displayed while dragging element in canvas coordinates */
+    dragAnchorLines(): LineF[] { return [] }
+
+    /**
+     * A generic dragAnchorLines() implementation which can be used in dragAnchorLines() overrides in descendants.
+     */
+    genericDragAnchorLines(): LineF[] {
+        let xp = 0.0
+        for (let e = this.parentItem(); e; e = e.parentItem()) {
+            xp += e.x()
+        }
+        let yp: number
+        const p = this.explicitParent()!
+        if (p.isSegment() || p.isMeasure()) {
+            const meas = p.isSegment() ? (p as unknown as Segment).measure() : p as unknown as Measure
+            const system = meas.system()
+            const stIdx = this.effectiveStaffIdx()
+            if (stIdx === nidx) {
+                return [new LineF()]
+            }
+            yp = system ? system.staffCanvasYpage(stIdx) : 0.0
+            if (this.placement() === PlacementV.BELOW) {
+                yp += system ? system.staff(stIdx)!.bbox().height() : 0.0
+            }
+            //adjust anchor Y positions to staffType offset
+            if (this.staff()) {
+                yp += this.staff()!.staffTypeForElement(this).yoffset().val() * this.spatium()
+            }
+        } else {
+            yp = this.parentItem()!.canvasPos().y()
+        }
+        const p1 = new PointF(xp, yp)
+        return [new LineF(p1, this.canvasPos())]
+    }
+
+    isEditable(): boolean { return !this.flag(ElementFlag.GENERATED) }
+    needStartEditingAfterSelecting(): boolean { return false }
+
+    startEdit(ed: EditData): void {
+        const elementData = new ElementEditData()
+        elementData.e = this
+        ed.addData(elementData)
+    }
+
+    isEditAllowed(ed: EditData): boolean {
+        return ed.key === KeyboardKey.Key_Home
+    }
+
+    /** return true if event is accepted */
+    edit(ed: EditData): boolean {
+        if (ed.key === KeyboardKey.Key_Home) {
+            this.setOffset(new PointF())
+            return true
+        }
+        return false
+    }
+
+    startDragGrip(ed: EditData): void {
+        let eed = ed.getData(this)
+        if (!eed) {
+            eed = new ElementEditData()
+            eed.e = this
+            ed.addData(eed)
+        }
+        eed.pushProperty(Pid.OFFSET)
+        eed.pushProperty(Pid.AUTOPLACE)
+        if (ed.modifiers & KeyboardModifier.AltModifier) {
+            this.setAutoplace(false)
+        }
+    }
+
+    dragGrip(ed: EditData): void {
+        if (ed.curGrip === Grip.NO_GRIP) {
+            return
+        }
+        this.setOffset(this.offset().plus(ed.delta))
+        this.setOffsetChanged(true)
+    }
+
+    endDragGrip(ed: EditData): void {
+        const eed = ed.getData(this)
+        let changed = false
+        if (eed) {
+            for (const { id, data, f: flags } of eed.propertyData) {
+                this.setPropertyFlags(id, flags) // reset initial property flags state
+                let f = flags
+                if (f === PropertyFlags.STYLED) {
+                    f = PropertyFlags.UNSTYLED
+                }
+                if (this.score().undoPropertyChangedItem(this, id, data, f)) {
+                    changed = true
+                }
+            }
+            eed.propertyData = []
+        }
+        if (changed) {
+            this.undoChangeProperty(Pid.GENERATED, false)
+        }
+        // TODO(port): score()->hideAnchors()
+    }
+
+    endEdit(_ed: EditData): void {
+        // TODO(port): score()->hideAnchors()
+    }
+
+    editCut(_ed: EditData): void {}
+    editCopy(_ed: EditData): void {}
+
+    updateGrips(ed: EditData): void {
+        const positions = this.gripsPositions(ed)
+        for (let i = 0; i < positions.length; ++i) {
+            ed.grip[i].translate(positions[i])
+        }
+    }
+
+    nextGrip(ed: EditData): boolean {
+        const i = ed.curGrip + 1
+        if (i >= ed.grips) {
+            ed.curGrip = 0 as Grip
+            return false
+        }
+        ed.curGrip = i as Grip
+        return true
+    }
+
+    prevGrip(ed: EditData): boolean {
+        const i = ed.curGrip - 1
+        if (i < 0) {
+            ed.curGrip = (ed.grips - 1) as Grip
+            return false
+        }
+        ed.curGrip = i as Grip
+        return true
+    }
+
+    /** anchor lines displayed while dragging element's grip in canvas coordinates */
+    gripAnchorLines(_grip: Grip): LineF[] { return [] }
+
+    gripsCount(): number { return 0 }
+    initialEditModeGrip(): Grip { return Grip.NO_GRIP }
+    defaultGrip(): Grip { return Grip.NO_GRIP }
+    /** grips positions in page coordinates */
+    gripsPositions(_ed?: EditData): PointF[] { return [] }
+
+    hasGrips(): boolean { return this.gripsCount() > 0 }
+
+    /** the element as clipboard / drag and drop data (C++ muse::ByteArray, here the xml text) */
+    mimeData(dragOffset: PointF = new PointF()): string {
+        const xml: XmlWriter = RWRegister.writer().createXmlWriter()
+
+        xml.startElement('EngravingItem')
+        if (this.isNote()) {
+            xml.tagFraction('duration', (this as unknown as { chord(): { ticks(): Fraction } }).chord().ticks())
+        }
+        if (!dragOffset.isNull()) {
+            xml.tagPoint('dragOffset', dragOffset)
+        }
+
+        RWRegister.writer().writeItem(this, xml)
+
+        xml.endElement()
+        xml.flush()
+        return xml.text()
+    }
 
     /** for debugging */
     override toString(): string { return `${this.typeName()}` }

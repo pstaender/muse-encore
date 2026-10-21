@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/select.h/.cpp (and SelectType of mscore.h)
  *
- * TODO(port): mime data (copy/paste), ElementPattern/NotePattern, canCopy, lock reasons are
+ * TODO(port): ElementPattern/NotePattern, lock reasons are
  * kept but not checked by callers (no editing yet). There is no refresh rectangle tracking (Score::addRefresh):
  * the UI repaints the selection bounds.
  */
@@ -29,6 +29,17 @@ import type { Spanner, SpannerSegment } from './spanner'
 import type { GuitarBend } from './guitarbend'
 import type { FretDiagram } from './fret'
 import type { SelectionFilter } from './selectionfilter'
+import { ElementType } from '../types/types'
+import { MScore, MsError, mimeStaffListFormat, mimeSymbolFormat, mimeSymbolListFormat } from './mscore'
+import { RWRegister } from '../rw/rwregister'
+import type { XmlWriter } from '../rw/xmlwriter'
+import type { Lyrics } from './lyrics'
+import type { Fermata } from './fermata'
+import type { Breath } from './breath'
+import type { StaffTextBase } from './stafftextbase'
+import type { Expression } from './expression'
+import type { Dynamic } from './dynamic'
+import type { TremoloTwoChord } from './tremolotwochord'
 
 /** C++ SelectType (mscore.h) */
 export enum SelectType {
@@ -1048,4 +1059,460 @@ export class Selection {
         this.m_activeSegment = activeSegmentIsStart ? this.m_startSegment : this.m_endSegment
         this.m_score.setSelectionChanged(true)
     }
+
+    // =================================================================================================================
+    //   copy (mime data, canCopy): Selection::mimeType, mimeData, staffMimeData, symbolListMimeData, canCopy
+    // =================================================================================================================
+
+    mimeType(): string {
+        switch (this.m_state) {
+        case SelState.LIST:
+            return this.isSingle() ? mimeSymbolFormat : mimeSymbolListFormat
+        case SelState.RANGE:
+            return mimeStaffListFormat
+        case SelState.NONE:
+        default:
+            break
+        }
+        return ''
+    }
+
+    mimeData(): string {
+        let a = ''
+        switch (this.m_state) {
+        case SelState.LIST:
+            if (this.isSingle()) {
+                a = this.element()!.mimeData()
+            } else {
+                a = this.symbolListMimeData()
+            }
+            break
+        case SelState.NONE:
+            break
+        case SelState.RANGE:
+            a = this.staffMimeData()
+            break
+        }
+        return a
+    }
+
+    staffMimeData(): string {
+        const xml: XmlWriter = RWRegister.writer().createXmlWriter()
+
+        xml.startDocument()
+
+        const filter = this.selectionFilter()
+        const curTick = { v: new Fraction(0, 1) }
+
+        const ticks = this.tickEnd().minus(this.tickStart())
+        const staves = this.staffEnd() - this.staffStart()
+
+        const staffListAttributes: [string, string | number][] = [
+            ['version', MSC_VERSION_STR],
+            ['tick', this.tickStart().toString()],
+            ['len', ticks.toString()],
+            ['staff', this.staffStart()],
+            ['staves', staves],
+        ]
+
+        // Note: canCopy() ensures that the whole selection has a single time stretch ratio.
+        const timeStretch = this.m_score.staff(this.staffStart())!.timeStretch(this.tickStart())
+        if (!timeStretch.eq(new Fraction(1, 1))) {
+            staffListAttributes.push(['timeStretch', timeStretch.toString()])
+        }
+
+        xml.startElement('StaffList', staffListAttributes)
+
+        const seg1 = this.m_startSegment!
+        const seg2 = this.m_endSegment
+
+        for (let staffIdx = this.staffStart(); staffIdx < this.staffEnd(); ++staffIdx) {
+            const startTrack = staffIdx * VOICES
+            const endTrack = startTrack + VOICES
+
+            xml.startElement('Staff', [['id', staffIdx]])
+
+            const staff = this.m_score.staff(staffIdx)!
+            const part = staff.part()!
+            const interval = part.instrument(seg1.tick())!.transpose()
+            if (interval.chromatic) {
+                xml.tag('transposeChromatic', interval.chromatic)
+            }
+            if (interval.diatonic) {
+                xml.tag('transposeDiatonic', interval.diatonic)
+            }
+            xml.startElement('voiceOffset')
+            for (let voice = 0; voice < VOICES; voice++) {
+                if (hasElementInTrack(seg1, seg2, startTrack + voice) && filter.canSelectVoice(voice)) {
+                    const offset = firstElementInTrack(seg1, seg2, startTrack + voice).minus(this.tickStart())
+                    xml.tag('voice', [['id', voice]], offset.ticks())
+                }
+            }
+            xml.endElement() // </voiceOffset>
+
+            RWRegister.writer().writeSegments(xml, filter, startTrack, endTrack, seg1, seg2, false, false, curTick)
+            xml.endElement()
+        }
+
+        xml.endElement()
+        xml.flush()
+        return xml.text()
+    }
+
+    symbolListMimeData(): string {
+        interface MapData {
+            e: EngravingItem
+            s: Segment
+        }
+
+        const xml: XmlWriter = RWRegister.writer().createXmlWriter()
+
+        xml.startDocument()
+
+        let topTrack = 1000000
+        let bottomTrack = 0
+        let firstSeg: Segment | null = null
+        let firstTick = new Fraction(0x7FFFFFFF, 1)
+        let seg: Segment | null = null
+        // C++ std::multimap<int64_t, MapData> keyed by (track << 32) + tick: equal keys keep their insertion order
+        const map: { track: track_idx_t; tick: number; data: MapData }[] = []
+
+        // scan selection element list, inserting relevant elements in a tick-sorted map
+        for (let e of this.m_el) {
+            switch (e.type()) {
+            case ElementType.ARTICULATION:
+            case ElementType.ORNAMENT:
+            case ElementType.TAPPING:
+            case ElementType.ARPEGGIO:
+            case ElementType.CHORD_BRACKET:
+            case ElementType.TREMOLO_SINGLECHORD: {
+                // ignore articulations not attached to chords/rest or segment
+                if (!e.explicitParent()!.isChordRest()) {
+                    continue
+                }
+                const cr = e.explicitParent() as unknown as ChordRest
+                seg = cr.segment()
+                break
+            }
+            case ElementType.FERMATA:
+                seg = (e as unknown as Fermata).segment()
+                break
+            case ElementType.BREATH:
+                seg = (e as unknown as Breath).segment()
+                break
+            case ElementType.PLAYTECH_ANNOTATION:
+            case ElementType.CAPO:
+            case ElementType.STRING_TUNINGS:
+            case ElementType.STAFF_TEXT:
+                seg = (e as unknown as StaffTextBase).segment()
+                break
+            case ElementType.EXPRESSION:
+                seg = (e as unknown as Expression).segment()
+                break
+            case ElementType.STICKING:
+            case ElementType.FIGURED_BASS:
+            case ElementType.HARP_DIAGRAM:
+                // C++ toSticking(e)->segment() etc.: the parent segment
+                seg = e.explicitParent() as unknown as Segment
+                break
+            case ElementType.LYRICS:
+                seg = (e as unknown as Lyrics).segment()
+                break
+            case ElementType.DYNAMIC:
+                seg = (e as unknown as Dynamic).segment()
+                break
+            case ElementType.HARMONY:
+            case ElementType.FRET_DIAGRAM:
+                // ignore chord symbols or fret diagrams not attached to segment
+                if (e.explicitParent()!.isSegment()) {
+                    seg = e.explicitParent() as unknown as Segment
+                    break
+                }
+                continue
+            case ElementType.SLUR_SEGMENT:
+            case ElementType.HAIRPIN_SEGMENT:
+            case ElementType.OTTAVA_SEGMENT:
+            case ElementType.TRILL_SEGMENT:
+            case ElementType.LET_RING_SEGMENT:
+            case ElementType.VIBRATO_SEGMENT:
+            case ElementType.PALM_MUTE_SEGMENT:
+            case ElementType.WHAMMY_BAR_SEGMENT:
+            case ElementType.RASGUEADO_SEGMENT:
+            case ElementType.HARMONIC_MARK_SEGMENT:
+            case ElementType.PICK_SCRAPE_SEGMENT:
+            case ElementType.TEXTLINE_SEGMENT:
+            case ElementType.PEDAL_SEGMENT:
+                e = (e as unknown as SpannerSegment).spanner()!
+                seg = (e as unknown as Spanner).startSegment()
+                break
+            case ElementType.SLUR:
+            case ElementType.HAMMER_ON_PULL_OFF:
+            case ElementType.HAIRPIN:
+            case ElementType.OTTAVA:
+            case ElementType.TRILL:
+            case ElementType.LET_RING:
+            case ElementType.VIBRATO:
+            case ElementType.PALM_MUTE:
+            case ElementType.WHAMMY_BAR:
+            case ElementType.RASGUEADO:
+            case ElementType.HARMONIC_MARK:
+            case ElementType.PICK_SCRAPE:
+            case ElementType.TEXTLINE:
+            case ElementType.PEDAL:
+                seg = (e as unknown as Spanner).startSegment()
+                break
+            default:
+                // Elements of other types are ignored. To allow copying them,
+                // add support for them here and in `Score::pasteSymbols`.
+                continue
+            }
+            const track = e.track()
+            if (track < topTrack) {
+                topTrack = track
+            }
+            if (track > bottomTrack) {
+                bottomTrack = track
+            }
+            if (seg!.tick().lt(firstTick)) {
+                firstSeg = seg
+                firstTick = seg!.tick()
+            }
+            const entry = { track, tick: seg!.tick().ticks(), data: { e, s: seg! } }
+            let pos = map.length
+            while (pos > 0 && (map[pos - 1].track > track || (map[pos - 1].track === track && map[pos - 1].tick > entry.tick))) {
+                --pos
+            }
+            map.splice(pos, 0, entry)
+        }
+
+        xml.startElement('SymbolList', [['version', MSC_VERSION_STR], ['fromtrack', topTrack], ['totrack', bottomTrack]])
+
+        // scan the map, outputting elements each with a relative <track> tag on track change,
+        // a relative tick and the number of CR segments to skip
+        let currTrack: track_idx_t = nidx
+        for (const iter of map) {
+            const track = iter.track
+            if (currTrack !== track) {
+                xml.tag('trackOffset', track - topTrack)
+                currTrack = track
+                seg = firstSeg
+            }
+            xml.tag('tickOffset', iter.tick - firstTick.ticks())
+            let numSegs = 0
+            // with figured bass, we need to look for the proper segment
+            // not only according to ChordRest elements, but also annotations
+            if (iter.data.e.isFiguredBass()) {
+                let done = false
+                for (; seg; seg = seg.next1()) {
+                    if (seg.isChordRestType()) {
+                        // if no ChordRest in right track, look in annotations
+                        if (seg.element(currTrack) === null) {
+                            for (const el of seg.annotations()) {
+                                // do annotations include our element?
+                                if (el === iter.data.e) {
+                                    done = true
+                                    break
+                                }
+                                // do annotations include any f.b.?
+                                if (el.isFiguredBass() && el.track() === track) {
+                                    numSegs++ //yes: it counts as a step
+                                    break
+                                }
+                            }
+                            if (done) {
+                                break
+                            }
+                            continue // segment is not relevant: no ChordRest nor f.b.
+                        } else {
+                            if (iter.data.s === seg) {
+                                break
+                            }
+                        }
+                        numSegs++
+                    }
+                }
+            } else {
+                while (seg && iter.data.s !== seg) {
+                    seg = seg.nextCR(currTrack)
+                    numSegs++
+                }
+            }
+            xml.tag('segDelta', numSegs)
+            RWRegister.writer().writeItem(iter.data.e, xml)
+        }
+
+        xml.endElement()
+        xml.flush()
+        return xml.text()
+    }
+
+    /**
+     * return false if range selection intersects a tuplet or a tremolo, or a local time signature, or only part of a
+     * measure repeat group
+     */
+    canCopy(): boolean {
+        if (this.m_state !== SelState.RANGE) {
+            return true
+        }
+
+        const endTick = this.m_endSegment ? this.m_endSegment.tick() : this.m_score.lastSegment()!.tick()
+        let timeStretch = new Fraction(1, 0)
+
+        for (let staffIdx = this.m_staffStart; staffIdx !== this.m_staffEnd; ++staffIdx) {
+            for (let voice = 0; voice < VOICES; ++voice) {
+                const track = staffIdx * VOICES + voice
+                if (!this.canSelectVoice(track)) {
+                    continue
+                }
+
+                // check first cr in track within selection
+                const check = this.m_startSegment!.nextChordRest(track)
+                if (check && check.tick().lt(endTick)) {
+                    const err = checkStartForPartialCopy(check)
+                    if (err !== MsError.MS_NO_ERROR) {
+                        MScore.setError(err)
+                        return false
+                    }
+                }
+
+                if (!this.m_endSegment) {
+                    continue
+                }
+
+                // find last segment in the selection.
+                // Note that _endSegment is the first segment after the selection
+
+                let endSegmentSelection: Segment = this.m_startSegment!
+                while (endSegmentSelection.nextCR(track)
+                       && (endSegmentSelection.nextCR(track)!.tick().lt(this.m_endSegment.tick()))) {
+                    endSegmentSelection = endSegmentSelection.nextCR(track)!
+                }
+
+                const err = checkEndForPartialCopy(endSegmentSelection.element(track), endTick)
+                if (err !== MsError.MS_NO_ERROR) {
+                    MScore.setError(err)
+                    return false
+                }
+            }
+
+            // Check that all selected measures have the same time stretch - allows copy/paste within a local time signature,
+            // but don't yet support it between differing local time signatures.
+            for (let m: Measure | null = this.m_startSegment!.measure(); m && m.tick().lt(endTick); m = m.nextMeasure()) {
+                const mTimeStretch = this.m_score.staff(staffIdx)!.timeStretch(m.tick())
+                if (!timeStretch.isValid()) {
+                    timeStretch = mTimeStretch
+                } else if (!timeStretch.eq(mTimeStretch)) {
+                    return false
+                }
+            }
+
+            // check if selection starts or ends partway through measure repeat group
+            const firstCR = this.firstChordRest()
+            const lastCR = this.lastChordRest()
+            if ((firstCR && firstCR.measure()!.isMeasureRepeatGroupWithPrevM(staffIdx))
+                || (lastCR && lastCR.measure()!.isMeasureRepeatGroupWithNextM(staffIdx))) {
+                return false
+            }
+        }
+        return true
+    }
+}
+
+/** Constants::MSC_VERSION_STR (C++ writes "2.00" in test mode) */
+const MSC_VERSION_STR = '4.70'
+
+function hasElementInTrack(startSeg: Segment, endSeg: Segment | null, track: track_idx_t): boolean {
+    for (let seg: Segment | null = startSeg; seg && seg !== endSeg; seg = seg.next1MM()) {
+        if (!seg.enabled()) {
+            continue
+        }
+        if (seg.element(track)) {
+            return true
+        }
+    }
+    return false
+}
+
+function firstElementInTrack(startSeg: Segment, endSeg: Segment | null, track: track_idx_t): Fraction {
+    for (let seg: Segment | null = startSeg; seg && seg !== endSeg; seg = seg.next1MM()) {
+        if (!seg.enabled()) {
+            continue
+        }
+        if (seg.element(track)) {
+            return seg.tick()
+        }
+    }
+    return new Fraction(-1, 1)
+}
+
+/**
+ * return no error if element is NOT a tuplet or is start of a tuplet/tremolo, return error if element is part of a
+ * tuplet/tremolo, but not the start
+ */
+function checkStartForPartialCopy(e: EngravingItem | null): MsError {
+    if (!e || !e.isChordRest()) {
+        return MsError.MS_NO_ERROR
+    }
+
+    const cr = e as unknown as ChordRest
+    if (cr.tuplet()) {
+        // check that complete tuplet is selected, all the way up to top level
+        let tuplet: Tuplet | null = cr.tuplet()
+        while (tuplet) {
+            if (tuplet.elements()[0] !== e) {
+                return MsError.SOURCE_PARTIAL_TUPLET
+            }
+            e = tuplet as unknown as EngravingItem
+            tuplet = tuplet.tuplet()
+        }
+    }
+
+    if (cr.isChord()) {
+        const chord = cr as unknown as Chord
+        const ttc: TremoloTwoChord | null = chord.tremoloTwoChord()
+        if (ttc && ttc.chord2() === chord) {
+            return MsError.SOURCE_PARTIAL_TREMOLO
+        }
+    }
+
+    return MsError.MS_NO_ERROR
+}
+
+/**
+ * return no error if element is NOT a tuplet or is end of a tuplet/tremolo, return error if element is part of a
+ * tuplet/tremolo, but not the end
+ */
+function checkEndForPartialCopy(e: EngravingItem | null, endTick: Fraction): MsError {
+    if (!e || !e.isChordRest()) {
+        return MsError.MS_NO_ERROR
+    }
+
+    const cr = e as unknown as ChordRest
+    if (cr.tuplet()) {
+        // check that complete tuplet is selected, all the way up to top level
+        let tuplet: Tuplet | null = cr.tuplet()
+        while (tuplet) {
+            const els = tuplet.elements()
+            if (els[els.length - 1] !== e) {
+                return MsError.SOURCE_PARTIAL_TUPLET
+            }
+            e = tuplet as unknown as EngravingItem
+            tuplet = tuplet.tuplet()
+        }
+        // also check that the selection extends to the end of the top-level tuplet
+        tuplet = e as unknown as Tuplet
+        if (tuplet.endTick().gt(endTick)) {
+            return MsError.SOURCE_PARTIAL_TUPLET
+        }
+    }
+
+    if (cr.isChord()) {
+        const chord = cr as unknown as Chord
+        const ttc: TremoloTwoChord | null = chord.tremoloTwoChord()
+        if (ttc && ttc.chord1() === chord) {
+            return MsError.SOURCE_PARTIAL_TREMOLO
+        }
+    }
+
+    return MsError.MS_NO_ERROR
 }

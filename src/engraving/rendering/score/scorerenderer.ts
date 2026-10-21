@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rendering/score/scorerenderer.h/.cpp
  *
- * TODO(port): painting (paintScore/paintItem), layoutText1, layoutTextLineBaseSegment
+ * TODO(port): painting (paintScore/paintItem), layoutTextLineBaseSegment
  */
 
 import type { Fraction } from '../../types/fraction'
@@ -24,6 +24,10 @@ import { ScoreLayout, ScorePageViewLayout } from './scorelayout'
 import { TLayout } from './tlayout'
 import { ChordLayout } from './chordlayout'
 import { MeasureLayout } from './measurelayout'
+import { textBaseRenderer, type TextBase } from '../../dom/textbase'
+import type { Harmony } from '../../dom/harmony'
+import { TextLayout } from './textlayout'
+import { HarmonyLayout } from './harmonylayout'
 // the layout uses the undo functions of the editing modules (e.g. Measure.undoGetSegment -> Score.undoAddElement)
 import '../../editing/edit'
 import '../../editing/cmd'
@@ -52,11 +56,24 @@ export class ScoreRenderer {
     static layoutStem(item: Chord): void {
         ChordLayout.layoutStem(item, new LayoutContext(item.score()))
     }
+
+    static layoutText1(item: TextBase, base = false): void {
+        const ctx = new LayoutContext(item.score())
+        if (base) {
+            TextLayout.layoutBaseTextBase1(item)
+        } else if (item.isHarmony()) {
+            HarmonyLayout.layoutHarmony(item as unknown as Harmony, ctx)
+        } else {
+            TextLayout.layoutBaseTextBase1(item)
+        }
+    }
 }
 
 scoreRendererHooks.layoutScore = (score, st, et) => ScoreRenderer.layoutScore(score, st, et)
 chordRestRenderer.layoutBeam1 = (b) => ScoreRenderer.layoutBeam1(b)
 chordRestRenderer.layoutStem = (c) => ScoreRenderer.layoutStem(c)
+textBaseRenderer.layoutText1 = (t, base) => ScoreRenderer.layoutText1(t, base)
+textBaseRenderer.layoutItem = (e) => ScoreRenderer.layoutItem(e)
 
 // C++ EngravingItem::LayoutData::shape(): "Temporary fix" refilling shapes on access
 ldataShapeHooks[ElementType.GUITAR_BEND_SEGMENT] = (item) => TLayout.fillGuitarBendSegmentShape(item as GuitarBendSegment)

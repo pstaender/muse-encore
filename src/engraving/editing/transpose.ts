@@ -12,6 +12,8 @@ import {
     clampEnharmonic, clampKey, key2Tpc, tpc2Key, tpcIsValid,
 } from '../dom/pitchspelling'
 import type { Interval } from '../dom/interval'
+import type { Fraction } from '../types/fraction'
+import type { Chord } from '../dom/chord'
 
 export class Transpose {
     static transposeKey(key: Key, interval: Interval, prefer: PreferSharpFlat = PreferSharpFlat.NONE): Key {
@@ -32,5 +34,21 @@ export class Transpose {
             return tpc
         }
         return clampEnharmonic(tpc + deltaTpc, useDoubleSharpsFlats)
+    }
+
+    /** sets the tpc2 of the notes for the transposition of the chord's staff at tick (used by paste) */
+    static transposeChord(c: Chord, tick: Fraction): void {
+        const dstTranspose = c.staff()!.transpose(tick)
+
+        if (dstTranspose.isZero()) {
+            for (const n of c.notes()) {
+                n.setTpc2(n.tpc1())
+            }
+        } else {
+            dstTranspose.flip()
+            for (const n of c.notes()) {
+                n.setTpc2(Transpose.transposeTpc(n.tpc1(), dstTranspose, true))
+            }
+        }
     }
 }
