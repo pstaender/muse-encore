@@ -619,3 +619,19 @@
   leaving the page with unsaved changes triggers the browser's question. Entries of new scores created before the
   writer existed (stored as NewScoreOptions) still open. Not done: Save as / Export dialogs, autosave.
 - `npm test` only scans `test/` (the agent worktrees in `.claude/` contain copies of the tests).
+
+## 2026-10-21 — Note parentheses
+
+- EditChord (editchord.ts) is complete for the chord parentheses of notes: addChordParentheses / removeChordParentheses
+  (splitting a group when a middle note is removed), linked chords, and the undo commands AddNoteParenthesisInfo,
+  RemoveNoteParenthesisInfo, RemoveSingleNoteParentheses; Chord.addNoteToParenthesisInfo / removeNoteFromParenthesisInfo;
+  Note::setParenthesesMode removes parentheses too.
+- cmd.ts: Score.cmdAddParenthesesToNotes / cmdRemoveParenthesesFromNotes (getNotesByChord: all notes between the
+  selected ones of a chord), cmdToggleParenthesesOnNotes, cmdToggleParentheses, cmdAddBracket, cmdAddBraces;
+  NotationInteraction.addBracketsToSelection with the actions "add-parentheses", "add-brackets", "add-braces".
+- Properties panel: "Notehead parentheses" applies like NoteheadSettingsModel ("Add/Remove notehead parentheses";
+  resetting HAS_PARENTHESES of notes resets the chord parentheses).
+- Rendering: Accidental::parentNoteHasParentheses (no accidental brackets inside note parentheses) and the parentheses
+  around the cue note of trills (Ornament::updateCueNote) are ported.
+- Tests: test/parentheses.test.ts (undo/redo restore the SVG of all pages; hashed without selection, because selected
+  items are painted last).

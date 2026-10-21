@@ -96,6 +96,7 @@ export class LineAttachPoint {
 /** set by editing/editchord.ts (C++ EditChord::addChordParentheses; avoids an import cycle) */
 export const noteParenthesesHooks: {
     addChordParentheses?: (chord: Chord, notes: Note[], addToLinked: boolean, generated: boolean) => void
+    removeChordParentheses?: (chord: Chord, notes: Note[], addToLinked: boolean, generated: boolean) => void
 } = {}
 
 export class NoteLayoutData extends LayoutData {
@@ -1207,7 +1208,7 @@ export class Note extends EngravingItem {
         if (hasParen) {
             noteParenthesesHooks.addChordParentheses!(this.chord(), [this], addToLinked, generated)
         } else {
-            // TODO(port): EditChord::removeChordParentheses
+            noteParenthesesHooks.removeChordParentheses!(this.chord(), [this], addToLinked, generated)
         }
     }
     tieBack(): Tie | null { return this.m_tieBack }

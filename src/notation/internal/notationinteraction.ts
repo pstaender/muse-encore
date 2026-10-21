@@ -30,6 +30,7 @@ import { nextChordRest, prevChordRest, type Chord } from '../../engraving/dom/ch
 import '../../engraving/dom/navigate'
 import '../../engraving/editing/cmd'
 import { ScoreRangeUtilities } from '../utilities/scorerangeutilities'
+import { BracketsType } from '../notationtypes'
 import { NotationUndoStack, Notification } from './notationundostack'
 import { NotationNoteInput } from './notationnoteinput'
 import { TranslatableString } from '../../framework/global/types/translatablestring'
@@ -185,6 +186,30 @@ export class NotationInteraction {
         this.startEdit(actionName)
         f()
         this.apply()
+    }
+
+    addBracketsToSelection(type: BracketsType): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        switch (type) {
+        case BracketsType.Brackets:
+            this.startEdit(new TranslatableString('undoableAction', 'Add brackets'))
+            this.score().cmdAddBracket()
+            this.apply()
+            break
+        case BracketsType.Braces:
+            this.startEdit(new TranslatableString('undoableAction', 'Add braces'))
+            this.score().cmdAddBraces()
+            this.apply()
+            break
+        case BracketsType.Parentheses:
+            this.startEdit(new TranslatableString('undoableAction', 'Add parentheses'))
+            this.score().cmdToggleParentheses()
+            this.apply()
+            break
+        }
     }
 
     toggleVisible(): void {

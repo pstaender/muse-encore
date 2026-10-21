@@ -480,6 +480,26 @@ export class Chord extends ChordRest {
         }
     }
 
+    addNoteToParenthesisInfo(note: Note, paren: Parenthesis): void {
+        const noteParenInfo = this.findNoteParenthesisInfo(paren)
+
+        if (!noteParenInfo) {
+            return
+        }
+
+        noteParenInfo.insertNote(note)
+    }
+
+    removeNoteFromParenthesisInfo(note: Note, paren: Parenthesis): void {
+        const noteParenInfo = this.findNoteParenthesisInfo(paren)
+
+        if (!noteParenInfo) {
+            return
+        }
+
+        noteParenInfo.removeNote(note)
+    }
+
     tremoloType(): TremoloType {
         if (this.m_tremoloSingleChord) {
             return this.m_tremoloSingleChord.tremoloType()

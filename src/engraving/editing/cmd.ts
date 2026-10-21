@@ -11,7 +11,7 @@
  * empty-trailing-measure.
  */
 
-import { AccidentalRole, AccidentalVal, ClefType, DirectionV, DurationType, ElementType, Key, NoteHeadGroup, StaffGroup, VOICES, track2staff, trackZeroVoice, type track_idx_t } from '../types/types'
+import { AccidentalRole, AccidentalVal, ClefType, DirectionV, DurationType, ElementType, Key, NoteHeadGroup, ParenthesesMode, StaffGroup, VOICES, nidx, track2staff, trackZeroVoice, type track_idx_t } from '../types/types'
 import { Fraction } from '../types/fraction'
 import { PointF } from '../../framework/draw/types/geometry'
 import { TranslatableString } from '../../framework/global/types/translatablestring'
@@ -22,11 +22,11 @@ import { SelectType } from '../dom/select'
 import { SelectionFilter } from '../dom/selectionfilter'
 import { SegmentType } from '../dom/segment'
 import { TimeSigFrac } from '../dom/sig'
-import { nextChordRest, prevChordRest, type Chord } from '../dom/chord'
+import { nextChordRest, noteIsBefore, prevChordRest, type Chord } from '../dom/chord'
 import { NoteEntryMethod, NoteVal, type InputState } from '../dom/input'
 import { TDuration, toDurationList, toRhythmicDurationList } from '../dom/durationtype'
 import { AccidentalType } from '../dom/accidentaldata'
-import { Accidental } from '../dom/accidental'
+import { Accidental, AccidentalBracket } from '../dom/accidental'
 import { Factory } from '../dom/factory'
 import { Pid, PropertyFlags } from '../dom/property'
 import { ClefInfo } from '../dom/clefinfo'
@@ -38,6 +38,7 @@ import { Transpose } from './transpose'
 import { ChangeProperty } from './editproperty'
 import { ChangePitch } from './editnote'
 import { InsertMeasureOptions } from './edit'
+import { EditChord } from './editchord'
 import '../dom/navigate'
 import '../dom/noteentry'
 import type { EditData } from './editdata'
@@ -54,6 +55,7 @@ import type { Measure } from '../dom/measure'
 import type { Tie } from '../dom/tie'
 import type { Slur } from '../dom/slur'
 import type { Clef } from '../dom/clef'
+import type { TimeSig } from '../dom/timesig'
 
 declare module '../dom/score' {
     interface Score {
@@ -100,6 +102,14 @@ declare module '../dom/score' {
         cmdPitchDownOctave(): void
         addInterval(val: number, nl: readonly Note[]): void
         expandVoice(s?: Segment | null, track?: track_idx_t): void
+        cmdAddBracket(): void
+        cmdToggleParenthesesOnNotes(): void
+        /** C++ cmdAddParenthesesToNotes(std::list<Note*>&) and cmdAddParenthesesToNotes() (the selected notes) */
+        cmdAddParenthesesToNotes(notes?: Note[]): void
+        cmdRemoveParenthesesFromNotes(notes?: Note[]): void
+        /** C++ cmdToggleParentheses() and cmdToggleParentheses(EngravingItem*) */
+        cmdToggleParentheses(el?: EngravingItem): void
+        cmdAddBraces(): void
 
     }
 }
@@ -2182,6 +2192,153 @@ Score.prototype.cmdToggleVisible = function (this: Score): void {
 
     for (const item of [...this.selection().elements()]) {
         this.undoChangeVisible(item, newVisible)
+    }
+}
+
+//---------------------------------------------------------
+//   cmdAddBracket
+//---------------------------------------------------------
+
+Score.prototype.cmdAddBracket = function (this: Score): void {
+    for (const el of this.selection().elements()) {
+        if (el.isAccidental()) {
+            el.undoChangeProperty(Pid.ACCIDENTAL_BRACKET, AccidentalBracket.BRACKET)
+        }
+    }
+}
+
+//---------------------------------------------------------
+//   cmdToggleParenthesesOnNotes
+//---------------------------------------------------------
+
+/** C++ std::set<Note*, NoteComparator>::insert: sorted by noteIsBefore, unison notes kept (in insertion order) */
+function insertNoteSorted(set: Note[], note: Note): void {
+    if (set.includes(note)) {
+        return
+    }
+    let i = 0
+    while (i < set.length && !noteIsBefore(note, set[i])) {
+        ++i
+    }
+    set.splice(i, 0, note)
+}
+
+function getNotesByChord(notes: readonly Note[]): Map<Chord, Note[]> {
+    // Return map of notes by chord
+    // Include all notes between highest and lowest in each chord
+    const notesByChord = new Map<Chord, Note[]>()
+    for (const noteToAdd of notes) {
+        const chord = noteToAdd.chord()
+        const set = notesByChord.get(chord)
+
+        if (!set) {
+            notesByChord.set(chord, [noteToAdd])
+            continue
+        }
+
+        // Add all notes between last note and this one
+        const prevNote = set[set.length - 1]
+
+        const firstNote = noteIsBefore(noteToAdd, prevNote) ? noteToAdd : prevNote
+        const secondNote = firstNote === noteToAdd ? prevNote : noteToAdd
+
+        const chordNotes = chord.notes()
+        const firstNoteIt = chordNotes.indexOf(firstNote)
+        const secondNoteIt = chordNotes.indexOf(secondNote)
+
+        for (let i = firstNoteIt; i <= secondNoteIt; ++i) {
+            insertNoteSorted(set, chordNotes[i])
+        }
+    }
+
+    return notesByChord
+}
+
+Score.prototype.cmdToggleParenthesesOnNotes = function (this: Score): void {
+    const notes = this.selection().uniqueNotes(nidx, false)
+
+    let add = false
+
+    for (const note of notes) {
+        if (note.getProperty(Pid.HAS_PARENTHESES) === ParenthesesMode.NONE) {
+            add = true
+            break
+        }
+    }
+
+    if (add) {
+        this.cmdAddParenthesesToNotes(notes)
+    } else {
+        this.cmdRemoveParenthesesFromNotes(notes)
+    }
+}
+
+Score.prototype.cmdAddParenthesesToNotes = function (this: Score, notes?: Note[]): void {
+    const notesByChord = getNotesByChord(notes ?? this.selection().uniqueNotes(nidx, false))
+
+    for (const [chord, noteVec] of notesByChord) {
+        for (const note of noteVec) {
+            // User has overriden generated parentheses
+            note.undoChangeProperty(Pid.HIDE_GENERATED_PARENTHESES, true)
+            note.undoChangeProperty(Pid.HAS_PARENTHESES, ParenthesesMode.BOTH)
+        }
+
+        EditChord.removeChordParentheses(chord, noteVec)
+        EditChord.addChordParentheses(chord, noteVec)
+    }
+}
+
+Score.prototype.cmdRemoveParenthesesFromNotes = function (this: Score, notes?: Note[]): void {
+    const notesByChord = getNotesByChord(notes ?? this.selection().uniqueNotes(nidx, false))
+
+    for (const [chord, noteVec] of notesByChord) {
+        for (const note of noteVec) {
+            note.undoChangeProperty(Pid.HAS_PARENTHESES, ParenthesesMode.NONE)
+
+            // User has overriden generated parentheses
+            note.undoChangeProperty(Pid.HIDE_GENERATED_PARENTHESES, true)
+        }
+
+        EditChord.removeChordParentheses(chord, noteVec)
+    }
+}
+
+//---------------------------------------------------------
+//   cmdToggleParentheses
+//---------------------------------------------------------
+
+Score.prototype.cmdToggleParentheses = function (this: Score, el?: EngravingItem): void {
+    if (el) {
+        if (el.isAccidental()) {
+            el.undoChangeProperty(Pid.ACCIDENTAL_BRACKET, AccidentalBracket.PARENTHESIS)
+        } else if (el.type() === ElementType.TIMESIG) {
+            (el as TimeSig).setLargeParentheses(true)
+        } else {
+            const p = el.leftParen() || el.rightParen() ? ParenthesesMode.NONE : ParenthesesMode.BOTH
+            el.undoChangeProperty(Pid.HAS_PARENTHESES, p)
+        }
+        return
+    }
+
+    this.cmdToggleParenthesesOnNotes()
+
+    for (const e of [...this.selection().elements()]) {
+        if (e.isNote()) {
+            continue
+        }
+        this.cmdToggleParentheses(e)
+    }
+}
+
+//---------------------------------------------------------
+//   cmdAddBraces
+//---------------------------------------------------------
+
+Score.prototype.cmdAddBraces = function (this: Score): void {
+    for (const el of this.selection().elements()) {
+        if (el.isAccidental()) {
+            el.undoChangeProperty(Pid.ACCIDENTAL_BRACKET, AccidentalBracket.BRACE)
+        }
     }
 }
 

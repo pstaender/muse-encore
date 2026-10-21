@@ -4,7 +4,6 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/engraving/dom/ornament.h/.cpp
- * TODO(port): parentheses around the cue note (Score::cmdAddParenthesesToNotes)
  */
 
 import type { PropertyValue } from '../types/propertyvalue'
@@ -389,7 +388,8 @@ export class Ornament extends Articulation {
             cueNote.setHeadType(NoteHeadType.HEAD_QUARTER)
             this.m_cueNoteChord.add(cueNote)
             cueNote.setParent(this.m_cueNoteChord)
-            // TODO(port): Score::cmdAddParenthesesToNotes({ cueNote })
+
+            this.score().cmdAddParenthesesToNotes([cueNote])
         }
 
         this.m_cueNoteChord.setTrack(this.track())

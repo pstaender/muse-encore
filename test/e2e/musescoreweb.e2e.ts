@@ -399,6 +399,22 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.keyboard.press('ControlOrMeta+z')
         await page.waitForFunction((sel) => document.querySelector<HTMLInputElement>(sel)!.checked, visible)
         expect(await page.textContent('#title')).not.toMatch(/^\*/)
+
+        // the notehead parentheses (Score::cmdAddParenthesesToNotes), then undo
+        const notation = '.inspector [data-section="SECTION_NOTATION"]'
+        if (await page.getAttribute(`${notation} .insp-section-header`, 'aria-expanded') !== 'true') {
+            await page.click(`${notation} .insp-section-header`)
+        }
+        const withParens = `${notation} [role="radio"][aria-label="Notehead with parentheses"]`
+        await page.waitForSelector(withParens)
+        expect(await page.getAttribute(withParens, 'aria-checked')).toBe('false')
+        await page.click(withParens)
+        await page.waitForFunction((sel) => document.querySelector(sel)!.getAttribute('aria-checked') === 'true', withParens)
+        expect(await page.textContent('#title')).toMatch(/^\*/)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction((sel) => document.querySelector(sel)!.getAttribute('aria-checked') === 'false', withParens)
+        expect(await page.textContent('#title')).not.toMatch(/^\*/)
         await context.close()
     }, 180000)
 

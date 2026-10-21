@@ -20,7 +20,7 @@ import { Pid } from '../engraving/dom/property'
 import { AccidentalType } from '../engraving/dom/accidentaldata'
 import { UpDownMode } from '../engraving/dom/mscore'
 import { Pad } from '../engraving/dom/score'
-import { NoteAddingMode, NoteName } from '../notation/notationtypes'
+import { BracketsType, NoteAddingMode, NoteName } from '../notation/notationtypes'
 import { MoveDirection, MoveSelectionType, type NotationInteraction } from '../notation/internal/notationinteraction'
 import type { NotationNoteInput } from '../notation/internal/notationnoteinput'
 import type { Score } from '../engraving/dom/score'
@@ -178,6 +178,10 @@ export class NotationActionController {
         for (const [code, voice] of VOICE_ACTIONS) {
             this.registerAction(code, () => this.changeVoice(voice))
         }
+
+        this.registerAction('add-brackets', () => this.interaction().addBracketsToSelection(BracketsType.Brackets))
+        this.registerAction('add-parentheses', () => this.interaction().addBracketsToSelection(BracketsType.Parentheses))
+        this.registerAction('add-braces', () => this.interaction().addBracketsToSelection(BracketsType.Braces))
     }
 
     /** the action codes of the controller (independent of a score: the handlers are only registered) */

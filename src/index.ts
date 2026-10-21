@@ -56,7 +56,7 @@ import { Dynamic } from './engraving/dom/dynamic'
 import { Note } from './engraving/dom/note'
 import { SymId } from './engraving/types/symid'
 import { SymNames } from './engraving/types/symnames'
-import { BarLineType, ClefType, DynamicType, NoteHeadGroup, NoteHeadType, nidx } from './engraving/types/types'
+import { BarLineType, ClefType, DynamicType, NoteHeadGroup, NoteHeadType, ParenthesesMode, nidx } from './engraving/types/types'
 import { KeyboardModifier } from './engraving/editing/editdata'
 
 export { initEngravingFonts, fontsInitialized, type FontFileLoader } from './engraving/engravingmodule'
@@ -1026,20 +1026,41 @@ export function resetSelectionProperty(score: MasterScore, name: string): boolea
  * onPropertyValueReset ("Edit %1" / "Reset %1" with the first change's property). Returns false if nothing was applied.
  */
 export function applyInspectorChanges(score: MasterScore, changes: readonly InspectorChange[]): boolean {
-    const supported = changes.filter(c => !c.command || c.command === 'changeVisible')
-    if (!supported.length) {
-        return false // TODO(port): 'addParentheses' / 'removeParentheses' (Score::cmdAddParenthesesToNotes etc.)
+    if (!changes.length) {
+        return false
     }
     const interaction = notationState(score).interaction
-    const reset = supported.every(c => c.reset)
-    interaction.startEdit(new TranslatableString('undoableAction', reset ? 'Reset %1' : 'Edit %1').arg(propertyUserName(supported[0].pid)))
-    for (const c of supported) {
+    const parens = changes.find(c => c.command === 'addParentheses' || c.command === 'removeParentheses')
+    if (parens) {
+        // NoteheadSettingsModel: the parentheses of the selected notes (Score::cmdAddParenthesesToNotes etc.)
+        const add = parens.command === 'addParentheses'
+        interaction.startEdit(new TranslatableString('undoableAction', add ? 'Add notehead parentheses' : 'Remove notehead parentheses'))
+        if (add) {
+            score.cmdAddParenthesesToNotes()
+        } else {
+            score.cmdRemoveParenthesesFromNotes()
+        }
+        interaction.apply()
+        return true
+    }
+    const reset = changes.every(c => c.reset)
+    interaction.startEdit(new TranslatableString('undoableAction', reset ? 'Reset %1' : 'Edit %1').arg(propertyUserName(changes[0].pid)))
+    for (const c of changes) {
         if (c.command === 'changeVisible') {
             score.undoChangeVisible(c.item, !!c.value)
         } else if (c.reset) {
             c.item.undoResetProperty(c.pid)
         } else {
             c.item.undoChangeProperty(c.pid, c.value, c.flags ?? PropertyFlags.NOSTYLE)
+        }
+    }
+    // NoteheadSettingsModel: resetting the parentheses of notes resets their chord parentheses too
+    const parensReset = changes.find(c => c.reset && c.pid === Pid.HAS_PARENTHESES && c.item.isNote())
+    if (parensReset) {
+        if (parensReset.item.parenthesesMode() === ParenthesesMode.BOTH) {
+            score.cmdAddParenthesesToNotes()
+        } else {
+            score.cmdRemoveParenthesesFromNotes()
         }
     }
     interaction.apply()

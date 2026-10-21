@@ -12,6 +12,12 @@ import { TimeSigType } from '../engraving/dom/timesig'
 import { ScoreOrder } from '../engraving/dom/scoreorder'
 import type { InstrumentTemplate } from '../engraving/dom/instrtemplate'
 
+export enum BracketsType {
+    Brackets,
+    Braces,
+    Parentheses,
+}
+
 export class Tempo {
     valueBpm = 0
     duration = DurationType.V_QUARTER

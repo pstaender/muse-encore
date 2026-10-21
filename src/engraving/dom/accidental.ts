@@ -119,8 +119,7 @@ export class Accidental extends EngravingItem {
     setSmall(val: boolean): void { this.m_isSmall = val }
 
     parentNoteHasParentheses(): boolean {
-        // TODO(port): note parentheses
-        return false
+        return !!this.explicitParent() && this.parentItem()!.isNote() && !!(this.parentItem() as Note).parenthesisInfo()
     }
 
     symId(): SymId { return ACC_LIST[this.accidentalType()].sym }
