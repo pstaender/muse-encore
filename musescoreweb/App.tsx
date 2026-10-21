@@ -15,6 +15,7 @@ import { ScoresPage } from './home/ScoresPage'
 import { qtrc, useLanguage } from './i18n'
 import { appMenu, setRecentScoresProvider, type MenuItem } from './menus/appmenu'
 import { NewScoreDialog } from './newscore/NewScoreDialog'
+import { PanelDock } from './panels/PanelDock'
 import { setChrome, useScoreView, viewport, viewShown } from './scoreview'
 import { closeScore, openStored, setView, showDialog, useSession } from './session'
 import { resetSettings } from './settings'
@@ -112,9 +113,12 @@ export function App(): React.JSX.Element {
                 {score && <ToolBarDock dock="top" />}
             </div>
             {session.view === 'home' && <ScoresPage />}
-            <div className="score-area" hidden={!score}>
-                <NotationTab />
-                <div ref={viewportHost} className="viewport-host" />
+            <div className="notation-row" hidden={!score}>
+                {score && <PanelDock />}
+                <div className="score-area">
+                    <NotationTab />
+                    <div ref={viewportHost} className="viewport-host" />
+                </div>
             </div>
             {score && <ToolBarDock dock="bottom" />}
             {score && layout.statusBar && <StatusBar />}

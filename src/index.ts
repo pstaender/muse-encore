@@ -41,6 +41,10 @@ export type { MasterScore } from './engraving/dom/masterscore'
 export type { Score } from './engraving/dom/score'
 export type { Canvas2D } from './framework/draw/canvaspaintprovider'
 export { SvgGlyphDefs } from './framework/draw/svgpaintprovider'
+// the editor's panels: palettes, layout panel, properties (inspector)
+export * from './palette/api'
+export * from './instrumentsscene/api'
+export * from './inspector/api'
 export {
     setFallbackFontEngine, createCanvasFallbackFontEngine, type FallbackFontEngine, type FallbackFont,
 } from './framework/draw/internal/fontprovider'

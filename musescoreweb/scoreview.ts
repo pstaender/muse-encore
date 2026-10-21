@@ -51,12 +51,16 @@ export interface ScoreViewState {
     statusError: boolean
     /** the selection's accessibility info (MuseScore's status bar); '' without a selection */
     selection: string
+    /** counts the selection changes (for the panels: the Properties panel shows the selection) */
+    selectionVersion: number
+    /** counts the scores shown and their changes (for the panels: the Layout panel lists the parts) */
+    scoreVersion: number
 }
 
 let viewState: ScoreViewState = {
     hasScore: false, title: '', tooltip: '', pageText: '–', canPrev: false, canNext: false, zoom: 100, fitMode: null,
     orientation: 'horizontal', spread: false, spreadAvailable: false, fullscreen: false, status: '', statusError: false,
-    selection: '',
+    selection: '', selectionVersion: 0, scoreVersion: 0,
 }
 const viewListeners = new Set<() => void>()
 
@@ -168,7 +172,7 @@ fontsReady.then(() => setStatus('Ready'), (e: Error) => setStatus(`Error: ${e.me
 /** shows a laid out score; `name` is the file name (or the title of a new score) */
 export function showScore(s: MasterScore, name: string): void {
     score = s
-    publish({ selection: '' })
+    publish({ selection: '', selectionVersion: viewState.selectionVersion + 1, scoreVersion: viewState.scoreVersion + 1 })
     fileName = name
     printPagesDiv.replaceChildren()
     buildPages()
@@ -176,7 +180,7 @@ export function showScore(s: MasterScore, name: string): void {
 
 export function clearScore(): void {
     score = null
-    publish({ selection: '' })
+    publish({ selection: '', selectionVersion: viewState.selectionVersion + 1, scoreVersion: viewState.scoreVersion + 1 })
     fileName = ''
     printPagesDiv.replaceChildren()
     buildPages()
@@ -727,7 +731,7 @@ export function selectionChanged(scrollIntoView = false): void {
         delete el.querySelector('canvas')!.dataset.dpi
     }
     scheduleRender(0)
-    publish({ selection: hasSelection(score) ? selectionInfo(score) : '' })
+    publish({ selection: hasSelection(score) ? selectionInfo(score) : '', selectionVersion: viewState.selectionVersion + 1 })
     if (scrollIntoView) {
         const b = selectionBounds(score)[0]
         const el = b ? pages[b.page] : null
@@ -744,6 +748,12 @@ export function selectionChanged(scrollIntoView = false): void {
             })
         }
     }
+}
+
+/** the score was changed: the panels refresh; the pages are repainted (TODO(port): relayout after editing) */
+export function scoreContentChanged(): void {
+    publish({ scoreVersion: viewState.scoreVersion + 1 })
+    selectionChanged()
 }
 
 export function selectAllElements(): void {
@@ -911,7 +921,8 @@ document.addEventListener('keydown', (e) => {
         e.preventDefault()
         return
     }
-    if (document.querySelector('dialog[open]')) {
+    // modal dialogs and the panels keep their keys
+    if (document.querySelector('dialog[open]') || (e.target instanceof Element && e.target.closest('.panel-dock'))) {
         return
     }
     const mod = e.ctrlKey || e.metaKey

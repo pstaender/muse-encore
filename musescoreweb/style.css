@@ -234,7 +234,7 @@ body {
     min-height: 0;
 }
 
-.score-area[hidden] { display: none; }
+.score-area[hidden], .notation-row[hidden] { display: none; }
 
 .viewport-host {
     position: relative;

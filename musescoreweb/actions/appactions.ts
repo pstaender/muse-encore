@@ -15,6 +15,8 @@ import {
 } from '../session'
 import { isToolBarVisible, onToolBarLayoutChanged, restoreDefaultLayout, setStatusBarVisible, setToolBarVisible, toolBarLayout } from '../toolbars/layout'
 import { currentLanguage } from '../i18n'
+import { registerPanelActions } from '../panels/PanelDock'
+import { isPanelOpen, onPanelsChanged, togglePanel } from '../panels/panels'
 import { actionsChanged, registerAction } from './actions'
 
 const scoreShown = (): boolean => scoreViewState().hasScore && session().view === 'score'
@@ -52,6 +54,11 @@ export function registerAppActions(): void {
         checked: () => toolBarLayout().statusBar,
     })
     registerAction('dock-restore-default-layout', { run: restoreDefaultLayout })
+    // the panels (ApplicationActionController::toggleDock; enabled with a score: UiCtxProjectOpened)
+    for (const [code, panel] of [['toggle-palettes', 'palettesPanel'], ['toggle-instruments', 'instrumentsPanel'], ['inspector', 'inspectorPanel']]) {
+        registerAction(code, { run: () => togglePanel(panel), enabled: scoreShown, checked: () => isPanelOpen(panel) })
+    }
+    registerPanelActions()
 
     // ---- zoom and pages (MuseScore: NotationActionController) ----
     registerAction('zoomin', { run: () => zoomStep(1), enabled: scoreShown })
@@ -91,6 +98,7 @@ export function registerAppActions(): void {
     onSessionChanged(actionsChanged)
     onScoreViewChanged(actionsChanged)
     onToolBarLayoutChanged(actionsChanged)
+    onPanelsChanged(actionsChanged)
 }
 
 /** "Clear recent" confirmed: the stored scores are removed (they are the recent list here) */

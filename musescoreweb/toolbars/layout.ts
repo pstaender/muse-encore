@@ -6,6 +6,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import type { TrString } from '../actions/uiactiondata'
+import { restoreDefaultPanels } from '../panels/panels'
 import { settings, updateSettings } from '../settings'
 
 export type DockId = 'main' | 'top' | 'bottom'
@@ -123,6 +124,7 @@ export function setStatusBarVisible(visible: boolean): void {
 export function restoreDefaultLayout(): void {
     save({ docks: structuredClone(DEFAULT_DOCKS), hidden: [], statusBar: true })
     updateSettings('noteInputBar', null)
+    restoreDefaultPanels()
 }
 
 // ---------------------------------------------------------------------------------
