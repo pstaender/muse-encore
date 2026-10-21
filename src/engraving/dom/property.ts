@@ -21,7 +21,7 @@ export function propertyId(name: string): Pid {
     if (!s_nameToPid) {
         s_nameToPid = new Map()
         for (const p of PROPERTY_LIST) {
-            if (p[4]) {
+            if (p[4] && !s_nameToPid.has(p[4])) { // the first property with the name (e.g. "color": COLOR, not STAFF_COLOR)
                 s_nameToPid.set(p[4], p[0])
             }
         }
@@ -39,6 +39,17 @@ export function propertyGroup(id: Pid): PropertyGroup {
 
 export function propertyLink(id: Pid): boolean {
     return PROPERTY_LIST[id]?.[3] ?? false
+}
+
+export function propertyLinkSameScore(id: Pid): boolean {
+    switch (id) {
+    case Pid.STAFF_BARLINE_SPAN:
+    case Pid.STAFF_BARLINE_SPAN_FROM:
+    case Pid.STAFF_BARLINE_SPAN_TO:
+        return false
+    default:
+        return true
+    }
 }
 
 export function propertyName(id: Pid): string {

@@ -8,7 +8,7 @@
 
 import { Fraction } from '../types/fraction'
 import { SymId, type SymIdList } from '../types/symid'
-import { ClefType, Key, TimeSigStyle, VOICES, type staff_idx_t, type track_idx_t } from '../types/types'
+import { AccidentalVal, ClefType, ElementType, Key, TimeSigStyle, VOICES, type staff_idx_t, type track_idx_t } from '../types/types'
 import { ClefInfo } from './clefinfo'
 import {
     MIN_PITCH, PITCH_DELTA_OCTAVE, Prefer, STEP_DELTA_OCTAVE, clampPitch, pitch2tpc, tpc2pitch, tpc2step,
@@ -23,6 +23,11 @@ import type { Measure } from './measure'
 import type { System } from './system'
 import type { EngravingItem } from './engravingitem'
 import type { Spanner } from './spanner'
+import type { Staff } from './staff'
+import type { Selection } from './select'
+import type { NoteVal } from './input'
+import { Sid } from '../style/styledef'
+import { Tpc, tpc2alter } from './pitchspelling'
 
 const PTAB: number[][] = [
     //   c  d  e  f  g   a  b
@@ -641,4 +646,149 @@ export function noteAnchoredSpannerIsInRange(spanner: Spanner, rangeStart: Fract
     const endNote = endElement as unknown as Note
     const endSeg = endNote.chord().segment()
     return !endSeg || endSeg.tick().le(rangeEnd)
+}
+
+function noteValToEffectivePitchAndTpc(nval: NoteVal, staff: Staff, tick: Fraction): { epitch: number; tpc: number } {
+    const concertPitch = staff.style().styleB(Sid.concertPitch) // C++ staff->concertPitch()
+
+    let epitch: number
+    if (concertPitch) {
+        epitch = nval.pitch
+    } else {
+        const pitchOffset = staff.part().instrument(tick).transpose().chromatic
+        epitch = nval.pitch - pitchOffset
+    }
+
+    let tpc = nval.tpc(concertPitch)
+    if (tpc === Tpc.TPC_INVALID) {
+        tpc = pitch2tpc(epitch, staff.key(tick), Prefer.NEAREST)
+    }
+    return { epitch, tpc }
+}
+
+export function noteValToLine(nval: NoteVal, staff: Staff, tick: Fraction): number {
+    if (staff.isDrumStaff(tick)) {
+        const drumset = staff.part().instrument(tick).drumset()
+        if (drumset) {
+            return drumset.line(nval.pitch)
+        }
+    }
+
+    if (nval.isRest()) {
+        return staff.middleLine(tick)
+    }
+
+    const { epitch, tpc } = noteValToEffectivePitchAndTpc(nval, staff, tick)
+
+    return relStepFromPitch(epitch, tpc, staff.clef(tick))
+}
+
+export function noteValToAccidentalVal(nval: NoteVal, staff: Staff, tick: Fraction): AccidentalVal {
+    if (nval.isRest()) {
+        return AccidentalVal.NATURAL
+    }
+
+    if (staff.isDrumStaff(tick)) {
+        return AccidentalVal.NATURAL
+    }
+
+    const { tpc } = noteValToEffectivePitchAndTpc(nval, staff, tick)
+
+    return tpc2alter(tpc)
+}
+
+/**
+ * The elements of a selection a dropped (palette) element is applied to; unique: true if only one element per
+ * measure and/or staff is returned
+ */
+export function filterTargetElements(sel: Pick<Selection, 'isRange' | 'startSegment' | 'staffStart' | 'elements'>,
+    dropElement: EngravingItem): { elements: EngravingItem[]; unique: boolean } {
+    let uniqueMeasures = false
+    let uniqueStaves = false
+
+    switch (dropElement.type()) {
+    // Brackets have a special logic for range selections.
+    // For other selections add only one to each staff:
+    case ElementType.BRACKET:
+        if (sel.isRange()) {
+            const e = sel.startSegment()!.firstElementForNavigation(sel.staffStart())
+            return { elements: e ? [e] : [], unique: true }
+        }
+        uniqueStaves = true
+        break
+
+    // Barlines are only added to measures in range selections:
+    case ElementType.BAR_LINE:
+        uniqueMeasures = sel.isRange()
+        break
+
+    // For multi-measure measure repeats, avoid overlap by adding only one per staff:
+    case ElementType.MEASURE_REPEAT:
+        uniqueStaves = true
+        uniqueMeasures = (dropElement as unknown as { numMeasures(): number }).numMeasures() === 1
+        break
+
+    // Add these elements once per measure in list selections, else once total:
+    case ElementType.MARKER:
+    case ElementType.JUMP:
+    case ElementType.SPACER: //! HACK - these should be applied "per staff" in range selections (see issue #33486)
+    case ElementType.STAFFTYPE_CHANGE: //! HACK - these should be applied "per staff" in range selections (see issue #33486)
+    case ElementType.VBOX:
+    case ElementType.HBOX:
+    case ElementType.TBOX:
+    case ElementType.FBOX:
+    case ElementType.MEASURE:
+        if (sel.isRange()) {
+            const e = sel.startSegment()!.firstElementForNavigation(sel.staffStart())
+            return { elements: e ? [e] : [], unique: true }
+        }
+        uniqueMeasures = true
+        break
+
+    // Add these elements once per measure, always:
+    case ElementType.MEASURE_NUMBER:
+        uniqueMeasures = true
+        break
+
+    // TODO(port): ACTION_ICON (frames, measures, staff type changes)
+    default: break
+    }
+
+    const unique = uniqueStaves || uniqueMeasures
+    if (!unique) {
+        return { elements: [...sel.elements()], unique }
+    }
+
+    const result: EngravingItem[] = []
+    if (uniqueStaves && uniqueMeasures) {
+        const found = new Set<string>()
+        for (const e of sel.elements()) {
+            const m = e.findMeasure()
+            if (m) {
+                const key = `${m.tick().ticks()}:${e.staffIdx()}` // C++: the MStaff of the measure
+                if (!found.has(key)) {
+                    result.push(e)
+                    found.add(key)
+                }
+            }
+        }
+    } else if (uniqueStaves) {
+        const foundStaves = new Set<staff_idx_t>()
+        for (const e of sel.elements()) {
+            if (!foundStaves.has(e.staffIdx())) {
+                result.push(e)
+                foundStaves.add(e.staffIdx())
+            }
+        }
+    } else {
+        const foundMeasures = new Set<EngravingItem>()
+        for (const e of sel.elements()) {
+            const mb = e.findMeasureBase()
+            if (mb && !foundMeasures.has(mb)) {
+                result.push(e)
+                foundMeasures.add(mb)
+            }
+        }
+    }
+    return { elements: result, unique }
 }

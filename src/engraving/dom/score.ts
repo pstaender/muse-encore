@@ -3,8 +3,8 @@
  * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
- * Port of src/engraving/dom/score.h/.cpp and masterscore.h/.cpp (read & layout relevant parts;
- * no editing commands, no undo, no playback)
+ * Port of src/engraving/dom/score.h/.cpp and masterscore.h/.cpp (read & layout relevant parts, the undo/layout
+ * hooks; the editing commands are in ../editing; no playback)
  */
 
 import { Fraction } from '../types/fraction'
@@ -47,9 +47,50 @@ import { CHORD_REST_OR_TIME_TICK_TYPE } from './segment'
 import { y2pitch } from './utils'
 import { TranslatableString } from '../../framework/global/types/translatablestring'
 import { TConv } from '../types/typesconv'
+import { InputState, type NoteEntryMethod } from './input'
+import type { UndoCommand, UndoStack } from '../editing/undo'
+import { UpdateMode, type CmdState } from '../editing/cmdstate'
+import type { EditData } from '../editing/editdata'
 
 export enum LayoutMode {
     PAGE, FLOAT, LINE, SYSTEM, HORIZONTAL_FIXED,
+}
+
+export enum Pad {
+    NOTE00,
+    NOTE0,
+    NOTE1,
+    NOTE2,
+    NOTE4,
+    NOTE8,
+    NOTE16,
+    NOTE32,
+    NOTE64,
+    NOTE128,
+    NOTE256,
+    NOTE512,
+    NOTE1024,
+    //--------------------
+    REST,
+    DOT,
+    DOT2,
+    DOT3,
+    DOT4,
+}
+
+/** C++ struct Position (a note input position) */
+export class Position {
+    segment: Segment | null = null
+    staffIdx: staff_idx_t = nidx
+    line = 0
+    fret = -1 // INVALID_FRET_INDEX
+    pos = new PointF()
+}
+
+/** C++ struct NoteInputParams */
+export interface NoteInputParams {
+    step: number
+    drumPitch: number
 }
 
 /**
@@ -99,6 +140,9 @@ export class SpannerMap {
 /** set by compat/dummyelement.ts (C++ Score::dummy()->system(); avoids a circular import) */
 export const scoreDummyHooks: { system?: (score: Score) => System } = {}
 
+/** C++ renderer()->layoutScore(): set by rendering/score/scorerenderer.ts */
+export const scoreRendererHooks: { layoutScore?: (score: Score, st: Fraction, et: Fraction) => void } = {}
+
 export class Score extends EngravingObject {
     protected m_style: MStyle
     private m_systemLocks = new SystemLocks()
@@ -132,6 +176,9 @@ export class Score extends EngravingObject {
     private m_selection: Selection
     private m_selectionFilter = new SelectionFilter()
     private m_selectionChanged = false // C++ m_updateState.selectionChanged
+    private m_is = new InputState()
+    protected m_updatesLocked = false
+    protected m_needSetUpTempoMap = false
 
     constructor() {
         super(ElementType.SCORE, null)
@@ -211,7 +258,119 @@ export class Score extends EngravingObject {
     printing(): boolean { return this.m_printing }
     setPrinting(v: boolean): void { this.m_printing = v }
 
-    // selection (score.cpp; TODO(port): InputState (m_is), accessibility focus, refresh rectangles)
+    // ---------------------------------------------------------------------------------
+    // undo, command state and layout (the commands' startCmd/endCmd/update are in editing/cmd.ts)
+    // ---------------------------------------------------------------------------------
+
+    undoStack(): UndoStack { return this.masterScore().undoStack() }
+    cmdState(): CmdState { return this.masterScore().cmdState() }
+
+    /** C++ Score::undo(UndoCommand*, EditData*): performs the command and records it in the active macro */
+    undo(cmd: UndoCommand, ed: EditData | null = null): void {
+        this.undoStack().pushAndPerform(cmd, ed)
+    }
+
+    dirty(): boolean { return !this.undoStack().isClean() }
+
+    setUpdateAll(): void { this.masterScore().cmdState().setUpdateMode(UpdateMode.UpdateAll) }
+
+    setLayoutAll(staff: staff_idx_t = nidx, e: EngravingItem | null = null): void {
+        const cs = this.cmdState()
+        cs.setTick(new Fraction(0, 1))
+        cs.setTick(Fraction.max())
+
+        if (e && e.score() === this.masterScore()) {
+            // TODO: map staff number properly
+            const startStaff = staff === nidx ? 0 : staff
+            const endStaff = staff === nidx ? (this.nstaves() - 1) : staff
+            cs.setStaff(startStaff)
+            cs.setStaff(endStaff)
+
+            cs.setElement(e)
+        }
+    }
+
+    setLayout(t: Fraction, staff: staff_idx_t, e: EngravingItem | null = null): void {
+        const cs = this.cmdState()
+        if (t.ge(new Fraction(0, 1))) {
+            cs.setTick(t)
+        }
+
+        if (e && e.score() === this.masterScore()) {
+            // TODO: map staff number properly
+            cs.setStaff(staff)
+            cs.setElement(e)
+        }
+    }
+
+    /** C++ setLayout(tick1, tick2, staff1, staff2, e) (renamed: no overloads in TS) */
+    setLayoutRange(tick1: Fraction, tick2: Fraction, staff1: staff_idx_t, staff2: staff_idx_t, e: EngravingItem | null = null): void {
+        const cs = this.cmdState()
+        if (tick1.ge(new Fraction(0, 1))) {
+            cs.setTick(tick1)
+        }
+        if (tick2.ge(new Fraction(0, 1))) {
+            cs.setTick(tick2)
+        }
+
+        if (e && e.score() === this.masterScore()) {
+            // TODO: map staff number properly
+            cs.setStaff(staff1)
+            cs.setStaff(staff2)
+
+            cs.setElement(e)
+        }
+    }
+
+    lockUpdates(locked: boolean): void { this.m_updatesLocked = locked }
+    updatesLocked(): boolean { return this.m_updatesLocked }
+    setNeedSetUpTempoMap(v: boolean): void { this.m_needSetUpTempoMap = v }
+    needSetUpTempoMap(): boolean { return this.m_needSetUpTempoMap }
+
+    /** do a complete (re-) layout */
+    doLayout(): void {
+        this.doLayoutRange(new Fraction(0, 1), new Fraction(-1, 1))
+    }
+
+    doLayoutRange(st: Fraction, et: Fraction): void {
+        let start = st
+        let end = et
+
+        for (const spanner of this.spannerMap().findOverlapping(st.ticks(), et.ticks())) {
+            if (!spanner.staff()?.visible()) {
+                continue
+            }
+            start = st.lt(spanner.tick()) ? st : spanner.tick()
+            end = et.gt(spanner.tick2()) ? et : spanner.tick2()
+        }
+
+        this.m_engravingFont = null
+        this.m_noteHeadWidth = null
+
+        // TODO(port): LayoutFlag::REBUILD_MIDI_MAPPING (playback)
+
+        if (!Score.partialLayout) {
+            start = new Fraction(0, 1)
+            end = new Fraction(-1, 1)
+        }
+        scoreRendererHooks.layoutScore!(this, start, end)
+
+        // TODO(port): m_resetAutoplace / m_resetCrossBeams
+    }
+
+    /** lay out only the changed range like C++ (false: the whole score, e.g. to compare the results) */
+    static partialLayout = true
+
+    // ---------------------------------------------------------------------------------
+    // note input
+    // ---------------------------------------------------------------------------------
+
+    inputState(): InputState { return this.m_is }
+    setInputState(st: InputState): void { this.m_is = st.clone() }
+    noteEntryMode(): boolean { return this.m_is.noteEntryMode() }
+    usingNoteEntryMethod(m: NoteEntryMethod): boolean { return this.m_is.usingNoteEntryMethod(m) }
+
+    // selection (score.cpp; TODO(port): accessibility focus, refresh rectangles)
 
     selection(): Selection { return this.m_selection }
     selectionFilter(): SelectionFilter { return this.m_selectionFilter }
@@ -266,8 +425,15 @@ export class Score extends EngravingObject {
                 return
             }
             this.m_selection.add(e)
-            // TODO(port): m_is.setTrack(e->track()), m_is.setLastSegment/setSegment (no input state yet)
+            this.m_is.setTrack(e.track())
             selState = SelState.LIST
+            if (e.isNote()) {
+                e = e.parentItem()!
+            }
+            if (e.isChordRest()) {
+                this.m_is.setLastSegment(this.m_is.segment())
+                this.m_is.setSegment((e as unknown as ChordRest).segment())
+            }
         }
         this.m_selection.setActiveSegment(null)
         this.m_selection.setActiveTrack(0)
@@ -1444,6 +1610,7 @@ export class Score extends EngravingObject {
 
     addElement(element: EngravingItem): void {
         const parent = element.parentItem()
+        element.triggerLayout()
         const et = element.type()
         if (et === ElementType.MEASURE
             || (et === ElementType.HBOX && !(parent && parent.isVBox()))
@@ -1516,6 +1683,7 @@ export class Score extends EngravingObject {
 
     removeElement(element: EngravingItem): void {
         let parent = element.parentItem()
+        element.triggerLayout()
         const et = element.type()
         const parentIsVBox = !!parent && parent.isVBox()
         if (et === ElementType.MEASURE
@@ -1564,6 +1732,17 @@ export class Score extends EngravingObject {
                     ss.system()!.remove(ss)
                 }
             }
+            break
+        }
+        case ElementType.CHORD:
+        case ElementType.REST:
+        case ElementType.MMREST: {
+            const cr = element as unknown as ChordRest
+            if (cr.beam()) {
+                cr.beam()!.remove(cr)
+            }
+            // TODO(port): lyr->removeFromScore() for the lyrics of the chord/rest
+            // TODO: check for tuplet?
             break
         }
         default:

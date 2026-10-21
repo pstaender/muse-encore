@@ -260,6 +260,55 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('enters notes with the keyboard, undoes and deletes them', async () => {
+        const { page, context } = await newPage()
+        await page.goto(base)
+        await page.click('.home-footer button:has-text("New")')
+        await page.waitForSelector('dialog.new-score[open]')
+        await page.fill('.instruments input[type="search"]', 'flute')
+        await page.dblclick('.instruments [role="option"] >> text=Flute')
+        await page.click('dialog.new-score .dialog-buttons button:has-text("Done")')
+        await scoreShown(page)
+        const status = (): Promise<string> => page.textContent('#status').then(t => t ?? '')
+        const pressed = (code: string): Promise<string | null> => page.getAttribute(`.tool-button[data-action="${code}"]`, 'aria-pressed')
+        const undoButton = '.tool-button[data-action="action://notation/undo"]'
+        expect(await page.isDisabled(undoButton)).toBe(true)
+
+        // N starts note input at the first rest, C D E enter quarter notes
+        await page.focus('#viewport')
+        await page.keyboard.press('n')
+        await page.waitForFunction(() => document.querySelector('.tool-button[data-action="note-input-by-note-name"]')?.getAttribute('aria-pressed') === 'true')
+        expect(await pressed('pad-note-4')).toBe('true')
+        await page.keyboard.press('c')
+        await page.keyboard.press('d')
+        await page.keyboard.press('e')
+        await page.waitForFunction(() => /^Note;.*Pitch: E5/.test(document.getElementById('status')!.textContent!))
+        expect(await status()).toContain('Measure: 1; Beat: 3')
+        expect(await page.isDisabled(undoButton)).toBe(false)
+
+        // a duration key changes the input duration
+        await page.keyboard.press('4') // pad-note-8
+        await page.waitForFunction(() => document.querySelector('.tool-button[data-action="pad-note-8"]')?.getAttribute('aria-pressed') === 'true')
+        expect(await pressed('pad-note-4')).toBe('false')
+
+        // undo removes the last note, Escape ends note input
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => !/Pitch: E5/.test(document.getElementById('status')!.textContent!))
+        await page.keyboard.press('Escape')
+        await page.waitForFunction(() => document.querySelector('.tool-button[data-action="note-input-by-note-name"]')?.getAttribute('aria-pressed') !== 'true')
+
+        // the selected note: up arrow raises it, Delete replaces it with a rest
+        await page.keyboard.press('ArrowLeft')
+        await page.waitForFunction(() => /^Note;.*Pitch: C5/.test(document.getElementById('status')!.textContent!))
+        await page.keyboard.press('ArrowUp')
+        await page.waitForFunction(() => /^Note;.*Pitch: C♯5/.test(document.getElementById('status')!.textContent!))
+        await page.keyboard.press('Delete')
+        await page.waitForFunction(() => /^Rest/.test(document.getElementById('status')!.textContent!))
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => /^Note;.*Pitch: C♯5/.test(document.getElementById('status')!.textContent!))
+        await context.close()
+    }, 180000)
+
     it('keeps the settings of the home screen', async () => {
         const { page, context } = await newPage()
         await page.goto(base)

@@ -63,6 +63,13 @@ export class Beam extends BeamBase {
 
     system(): System { return this.explicitParent() as unknown as System }
 
+    override triggerLayout(): void {
+        if (this.m_elements.length) {
+            this.m_elements[0].triggerLayout()
+            this.m_elements[this.m_elements.length - 1].triggerLayout()
+        }
+    }
+
     elements(): ChordRest[] { return this.m_elements }
     clear(): void { this.m_elements = [] }
     empty(): boolean { return this.m_elements.length === 0 }

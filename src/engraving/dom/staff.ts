@@ -72,7 +72,16 @@ export class Staff extends EngravingItem {
     id(): string { return this.m_id }
     setId(id: string): void { this.m_id = id }
 
-    idx(): staff_idx_t { return this.score().staves().indexOf(this) }
+    idx(): staff_idx_t { return this.score().staves().indexOf(this) }    override triggerLayout(): void {
+        this.score().setLayoutAll(this.idx(), this)
+    }
+
+    /** C++ triggerLayout(const Fraction& tick) */
+    triggerLayoutAt(tick: Fraction): void {
+        this.score().setLayout(tick, this.idx())
+    }
+
+
     rstaff(): staff_idx_t { return this.m_part.staves().indexOf(this) }
     isTop(): boolean { return this.m_part.staves().length > 0 && this.m_part.staves()[0] === this }
 

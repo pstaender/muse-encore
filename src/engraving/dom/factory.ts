@@ -9,7 +9,7 @@
 
 import { ElementType } from '../types/types'
 import { TConv } from '../types/typesconv'
-import type { EngravingItem } from './engravingitem'
+import { itemFactories, type EngravingItem } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
 import { Accidental } from './accidental'
 import { Arpeggio } from './arpeggio'
@@ -45,6 +45,7 @@ import type { Part } from './part'
 import { Stem } from './stem'
 import { StemSlash } from './stemslash'
 import { Symbol } from './symbol'
+import { NoteHead } from './notehead'
 import { Text } from './text'
 import { System } from './system'
 import { Tie, TieSegment } from './tie'
@@ -133,6 +134,7 @@ export class Factory {
         case ElementType.LEDGER_LINE: return new LedgerLine(itemOrDummy())
         case ElementType.STAFF_LINES: return new StaffLines(itemOrDummy())
         case ElementType.SYMBOL: return new Symbol(itemOrDummy())
+        case ElementType.NOTEHEAD: return new NoteHead(itemOrDummy())
         case ElementType.MEASURE: return new Measure(dummy().system())
         case ElementType.TUPLET: return new Tuplet(measureOrDummy())
         case ElementType.SLUR: return new Slur(itemOrDummy())
@@ -247,3 +249,4 @@ export class Factory {
 }
 
 ornamentFactories.createChord = (parent: Segment): Chord => new Chord(parent)
+itemFactories.createItem = (type: ElementType, parent: Parent): EngravingItem | null => Factory.createItem(type, parent)

@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/select.h/.cpp (and SelectType of mscore.h)
  *
- * TODO(port): mime data (copy/paste), ElementPattern/NotePattern, noteList/uniqueNotes, canCopy, lock reasons are
+ * TODO(port): mime data (copy/paste), ElementPattern/NotePattern, canCopy, lock reasons are
  * kept but not checked by callers (no editing yet). There is no refresh rectangle tracking (Score::addRefresh):
  * the UI repaints the selection bounds.
  */
@@ -809,6 +809,107 @@ export class Selection {
         }
         this.update()
         this.m_score.setSelectionChanged(true)
+    }
+
+    noteList(selTrack: track_idx_t = nidx): Note[] {
+        const nl: Note[] = []
+
+        if (this.m_state === SelState.LIST) {
+            for (const e of this.m_el) {
+                if (e.isNote()) {
+                    nl.push(e as unknown as Note)
+                }
+            }
+        } else if (this.m_state === SelState.RANGE) {
+            for (let staffIdx = this.staffStart(); staffIdx < this.staffEnd(); ++staffIdx) {
+                const startTrack = staffIdx * VOICES
+                const endTrack = startTrack + VOICES
+                for (let seg = this.m_startSegment; seg && seg !== this.m_endSegment; seg = seg.next1()) {
+                    if (!(seg.segmentType() & SegmentType.ChordRest)) {
+                        continue
+                    }
+                    for (let track = startTrack; track < endTrack; ++track) {
+                        if (!this.canSelectVoice(track)) {
+                            continue
+                        }
+                        const e = seg.element(track)
+                        if (!e || !e.isChord() || (selTrack !== nidx && selTrack !== track)) {
+                            continue
+                        }
+                        const c = e as unknown as Chord
+                        const notes = c.notes()
+                        for (let noteIdx = 0; noteIdx < notes.length; ++noteIdx) {
+                            const note = notes[noteIdx]
+                            if (this.canSelectNoteIdx(noteIdx, notes.length, this.rangeContainsMultiNoteChords())) {
+                                nl.push(note)
+                            }
+                        }
+                        for (const g of c.graceNotes()) {
+                            nl.push(...g.notes())
+                        }
+                    }
+                }
+            }
+        }
+        return nl
+    }
+
+    /** the selected elements; if some are linked, only one of the linked elements is in the list */
+    /** C++ measureRange(Measure**, Measure**): null if not a range selection */
+    measureRange(): { m1: Measure; m2: Measure | null } | null {
+        if (!this.isRange()) {
+            return null
+        }
+        const m1 = this.startSegment()!.measure()
+        const s2 = this.endSegment()
+        let m2: Measure | null = s2 ? s2.measure() : this.score().lastMeasure()
+        if (m1 === m2) {
+            return { m1, m2 }
+        }
+        // if selection extends to last segment of a measure,
+        // then endSegment() will point to next measure
+        // this won't normally happen because end barlines are excluded from range selection
+        // but just in case, detect this and back up one measure
+        if (m2 && s2 && m2.tick().eq(s2.tick())) {
+            m2 = m2.prevMeasure()
+        }
+        return { m1, m2 }
+    }
+
+    uniqueElements(): EngravingItem[] {
+        const l: EngravingItem[] = []
+
+        for (const e of this.elements()) {
+            const alreadyThere = l.some(ee => (ee.links() && ee.links()!.includes(e)) || e === ee)
+            if (!alreadyThere) {
+                l.push(e)
+            }
+        }
+        return l
+    }
+
+    /** the selected notes; if some notes are linked, only one of the linked notes is in the list */
+    uniqueNotes(track: track_idx_t = nidx, tied = false): Note[] {
+        const l: Note[] = []
+
+        const addNote = (note: Note): void => {
+            const alreadyThere = l.some(n => (n.links() && n.links()!.includes(note)) || n === note)
+            if (!alreadyThere) {
+                l.push(note)
+            }
+        }
+
+        for (const nn of this.noteList(track)) {
+            if (!tied) {
+                addNote(nn)
+                continue
+            }
+
+            for (const note of nn.tiedNotes()) {
+                addNote(note)
+            }
+        }
+        return l
     }
 
     rangeContainsMultiNoteChords(): boolean {

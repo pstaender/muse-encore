@@ -316,6 +316,17 @@ export abstract class Spanner extends EngravingItem {
         this.m_track2 = v
     }
 
+    override triggerLayout(): void {
+        // Don't trigger layout until the tick is correctly set, otherwise is triggers layout of the entire score
+        if (this.m_tick.numerator() < 0) {
+            return
+        }
+
+        // Spanners do not have parent even when added to a score, so can't check parent here
+        const tr2 = this.effectiveTrack2()
+        this.score().setLayoutRange(this.m_tick, this.m_tick.plus(this.m_ticks), this.staffIdx(), track2staff(tr2), this)
+    }
+
     effectiveTrack2(): track_idx_t {
         return this.canBeCrossStaff() && this.m_track2 !== nidx ? this.m_track2 : this.track()
     }

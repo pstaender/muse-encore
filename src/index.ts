@@ -31,8 +31,28 @@ import { Paint } from './engraving/rendering/score/paint'
 import { NotationInteraction } from './notation/internal/notationinteraction'
 import { NotationAccessibility } from './notation/internal/notationaccessibility'
 import { NotationViewInputController } from './notationscene/notationviewinputcontroller'
+import { NotationActionController } from './notationscene/notationactioncontroller'
+import { EngravingConfiguration } from './engraving/internal/engravingconfiguration'
+import { Pid, PropertyFlags, propertyId, propertyName, propertyType, propertyUserName } from './engraving/dom/property'
+import { P_TYPE, propertyValueEquals, type PropertyValue } from './engraving/types/propertyvalue'
+import { Spatium } from './engraving/types/dimension'
+import { Color } from './framework/draw/types/color'
+import { SizeF } from './framework/draw/types/geometry'
+import { Align, DPMM, DurationTypeWithDots } from './engraving/types/types'
+import { NoteEntryMethod } from './engraving/dom/input'
+import { Accidental } from './engraving/dom/accidental'
+import { TConv } from './engraving/types/typesconv'
 import { ElementType } from './engraving/types/types'
 import type { EngravingItem } from './engraving/dom/engravingitem'
+// (imports of the palette section)
+import { Factory } from './engraving/dom/factory'
+import { scoreDummy } from './engraving/compat/dummyelement'
+import { Dynamic } from './engraving/dom/dynamic'
+import { Note } from './engraving/dom/note'
+import { SymId } from './engraving/types/symid'
+import { SymNames } from './engraving/types/symnames'
+import { BarLineType, ClefType, DynamicType, NoteHeadGroup, NoteHeadType, nidx } from './engraving/types/types'
+import { KeyboardModifier } from './engraving/editing/editdata'
 
 export { initEngravingFonts, fontsInitialized, type FontFileLoader } from './engraving/engravingmodule'
 export { MscLoadError } from './engraving/rw/mscloader'
@@ -158,14 +178,57 @@ export function drawPage(score: MasterScore, pageIdx: number, ctx: Canvas2D, opt
 /** the range selection rectangle (MuseScore's notation view paints it after the score) */
 function drawSelectionRange(score: MasterScore, pageIdx: number, painter: Painter, scaling: number): void {
     const page = score.pages()[pageIdx]
-    if (!page || !score.selection().isRange()) {
+    if (!page) {
         return
     }
     const pagePos = page.pos()
     painter.translate(pagePos.times(-1))
-    notationState(score).interaction.drawSelectionRange(painter, scaling)
+    if (score.selection().isRange()) {
+        notationState(score).interaction.drawSelectionRange(painter, scaling)
+    }
+    if (noteInputCursorPage(score) === pageIdx) {
+        drawNoteInputCursor(score, painter)
+    }
     painter.translate(pagePos)
 }
+
+/** the page of the note input cursor, -1 if not in note input mode */
+function noteInputCursorPage(score: MasterScore): number {
+    if (!score.noteEntryMode()) {
+        return -1
+    }
+    const page = score.inputState().segment()?.measure().system()?.page()
+    return page ? score.pages().indexOf(page) : -1
+}
+
+/** C++ NoteInputCursor::paint (the cursor drawn by MuseScore's notation view; TODO(port): TAB string marks) */
+function drawNoteInputCursor(score: MasterScore, painter: Painter): void {
+    const noteInput = notationState(score).interaction.noteInput()
+    const state = noteInput.state()
+    const fillColor = EngravingConfiguration.selectionColor(state.voice())
+    const cursorRect = noteInput.cursorRect()
+    if (!cursorRect.isValid()) {
+        return
+    }
+
+    const cursorRectColor = fillColor.clone()
+    cursorRectColor.setAlpha(NOTE_INPUT_CURSOR_OPACITY)
+    painter.fillRect(cursorRect, cursorRectColor)
+
+    const staff = state.staff()
+    if (!staff) {
+        return
+    }
+
+    const spatium = staff.staffType(state.tick()).spatium()
+    const leftLineWidth = Math.trunc(0.14 * spatium)
+
+    const leftLine = new RectF(cursorRect.topLeft().x(), cursorRect.topLeft().y(), leftLineWidth, cursorRect.height())
+    painter.fillRect(leftLine, fillColor)
+}
+
+/** C++ NotationConfiguration::cursorOpacity() */
+const NOTE_INPUT_CURSOR_OPACITY = 50
 
 export interface DrawPageSvgOptions {
     /** fill the page with white before drawing (default true) */
@@ -410,6 +473,7 @@ export type SelectMode = 'single' | 'add' | 'range'
 interface NotationState {
     interaction: NotationInteraction
     controller: NotationViewInputController
+    actions: NotationActionController
     accessibility: NotationAccessibility
 }
 
@@ -422,6 +486,7 @@ function notationState(score: MasterScore): NotationState {
         st = {
             interaction,
             controller: new NotationViewInputController(interaction),
+            actions: new NotationActionController(interaction),
             accessibility: new NotationAccessibility(score),
         }
         s_notationStates.set(score, st)
@@ -544,4 +609,506 @@ export function selectionBounds(score: MasterScore): { page: number; x: number; 
         }
     }
     return res
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+//   editing (MuseScore's NotationActionController, NotationInteraction, NotationUndoStack)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * Runs one of MuseScore's actions (the codes of its notationuiactions.cpp, e.g. "note-input", "note-c", "pad-note-8",
+ * "pitch-up", "action://notation/delete", "action://notation/undo") on the score, like MuseScore's
+ * NotationActionController. The score is laid out again when it changed. Returns false if the action is not
+ * available or not enabled (isActionEnabled).
+ */
+export function executeAction(score: MasterScore, code: string): boolean {
+    return notationState(score).actions.dispatch(code)
+}
+
+/** the action codes executeAction() handles (the same for every score) */
+export function notationActionCodes(): readonly string[] {
+    return NotationActionController.actionCodes()
+}
+
+/** the actions with a checked state (isActionChecked): the buttons of MuseScore's note input toolbar */
+export function isCheckableAction(code: string): boolean {
+    return NotationActionController.isCheckableAction(code)
+}
+
+export function isActionAvailable(score: MasterScore, code: string): boolean {
+    return notationState(score).actions.isActionAvailable(code)
+}
+
+/** like the enabled state of MuseScore's actions (e.g. delete needs a selection, undo something to undo) */
+export function isActionEnabled(score: MasterScore, code: string): boolean {
+    return notationState(score).actions.canReceiveAction(code)
+}
+
+/** the checked state of the note input toolbar's buttons (MuseScore's NoteInputBarModel): durations, dots, ... */
+export function isActionChecked(score: MasterScore, code: string): boolean {
+    return notationState(score).actions.isActionChecked(code)
+}
+
+export function canUndo(score: MasterScore): boolean {
+    return score.undoStack().canUndo()
+}
+
+export function canRedo(score: MasterScore): boolean {
+    return score.undoStack().canRedo()
+}
+
+/** undoes the last command; returns false if there is nothing to undo */
+export function undo(score: MasterScore): boolean {
+    return executeAction(score, 'action://notation/undo')
+}
+
+/** redoes the last undone command; returns false if there is nothing to redo */
+export function redo(score: MasterScore): boolean {
+    return executeAction(score, 'action://notation/redo')
+}
+
+export interface UndoStackInfo {
+    canUndo: boolean
+    canRedo: boolean
+    /** the translated name of the command undo() undoes (like "Enter note"), '' if none */
+    undoActionName: string
+    redoActionName: string
+    /** the current state: the number of done commands */
+    index: number
+    /** the number of commands (done and undone) */
+    size: number
+}
+
+export function undoStackInfo(score: MasterScore): UndoStackInfo {
+    const stack = notationState(score).interaction.undoStack()
+    return {
+        canUndo: stack.canUndo(),
+        canRedo: stack.canRedo(),
+        undoActionName: stack.topMostUndoActionName().translated(),
+        redoActionName: stack.topMostRedoActionName().translated(),
+        index: stack.currentStateIndex(),
+        size: stack.undoRedoActionCount(),
+    }
+}
+
+/** true if the score was changed since it was opened, created or last saved (markSaved) */
+export function isModified(score: MasterScore): boolean {
+    return score.dirty()
+}
+
+/** marks the current state as saved (undoing or redoing makes the score modified again) */
+export function markSaved(score: MasterScore): void {
+    score.undoStack().setClean()
+}
+
+const NOTE_INPUT_METHOD_NAMES: Partial<Record<NoteEntryMethod, string>> = {
+    [NoteEntryMethod.BY_NOTE_NAME]: 'by-note-name',
+    [NoteEntryMethod.BY_DURATION]: 'by-duration',
+    [NoteEntryMethod.REPITCH]: 'repitch',
+    [NoteEntryMethod.RHYTHM]: 'rhythm',
+    [NoteEntryMethod.REALTIME_AUTO]: 'realtime-auto',
+    [NoteEntryMethod.REALTIME_MANUAL]: 'realtime-manual',
+    [NoteEntryMethod.TIMEWISE]: 'timewise',
+}
+
+export interface NoteInputStateInfo {
+    /** note input mode is on */
+    active: boolean
+    /** like the action codes "note-input-<method>": 'by-note-name', 'by-duration', ... */
+    method: string
+    /** MuseScore's xml duration name ("quarter", "eighth", "measure", ...), '' if none */
+    duration: string
+    dots: number
+    rest: boolean
+    /** the SMuFL name of the accidental to add (e.g. "accidentalSharp"), '' if none */
+    accidental: string
+    /** 0..3 */
+    voice: number
+    /** the staff of the input position, -1 if none */
+    staff: number
+}
+
+/** the state of the note input (also outside of note input mode: the duration etc. of the selection) */
+export function noteInputState(score: MasterScore): NoteInputStateInfo {
+    const is = score.inputState()
+    const d = is.duration()
+    return {
+        active: is.noteEntryMode(),
+        method: NOTE_INPUT_METHOD_NAMES[is.noteEntryMethod()] ?? '',
+        duration: d.isValid() ? TConv.toXmlDurationType(d.type()) : '',
+        dots: d.isValid() ? d.dots() : 0,
+        rest: is.rest(),
+        accidental: is.accidentalType() ? Accidental.subtype2name(is.accidentalType()) : '',
+        voice: is.voice(),
+        staff: is.isValid() ? is.staffIdx() : -1,
+    }
+}
+
+/** the note input cursor (inches from the page's top left) for repainting and scrolling it into view; null if none */
+export function noteInputCursorBounds(score: MasterScore): { page: number; x: number; y: number; width: number; height: number } | null {
+    const pageIdx = noteInputCursorPage(score)
+    if (pageIdx < 0) {
+        return null
+    }
+    const r = notationState(score).interaction.noteInput().cursorRect().translated(score.pages()[pageIdx].pos().times(-1))
+    if (!r.isValid()) {
+        return null
+    }
+    return { page: pageIdx, x: r.x() / DPI, y: r.y() / DPI, width: r.width() / DPI, height: r.height() / DPI }
+}
+
+/**
+ * A property value as plain JSON (like MuseScore's inspector shows it: AbstractInspectorModel::valueFromElementUnits):
+ * numbers (enums as their C++ numeric values, millimetre and spatium values in staff spaces, tempo in BPM), booleans,
+ * strings, points {x, y} (staff spaces for spatium dependent elements, else millimetres), sizes {width, height},
+ * colors "#rrggbb" or "#rrggbbaa", fractions "n/d", alignment {horizontal, vertical}, durations {type, dots}, arrays
+ * of numbers; null for other value types.
+ */
+export type PropertyJsonValue = number | boolean | string | number[] | { [key: string]: number } | null
+
+function spatiumDependent(pid: Pid, item: EngravingItem): boolean {
+    return pid === Pid.OFFSET ? item.offsetIsSpatiumDependent() : item.sizeIsSpatiumDependent()
+}
+
+function colorToJson(c: Color): string {
+    const h = (n: number): string => Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0')
+    return `#${h(c.r)}${h(c.g)}${h(c.b)}${c.a === 255 ? '' : h(c.a)}`
+}
+
+/** C++ AbstractInspectorModel::valueFromElementUnits; undefined if the item does not have the property */
+function valueToJson(pid: Pid, value: PropertyValue, item: EngravingItem): PropertyJsonValue | undefined {
+    if (value === undefined) {
+        return undefined
+    }
+    if (pid === Pid.VERSE) {
+        return (value as number) + 1
+    }
+    switch (propertyType(pid)) {
+    case P_TYPE.POINT: {
+        const p = value as PointF
+        const f = spatiumDependent(pid, item) ? item.spatium() : DPMM
+        return { x: p.x() / f, y: p.y() / f }
+    }
+    case P_TYPE.MILLIMETRE:
+        return Spatium.fromMM(value as number, item.spatium()).val()
+    case P_TYPE.SPATIUM:
+        return value instanceof Spatium ? value.val() : value as number
+    case P_TYPE.TEMPO:
+        return (value as number) * 60
+    case P_TYPE.COLOR:
+        return value instanceof Color ? colorToJson(value) : null
+    default:
+        break
+    }
+    if (value === null || typeof value === 'number' || typeof value === 'boolean' || typeof value === 'string') {
+        return value
+    }
+    if (value instanceof Fraction) {
+        return `${value.numerator()}/${value.denominator()}`
+    }
+    if (value instanceof Align) {
+        return { horizontal: value.horizontal, vertical: value.vertical }
+    }
+    if (value instanceof SizeF) {
+        return { width: value.width(), height: value.height() }
+    }
+    if (value instanceof PointF) {
+        return { x: value.x(), y: value.y() }
+    }
+    if (value instanceof DurationTypeWithDots) {
+        return { type: value.type, dots: value.dots }
+    }
+    if (value instanceof Spatium) {
+        return value.val()
+    }
+    if (Array.isArray(value) && value.every(v => typeof v === 'number')) {
+        return [...value as number[]]
+    }
+    return null
+}
+
+/** C++ AbstractInspectorModel::valueToElementUnits; undefined if the value cannot be converted */
+function valueFromJson(pid: Pid, v: PropertyJsonValue, item: EngravingItem): PropertyValue | undefined {
+    if (pid === Pid.VERSE) {
+        return (v as number) - 1
+    }
+    const obj = (v && typeof v === 'object' && !Array.isArray(v)) ? v as { [key: string]: number } : null
+    switch (propertyType(pid)) {
+    case P_TYPE.POINT: {
+        if (!obj) {
+            return undefined
+        }
+        const f = spatiumDependent(pid, item) ? item.spatium() : DPMM
+        return new PointF(obj.x * f, obj.y * f)
+    }
+    case P_TYPE.MILLIMETRE:
+        return typeof v === 'number' ? new Spatium(v).toAbsolute(item.spatium()) : undefined
+    case P_TYPE.SPATIUM:
+        return typeof v === 'number' ? new Spatium(v) : undefined
+    case P_TYPE.TEMPO:
+        return typeof v === 'number' ? v / 60 : undefined
+    case P_TYPE.COLOR: {
+        if (typeof v !== 'string' || !/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(v)) {
+            return undefined
+        }
+        const n = (i: number): number => parseInt(v.slice(i, i + 2), 16)
+        return new Color(n(1), n(3), n(5), v.length === 9 ? n(7) : 255)
+    }
+    case P_TYPE.FRACTION: {
+        const m = typeof v === 'string' ? /^(-?\d+)\/(\d+)$/.exec(v) : null
+        return m ? new Fraction(Number(m[1]), Number(m[2])) : undefined
+    }
+    case P_TYPE.ALIGN:
+        return obj ? new Align(obj.horizontal, obj.vertical) : undefined
+    case P_TYPE.SIZE:
+        return obj ? new SizeF(obj.width, obj.height) : undefined
+    case P_TYPE.DURATION_TYPE_WITH_DOTS:
+        return obj ? new DurationTypeWithDots(obj.type, obj.dots) : undefined
+    default:
+        break
+    }
+    if (typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string' || Array.isArray(v)) {
+        return v
+    }
+    return undefined
+}
+
+export interface SelectionPropertyInfo {
+    /** MuseScore's property name (the xml tag, e.g. "visible", "offset", "color") */
+    name: string
+    /** MuseScore's user name of the property (untranslated) */
+    userName: string
+    /** the value of the first selected item that has the property */
+    value: PropertyJsonValue
+    /** its default (style) value */
+    defaultValue: PropertyJsonValue
+    /** 'styled': the value comes from the style, 'unstyled': a styled property set by the user, 'nostyle': no style */
+    styled: 'nostyle' | 'unstyled' | 'styled'
+    /** the selected items have different values */
+    mixed: boolean
+    /** the number of selected items that have the property */
+    count: number
+}
+
+function selectionItems(score: MasterScore): EngravingItem[] {
+    return [...score.selection().elements()]
+}
+
+/**
+ * The properties of the selected items for an inspector (like MuseScore's AbstractInspectorModel::loadPropertyItem):
+ * all properties the items have, or only the given ones (by name). Keyed by property name.
+ */
+export function selectionProperties(score: MasterScore, names?: readonly string[]): Record<string, SelectionPropertyInfo> {
+    const items = selectionItems(score)
+    const res: Record<string, SelectionPropertyInfo> = {}
+    if (!items.length) {
+        return res
+    }
+    const pids: Pid[] = names ? names.map(n => propertyId(n)).filter(p => p !== Pid.END)
+        : Array.from({ length: Pid.END }, (_, i) => i as Pid).filter(p => propertyName(p))
+    for (const pid of pids) {
+        let info: SelectionPropertyInfo | null = null
+        let firstValue: PropertyValue = undefined
+        for (const item of items) {
+            const v = item.getProperty(pid)
+            const json = valueToJson(pid, v, item)
+            if (json === undefined) {
+                continue // not a property of this item
+            }
+            if (!info) {
+                const flags = item.propertyFlags(pid)
+                info = {
+                    name: propertyName(pid),
+                    userName: propertyUserName(pid),
+                    value: json,
+                    defaultValue: valueToJson(pid, item.propertyDefault(pid), item) ?? null,
+                    styled: flags === PropertyFlags.STYLED ? 'styled' : flags === PropertyFlags.UNSTYLED ? 'unstyled' : 'nostyle',
+                    mixed: false,
+                    count: 1,
+                }
+                firstValue = v
+            } else {
+                info.count++
+                if (!propertyValueEquals(firstValue, v)) {
+                    info.mixed = true
+                }
+            }
+        }
+        if (info) {
+            res[info.name] = info
+        }
+    }
+    return res
+}
+
+/**
+ * Sets a property (by name, see selectionProperties) of all selected items that have it as one undoable command, like
+ * MuseScore's inspector (a styled value becomes unstyled); the value as in selectionProperties. Returns false if no
+ * selected item has the property or the value cannot be converted.
+ */
+export function changeSelectionProperty(score: MasterScore, name: string, value: PropertyJsonValue): boolean {
+    const pid = propertyId(name)
+    if (pid === Pid.END) {
+        return false
+    }
+    const items = selectionItems(score).filter(e => e.getProperty(pid) !== undefined)
+    if (!items.length) {
+        return false
+    }
+    const converted = valueFromJson(pid, value, items[0])
+    if (converted === undefined) {
+        return false
+    }
+    notationState(score).interaction.changeProperty(items, pid, converted)
+    return true
+}
+
+/** resets a property of all selected items that have it to its default (style) value, as one undoable command */
+export function resetSelectionProperty(score: MasterScore, name: string): boolean {
+    const pid = propertyId(name)
+    if (pid === Pid.END) {
+        return false
+    }
+    const items = selectionItems(score).filter(e => e.getProperty(pid) !== undefined)
+    if (!items.length) {
+        return false
+    }
+    notationState(score).interaction.resetProperty(items, pid)
+    return true
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+//   palette elements (MuseScore's palettes: NotationInteraction::applyPaletteElement): filled by the palette drop port
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** an element of a palette (created with createPaletteElement or by the caller, e.g. with Factory) */
+export type PaletteElement = EngravingItem
+
+/**
+ * Description of a palette element; the names are MuseScore's xml names:
+ * - Clef: clefType 'G', 'F', 'C3', 'G8vb', ... (TConv ClefType xml names)
+ * - KeySig: key -7..7 (concert key)
+ * - TimeSig: numerator/denominator, timeSigType 'normal' | 'common' | 'cut' (default 'normal')
+ * - BarLine: barLineType 'normal', 'double', 'start-repeat', 'end-repeat', 'end-start-repeat', 'dashed', 'end', ...
+ * - Articulation, Ornament, Fermata, Breath, Symbol: symbol = SMuFL SymId name, e.g. 'articAccentAbove',
+ *   'ornamentTrill', 'fermataAbove', 'breathMarkComma'
+ * - Dynamic: dynamic 'p', 'mf', 'sfz', ...
+ * - Accidental: accidental = xml subtype name, e.g. 'accidentalSharp', 'accidentalFlat', 'accidentalNatural'
+ * - NoteHead: group = xml notehead group name, e.g. 'cross', 'diamond', 'slash', 'normal'
+ * - LayoutBreak: breakType 'line' | 'page' | 'section' | 'noBreak'
+ * - Hairpin: hairpinType 'crescendo' | 'decrescendo' | 'crescendo-line' | 'decrescendo-line'
+ * - StaffText, SystemText, TempoText, RehearsalMark, Expression: text (plain text)
+ */
+export type PaletteElementSpec =
+    | { type: 'Clef'; clefType: string }
+    | { type: 'KeySig'; key: number }
+    | { type: 'TimeSig'; numerator: number; denominator: number; timeSigType?: 'normal' | 'common' | 'cut' }
+    | { type: 'BarLine'; barLineType: string }
+    | { type: 'Articulation' | 'Ornament' | 'Fermata' | 'Breath' | 'Symbol'; symbol: string }
+    | { type: 'Dynamic'; dynamic: string }
+    | { type: 'Accidental'; accidental: string }
+    | { type: 'NoteHead'; group: string }
+    | { type: 'LayoutBreak'; breakType: 'line' | 'page' | 'section' | 'noBreak' }
+    | { type: 'Hairpin'; hairpinType: 'crescendo' | 'decrescendo' | 'crescendo-line' | 'decrescendo-line' }
+    | { type: 'StaffText' | 'SystemText' | 'TempoText' | 'RehearsalMark' | 'Expression'; text: string }
+
+const PALETTE_HAIRPIN_TYPES = { crescendo: 0, decrescendo: 1, 'crescendo-line': 2, 'decrescendo-line': 3 } as const // HairpinType
+const PALETTE_BREAK_TYPES = { page: 0, line: 1, section: 2, noBreak: 3 } as const // LayoutBreakType
+
+/**
+ * Creates a palette element (like the cells of MuseScore's palettes) for the given score (it uses the score's style).
+ * Returns null for unknown names. The element is not added to the score: applyPaletteElement() adds copies of it.
+ */
+export function createPaletteElement(score: MasterScore, spec: PaletteElementSpec): PaletteElement | null {
+    const e = Factory.createItemByName(spec.type === 'Hairpin' ? 'HairPin' : spec.type, scoreDummy(score)) // xml names
+    if (!e) {
+        return null
+    }
+    const item = e as unknown as Record<string, (...args: unknown[]) => unknown>
+    switch (spec.type) {
+    case 'Clef': {
+        const ct = TConv.fromXmlClefType(spec.clefType, ClefType.INVALID)
+        if (ct === ClefType.INVALID) {
+            return null
+        }
+        item.setClefType(ct)
+        break
+    }
+    case 'KeySig':
+        item.setKey(spec.key)
+        break
+    case 'TimeSig': {
+        const t = spec.timeSigType === 'common' ? TimeSigType.FOUR_FOUR : spec.timeSigType === 'cut' ? TimeSigType.ALLA_BREVE : TimeSigType.NORMAL
+        item.setSig(new Fraction(spec.numerator, spec.denominator), t)
+        break
+    }
+    case 'BarLine':
+        item.setBarLineType(TConv.fromXmlBarLineType(spec.barLineType, BarLineType.NORMAL))
+        break
+    case 'Articulation':
+    case 'Ornament':
+    case 'Fermata':
+    case 'Breath':
+    case 'Symbol': {
+        const id = SymNames.symIdByName(spec.symbol)
+        if (id === SymId.noSym) {
+            return null
+        }
+        if (spec.type === 'Symbol') {
+            item.setSym(id)
+        } else {
+            item.setSymId(id)
+        }
+        break
+    }
+    case 'Dynamic': {
+        const t = TConv.fromXmlDynamicType(spec.dynamic, DynamicType.OTHER)
+        item.setDynamicType(t)
+        item.setXmlText(Dynamic.dynamicText(t))
+        break
+    }
+    case 'Accidental':
+        item.setAccidentalType(Accidental.name2subtype(spec.accidental))
+        break
+    case 'NoteHead': {
+        const group = TConv.fromXmlNoteHeadGroup(spec.group, NoteHeadGroup.HEAD_NORMAL)
+        item.setSym(Note.noteHeadSym(0, group, NoteHeadType.HEAD_HALF))
+        break
+    }
+    case 'LayoutBreak':
+        item.setLayoutBreakType(PALETTE_BREAK_TYPES[spec.breakType])
+        break
+    case 'Hairpin':
+        item.setHairpinType(PALETTE_HAIRPIN_TYPES[spec.hairpinType])
+        break
+    default:
+        item.setPlainText(spec.text)
+        break
+    }
+    e.setTrack(nidx) // from the palette
+    e.styleChanged()
+    return e
+}
+
+/** the translated name of a palette element (for tooltips), e.g. "Treble clef", "Staccato" */
+export function paletteElementName(element: PaletteElement): string {
+    return element.translatedSubtypeUserName() || element.translatedTypeUserName()
+}
+
+/**
+ * Applies a palette element to the selection like a click on a palette cell in MuseScore
+ * (NotationInteraction::applyPaletteElement): copies are dropped on the selected elements or the measures of a range
+ * selection. Undoable; the score is laid out again. modifiers: ctrl applies key/time signatures to the selected staff
+ * only, shift adds a note to a chord. Returns false if nothing is selected.
+ */
+export function applyPaletteElement(score: MasterScore, element: PaletteElement,
+    modifiers: { ctrl?: boolean; shift?: boolean } = {}): boolean {
+    let m = 0
+    if (modifiers.ctrl) {
+        m |= KeyboardModifier.ControlModifier
+    }
+    if (modifiers.shift) {
+        m |= KeyboardModifier.ShiftModifier
+    }
+    return notationState(score).interaction.applyPaletteElement(element, m)
 }

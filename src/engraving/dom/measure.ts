@@ -13,10 +13,10 @@ import type { PropertyValue } from '../types/propertyvalue'
 import {
     AccidentalVal, AutoOnOff, BarLineType, DurationType, ElementType, VOICES, nidx, track2voice,
     type staff_idx_t, type track_idx_t,
-    staff2track,
+    staff2track, LayoutBreakType, track2staff, trackZeroVoice,
 } from '../types/types'
 import { Sid } from '../style/styledef'
-import { EngravingItem, ElementFlag } from './engravingitem'
+import { EngravingItem, ElementFlag, itemFactories } from './engravingitem'
 import { MeasureBase } from './measurebase'
 import { Pid } from './property'
 import { Segment, SegmentType } from './segment'
@@ -41,6 +41,10 @@ import type { Marker } from './marker'
 import type { StaffTypeChange } from './stafftypechange'
 import type { StaffType } from './stafftype'
 import type { MeasureRepeat } from './measurerepeat'
+import type { KeySig } from './keysig'
+import type { TimeSig } from './timesig'
+import { KeyboardModifier, type EditData } from '../editing/editdata'
+import { MScore, MsError } from './mscore'
 
 export enum MeasureNumberMode {
     AUTO, // show measure number depending on style
@@ -643,12 +647,18 @@ export class Measure extends MeasureBase {
         return s
     }
 
-    /** no undo in the port */
-    undoGetSegmentR(st: SegmentType, t: Fraction): Segment { return this.getSegmentR(st, t) }
+    undoGetSegmentR(st: SegmentType, t: Fraction): Segment {
+        let s = this.findSegmentR(st, t)
+        if (!s) {
+            s = new Segment(this, st, t)
+            this.score().undoAddElement(s)
+        }
+        return s
+    }
 
     findSegment(st: SegmentType, f: Fraction): Segment | null { return this.findSegmentR(st, f.minus(this.tick())) }
     getSegment(st: SegmentType, f: Fraction): Segment { return this.getSegmentR(st, f.minus(this.tick())) }
-    undoGetSegment(st: SegmentType, f: Fraction): Segment { return this.getSegment(st, f) }
+    undoGetSegment(st: SegmentType, f: Fraction): Segment { return this.undoGetSegmentR(st, f.minus(this.tick())) }
 
     getChordRestOrTimeTickSegment(f: Fraction): Segment {
         let seg = this.findSegment(SegmentType.ChordRest, f)
@@ -1007,6 +1017,46 @@ export class Measure extends MeasureBase {
         const dt = tick2.minus(tick1)
         x1 += dt.isZero() ? 0.0 : (dx * (tck.ticks() - tick1.ticks()) / dt.ticks())
         return x1 + this.pos().x()
+    }
+
+    exchangeVoice(strack: track_idx_t, dtrack: track_idx_t, staffIdx: staff_idx_t): void {
+        for (let s = this.first(SegmentType.ChordRest); s; s = s.next(SegmentType.ChordRest)) {
+            s.swapElements(strack, dtrack)
+        }
+
+        const start = this.tick()
+        const end = start.plus(this.ticks())
+        for (const sp of this.score().spannerMap().findOverlapping(this.tick().ticks(), this.endTick().ticks() - 1)) {
+            const spStart = sp.tick()
+            const spEnd = spStart.plus(sp.ticks())
+            if (sp.isSlur() && (spStart.ge(start) || spEnd.lt(end))) {
+                if (sp.track() === strack && spStart.ge(start)) {
+                    sp.setTrack(dtrack)
+                } else if (sp.track() === dtrack && spStart.ge(start)) {
+                    sp.setTrack(strack)
+                }
+                if (sp.track2() === strack && spEnd.lt(end)) {
+                    sp.setTrack2(dtrack)
+                } else if (sp.track2() === dtrack && spEnd.lt(end)) {
+                    sp.setTrack2(strack)
+                }
+            }
+        }
+        this.checkMultiVoices(staffIdx) // probably true, but check for invisible notes & rests
+    }
+
+    isOnlyDeletedRests(track: track_idx_t): boolean {
+        const st = SegmentType.ChordRest
+        for (let s = this.first(st); s; s = s.next(st)) {
+            const e = s.element(track)
+            if (s.segmentType() !== st || !e) {
+                continue
+            }
+            if (e.isRest() ? !(e as unknown as Rest).isGap() : !e.isRest()) {
+                return false
+            }
+        }
+        return true
     }
 
     checkMultiVoices(staffIdx: staff_idx_t): void {
@@ -1427,6 +1477,279 @@ export class Measure extends MeasureBase {
     }
 
     isMeasureRepeatGroup(staffIdx: staff_idx_t): boolean { return this.measureRepeatCount(staffIdx) > 0 }
+    isMeasureRepeatGroupWithNextM(staffIdx: staff_idx_t): boolean {
+        const next = this.nextMeasure()
+        if (!this.isMeasureRepeatGroup(staffIdx) || !next || !next.isMeasureRepeatGroup(staffIdx)) {
+            return false
+        }
+        return this.measureRepeatCount(staffIdx) === next.measureRepeatCount(staffIdx) - 1
+    }
+
+    isMeasureRepeatGroupWithPrevM(staffIdx: staff_idx_t): boolean {
+        return this.measureRepeatCount(staffIdx) > 1
+    }
+
+    // ---------------------------------------------------------
+    //   drop (C++: the drop rectangles of the view are not ported)
+    // ---------------------------------------------------------
+
+    override acceptDrop(data: EditData): boolean {
+        const e = data.dropElement!
+
+        if (data.track === nidx || !this.system()) {
+            return false
+        }
+
+        const staffIdx = track2staff(data.track)
+        if (!this.system()!.staff(staffIdx)) {
+            return false
+        }
+
+        //! NOTE: Should match NotationInteraction::dragMeasureAnchorElement
+        switch (e.type()) {
+        case ElementType.VBOX:
+        case ElementType.TBOX:
+        case ElementType.FBOX:
+        case ElementType.HBOX: {
+            const m = this.isMMRest() ? this.mmRestFirst()! : this
+            for (let staffIdxLoop = 0; staffIdxLoop < this.score().nstaves(); ++staffIdxLoop) {
+                if (m.isMeasureRepeatGroupWithPrevM(staffIdxLoop)) {
+                    return false
+                }
+            }
+            return true
+        }
+
+        case ElementType.MEASURE_NUMBER:
+        case ElementType.JUMP:
+        case ElementType.MARKER:
+        case ElementType.LAYOUT_BREAK:
+            // Always drop to all staves
+            return true
+
+        case ElementType.VOLTA:
+        case ElementType.GRADUAL_TEMPO_CHANGE:
+        case ElementType.KEYSIG:
+        case ElementType.TIMESIG:
+            // Drop to all staves or single staff depending on modifier
+            return true
+
+        case ElementType.BRACKET:
+        case ElementType.MEASURE_REPEAT:
+        case ElementType.MEASURE:
+        case ElementType.SPACER:
+        case ElementType.IMAGE:
+        case ElementType.BAR_LINE:
+        case ElementType.SYMBOL:
+        case ElementType.CLEF:
+        case ElementType.STAFFTYPE_CHANGE:
+            // Always drop to single staff
+            return true
+
+        // TODO(port): STRING_TUNINGS (canAddStringTunings), ACTION_ICON (frames, measures, staff type changes,
+        // system locks)
+        default:
+            break
+        }
+        return false
+    }
+
+    /** Drop element. Handle a dropped element at position data.pos of given element type and subtype. */
+    override drop(data: EditData): EngravingItem | null {
+        const e = data.dropElement!
+        const staffIdx = track2staff(data.track)
+        if (staffIdx === nidx) {
+            return null
+        }
+        const staff = this.score().staff(staffIdx)!
+
+        switch (e.type()) {
+        case ElementType.MARKER:
+        case ElementType.JUMP:
+            e.setParent(this)
+            e.setTrack(0)
+            this.score().undoAddElement(e)
+            return e
+
+        case ElementType.MEASURE_NUMBER:
+            this.undoChangeProperty(Pid.MEASURE_NUMBER_MODE, MeasureNumberMode.SHOW)
+            break
+
+        // TODO(port): BRACKET (undoAddBracket with the bracket level), STRING_TUNINGS
+
+        case ElementType.CLEF:
+            this.score().undoChangeClef(staff, this, (e as unknown as Clef).clefType())
+            break
+
+        case ElementType.KEYSIG: {
+            const k = (e as unknown as KeySig).keySigEvent()
+
+            if (data.modifiers & KeyboardModifier.ControlModifier) {
+                // apply only to this stave
+                this.score().undoChangeKeySig(staff, this.tick(), k)
+            } else {
+                // apply to all staves:
+                for (const s of this.score().staves()) {
+                    this.score().undoChangeKeySig(s, this.tick(), k)
+                }
+            }
+
+            break
+        }
+
+        case ElementType.TIMESIG:
+            this.score().cmdAddTimeSig(this, staffIdx, e as unknown as TimeSig, (data.modifiers & KeyboardModifier.ControlModifier) !== 0)
+            break
+
+        case ElementType.LAYOUT_BREAK: {
+            let b: LayoutBreak | null = e as unknown as LayoutBreak
+            const measure: Measure = this.isMMRest() ? this.mmRestLast()! : this
+            switch (b.layoutBreakType()) {
+            case LayoutBreakType.PAGE:
+                if (measure.pageBreak()) {
+                    b = null
+                } else {
+                    measure.setLineBreak(false)
+                }
+                break
+            case LayoutBreakType.LINE:
+                if (measure.lineBreak()) {
+                    b = null
+                } else {
+                    measure.setPageBreak(false)
+                }
+                break
+            case LayoutBreakType.SECTION:
+                if (measure.sectionBreak()) {
+                    b = null
+                } else {
+                    measure.setLineBreak(false)
+                }
+                break
+            case LayoutBreakType.NOBREAK:
+                if (measure.noBreak()) {
+                    b = null
+                } else {
+                    measure.setLineBreak(false)
+                    measure.setPageBreak(false)
+                }
+                break
+            }
+            if (b) {
+                b.setTrack(0)
+                b.setParent(measure)
+                this.score().undoAddElement(b)
+            }
+            measure.cleanupLayoutBreaks(true)
+            return b
+        }
+
+        case ElementType.SPACER: {
+            const spacer = e as unknown as Spacer
+            spacer.setTrack(trackZeroVoice(data.track))
+            spacer.setParent(this)
+            // TODO(port): SpacerType::FIXED (the gap to the next staff)
+            this.score().undoAddElement(spacer)
+            this.triggerLayout()
+            return spacer
+        }
+
+        case ElementType.BAR_LINE: {
+            const bl = e as unknown as BarLine
+
+            if (bl.playCount() !== -1) {
+                this.undoChangeProperty(Pid.REPEAT_COUNT, bl.playCount())
+            }
+
+            // if dropped bar line refers to span rather than to subtype
+            // or if Ctrl key used
+            if ((bl.spanFrom() && bl.spanTo()) || data.control()) {
+                // get existing bar line for this staff, and drop the change to it
+                const seg = this.undoGetSegmentR(SegmentType.EndBarLine, this.ticks())
+                const cbl = seg.element(trackZeroVoice(data.track))
+                if (cbl) {
+                    return cbl.drop(data)
+                }
+            } else if (bl.barLineType() === BarLineType.START_REPEAT) {
+                const m2: Measure = this.isMMRest() ? this.mmRestFirst()! : this
+                for (let stIdx = 0; stIdx < this.score().nstaves(); ++stIdx) {
+                    if (m2.isMeasureRepeatGroupWithPrevM(stIdx)) {
+                        MScore.setError(MsError.CANNOT_SPLIT_MEASURE_REPEAT)
+                        return null
+                    }
+                }
+                for (const lscore of [this.score()]) { // TODO(port): scoreList()
+                    const lmeasure = lscore.tick2measure(m2.tick())
+                    if (lmeasure) {
+                        lmeasure.undoChangeProperty(Pid.REPEAT_START, true)
+                    }
+                }
+            } else if (bl.barLineType() === BarLineType.END_REPEAT) {
+                const m2: Measure = this.isMMRest() ? this.mmRestLast()! : this
+                for (let stIdx = 0; stIdx < this.score().nstaves(); ++stIdx) {
+                    if (m2.isMeasureRepeatGroupWithNextM(stIdx)) {
+                        MScore.setError(MsError.CANNOT_SPLIT_MEASURE_REPEAT)
+                        return null
+                    }
+                }
+                for (const lscore of [this.score()]) { // TODO(port): scoreList()
+                    const lmeasure = lscore.tick2measure(m2.tick())
+                    if (lmeasure) {
+                        lmeasure.undoChangeProperty(Pid.REPEAT_END, true)
+                    }
+                }
+                this.score().undoUpdatePlayCountText(this)
+            } else if (bl.barLineType() === BarLineType.END_START_REPEAT) {
+                const m2: Measure = this.isMMRest() ? this.mmRestLast()! : this
+                for (let stIdx = 0; stIdx < this.score().nstaves(); ++stIdx) {
+                    if (m2.isMeasureRepeatGroupWithNextM(stIdx)) {
+                        MScore.setError(MsError.CANNOT_SPLIT_MEASURE_REPEAT)
+                        return null
+                    }
+                }
+                for (const lscore of [this.score()]) { // TODO(port): scoreList()
+                    let lmeasure = lscore.tick2measure(m2.tick())
+                    if (lmeasure) {
+                        lmeasure.undoChangeProperty(Pid.REPEAT_END, true)
+                        lmeasure = lmeasure.nextMeasure()
+                        if (lmeasure) {
+                            lmeasure.undoChangeProperty(Pid.REPEAT_START, true)
+                        }
+                    }
+                }
+            } else {
+                const seg = this.undoGetSegmentR(SegmentType.EndBarLine, this.ticks())
+                // if any staff lacks a barline, create one
+                for (let stIdx = 0; stIdx < this.score().nstaves(); ++stIdx) {
+                    let staffBarLine = seg.element(stIdx * VOICES)
+                    if (!staffBarLine) {
+                        staffBarLine = itemFactories.createItem!(ElementType.BAR_LINE, seg)!
+                        staffBarLine.setParent(seg)
+                        staffBarLine.setTrack(stIdx * VOICES)
+                        this.score().undoAddElement(staffBarLine)
+                    }
+                }
+                // drop to barline
+                return seg.element(trackZeroVoice(data.track))!.drop(data)
+            }
+            break
+        }
+
+        case ElementType.STAFFTYPE_CHANGE:
+            e.setParent(this)
+            e.setTrack(trackZeroVoice(data.track))
+            this.score().undoAddElement(e)
+            break
+
+        // TODO(port): MEASURE_REPEAT (cmdAddMeasureRepeat), ACTION_ICON (frames, measures, staff type changes,
+        // system locks), VBOX/TBOX/FBOX/HBOX (InsertMeasures)
+
+        default:
+            break
+        }
+        return null
+    }
+
     firstOfMeasureRepeatGroup(staffIdx: staff_idx_t): Measure | null {
         if (!this.isMeasureRepeatGroup(staffIdx)) {
             return null
@@ -1665,6 +1988,12 @@ export class Measure extends MeasureBase {
             }
         }
         this.setWidth(x)
+    }
+
+    override triggerLayout(): void {
+        if (this.prev() || this.next()) { // avoid triggering layout before getting added to a score
+            this.score().setLayoutRange(this.tick(), this.endTick(), 0, this.score().nstaves() - 1, this)
+        }
     }
 
     override scanElements(func: (item: EngravingItem) => void): void {

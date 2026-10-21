@@ -465,3 +465,66 @@
   the measure; arrows/Ctrl/Shift/Alt navigation, Escape, Ctrl+A; the status bar shows the selection's
   accessibility info (markup of instrument names removed for display).
 - Missing: editing commands (no undo stack), note input, palettes/inspector panels, saving.
+
+## 2026-10-21 — Undo stack and editing
+
+- Undo system (editing/undo.ts: UndoStack, UndoMacro with input state and selection restore, UndoCommand with
+  filterChildren/cleanup/unwind, changesInfo), editproperty.ts (ChangeProperty, ChangeBracketProperty,
+  ChangeTextLineProperty), editstyle.ts (ChangeStyle, ChangeStyleValues), addremoveelement.ts (AddElement,
+  RemoveElement, ChangeElement, ChangeParent, ChangeSegmentParent, Link/Unlink), editnote.ts (ChangePitch,
+  ChangeFretting, ChangeVelocity), editspanner.ts, editvoicing.ts (ExchangeVoice), editchord.ts (ChangeChordStaffMove,
+  SwapCR), editclef.ts (ChangeClefType). EngravingObject.undoChangeProperty is C++'s (changeProperties with
+  linkListForPropertyPropagation/propertyPropagation: linked elements of the same score), undoPushProperty,
+  EngravingItem.undoChangeProperty (AUTOPLACE). Score: undoStack/cmdState (MasterScore), undo(cmd), dirty(),
+  setLayout/setLayoutAll/setLayoutRange (C++ setLayout overload), doLayout/doLayoutRange (scoreRendererHooks);
+  cmd.ts: startCmd/endCmd/undoRedo/update; editing/cmdstate.ts: CmdState; dom/mscore.ts: MsError, MScore.setError,
+  UpDownMode, nudge steps. triggerLayout (+ Spanner/Measure/MeasureBase/Beam/TremoloTwoChord/Staff overrides);
+  Score.addElement/removeElement trigger the layout like C++. The existing edit.ts/editmeasures functions now
+  record their changes (doUndoAddElement/undoAddElement/undoRemoveElement, undoGetSegment). Outside of a command
+  (loading, createScore, layout during load) changes are applied directly like in C++.
+- Partial layout: ScorePageViewLayout::initLayoutContext for a range (from the system of the changed range until
+  the layout is stable). Without a triggered range (undo commands of the port without triggerLayout) endCmd lays out
+  the whole score. `Score.partialLayout = false` forces full layouts (test/partiallayout.test.ts compares both).
+  Over 70 vtest files x 3 edits, two differ: ornament-7 (trill cue note mag 1.0 instead of 0.7 after a partial
+  layout) and tie-9 (a natural on a later note in the measure only after the partial layout). An edit in the
+  5-page Chopin score took ~350 ms with full layouts.
+- InputState (dom/input.ts, NoteVal, NoteEntryMethod); Score.select sets the input track/segment; Score.move and
+  selectMove in note entry mode. Note input: dom/noteentry.ts (noteValForPosition, addPitch, addPitchToChord,
+  putNote(PointF|Position), handleOverlappingChordRest, getPosition, padToggle), cmd.ts (setNoteRest, makeGap,
+  makeGapVoice, splitGapToMeasureBoundaries, changeCRlen (TDuration|Fraction), createCRSequence, expandVoice,
+  addInterval, upDown/upDownDelta, toggleAccidental/applyAccidentalToInputNotes/changeAccidental/
+  changeNoteAccidental, resolveNoteInputParams, cmdAddPitch, cmdIncDecDuration (list selections),
+  cmdPitchUp/Down(Octave), cmdMoveRest, cmdToggleVisible, cmdSet/UnsetVisible);
+  notation/internal/notationnoteinput.ts (start/end note input, addNote, padNote, putNote, setInputNote(s),
+  moveInputNotes, setAccidental, setCurrentVoice, cursorRect, ...), notationundostack.ts.
+- edit.cpp/score.cpp: addRest/setRest/setRests/addChord/addNote/addNoteToTiedChord/addClone, cmdDeleteSelection,
+  deleteRange/deleteRangeAtTrack/deleteSlursFromRange/deleteAnnotationsFromRange/deleteOrShortenOutSpannersFromRange,
+  deleteItem (notes, rests, accidentals, barlines, tuplets, layout breaks, clefs, texts, spanners, ...), cmdDeleteTuplet,
+  removeChordRest, cmdTieNoteList/cmdAddTie/cmdToggleTie/cmdToggleLaissezVib, cmdFlip, undoChangeVisible,
+  undoChangePitch/Fretting/Tpc/ChordRestLen/UserMirror/Element/Parent/SpannerElements/StyleVal(ues),
+  undoPropertyChanged, cmdEnterRest/enterRest, nextInputPos, changeSelectedElementsVoice, cmdExchangeVoice,
+  canReselectItem. Selection.noteList/uniqueNotes/uniqueElements; Note.noteVal/setNval/tpc1default/tpc2default/
+  compoundNotes, Chord.selectedNote/updateArticulations (only adds missing articulations).
+- Palette drops: acceptDrop/drop of EngravingItem, ChordRest, Chord, Rest, Note, Measure, MeasureBase, Clef,
+  KeySig, TimeSig, BarLine, Dynamic, LayoutBreak, Accidental; undoChangeClef, undoChangeBarLineType, addHairpin,
+  cmdInsertClef, toggleArticulation/toggleOrnament, cmdToggleLayoutBreak, cmdAddSpanner; NoteHead (dom/notehead.ts);
+  NotationInteraction.applyPaletteElement(+ToList/ToRange); the dropped element is cloned (C++ copies via mime data).
+- NotationInteraction editing methods (deleteSelection, movePitch, flipSelection, toggleVisible, addTieToSelection,
+  putRest, changeAccidental, increaseDecreaseDuration, changeSelectedElementsVoice, changeProperty/resetProperty
+  for an inspector, undo/redo) and notationscene/notationactioncontroller.ts (action codes, enabled conditions,
+  NoteInputBarModel's checked states). A click in note input mode enters a note (putNote).
+- Public API: executeAction, notationActionCodes, isActionAvailable/Enabled/Checked, isCheckableAction, undo/redo,
+  canUndo/canRedo, undoStackInfo, isModified, markSaved, noteInputState, noteInputCursorBounds, selectionProperties,
+  changeSelectionProperty, resetSelectionProperty, createPaletteElement, paletteElementName, applyPaletteElement.
+  drawPage/drawPageSvg(printing: false) draw the note input cursor.
+- Editor: musescoreweb/actions/notationactions.ts registers the notation actions (MuseScore's shortcuts: N, A–G,
+  Shift+A–G, 1–9, 0, ., arrows, Ctrl/Cmd+Z, Delete, Escape, X, V, Ctrl+Alt+1–4, ...); scoreview.ts: scoreChanged()
+  (rebuild pages if the page count changed, repaint, status bar, scroll), ScoreViewState.modified/noteInput/revision;
+  note input toolbar buttons show the checked state.
+- SVG output: values rounded to 0 are written without sign ("-0" -> "0").
+- Tests: test/undo.test.ts, edit.test.ts, noteinput.test.ts, palette.test.ts, partiallayout.test.ts,
+  api-edit.test.ts (undo/redo of each command compared via test/helpers.ts scoreHash), e2e keyboard editing.
+- Missing: excerpts/linked staves in the undo functions (Staff.staffList() is the staff itself), repitch/insert/
+  real-time note input, tuplets, slurs (doAddSlur), copy/paste (mime data), range duration changes, rewriteMeasures
+  (time signatures with another length), regroupNotesAndRests, tie jump points, lyrics editing, text editing,
+  playback (setPlayNote), error messages (checkAndShowError), shadow note.

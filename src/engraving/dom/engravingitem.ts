@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/engravingitem.h/.cpp
  *
- * Not ported: editing, drag & drop, accessibility, part linking.
+ * Not ported: drag & drop editing, accessibility, linking to parts (excerpts).
  */
 
 import { Color } from '../../framework/draw/types/color'
@@ -21,8 +21,8 @@ import {
 } from '../types/types'
 import { Sid } from '../style/styledef'
 import { Shape } from '../infrastructure/shape'
-import { EngravingObject } from './engravingobject'
-import { Pid } from './property'
+import { EngravingObject, PropertyPropagation } from './engravingobject'
+import { Pid, PropertyFlags, PropertyGroup, propertyGroup, propertyLink, propertyLinkSameScore } from './property'
 import type { Staff } from './staff'
 import type { Part } from './part'
 import type { StaffType } from './stafftype'
@@ -31,6 +31,7 @@ import type { MeasureBase } from './measurebase'
 import type { Measure } from './measure'
 import type { System } from './system'
 import type { Page } from './page'
+import type { EditData } from '../editing/editdata'
 import type { PaintOptions } from '../rendering/paintoptions'
 import { EngravingConfiguration } from '../internal/engravingconfiguration'
 import { TranslatableString } from '../../framework/global/types/translatablestring'
@@ -318,8 +319,11 @@ export class LayoutData {
     }
 }
 
-/** set by dom/factory.ts (avoids a circular import of parenthesis.ts) */
-export const itemFactories: { createParenthesis?: (parent: EngravingItem) => EngravingItem } = {}
+/** set by dom/parenthesis.ts and dom/factory.ts (avoids circular imports; createItem: C++ Factory::createItem) */
+export const itemFactories: {
+    createParenthesis?: (parent: EngravingItem) => EngravingItem
+    createItem?: (type: ElementType, parent: EngravingObject | null) => EngravingItem | null
+} = {}
 
 export abstract class EngravingItem extends EngravingObject {
     protected m_z = -1
@@ -932,6 +936,27 @@ export abstract class EngravingItem extends EngravingObject {
 
     setbbox(r: RectF): void { this.mutldata().setBbox(r) }
 
+    /** TODO(port): Staff::findLinkedInScore (excerpts): only system objects are found in other scores */
+    findLinkedInScore(score: import('./score').Score | null): EngravingItem | null {
+        const links = this.links()
+        if (!score || !this.staff() || !links || links.length === 0) {
+            return null
+        }
+
+        // If this is a system element it may not be on the same stave, so just check if linked elements are in the score
+        if (this.systemFlag() && this.track() === 0) {
+            for (const linked of links) {
+                if (linked !== this && linked.score() === score) {
+                    return linked as EngravingItem
+                }
+            }
+            return null
+        }
+
+        // C++: staff()->findLinkedInScore(score): the linked staff in the other score (no excerpts in the port)
+        return null
+    }
+
     findLinkedInStaff(staff: Staff): EngravingItem | null {
         const links = this.links()
         if (!links || links.length === 0) {
@@ -1121,6 +1146,116 @@ export abstract class EngravingItem extends EngravingObject {
         }
         if (e === this.m_rightParenthesis) {
             this.m_rightParenthesis = null
+        }
+    }
+
+    change(o: EngravingItem, n: EngravingItem): void {
+        this.remove(o)
+        this.add(n)
+    }
+
+    /** true if data.dropElement can be dropped on this element (palettes, drag & drop) */
+    acceptDrop(_data: EditData): boolean { return false }
+
+    /** handles a dropped element (data.dropElement); returns the element to select, if any */
+    drop(_data: EditData): EngravingItem | null { return null }
+
+    // ---------------------------------------------------------
+    //   undo / layout triggers
+    // ---------------------------------------------------------
+
+    override undoChangeProperty(pid: Pid, val: PropertyValue, ps: PropertyFlags = this.propertyFlags(pid)): void {
+        if (pid === Pid.AUTOPLACE && (val === true && !this.autoplace())) {
+            // Switching autoplacement on. Save user-defined
+            // placement properties to undo stack.
+            this.undoPushProperty(Pid.PLACEMENT)
+            this.undoPushProperty(Pid.OFFSET)
+        }
+        super.undoChangeProperty(pid, val, ps)
+    }
+
+    undoSetVisible(v: boolean): void {
+        this.undoChangeProperty(Pid.VISIBLE, v)
+    }
+
+    undoAddElement(element: EngravingItem, addToLinkedStaves = true): void {
+        this.score().undoAddElement(element, addToLinkedStaves)
+    }
+
+    isPropertyLinkedToMaster(id: Pid): boolean {
+        if (propertyGroup(id) === PropertyGroup.POSITION) {
+            return this.isPositionLinkedToMaster()
+        }
+
+        if (propertyGroup(id) === PropertyGroup.APPEARANCE) {
+            return this.isAppearanceLinkedToMaster()
+        }
+
+        return true
+    }
+
+    propertyPropagation(destinationItem: EngravingItem, propertyId: Pid): PropertyPropagation {
+        if (propertyLink(propertyId)) {
+            return PropertyPropagation.PROPAGATE // These properties are always linked, no matter what
+        }
+
+        if (propertyGroup(propertyId) === PropertyGroup.NONE) {
+            return PropertyPropagation.NONE
+        }
+
+        const sourceScore = this.score()
+        const destinationScore = destinationItem.score()
+        const sourceStaff = this.staff()
+        const destinationStaff = destinationItem.staff()
+
+        if (sourceScore === destinationScore) {
+            const diffStaff = sourceStaff !== destinationStaff
+            const visiblePositionOrColor = propertyId === Pid.VISIBLE || propertyId === Pid.COLOR
+                || propertyGroup(propertyId) === PropertyGroup.POSITION
+            const hasParens = propertyId === Pid.HAS_PARENTHESES && this.isNote()
+                && (this as unknown as { ghost(): boolean }).ghost()
+                && !(this as unknown as { hideGeneratedParens(): boolean }).hideGeneratedParens()
+            const linkSameScore = propertyLinkSameScore(propertyId)
+            if ((diffStaff && (visiblePositionOrColor || hasParens)) || !linkSameScore) {
+                // Allow visibility and position to stay independent
+                return PropertyPropagation.NONE
+            }
+            // Maintain every other property synced
+            return PropertyPropagation.PROPAGATE
+        }
+
+        // TODO(port): linked elements in excerpts (text properties, unlinking in parts)
+        if (this.systemFlag() && !this.isTopSystemObject()) {
+            // Let only the top system object propagate
+            return PropertyPropagation.NONE
+        }
+
+        if (destinationItem.isPropertyLinkedToMaster(propertyId)) {
+            return PropertyPropagation.PROPAGATE
+        }
+
+        return PropertyPropagation.NONE
+    }
+
+    triggerLayout(): void {
+        if (this.explicitParent()) {
+            this.score().setLayout(this.tick(), this.staffIdx(), this)
+        }
+    }
+
+    /**
+     * CAUTION: This causes a layout of the entire score: extremely expensive and
+     * likely unnecessary! Consider overriding triggerLayout() instead.
+     */
+    triggerLayoutAll(): void {
+        if (this.explicitParent()) {
+            this.score().setLayoutAll(this.staffIdx(), this)
+        }
+    }
+
+    triggerLayoutToEnd(): void {
+        if (this.explicitParent()) {
+            this.score().setLayoutRange(this.tick(), this.score().endTick(), this.staffIdx(), this.staffIdx(), this)
         }
     }
 

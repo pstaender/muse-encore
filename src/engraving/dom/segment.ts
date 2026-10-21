@@ -438,6 +438,61 @@ export class Segment extends EngravingItem {
 
     cr(track: track_idx_t): ChordRest | null { return this.m_elist[track] as ChordRest | null }
 
+    /** the first main element of the staff (the top note of a chord), for navigation and palettes */
+    firstElementForNavigation(staff: staff_idx_t): EngravingItem | null {
+        if (this.isChordRestType()) {
+            const strack = staff * VOICES
+            const etrack = strack + VOICES
+            for (let v = strack; v < etrack; ++v) {
+                const el = this.element(v)
+                if (!el) {
+                    continue
+                }
+                if (el.isChord()) {
+                    const notes = (el as unknown as Chord).notes()
+                    return notes[notes.length - 1] as unknown as EngravingItem
+                }
+                return el
+            }
+        } else {
+            return this.getElement(staff)
+        }
+        return null
+    }
+
+    getElement(staff: staff_idx_t): EngravingItem | null {
+        if (this.segmentType() === SegmentType.ChordRest) {
+            return this.firstElementForNavigation(staff)
+        } else if (this.segmentType() & (SegmentType.EndBarLine | SegmentType.BarLine | SegmentType.StartRepeatBarLine)) {
+            for (let i = staff; i >= 0; i--) {
+                const e = this.element(i * VOICES)
+                if (!e) {
+                    continue
+                }
+                const b = e as unknown as { spanStaff(): boolean }
+                if (i + (b.spanStaff() ? 1 : 0) >= staff) {
+                    return e
+                }
+            }
+        } else {
+            return this.element(staff * VOICES)
+        }
+        return null
+    }
+
+    swapElements(i1: track_idx_t, i2: track_idx_t): void {
+        const e = this.m_elist[i1]
+        this.m_elist[i1] = this.m_elist[i2]
+        this.m_elist[i2] = e
+        if (this.m_elist[i1]) {
+            this.m_elist[i1]!.setTrack(i1)
+        }
+        if (this.m_elist[i2]) {
+            this.m_elist[i2]!.setTrack(i2)
+        }
+        this.triggerLayout()
+    }
+
     setElement(track: track_idx_t, el: EngravingItem | null): void {
         if (el) {
             el.setParent(this)

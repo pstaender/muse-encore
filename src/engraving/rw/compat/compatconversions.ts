@@ -73,7 +73,7 @@ const ARTICULATION_SPLIT_GROUPS = new Map<SymId, [SymId, SymId]>([
 ])
 
 /** dom/articulation.cpp splitArticulations() for a single symbol; sorted like the C++ std::set<SymId> */
-function splitArticulation(id: SymId): SymId[] {
+export function splitArticulation(id: SymId): SymId[] {
     const group = ARTICULATION_SPLIT_GROUPS.get(id)
     return group ? [...new Set(group)].sort((a, b) => a - b) : [id]
 }

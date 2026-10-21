@@ -21,6 +21,8 @@ import type { Expression } from './expression'
 import type { Measure } from './measure'
 import type { Segment } from './segment'
 import type { Spanner } from './spanner'
+import type { EngravingItem } from './engravingitem'
+import type { EditData } from '../editing/editdata'
 import { TextBase } from './textbase'
 import { TranslatableString } from '../../framework/global/types/translatablestring'
 import { simplified } from './textbase'
@@ -119,6 +121,38 @@ export class Dynamic extends TextBase {
 
     segment(): Segment { return this.explicitParent() as unknown as Segment }
     measure(): Measure { return this.explicitParent()!.explicitParent() as unknown as Measure }
+
+    override acceptDrop(ed: EditData): boolean {
+        const droppedType = ed.dropElement!.type()
+        return droppedType === ElementType.DYNAMIC || droppedType === ElementType.EXPRESSION || droppedType === ElementType.HAIRPIN
+    }
+
+    override drop(ed: EditData): EngravingItem | null {
+        const item = ed.dropElement!
+
+        if (item.isHairpin()) {
+            // TODO(port): Score::addHairpinToDynamic
+            return null
+        }
+
+        if (item.isDynamic()) {
+            const dynamic = item as Dynamic
+            this.undoChangeProperty(Pid.DYNAMIC_TYPE, dynamic.dynamicType())
+            this.undoChangeProperty(Pid.TEXT, dynamic.xmlText())
+            ed.dropElement = this
+            return this
+        }
+
+        if (item.isExpression()) {
+            item.setTrack(this.track())
+            item.setParent(this.segment())
+            ;(item as unknown as Expression).setVoiceAssignment(this.voiceAssignment())
+            this.score().undoAddElement(item)
+            return item
+        }
+
+        return null
+    }
 
     dynamicType(): DynamicType { return this.m_dynamicType }
 

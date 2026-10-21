@@ -15,6 +15,7 @@ import { ClefTypeList } from './clefinfo'
 import { Pid } from './property'
 import { SegmentType, type Segment } from './segment'
 import type { Measure } from './measure'
+import type { EditData } from '../editing/editdata'
 import { arg, mtrc } from '../../framework/global/translation'
 import { TConv } from '../types/typesconv'
 
@@ -51,6 +52,25 @@ export class Clef extends EngravingItem {
 
     segment(): Segment { return this.explicitParent() as unknown as Segment }
     measure(): Measure { return this.explicitParent()!.explicitParent() as unknown as Measure }
+
+    override acceptDrop(data: EditData): boolean {
+        return data.dropElement!.isClef() || (/*!generated() &&*/ data.dropElement!.isAmbitus())
+    }
+
+    override drop(data: EditData): EngravingItem | null {
+        const e = data.dropElement!
+        let c: Clef | null = null
+        if (e.isClef()) {
+            const clef = e as Clef
+            const stype = clef.clefType()
+            if (this.clefType() !== stype) {
+                this.score().undoChangeClef(this.staff()!, this, stype)
+                c = this
+            }
+        }
+        // TODO(port): drop of an Ambitus (adds an ambitus to the measure)
+        return c
+    }
 
     isSmall(): boolean { return this.m_isSmall }
     setSmall(val: boolean): void { this.m_isSmall = val }

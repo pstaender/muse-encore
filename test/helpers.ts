@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Shared helpers of the tests: fonts, test score locations, rendering to pixels.
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createCanvas, loadImage } from '@napi-rs/canvas'
-import { drawPage, initEngravingFonts, layoutScore, loadScore, pageSize, type MasterScore } from '../src/index'
+import { drawPage, drawPageSvg, initEngravingFonts, layoutScore, loadScore, pageSize, type MasterScore } from '../src/index'
 
 export const ROOT = fileURLToPath(new URL('..', import.meta.url))
 /** v4.7.5 vtest and demo scores of the MuseScore submodule (git submodule update --init) */
@@ -24,6 +25,15 @@ export async function openScore(file: string): Promise<MasterScore> {
     const score = loadScore(readFileSync(file))
     layoutScore(score)
     return score
+}
+
+/** a hash of the SVG of all pages (printing: false also covers selection colors and invisible elements) */
+export function scoreHash(score: MasterScore, printing = true): string {
+    const h = createHash('sha256')
+    for (let i = 0; i < score.npages(); ++i) {
+        h.update(drawPageSvg(score, i, { printing }))
+    }
+    return h.digest('hex')
 }
 
 /** black/white pixels of a page, drawn with the canvas paint provider */

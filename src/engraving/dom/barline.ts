@@ -8,12 +8,14 @@
 
 import { PointF } from '../../framework/draw/types/geometry'
 import type { PropertyValue } from '../types/propertyvalue'
-import { BarLineType, ElementType, VOICES, type staff_idx_t, type track_idx_t } from '../types/types'
+import { BarLineType, ElementType, PlacementV, VOICES, type staff_idx_t, type track_idx_t } from '../types/types'
 import { Sid } from '../style/styledef'
 import { EngravingItem, LayoutData } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
 import { Pid } from './property'
-import type { Segment } from './segment'
+import { SegmentType, type Segment } from './segment'
+import type { Marker } from './marker'
+import type { EditData } from '../editing/editdata'
 import type { Measure } from './measure'
 import { TranslatableString } from '../../framework/global/types/translatablestring'
 import { SymNames } from '../types/symnames'
@@ -194,6 +196,119 @@ export class BarLine extends EngravingItem {
     segment(): Segment { return this.explicitParent() as unknown as Segment }
     measure(): Measure | null {
         return this.explicitParent() ? this.explicitParent()!.explicitParent() as unknown as Measure : null
+    }
+
+    // ---------------------------------------------------------
+    //   drop
+    // ---------------------------------------------------------
+
+    override acceptDrop(data: EditData): boolean {
+        const e = data.dropElement!
+
+        if (e.isBarLine()) {
+            return true
+        } else if (e.isFermata() || e.isSymbol() || e.isImage()) {
+            return !!this.segment() && this.segment().isEndBarLineType()
+        } else if (e.isMeasureNumber() || e.isJump() || e.isMarker() || e.isLayoutBreak()) {
+            let m = this.measure()
+            if (m) {
+                const left = (e.isMarker() && !(e as unknown as Marker).isRightMarker()) || e.isMeasureNumber()
+                if (left && this.segment().isEndBarLineType() && m.nextMeasureMM()) {
+                    m = m.nextMeasureMM()!
+                }
+                return m.acceptDrop(data)
+            }
+        }
+        return false
+    }
+
+    override drop(data: EditData): EngravingItem | null {
+        const e = data.dropElement!
+
+        if (e.isBarLine()) {
+            const bl = e as BarLine
+            const st = bl.barLineType()
+
+            if (this.segment().segmentType() === SegmentType.BarLine) {
+                // barline exists mid measure
+                this.undoChangeProperty(Pid.BARLINE_TYPE, st)
+                this.undoChangeProperty(Pid.BARLINE_SPAN, false)
+                this.undoChangeProperty(Pid.BARLINE_SPAN_FROM, bl.spanFrom())
+                this.undoChangeProperty(Pid.BARLINE_SPAN_TO, bl.spanTo())
+            } else {
+                // check if the new property can apply to this single bar line
+                const bt = BarLineType.START_REPEAT | BarLineType.END_REPEAT | BarLineType.END_START_REPEAT
+                const oldRepeat = (this.barLineType() & bt) !== 0
+                const newRepeat = (bl.barLineType() & bt) !== 0
+
+                const m = this.measure()!
+                if (bl.playCount() !== -1) {
+                    m.undoChangeProperty(Pid.REPEAT_COUNT, bl.playCount())
+                }
+
+                // if ctrl was used and repeats are not involved,
+                // or if drop refers to span rather than subtype =>
+                // single bar line drop
+
+                if ((data.control() && !oldRepeat && !newRepeat) || (bl.spanFrom() || bl.spanTo())) {
+                    // if drop refers to span, update this bar line span
+                    if (bl.spanFrom() || bl.spanTo()) {
+                        // if dropped spanFrom or spanTo are below the middle of standard staff (5 lines)
+                        // adjust to the number of staff lines
+                        const spanFrom = bl.spanFrom()
+                        const spanTo = bl.spanTo()
+                        this.undoChangeProperty(Pid.BARLINE_SPAN, false)
+                        this.undoChangeProperty(Pid.BARLINE_SPAN_FROM, spanFrom)
+                        this.undoChangeProperty(Pid.BARLINE_SPAN_TO, spanTo)
+                    } else {
+                        // if drop refers to subtype, update this bar line subtype
+                        this.score().undoChangeBarLineType(this, st, false)
+                    }
+                } else {
+                    this.score().undoChangeBarLineType(this, st, true)
+                }
+                this.score().undoUpdatePlayCountText(m)
+            }
+        } else if (e.isArticulationFamily()) {
+            e.setParent(this)
+            e.setTrack(this.track())
+            this.score().undoAddElement(e)
+            return e
+        } else if (e.isSymbol() || e.isImage()) {
+            e.setParent(this)
+            e.setTrack(this.track())
+            this.score().undoAddElement(e)
+            return e
+        } else if (e.isFermata()) {
+            e.setPlacement(this.track() & 1 ? PlacementV.BELOW : PlacementV.ABOVE)
+            for (const el of this.segment().annotations()) {
+                if (el.isFermata() && (el.track() === this.track())) {
+                    if (el.subtype() === e.subtype()) {
+                        return el
+                    } else {
+                        e.setPlacement(el.placement())
+                        e.setTrack(this.track())
+                        e.setParent(this.segment())
+                        this.score().undoChangeElement(el, e)
+                        return e
+                    }
+                }
+            }
+            e.setTrack(this.track())
+            e.setParent(this.segment())
+            this.score().undoAddElement(e)
+            return e
+        } else if (e.isMeasureNumber() || e.isJump() || e.isMarker() || e.isLayoutBreak()) {
+            let m = this.measure()
+            if (m) {
+                const left = (e.isMarker() && !(e as unknown as Marker).isRightMarker()) || e.isMeasureNumber()
+                if (left && this.segment().isEndBarLineType() && m.nextMeasureMM()) {
+                    m = m.nextMeasureMM()!
+                }
+                return m.drop(data)
+            }
+        }
+        return null
     }
 
     setSpanStaff(val: boolean): void { this.m_spanStaff = val }

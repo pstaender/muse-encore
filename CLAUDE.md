@@ -31,8 +31,12 @@ src/
                         rw/compat (chord list hook, CompatUtils incl. doCompatibilityConversions = compatconversions.ts)
   engraving/compat      EngravingCompat (pre/post layout conversions of old files), page format, dummy element
   engraving/rendering/score  layout (ScoreLayout, SystemLayout, ChordLayout, ...) and painting (TDraw)
-  engraving/editing     score changes (edit.cpp etc.; no undo stack yet: commands are applied directly)
-  notation, project     MasterNotation / NotationParts / NotationProject: creating new scores (createScore)
+  engraving/editing     score changes (edit.cpp, cmd.cpp, ... as Score module augmentations) through the undo stack
+                        (undo.ts: UndoStack/UndoMacro/UndoCommand; startCmd/endCmd/undoRedo in cmd.ts, CmdState in
+                        cmdstate.ts); dom/noteentry.ts and dom/input.ts (InputState) for note input
+  notation, project     MasterNotation / NotationParts / NotationProject: creating new scores (createScore);
+                        NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input
+  notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands)
   index.ts              public library API
 fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore, Gonville/Gootville, Petaluma,
                         Finale Maestro/Broadway, MuseJazz, Edwin, FreeSerif/FreeSans) with their licenses,
@@ -70,6 +74,12 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - TypeScript 7 (native compiler); `npm run typecheck` / `npm run build` use it.
 - C++ destructors with side effects must be emulated explicitly (e.g. ~LayoutContext -> end of ScoreLayout.layoutRange).
 - DOM -> rendering calls (C++ `renderer()->...`) go through hooks set in `rendering/score/scorerenderer.ts`.
+- Score changes go through the undo stack like in C++ (`score.undo(new ChangeProperty(...))`, `undoChangeProperty`,
+  `undoAddElement`, ...) between `startCmd()` and `endCmd()` (NotationInteraction: `startEdit()`/`apply()`); outside
+  of a command (loading, createScore) they are applied directly. `endCmd`/`undoRedo` lay out the range the commands
+  marked with `triggerLayout()` (partial layout like C++); a command without a range lays out the whole score.
+  Undo/redo tests compare a hash of the SVG of all pages before and after (test/helpers.ts `scoreHash`).
+- The DOM modules have import cycles: tests should import from `src/index` (or `./helpers`) first.
 - There is no read400/read410: the 2.x/3.x readers call the shared read460 `TRead` functions where C++ calls
   `read400::TRead`. Version checks of read400 (`mscVersion() < 400` etc.) must therefore be in the read460
   functions (guarded by the file version), e.g. ignoring pre-4.0 slur offsets and stem lengths.
