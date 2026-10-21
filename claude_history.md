@@ -983,3 +983,14 @@
   the document's preserveAspectRatio), ChordBracket/SystemDivider reset(), cmdFlipHorizontally, figured bass
   keyboard navigation while editing (ScoreView figured bass tab/space), StringTuningsSettingsModel and the harp pedal
   popup, part audio settings compat (mute/solo), PartChannelSettingsLink.
+
+## 2026-10-22 — Editor: toolbar rows, full screen
+
+- The top area below the tabs row holds any number of toolbar rows (docks `top`, `top1`, `top2`, ... in the layout
+  settings, renumbered without empty rows; old settings still load). "Move to the row below" on the last row makes a
+  new row (not for a toolbar alone in it); the bottom dock above the status bar is reached with the new "Move to the
+  bottom" / "Move to the top" items of the handle menu. While a toolbar is dragged, an empty row below the last one
+  takes it as a new row.
+- Full screen: besides the menu bar and toolbars (top edge), the bottom toolbar dock with the status bar (bottom edge)
+  and the panels (left edge, right in RTL) are collapsed and slide in while the pointer is at their edge or on them,
+  or while they have the focus (scoreview.ts: one auto-hide logic per edge, `setChrome(el, edge)`).

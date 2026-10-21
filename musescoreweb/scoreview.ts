@@ -1438,67 +1438,101 @@ function isTextInput(t: EventTarget | null): boolean {
     return t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement
 }
 
-// in full screen the app's chrome (menu bar, toolbars) is collapsed; it is shown while the pointer is at the top
-// edge or on it, or while it has the keyboard focus
-let chrome: HTMLElement | null = null
-let toolbarHideTimer = 0
+// in full screen the app's chrome is collapsed: the menu bar and toolbars at the top, the bottom toolbar dock and the
+// status bar at the bottom, the panels at the left (right to left: right) edge; each part is shown while the pointer is
+// at its edge or on it, or while it has the keyboard focus
+type Edge = 'top' | 'bottom' | 'side'
 
-function showToolbar(autoHideMs = 0): void {
-    clearTimeout(toolbarHideTimer)
-    document.body.classList.add('toolbar-shown')
+const EDGE_CLASS: Record<Edge, string> = { top: 'toolbar-shown', bottom: 'bottom-shown', side: 'panels-shown' }
+const edges: Record<Edge, { el: HTMLElement | null; timer: number }> = {
+    top: { el: null, timer: 0 },
+    bottom: { el: null, timer: 0 },
+    side: { el: null, timer: 0 },
+}
+const EDGES = Object.keys(edges) as Edge[]
+
+const isFullscreen = (): boolean => document.body.classList.contains('fullscreen')
+const isShown = (edge: Edge): boolean => document.body.classList.contains(EDGE_CLASS[edge])
+
+function showEdge(edge: Edge, autoHideMs = 0): void {
+    clearTimeout(edges[edge].timer)
+    document.body.classList.add(EDGE_CLASS[edge])
     if (autoHideMs) {
-        toolbarHideTimer = window.setTimeout(hideToolbar, autoHideMs)
+        edges[edge].timer = window.setTimeout(() => hideEdge(edge), autoHideMs)
     }
 }
 
-function hideToolbar(): void {
-    clearTimeout(toolbarHideTimer)
-    if (chrome && (chrome.matches(':hover') || chrome.matches(':has(:focus-visible)') || chrome.matches(':has([aria-expanded="true"])'))) {
+function hideEdge(edge: Edge): void {
+    clearTimeout(edges[edge].timer)
+    const el = edges[edge].el
+    if (el && (el.matches(':hover') || el.matches(':has(:focus-visible)') || el.matches(':has([aria-expanded="true"])'))) {
         return // pointer on it, keyboard navigation or an open menu in it
     }
-    document.body.classList.remove('toolbar-shown')
+    document.body.classList.remove(EDGE_CLASS[edge])
 }
 
 document.addEventListener('fullscreenchange', () => {
     const fs = !!document.fullscreenElement
     document.body.classList.toggle('fullscreen', fs)
     publish({ fullscreen: fs })
-    if (fs) {
-        // briefly, so it is clear where it went
-        showToolbar(1200)
-    } else {
-        document.body.classList.remove('toolbar-shown')
+    for (const edge of EDGES) {
+        if (fs) {
+            // briefly, so it is clear where it went
+            showEdge(edge, 1200)
+        } else {
+            clearTimeout(edges[edge].timer)
+            document.body.classList.remove(EDGE_CLASS[edge])
+        }
     }
 })
 
-/** the element that is collapsed in full screen (set by the React app) */
-export function setChrome(el: HTMLElement): void {
-    chrome = el
-    el.addEventListener('pointerenter', () => clearTimeout(toolbarHideTimer))
+/** the elements that are collapsed in full screen (set by the React app): the chrome at the top, the bottom bars, the panels */
+export function setChrome(el: HTMLElement, edge: Edge = 'top'): void {
+    edges[edge].el = el
+    el.addEventListener('pointerenter', () => clearTimeout(edges[edge].timer))
     el.addEventListener('focusin', () => {
-        if (document.body.classList.contains('fullscreen')) {
-            showToolbar()
+        if (isFullscreen()) {
+            showEdge(edge)
         }
     })
     el.addEventListener('focusout', () => {
-        if (document.body.classList.contains('fullscreen') && !el.matches(':hover')) {
-            toolbarHideTimer = window.setTimeout(hideToolbar, 300)
+        if (isFullscreen() && !el.matches(':hover')) {
+            edges[edge].timer = window.setTimeout(() => hideEdge(edge), 300)
         }
     })
 }
 
-$('toolbar-trigger').addEventListener('pointerenter', () => showToolbar())
-$('toolbar-trigger').addEventListener('pointerdown', () => showToolbar(3000)) // touch: tap at the top edge
-// hidden when the pointer is clearly below it (not on leaving it: an open menu or list is outside of it)
+for (const [edge, id] of [['top', 'toolbar-trigger'], ['bottom', 'bottom-trigger'], ['side', 'side-trigger']] as const) {
+    $(id).addEventListener('pointerenter', () => showEdge(edge))
+    $(id).addEventListener('pointerdown', () => showEdge(edge, 3000)) // touch: tap at the edge
+}
+
+/** how far the pointer is away from a shown part, towards the score (negative: on it) */
+function distanceFromEdge(edge: Edge, r: DOMRect, x: number, y: number): number {
+    switch (edge) {
+    case 'top': return y - r.bottom
+    case 'bottom': return r.top - y
+    case 'side': return document.documentElement.dir === 'rtl' ? r.left - x : x - r.right
+    }
+}
+
+// hidden when the pointer is clearly away from it (not on leaving it: an open menu or list is outside of it)
 document.addEventListener('pointermove', (e) => {
-    if (!chrome || !document.body.classList.contains('toolbar-shown') || !document.body.classList.contains('fullscreen')) {
+    if (!isFullscreen()) {
         return
     }
-    if (e.clientY > chrome.getBoundingClientRect().bottom + 24) {
-        clearTimeout(toolbarHideTimer)
-        toolbarHideTimer = window.setTimeout(hideToolbar, 300)
-    } else if (e.clientY <= chrome.getBoundingClientRect().bottom) {
-        clearTimeout(toolbarHideTimer)
+    for (const edge of EDGES) {
+        const el = edges[edge].el
+        if (!el || !isShown(edge)) {
+            continue
+        }
+        const d = distanceFromEdge(edge, el.getBoundingClientRect(), e.clientX, e.clientY)
+        if (d > 24) {
+            clearTimeout(edges[edge].timer)
+            edges[edge].timer = window.setTimeout(() => hideEdge(edge), 300)
+        } else if (d <= 0) {
+            clearTimeout(edges[edge].timer)
+        }
     }
 })
 

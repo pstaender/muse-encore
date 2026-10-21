@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * The toolbars (MuseScore's NotationToolBar, UndoRedoToolBar, NoteInputBar with its customisation popup, and the
  * web viewer's page view toolbar) in docks. A toolbar is moved by dragging its handle (or with the arrow keys
- * on the handle) within a dock or to another dock.
+ * on the handle) within a dock or to another dock; dropped below the last row of the top area it gets a new row.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
@@ -14,8 +14,8 @@ import { qtrc, stripMnemonic, trString, useLanguage } from '../i18n'
 import type { MenuItem } from '../menus/appmenu'
 import { ZOOM_LEVELS, setFitMode, useScoreView, zoomAt, type FitMode } from '../scoreview'
 import {
-    DEFAULT_NOTE_INPUT_BAR, DOCKS, TOOLBARS, dockOf, moveToolBar, noteInputBarConfig, setNoteInputBarConfig,
-    toolBarLayout, useNoteInputBarConfig, useToolBarLayout, type DockId, type ToolConfigItem,
+    BOTTOM_DOCK, DEFAULT_NOTE_INPUT_BAR, TOOLBARS, dockOf, moveToolBar, noteInputBarConfig, rowSequence, setNoteInputBarConfig,
+    toolBarLayout, topRowCount, topRowId, useNoteInputBarConfig, useToolBarLayout, type DockId, type ToolConfigItem,
 } from './layout'
 
 const ICON = { grip: '', plus: '', cog: '', chevronDown: '', up: '', down: '', remove: '' }
@@ -418,6 +418,7 @@ function ToolBarFrame({ id }: { id: string }): React.JSX.Element {
         { kind: 'action', code: `toolbar-move-right:${id}` },
         { kind: 'action', code: `toolbar-move-up:${id}` },
         { kind: 'action', code: `toolbar-move-down:${id}` },
+        dockOf(id) === BOTTOM_DOCK ? { kind: 'action', code: `toolbar-move-top:${id}` } : { kind: 'action', code: `toolbar-move-bottom:${id}` },
         ...(info.toggleAction ? [{ kind: 'separator' } as MenuItem, { kind: 'action', code: info.toggleAction } as MenuItem] : []),
     ]
 
@@ -452,11 +453,30 @@ function moveToolBarBy(id: string, dir: -1 | 1): void {
     moveToolBar(id, dock, toolBarLayout().docks[dock].indexOf(id) + dir)
 }
 
-/** moves a toolbar to the dock above or below */
+/** the row above: the end of it; the row below: the start of it, below the last row of the top area a new row */
+function rowMoveTarget(id: string, dir: -1 | 1): { dock: DockId; index: number } | null {
+    const layout = toolBarLayout()
+    const dock = dockOf(id)
+    const rows = rowSequence(layout)
+    const i = rows.indexOf(dock)
+    if (i < 0) {
+        return null // the bottom dock: "Move to the top"
+    }
+    if (dir < 0) {
+        return i > 0 ? { dock: rows[i - 1], index: layout.docks[rows[i - 1]].length } : null
+    }
+    if (i + 1 < rows.length) {
+        return { dock: rows[i + 1], index: 0 }
+    }
+    // a new row below the last one (not for a toolbar that is alone in it)
+    return layout.docks[dock].length > 1 ? { dock: topRowId(topRowCount(layout)), index: 0 } : null
+}
+
+/** moves a toolbar to the row above or below */
 function moveToolBarDock(id: string, dir: -1 | 1): void {
-    const d = DOCKS[DOCKS.indexOf(dockOf(id)) + dir]
-    if (d) {
-        moveToolBar(id, d, dir > 0 ? 0 : toolBarLayout().docks[d].length)
+    const t = rowMoveTarget(id, dir)
+    if (t) {
+        moveToolBar(id, t.dock, t.index)
     }
 }
 
@@ -466,17 +486,27 @@ for (const { id } of TOOLBARS) {
     registerAction(`toolbar-move-left:${id}`, { run: () => moveToolBarBy(id, -1), enabled: () => pos() > 0 }, { title: [null, 'Move left'] })
     registerAction(`toolbar-move-right:${id}`, { run: () => moveToolBarBy(id, 1), enabled: () => pos() < toolBarLayout().docks[dockOf(id)].length - 1 },
         { title: [null, 'Move right'] })
-    registerAction(`toolbar-move-up:${id}`, { run: () => moveToolBarDock(id, -1), enabled: () => DOCKS.indexOf(dockOf(id)) > 0 },
+    registerAction(`toolbar-move-up:${id}`, { run: () => moveToolBarDock(id, -1), enabled: () => rowMoveTarget(id, -1) !== null },
         { title: [null, 'Move to the row above'] })
-    registerAction(`toolbar-move-down:${id}`, { run: () => moveToolBarDock(id, 1), enabled: () => DOCKS.indexOf(dockOf(id)) < DOCKS.length - 1 },
+    registerAction(`toolbar-move-down:${id}`, { run: () => moveToolBarDock(id, 1), enabled: () => rowMoveTarget(id, 1) !== null },
         { title: [null, 'Move to the row below'] })
+    // the dock above the status bar and back (to the end of the last row of the top area)
+    registerAction(`toolbar-move-bottom:${id}`, { run: () => moveToolBar(id, BOTTOM_DOCK, toolBarLayout().docks[BOTTOM_DOCK].length) },
+        { title: [null, 'Move to the bottom'] })
+    registerAction(`toolbar-move-top:${id}`, {
+        run: () => {
+            const n = topRowCount()
+            const last = topRowId(Math.max(0, n - 1))
+            moveToolBar(id, last, toolBarLayout().docks[last]?.length ?? 0)
+        },
+    }, { title: [null, 'Move to the top'] })
 }
 
 /** a dock: its toolbars in their order; while a toolbar is dragged, the place where it would go is marked */
 export function ToolBarDock({ dock, className = '' }: { dock: DockId; className?: string }): React.JSX.Element | null {
     const layout = useToolBarLayout()
     const d = useDrag()
-    const ids = layout.docks[dock].filter(id => !layout.hidden.includes(id))
+    const ids = (layout.docks[dock] ?? []).filter(id => !layout.hidden.includes(id))
     if (!ids.length && !d) {
         return null
     }
@@ -497,6 +527,15 @@ export function ToolBarDock({ dock, className = '' }: { dock: DockId; className?
             {items}
         </div>
     )
+}
+
+/** the rows of the top area; while a toolbar is dragged, an empty row below them takes it as a new row */
+export function ToolBarRows(): React.JSX.Element {
+    const layout = useToolBarLayout()
+    const d = useDrag()
+    const n = topRowCount(layout)
+    const rows = Array.from({ length: n + (d ? 1 : 0) }, (_, i) => topRowId(i))
+    return <>{rows.map(r => <ToolBarDock key={r} dock={r} className="dock-top" />)}</>
 }
 
 /** the hidden toolbars can be shown again (View > Toolbars) */

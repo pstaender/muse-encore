@@ -21,7 +21,7 @@ import { resetPalettesState } from './panels/palettes/palettestate'
 import { setChrome, useScoreView, viewport, viewShown } from './scoreview'
 import { answerDialog, closeScore, openStored, saveChangesTitle, setView, showDialog, useSession } from './session'
 import { resetSettings } from './settings'
-import { ToolBarDock, toolbarMenuItems } from './toolbars/ToolBars'
+import { ToolBarDock, ToolBarRows, toolbarMenuItems } from './toolbars/ToolBars'
 import { restoreDefaultLayout, useToolBarLayout } from './toolbars/layout'
 
 const MAX_RECENT_IN_MENU = 20
@@ -105,6 +105,8 @@ export function App(): React.JSX.Element {
     const layout = useToolBarLayout()
     const scores = useScores()
     const chromeRef = useRef<HTMLDivElement>(null)
+    const bottomRef = useRef<HTMLDivElement>(null)
+    const sideRef = useRef<HTMLDivElement>(null)
     const viewportHost = useRef<HTMLDivElement>(null)
 
     // the score view (plain DOM, scoreview.ts) lives in this frame
@@ -112,6 +114,12 @@ export function App(): React.JSX.Element {
         viewportHost.current?.appendChild(viewport)
         if (chromeRef.current) {
             setChrome(chromeRef.current)
+        }
+        if (bottomRef.current) {
+            setChrome(bottomRef.current, 'bottom')
+        }
+        if (sideRef.current) {
+            setChrome(sideRef.current, 'side')
         }
     }, [])
 
@@ -151,18 +159,20 @@ export function App(): React.JSX.Element {
                     </nav>
                     {score && <ToolBarDock dock="main" />}
                 </div>
-                {score && <ToolBarDock dock="top" />}
+                {score && <ToolBarRows />}
             </div>
             {session.view === 'home' && <ScoresPage />}
             <div className="notation-row" hidden={!score}>
-                {score && <PanelDock />}
+                <div ref={sideRef} className="side-chrome">{score && <PanelDock />}</div>
                 <div className="score-area">
                     <NotationTab />
                     <div ref={viewportHost} className="viewport-host" />
                 </div>
             </div>
-            {score && <ToolBarDock dock="bottom" />}
-            {score && layout.statusBar && <StatusBar />}
+            <div ref={bottomRef} className="bottom-chrome">
+                {score && <ToolBarDock dock="bottom" />}
+                {score && layout.statusBar && <StatusBar />}
+            </div>
 
             {session.newScoreDialog && <NewScoreDialog />}
             {session.dialog === 'preferences' && <PreferencesDialog onClose={() => showDialog(null)} />}

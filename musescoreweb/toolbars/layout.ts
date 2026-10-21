@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * The toolbars and where they are: three docks (the row of the Home/Score tabs, a row below it, a row above the
- * status bar), the order in each dock and which toolbars are hidden (MuseScore's dock layout of the notation page:
+ * The toolbars and where they are: docks (the row of the Home/Score tabs, any number of rows below it, a row above
+ * the status bar), the order in each dock and which toolbars are hidden (MuseScore's dock layout of the notation page:
  * the notation and undo/redo toolbars next to the tabs, the note input toolbar below). Kept in the settings.
  */
 import { useSyncExternalStore } from 'react'
@@ -9,8 +9,28 @@ import type { TrString } from '../actions/uiactiondata'
 import { restoreDefaultPanels } from '../panels/panels'
 import { settings, updateSettings } from '../settings'
 
-export type DockId = 'main' | 'top' | 'bottom'
-export const DOCKS: readonly DockId[] = ['main', 'top', 'bottom']
+/**
+ * a dock: 'main' (the row of the Home/Score tabs), the rows below it ('top', 'top1', 'top2', ...: each toolbar row of
+ * the top area is a dock of its own) and 'bottom' (the row above the status bar)
+ */
+export type DockId = string
+
+export const MAIN_DOCK = 'main'
+export const BOTTOM_DOCK = 'bottom'
+
+/** the id of the n-th row of the top area */
+export function topRowId(n: number): DockId {
+    return n === 0 ? 'top' : `top${n}`
+}
+
+function topRowIndex(dock: DockId): number {
+    const m = /^top(\d*)$/.exec(dock)
+    return m ? (m[1] ? Number(m[1]) : 0) : -1
+}
+
+export function isTopRow(dock: DockId): boolean {
+    return topRowIndex(dock) >= 0
+}
 
 export interface ToolBarInfo {
     id: string
@@ -34,33 +54,47 @@ const DEFAULT_DOCKS: Record<DockId, string[]> = {
 }
 
 export interface ToolBarLayout {
+    /** 'main', 'bottom' and the non-empty top rows ('top', 'top1', ... without gaps) */
     docks: Record<DockId, string[]>
     hidden: string[]
     statusBar: boolean
 }
 
+/** the docks with the top rows renumbered without empty rows */
+function compact(docks: Record<DockId, string[]>): Record<DockId, string[]> {
+    const rows = Object.keys(docks).filter(isTopRow).sort((a, b) => topRowIndex(a) - topRowIndex(b))
+        .map(d => docks[d]).filter(r => r.length)
+    const out: Record<DockId, string[]> = { [MAIN_DOCK]: docks[MAIN_DOCK] ?? [], [BOTTOM_DOCK]: docks[BOTTOM_DOCK] ?? [] }
+    rows.forEach((r, i) => { out[topRowId(i)] = r })
+    return out
+}
+
 /** the layout of the settings, with unknown toolbars removed and missing ones in their default dock */
 function sanitize(): ToolBarLayout {
     const s = settings().layout
-    const docks: Record<DockId, string[]> = { main: [], top: [], bottom: [] }
+    const docks: Record<DockId, string[]> = {}
     const known = new Set(TOOLBARS.map(t => t.id))
     const placed = new Set<string>()
-    for (const d of DOCKS) {
-        for (const id of s.docks[d] ?? []) {
+    for (const [d, ids] of Object.entries(s.docks)) {
+        if (d !== MAIN_DOCK && d !== BOTTOM_DOCK && !isTopRow(d)) {
+            continue
+        }
+        docks[d] = []
+        for (const id of ids) {
             if (known.has(id) && !placed.has(id)) {
                 docks[d].push(id)
                 placed.add(id)
             }
         }
     }
-    for (const d of DOCKS) {
-        for (const id of DEFAULT_DOCKS[d]) {
+    for (const [d, ids] of Object.entries(DEFAULT_DOCKS)) {
+        for (const id of ids) {
             if (!placed.has(id)) {
-                docks[d].push(id)
+                (docks[d] ??= []).push(id)
             }
         }
     }
-    return { docks, hidden: s.hidden.filter(id => known.has(id)), statusBar: s.statusBar }
+    return { docks: compact(docks), hidden: s.hidden.filter(id => known.has(id)), statusBar: s.statusBar }
 }
 
 let current = sanitize()
@@ -93,15 +127,29 @@ export function useToolBarLayout(): ToolBarLayout {
     )
 }
 
-export function dockOf(id: string): DockId {
-    return DOCKS.find(d => current.docks[d].includes(id)) ?? 'top'
+/** the number of rows of the top area */
+export function topRowCount(layout: ToolBarLayout = current): number {
+    return Object.keys(layout.docks).filter(isTopRow).length
 }
 
-/** moves a toolbar to `index` in `dock` (the index counts the toolbars of the dock without the moved one) */
+/** the rows from the top: the tabs row and the rows of the top area (the bottom dock is not part of it) */
+export function rowSequence(layout: ToolBarLayout = current): DockId[] {
+    return [MAIN_DOCK, ...Array.from({ length: topRowCount(layout) }, (_, i) => topRowId(i))]
+}
+
+export function dockOf(id: string): DockId {
+    return Object.keys(current.docks).find(d => current.docks[d].includes(id)) ?? topRowId(0)
+}
+
+/**
+ * moves a toolbar to `index` in `dock` (the index counts the toolbars of the dock without the moved one); a top row
+ * id after the last row makes a new row
+ */
 export function moveToolBar(id: string, dock: DockId, index: number): void {
-    const docks = Object.fromEntries(DOCKS.map(d => [d, current.docks[d].filter(x => x !== id)])) as Record<DockId, string[]>
-    docks[dock].splice(Math.max(0, Math.min(index, docks[dock].length)), 0, id)
-    save({ ...current, docks })
+    const docks = Object.fromEntries(Object.entries(current.docks).map(([d, ids]) => [d, ids.filter(x => x !== id)]))
+    const target = (docks[dock] ??= [])
+    target.splice(Math.max(0, Math.min(index, target.length)), 0, id)
+    save({ ...current, docks: compact(docks) })
 }
 
 export function isToolBarVisible(id: string): boolean {
@@ -122,7 +170,7 @@ export function setStatusBarVisible(visible: boolean): void {
 
 /** "dock-restore-default-layout" */
 export function restoreDefaultLayout(): void {
-    save({ docks: structuredClone(DEFAULT_DOCKS), hidden: [], statusBar: true })
+    save({ docks: compact(structuredClone(DEFAULT_DOCKS)), hidden: [], statusBar: true })
     updateSettings('noteInputBar', null)
     restoreDefaultPanels()
 }

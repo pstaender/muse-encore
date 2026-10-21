@@ -263,6 +263,35 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
         await page.mouse.move(640, 400)
         await page.waitForTimeout(700)
         expect(await shown()).toBe(false)
+        if (editor) {
+            // the bottom toolbar dock with the status bar and the panels: the same at the bottom and left edge
+            const has = (c: string): Promise<boolean> => page.evaluate(c => document.body.classList.contains(c), c)
+            const hidden = (sel: string): Promise<boolean> => page.evaluate(s => {
+                const r = document.querySelector(s)!.getBoundingClientRect()
+                return r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth
+            }, sel)
+            expect(await has('bottom-shown')).toBe(false)
+            expect(await hidden('.statusbar')).toBe(true)
+            expect(await has('panels-shown')).toBe(false)
+            expect(await hidden('.panel-dock')).toBe(true)
+            await page.mouse.move(640, 797)
+            await page.waitForTimeout(400)
+            expect(await has('bottom-shown')).toBe(true)
+            expect(await hidden('.statusbar')).toBe(false)
+            await page.mouse.move(640, 400)
+            await page.waitForTimeout(700)
+            expect(await has('bottom-shown')).toBe(false)
+            await page.mouse.move(2, 400)
+            await page.waitForTimeout(400)
+            expect(await has('panels-shown')).toBe(true)
+            expect(await hidden('.panel-dock')).toBe(false)
+            await page.mouse.move(150, 400) // on the panels: stays
+            await page.waitForTimeout(700)
+            expect(await has('panels-shown')).toBe(true)
+            await page.mouse.move(900, 400)
+            await page.waitForTimeout(700)
+            expect(await has('panels-shown')).toBe(false)
+        }
         await page.keyboard.press(fullscreenKey)
         await page.waitForTimeout(300)
         expect(await page.evaluate(() => document.body.classList.contains('fullscreen'))).toBe(false)

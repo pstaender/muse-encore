@@ -183,6 +183,31 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.mouse.up()
         expect((await docks()).top).toEqual(['viewToolBar', 'noteInputBar'])
 
+        // the handle's menu: a new row below the last one, back, to the bottom dock and back
+        const moveBy = async (title: string, expected: Record<string, string[]>): Promise<void> => {
+            await page.click('[data-toolbar="viewToolBar"] .toolbar-grip')
+            await page.click(`.menu-popup .menu-item:has-text("${title}")`)
+            await page.waitForFunction(e => JSON.stringify(Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-dock]')]
+                .map(d => [d.dataset.dock!, [...d.querySelectorAll<HTMLElement>('[data-toolbar]')].map(t => t.dataset.toolbar!)]))) === e,
+            JSON.stringify(expected))
+        }
+        const main = ['notationToolBar', 'undoRedoToolBar']
+        await moveBy('Move to the row below', { main, top: ['noteInputBar'], top1: ['viewToolBar'] })
+        expect(await page.isVisible('[data-toolbar="viewToolBar"]')).toBe(true)
+        await moveBy('Move to the row above', { main, top: ['noteInputBar', 'viewToolBar'] })
+        await moveBy('Move to the bottom', { main, top: ['noteInputBar'], bottom: ['viewToolBar'] })
+        await moveBy('Move to the top', { main, top: ['noteInputBar', 'viewToolBar'] })
+
+        // dragged below the last row: a new row
+        const lastRow = await page.locator('[data-dock="top"]').boundingBox()
+        const g2 = await grip.boundingBox()
+        await page.mouse.move(g2!.x + 5, g2!.y + 10)
+        await page.mouse.down()
+        await page.mouse.move(g2!.x + 20, lastRow!.y + lastRow!.height + 20, { steps: 8 })
+        await page.mouse.up()
+        expect(await docks()).toEqual({ main, top: ['noteInputBar'], top1: ['viewToolBar'] })
+        await moveBy('Move to the row above', { main, top: ['noteInputBar', 'viewToolBar'] })
+
         // hide the note input toolbar (View > Toolbars) and remove a button from it
         await page.click('[data-toolbar="noteInputBar"] button[aria-label="Customize toolbar"]')
         await page.click('.customise-list li[data-action="pad-note-4"] input[type="checkbox"]')

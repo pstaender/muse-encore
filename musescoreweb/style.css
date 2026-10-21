@@ -353,35 +353,41 @@ body.dragover .home::after {
 .muted { color: var(--muted); }
 
 
-/* ---- full screen: the menu bar and toolbars are collapsed and slide in at the top edge ---- */
+/* ---- full screen: the menu bar and toolbars (top), the bottom toolbar dock and status bar (bottom) and the panels
+   (left, right to left: right) are collapsed and slide in at their edge ---- */
 
-#toolbar-trigger { display: none; }
+.side-chrome { display: flex; flex-shrink: 0; min-height: 0; }
+.bottom-chrome { flex-shrink: 0; }
 
-body.fullscreen #toolbar-trigger {
-    display: block;
+.edge-trigger { display: none; }
+
+body.fullscreen .edge-trigger { display: block; position: fixed; z-index: 4; }
+body.fullscreen #toolbar-trigger { top: 0; left: 0; right: 0; height: 8px; }
+body.fullscreen #bottom-trigger { bottom: 0; left: 0; right: 0; height: 8px; }
+body.fullscreen #side-trigger { top: 0; bottom: 0; inset-inline-start: 0; width: 8px; }
+
+body.fullscreen .chrome,
+body.fullscreen .bottom-chrome,
+body.fullscreen .side-chrome {
     position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 8px;
-    z-index: 4;
-}
-
-body.fullscreen .chrome {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
     z-index: 5;
     box-shadow: 0 2px 12px rgba(0, 0, 0, .15);
-    transform: translateY(-100%);
     transition: transform .2s ease;
 }
 
-body.fullscreen.toolbar-shown .chrome { transform: none; }
+body.fullscreen .chrome { top: 0; left: 0; right: 0; transform: translateY(-100%); }
+body.fullscreen .bottom-chrome { bottom: 0; left: 0; right: 0; transform: translateY(100%); }
+/* below the top and bottom bars when they are shown too */
+body.fullscreen .side-chrome { top: 0; bottom: 0; inset-inline-start: 0; z-index: 4; background: var(--panel); transform: translateX(-100%); }
+[dir="rtl"] body.fullscreen .side-chrome { transform: translateX(100%); }
+body.fullscreen .bottom-chrome:empty, body.fullscreen .side-chrome:empty { box-shadow: none; }
+
+body.fullscreen.toolbar-shown .chrome,
+body.fullscreen.bottom-shown .bottom-chrome,
+body.fullscreen.panels-shown .side-chrome { transform: none; }
 
 @media (prefers-reduced-motion: reduce) {
-    body.fullscreen .chrome { transition: none; }
+    body.fullscreen .chrome, body.fullscreen .bottom-chrome, body.fullscreen .side-chrome { transition: none; }
 }
 
 /* ---- busy overlay ---- */
