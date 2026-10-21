@@ -5,14 +5,15 @@
  *
  * Port of src/engraving/dom/stafftextbase.h/.cpp, stafftext.h/.cpp and systemtext.h/.cpp
  *
- * TODO(port): sound flags, playback related properties (midi actions, aeolus stops, swing, capo) are read but unused
+ * TODO(port): playback related properties (midi actions, aeolus stops, swing, capo) are read but unused
  */
 
 import type { PropertyValue } from '../types/propertyvalue'
 import { Constants } from '../types/constants'
 import { ElementType, TextStyleType, VOICES } from '../types/types'
 import { Sid } from '../style/styledef'
-import { ElementFlag } from './engravingitem'
+import { ElementFlag, type EngravingItem } from './engravingitem'
+import type { SoundFlag } from './soundflag'
 import type { ElementStyle, EngravingObject } from './engravingobject'
 import { Pid } from './property'
 import type { Segment } from './segment'
@@ -73,11 +74,105 @@ const STAFF_STYLE: ElementStyle = [
     { sid: Sid.staffTextMinDistance, pid: Pid.MIN_DISTANCE },
 ]
 
+/** C++ undo command Link (editing/addremoveelement.ts sets it: the DOM cannot create undo commands) */
+export const staffTextHooks: {
+    undoLink: ((e1: EngravingItem, e2: EngravingItem) => void) | null
+} = { undoLink: null }
+
 export class StaffText extends StaffTextBase {
+    private m_soundFlag: SoundFlag | null = null
+
     constructor(parent: EngravingObject | null, tid: TextStyleType = TextStyleType.STAFF) {
         super(ElementType.STAFF_TEXT, parent, tid, ElementFlag.MOVABLE | ElementFlag.ON_STAFF)
         this.initElementStyle(STAFF_STYLE)
         this.resetProperty(Pid.MUSIC_SYMBOL_SIZE)
+    }
+
+    /** C++ copy constructor */
+    protected override onCloned(original: this): void {
+        super.onCloned(original)
+        this.m_soundFlag = null
+        if (original.m_soundFlag) {
+            this.setSoundFlag(original.m_soundFlag.clone() as SoundFlag)
+        }
+    }
+
+    override linkedClone(): EngravingItem {
+        const clone = super.linkedClone() as StaffText
+
+        if (clone.m_soundFlag && this.m_soundFlag) {
+            staffTextHooks.undoLink?.(clone.m_soundFlag, this.m_soundFlag)
+        }
+
+        return clone
+    }
+
+    override scanElements(func: (item: EngravingItem) => void): void {
+        if (this.m_soundFlag) {
+            this.m_soundFlag.scanElements(func)
+        }
+
+        super.scanElements(func)
+    }
+
+    override add(e: EngravingItem): void {
+        e.setParent(this)
+        e.setTrack(this.track())
+
+        switch (e.type()) {
+        case ElementType.SOUND_FLAG:
+            this.setSoundFlag(e as SoundFlag)
+            e.added()
+            return
+        default:
+            break
+        }
+
+        super.add(e)
+    }
+
+    override remove(e: EngravingItem): void {
+        switch (e.type()) {
+        case ElementType.SOUND_FLAG: {
+            if (this.soundFlag() === e) {
+                this.setSoundFlag(null)
+                e.removed()
+                return
+            }
+            // else C++ LOGD("StaffText::remove: %s %p there is already another sound flag")
+            break
+        }
+        default:
+            break
+        }
+
+        super.remove(e)
+    }
+
+    override setTrack(idx: number): void {
+        super.setTrack(idx)
+
+        if (this.m_soundFlag) {
+            this.m_soundFlag.setTrack(idx)
+        }
+    }
+
+    hasSoundFlag(): boolean { return this.m_soundFlag !== null }
+    soundFlag(): SoundFlag | null { return this.m_soundFlag }
+
+    setSoundFlag(flag: SoundFlag | null): void {
+        if (this.m_soundFlag === flag) {
+            return
+        }
+
+        this.m_soundFlag = flag
+
+        if (this.m_soundFlag) {
+            this.m_soundFlag.setParent(this)
+            this.m_soundFlag.setTrack(this.track())
+        }
+
+        this.triggerLayout()
     }
 
     override propertyDefault(id: Pid): PropertyValue {

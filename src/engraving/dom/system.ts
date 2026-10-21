@@ -6,6 +6,7 @@
  * Port of src/engraving/dom/system.h/.cpp
  */
 
+import { SystemDividerType, type SystemDivider } from './systemdivider'
 import { RectF } from '../../framework/draw/types/geometry'
 import { Fraction } from '../types/fraction'
 import { BracketType, ElementType, nidx, type staff_idx_t, type track_idx_t } from '../types/types'
@@ -70,8 +71,8 @@ export class SysStaff {
 }
 
 export class System extends EngravingItem {
-    private m_systemDividerLeft: EngravingItem | null = null // to the next system
-    private m_systemDividerRight: EngravingItem | null = null
+    private m_systemDividerLeft: SystemDivider | null = null // to the next system
+    private m_systemDividerRight: SystemDivider | null = null
     private m_ml: MeasureBase[] = []
     private m_staves: SysStaff[] = []
     private m_brackets: Bracket[] = []
@@ -244,8 +245,8 @@ export class System extends EngravingItem {
 
     brackets(): Bracket[] { return this.m_brackets }
     spannerSegments(): SpannerSegment[] { return this.m_spannerSegments }
-    systemDividerLeft(): EngravingItem | null { return this.m_systemDividerLeft }
-    systemDividerRight(): EngravingItem | null { return this.m_systemDividerRight }
+    systemDividerLeft(): SystemDivider | null { return this.m_systemDividerLeft }
+    systemDividerRight(): SystemDivider | null { return this.m_systemDividerRight }
 
     override add(el: EngravingItem): void {
         if (!el) {
@@ -262,10 +263,15 @@ export class System extends EngravingItem {
         case ElementType.BRACKET:
             this.m_brackets.push(el as Bracket)
             break
-        case ElementType.SYSTEM_DIVIDER:
-            // TODO(port): left/right system dividers
-            this.m_systemDividerLeft = el
+        case ElementType.SYSTEM_DIVIDER: {
+            const sd = el as unknown as SystemDivider
+            if (sd.dividerType() === SystemDividerType.LEFT) {
+                this.m_systemDividerLeft = sd
+            } else {
+                this.m_systemDividerRight = sd
+            }
             break
+        }
         default:
             if (el.isSpannerSegment()) {
                 const ss = el as unknown as SpannerSegment
@@ -300,6 +306,7 @@ export class System extends EngravingItem {
             if (el === this.m_systemDividerLeft) {
                 this.m_systemDividerLeft = null
             } else {
+                // C++ assert(m_systemDividerRight == el)
                 this.m_systemDividerRight = null
             }
             break

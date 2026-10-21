@@ -8,6 +8,8 @@
  * TODO(port): elements of types not ported yet are skipped (dynamics, texts, harmony, fermatas, breaths, ...)
  */
 
+import { scoreDummy } from '../../compat/dummyelement'
+import { SystemDivider } from '../../dom/systemdivider'
 import { Fraction } from '../../types/fraction'
 import { Spatium } from '../../types/dimension'
 import { AutoOnOff, BarLineType, DurationType, ElementType, PlacementV, VOICES, ClefToBarlinePosition, trackZeroVoice } from '../../types/types'
@@ -140,7 +142,13 @@ export class MeasureRead {
             } else if (tag === 'measureRepeatCount') {
                 measure.setMeasureRepeatCount(e.readInt(), staffIdx)
             } else if (tag === 'SystemDivider') {
-                e.skipCurrentElement() // TODO(port): system dividers
+                const sd = new SystemDivider(scoreDummy(ctx.score()).system())
+                TRead.readSystemDivider(sd, e, ctx)
+                //! TODO Looks like a bug.
+                //! The SystemDivider parent must be System
+                //! there is a method: `System* system() const { return (System*)parent(); }`,
+                //! but when we add it to Measure, the parent will be rewritten.
+                measure.add(sd)
             } else if (tag === 'multiMeasureRest') {
                 measure.setMMRestCount(e.readInt())
                 // set tick to previous measure

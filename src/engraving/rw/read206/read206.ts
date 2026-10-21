@@ -9,9 +9,10 @@
  * readers, which contain the read400/read410 compat code).
  * TODO(port): excerpts (<Score> recursion), Audio, old Bend, note events,
  * MIDI data of instrument channels,
- * SystemDivider, tempo map, MIDI mapping, <ticklen> (< 1.12, needs the compat time sig map)
+ * tempo map, MIDI mapping, <ticklen> (< 1.12, needs the compat time sig map)
  */
 
+import { SystemDivider } from '../../dom/systemdivider'
 import { Image } from '../../dom/image'
 import { Fraction } from '../../types/fraction'
 import { Spatium } from '../../types/dimension'
@@ -2916,7 +2917,9 @@ function readMeasure206(m: Measure, staffIdx: number, e: XmlReader, ctx: ReadCon
             noText.setParent(m)
             m.setMeasureNumber(noText.staffIdx(), noText)
         } else if (tag === 'SystemDivider') {
-            e.skipCurrentElement() // TODO(port): system dividers
+            const sd = new SystemDivider(scoreDummy(ctx.score()).system())
+            TRead.readSystemDivider(sd, e, ctx)
+            m.add(sd)
         } else if (tag === 'Ambitus') {
             segment = m.getSegment(SegmentType.Ambitus, ctx.tick())
             const range = Factory.createItem(ElementType.AMBITUS, segment) as Ambitus

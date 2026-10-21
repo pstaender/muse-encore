@@ -6,6 +6,7 @@
  * Port of src/engraving/editing/addremoveelement.h/.cpp
  */
 
+import { staffTextHooks } from '../dom/stafftextbase'
 import { Fraction } from '../types/fraction'
 import { VOICES, type staff_idx_t } from '../types/types'
 import { EngravingObject } from '../dom/engravingobject'
@@ -447,6 +448,10 @@ EngravingObject.prototype.undoUnlink = function (this: EngravingObject): void {
     if (this.links()) {
         this.score().undo(new Unlink(this))
     }
+}
+
+staffTextHooks.undoLink = (e1: EngravingItem, e2: EngravingItem): void => {
+    e1.score().undo(new Link(e1, e2))
 }
 
 /** link e1 to e2 */

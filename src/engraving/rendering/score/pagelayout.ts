@@ -5,10 +5,11 @@
  *
  * Port of src/engraving/rendering/score/pagelayout.h/.cpp
  *
- * TODO(port): system dividers, fingerings on cross-staff beams,
+ * TODO(port): fingerings on cross-staff beams,
  * system lock / staff visibility indicators
  */
 
+import { SystemDivider, SystemDividerType } from '../../dom/systemdivider'
 import { PointF } from '../../../framework/draw/types/geometry'
 import { RealIsNull } from '../../../framework/global/realfn'
 import { Fraction } from '../../types/fraction'
@@ -379,7 +380,116 @@ export class PageLayout {
 
         MaskLayout.computeMasks(ctx, page)
 
-        // TODO(port): layoutSystemDividers
+        PageLayout.layoutSystemDividers(ctx, page)
+    }
+
+    static layoutSystemDividers(ctx: LayoutContext, page: Page): void {
+        const systems = page.systems()
+        for (let i = 0; i < systems.length; ++i) {
+            const system = systems[i]
+            if (system.vbox()) {
+                continue
+            }
+
+            const nextSystem = i + 1 < systems.length ? systems[i + 1] : null
+
+            const needsDivider = !!nextSystem && !nextSystem.vbox()
+            const needsLeftDivider = needsDivider && ctx.conf().styleB(Sid.dividerLeft)
+            const needsRightDivider = needsDivider && ctx.conf().styleB(Sid.dividerRight)
+
+            PageLayout.updateSystemDivider(ctx, system, nextSystem, SystemDividerType.LEFT, needsLeftDivider)
+            PageLayout.updateSystemDivider(ctx, system, nextSystem, SystemDividerType.RIGHT, needsRightDivider)
+        }
+    }
+
+    static updateSystemDivider(ctx: LayoutContext, system: System, nextSystem: System | null, type: SystemDividerType,
+                               needsDivider: boolean): void {
+        const left = type === SystemDividerType.LEFT
+        let divider = left ? system.systemDividerLeft() : system.systemDividerRight()
+        if (divider) {
+            system.remove(divider)
+        }
+
+        if (!needsDivider) {
+            return
+        }
+
+        // C++ DO_ASSERT(system && nextSystem)
+
+        const score = system.score()
+        const systemIdx = score.systems().indexOf(system)
+        if (systemIdx < 0) {
+            return // C++ IF_ASSERT_FAILED
+        }
+
+        divider = score.systemDivider(systemIdx, type)
+        if (!divider) {
+            divider = new SystemDivider(system)
+            divider.setDividerType(type)
+            divider.setGenerated(true)
+            score.addSystemDivider(systemIdx, divider)
+        }
+
+        system.add(divider)
+
+        const ldata = divider.mutldata()
+        TLayout.layoutSystemDivider(divider, ctx)
+
+        const spatium = system.spatium()
+        const systemBBox = system.ldata().bbox()
+        let xDefault = 0.0
+        if (left) {
+            const firstM = system.firstMeasure()
+            if (firstM && ctx.conf().styleB(Sid.dividerLeftAlignToSystemBarline)) {
+                // Align to the outermost left system barline
+                let leftMostSystem = firstM.x()
+                for (const sys of system.page()!.systems()) {
+                    if (sys.vbox()) {
+                        continue
+                    }
+                    const fm = sys.firstMeasure()
+                    if (fm) {
+                        leftMostSystem = Math.min(leftMostSystem, fm.x())
+                    }
+                }
+                xDefault = leftMostSystem - 0.5 * ldata.bbox().width()
+            } else {
+                xDefault = 0.0
+            }
+        } else {
+            const lastM = system.lastMeasure()
+            if (lastM && ctx.conf().styleB(Sid.dividerRightAlignToSystemBarline)) {
+                // Align to the outermost right system barline
+                let rightMostSystem = lastM.x() + lastM.width()
+                for (const sys of system.page()!.systems()) {
+                    if (sys.vbox()) {
+                        continue
+                    }
+                    const lm = sys.lastMeasure()
+                    if (lm) {
+                        rightMostSystem = Math.max(rightMostSystem, lm.x() + lm.width())
+                    }
+                }
+                xDefault = rightMostSystem - 0.5 * ldata.bbox().width()
+            } else {
+                xDefault = systemBBox.right() - ldata.bbox().width()
+            }
+        }
+        const xPos = xDefault + (left ? ctx.conf().styleS(Sid.dividerLeftX) : ctx.conf().styleS(Sid.dividerRightX)).val() * spatium
+
+        const yInnerPos = -ldata.bbox().top() - 0.5 * ldata.bbox().height()
+                          + (left ? ctx.conf().styleS(Sid.dividerLeftY) : ctx.conf().styleS(Sid.dividerRightY)).val() * spatium
+
+        const lastVisibleOfThis = system.staff(system.lastVisibleStaff())!
+        const bottomOfThisSystem = lastVisibleOfThis.bbox().bottom()
+
+        const firstVisibleOfNext = system.staff(system.firstVisibleStaff())!
+        const yNextSystem = nextSystem!.pagePos().y() - system.pagePos().y()
+        const topOfNextSystem = yNextSystem + firstVisibleOfNext.bbox().top()
+
+        const yMid = 0.5 * (bottomOfThisSystem + topOfNextSystem)
+
+        ldata.setPos(xPos, yInnerPos + yMid)
     }
 
     static layoutCrossStaffElements(ctx: LayoutContext, page: Page): void {

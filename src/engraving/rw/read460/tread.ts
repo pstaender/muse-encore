@@ -96,6 +96,8 @@ import type { FiguredBass, FiguredBassItem } from '../../dom/figuredbass'
 import { Image } from '../../dom/image'
 import { ChordBracket } from '../../dom/chordbracket'
 import { Tapping, TappingHalfSlur } from '../../dom/tapping'
+import { SoundFlag } from '../../dom/soundflag'
+import { SystemDivider, SystemDividerType } from '../../dom/systemdivider'
 import type { Capo } from '../../dom/capo'
 import type { StringTunings } from '../../dom/stringtunings'
 import type { HarpPedalDiagram, HarpStringType, PedalPosition } from '../../dom/harppedaldiagram'
@@ -326,6 +328,8 @@ export class TRead {
         case ElementType.IMAGE: TRead.readImage(item as Image, xml, ctx); break
         case ElementType.CHORD_BRACKET: TRead.readChordBracket(item as ChordBracket, xml, ctx); break
         case ElementType.TAPPING: TRead.readTapping(item as Tapping, xml, ctx); break
+        case ElementType.SOUND_FLAG: TRead.readSoundFlag(item as SoundFlag, xml, ctx); break
+        case ElementType.SYSTEM_DIVIDER: TRead.readSystemDivider(item as SystemDivider, xml, ctx); break
         default:
             // TODO(port): element type not ported yet
             xml.skipCurrentElement()
@@ -687,9 +691,28 @@ export class TRead {
         while (xml.readNextStartElement()) {
             const tag = xml.name()
             if (tag === 'SoundFlag') {
-                // TODO(port): sound flags
-                xml.skipCurrentElement()
+                const flag = new SoundFlag(t)
+                TRead.readSoundFlag(flag, xml, ctx)
+                t.setSoundFlag(flag)
             } else if (!TRead.readStaffTextBaseProperties(t, xml, ctx)) {
+                xml.unknown()
+            }
+        }
+    }
+
+    static readSoundFlag(item: SoundFlag, xml: XmlReader, _ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+
+            if (tag === 'play') {
+                item.setPlay(xml.readBool())
+            } else if (tag === 'presets') {
+                item.setSoundPresets(xml.readText().split(','))
+            } else if (tag === 'playingTechnique') {
+                item.setPlayingTechnique(xml.readText())
+            } else if (tag === 'applyToAllStaves') {
+                item.setApplyToAllStaves(xml.readBool())
+            } else {
                 xml.unknown()
             }
         }
@@ -3022,6 +3045,31 @@ export class TRead {
         }
 
         CompatUtils.convertPre470ImageSize(img)
+    }
+
+    static readSystemDivider(d: SystemDivider, e: XmlReader, ctx: ReadContext): void {
+        const type = e.attribute('type') === 'left' ? SystemDividerType.LEFT : SystemDividerType.RIGHT
+        d.setDividerType(type)
+        TRead.readSymbol(d, e, ctx)
+    }
+
+    static readSystemDividers(score: Score, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            if (e.name() === 'system') {
+                const systemIdx = e.intAttribute('idx')
+                while (e.readNextStartElement()) {
+                    if (e.name() === 'SystemDivider') {
+                        const divider = new SystemDivider(scoreDummy(score).system())
+                        TRead.readSystemDivider(divider, e, ctx)
+                        score.addSystemDivider(systemIdx, divider)
+                    } else {
+                        e.unknown()
+                    }
+                }
+            } else {
+                e.unknown()
+            }
+        }
     }
 
     static readSymbol(sym: Symbol, e: XmlReader, ctx: ReadContext): void {

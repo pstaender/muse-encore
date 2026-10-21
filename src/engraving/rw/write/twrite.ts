@@ -73,6 +73,9 @@ import type { PlayTechAnnotation } from '../../dom/playtechannotation'
 import type { Image } from '../../dom/image'
 import type { ChordBracket } from '../../dom/chordbracket'
 import type { Tapping, TappingHalfSlur } from '../../dom/tapping'
+import type { SoundFlag } from '../../dom/soundflag'
+import { SystemDividerType, type SystemDivider } from '../../dom/systemdivider'
+import type { System } from '../../dom/system'
 import { FBIDigitNone, FiguredBassContLine, FiguredBassModifier, type FiguredBass, type FiguredBassItem } from '../../dom/figuredbass'
 import type { Capo } from '../../dom/capo'
 import type { StringTunings } from '../../dom/stringtunings'
@@ -238,6 +241,8 @@ export class TWrite {
         case ElementType.IMAGE: TWrite.writeImage(item as Image, xml, ctx); break
         case ElementType.CHORD_BRACKET: TWrite.writeChordBracket(item as ChordBracket, xml, ctx); break
         case ElementType.TAPPING: TWrite.writeTapping(item as Tapping, xml, ctx); break
+        case ElementType.SOUND_FLAG: TWrite.writeSoundFlag(item as SoundFlag, xml, ctx); break
+        case ElementType.SYSTEM_DIVIDER: TWrite.writeSystemDivider(item as SystemDivider, xml, ctx); break
         default:
             // TODO(port): element type not ported yet (C++: UNREACHABLE)
             break
@@ -322,8 +327,45 @@ export class TWrite {
         xml.endElement()
     }
 
-    static writeSystemDividers(_score: Score, _xml: XmlWriter, _ctx: WriteContext): void {
-        // TODO(port): system dividers (SystemDivider is not ported; the reader skips <SystemDividers>)
+    static writeSystemDividers(score: Score, xml: XmlWriter, ctx: WriteContext): void {
+        const systemsToWrite: System[] = []
+        for (const system of score.systems()) {
+            const writeSystem = (system.systemDividerLeft() && !system.systemDividerLeft()!.generated())
+                                || (system.systemDividerRight() && !system.systemDividerRight()!.generated())
+            if (writeSystem) {
+                systemsToWrite.push(system)
+            }
+        }
+
+        if (!systemsToWrite.length) {
+            return
+        }
+
+        xml.startElement('SystemDividers')
+        for (const system of systemsToWrite) {
+            xml.startElement('system', [['idx', score.systems().indexOf(system)]])
+            const dividerLeft = system.systemDividerLeft()
+            if (dividerLeft && !dividerLeft.generated()) {
+                TWrite.writeSystemDivider(dividerLeft, xml, ctx)
+            }
+            const dividerRight = system.systemDividerRight()
+            if (dividerRight && !dividerRight.generated()) {
+                TWrite.writeSystemDivider(dividerRight, xml, ctx)
+            }
+            xml.endElement()
+        }
+        xml.endElement()
+    }
+
+    static writeSystemDivider(item: SystemDivider, xml: XmlWriter, ctx: WriteContext): void {
+        xml.startElement(item, [['type', item.dividerType() === SystemDividerType.LEFT ? 'left' : 'right']])
+
+        TWrite.writeProperty(item, xml, Pid.SCORE_FONT)
+        TWrite.writeProperty(item, xml, Pid.SYMBOLS_SIZE)
+        TWrite.writeProperty(item, xml, Pid.SYMBOL_ANGLE)
+
+        TWrite.writeBSymbolProperties(item, xml, ctx)
+        xml.endElement()
     }
 
     static writeItemEid(item: EngravingObject, xml: XmlWriter, ctx: WriteContext): void {
@@ -467,6 +509,28 @@ export class TWrite {
         xml.startElement(item)
         TWrite.writeProperty(item, xml, Pid.ARPEGGIO_TYPE)
         TWrite.writeArpeggioProperties(item, xml, ctx)
+        xml.endElement()
+    }
+
+    static writeSoundFlag(item: SoundFlag, xml: XmlWriter, _ctx: WriteContext): void {
+        if (!item.soundPresets().length && !item.playingTechnique()) {
+            return
+        }
+
+        xml.startElement(item)
+
+        TWrite.writeProperty(item, xml, Pid.PLAY)
+
+        if (item.soundPresets().length) {
+            xml.tag('presets', item.soundPresets().join(','))
+        }
+
+        if (item.playingTechnique()) {
+            xml.tag('playingTechnique', item.playingTechnique())
+        }
+
+        TWrite.writeProperty(item, xml, Pid.APPLY_TO_ALL_STAVES)
+
         xml.endElement()
     }
 
@@ -2358,7 +2422,10 @@ export class TWrite {
 
         TWrite.writeStaffTextBaseProperties(item, xml, ctx)
 
-        // TODO(port): sound flags
+        const flag = item.soundFlag()
+        if (flag) {
+            TWrite.writeItem(flag, xml, ctx)
+        }
 
         xml.endElement()
     }

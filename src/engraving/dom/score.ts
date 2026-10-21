@@ -7,6 +7,7 @@
  * hooks; the editing commands are in ../editing; no playback)
  */
 
+import type { SystemDivider, SystemDividerType } from './systemdivider'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import { DPI, ElementType, INCH, Key, TextStyleType, VOICES, staff2track, type staff_idx_t, type track_idx_t } from '../types/types'
@@ -167,6 +168,7 @@ export const scoreRendererHooks: { layoutScore?: (score: Score, st: Fraction, et
 export class Score extends EngravingObject {
     protected m_style: MStyle
     private m_systemLocks = new SystemLocks()
+    private m_systemDividers = new Map<number, [SystemDivider | null, SystemDivider | null]>() // list of system dividers (left and right) indexed by system
     protected m_eidRegister = new EIDRegister() // used of the master score only
     protected m_staves: Staff[] = []
     protected m_parts: Part[] = []
@@ -1943,6 +1945,21 @@ export class Score extends EngravingObject {
     }
 
     systemLocks(): SystemLocks { return this.m_systemLocks }
+
+    systemDividers(): ReadonlyMap<number, [SystemDivider | null, SystemDivider | null]> { return this.m_systemDividers }
+
+    systemDivider(systemIdx: number, type: SystemDividerType): SystemDivider | null {
+        const d = this.m_systemDividers.get(systemIdx)
+        return d ? d[type] : null
+    }
+
+    addSystemDivider(systemIdx: number, divider: SystemDivider): void {
+        if (!this.m_systemDividers.has(systemIdx)) {
+            this.m_systemDividers.set(systemIdx, [null, null])
+        }
+
+        this.m_systemDividers.get(systemIdx)![divider.dividerType()] = divider
+    }
     addSystemLock(lock: SystemLock): void { this.m_systemLocks.add(lock) }
     eidRegister(): EIDRegister { return this.masterScore().m_eidRegister }
 

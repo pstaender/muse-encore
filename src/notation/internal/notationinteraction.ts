@@ -13,6 +13,7 @@
  * Score::nextElement/prevElement), moveStringSelection, anchor lines, drop of dragged palette items / mime data.
  */
 
+import type { SoundFlag } from '../../engraving/dom/soundflag'
 import { LineF, PointF, RectF } from '../../framework/draw/types/geometry'
 import { DirectionV, DurationType, ElementType, VOICES, nidx, type staff_idx_t, type track_idx_t, type voice_idx_t } from '../../engraving/types/types'
 import type { Rest } from '../../engraving/dom/rest'
@@ -1078,8 +1079,9 @@ export class NotationInteraction {
                 return false
             }
 
-            // TODO(port): sound flags (SoundFlag::shouldHide)
-            if (!element.isInteractionAvailable()) {
+            if (element.isSoundFlag()) {
+                return !(element as SoundFlag).shouldHide()
+            } else if (!element.isInteractionAvailable()) {
                 return false
             }
 

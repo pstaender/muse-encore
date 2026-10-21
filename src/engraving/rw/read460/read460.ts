@@ -171,7 +171,7 @@ export class Read460 {
             } else if (tag === 'SystemLocks') {
                 TRead.readSystemLocks(score, e)
             } else if (tag === 'SystemDividers') {
-                e.skipCurrentElement() // TODO(port): system dividers
+                TRead.readSystemDividers(score, e, ctx)
             } else if (tag === 'Part') {
                 const part = new Part(score)
                 TRead.readPart(part, e, ctx)

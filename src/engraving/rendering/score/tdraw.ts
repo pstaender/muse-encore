@@ -30,6 +30,7 @@ import type { StringTunings } from '../../dom/stringtunings'
 import { ImageType, type Image } from '../../dom/image'
 import type { ChordBracket } from '../../dom/chordbracket'
 import type { Tapping } from '../../dom/tapping'
+import type { SoundFlag } from '../../dom/soundflag'
 import { FiguredBass, FiguredBassContLine, FiguredBassParenthesis, type FiguredBassItem } from '../../dom/figuredbass'
 import { Rest as DrawRest } from '../../dom/rest'
 import type { MMRest } from '../../dom/mmrest'
@@ -184,7 +185,9 @@ export class TDraw {
             break
         case ElementType.STEM_SLASH: TDraw.drawStemSlash(item as StemSlash, painter, opt)
             break
-        case ElementType.SYMBOL: TDraw.drawSymbol(item as SymbolItem, painter, opt)
+        case ElementType.SYMBOL:
+        case ElementType.SYSTEM_DIVIDER: // C++ draw(SystemDivider*) draws it as a Symbol
+            TDraw.drawSymbol(item as SymbolItem, painter, opt)
             break
         case ElementType.LAISSEZ_VIB_SEGMENT: TDraw.drawLaissezVibSegment(item as LaissezVibSegment, painter, opt)
             break
@@ -242,6 +245,8 @@ export class TDraw {
         case ElementType.CHORD_BRACKET: TDraw.drawChordBracket(item as ChordBracket, painter, opt)
             break
         case ElementType.TAPPING: TDraw.drawTapping(item as Tapping, painter, opt)
+            break
+        case ElementType.SOUND_FLAG: TDraw.drawSoundFlag(item as SoundFlag, painter, opt)
             break
         default:
             // PAGE, SYSTEM, MEASURE, SEGMENT, CHORD, ... and types not ported yet
@@ -1717,6 +1722,20 @@ export class TDraw {
                 painter.drawPolyline(item.bracketR.slice(0, 3))
             }
         }
+    }
+
+    static drawSoundFlag(item: SoundFlag, painter: Painter, opt: PaintOptions): void {
+        if (item.shouldHide()) {
+            return
+        }
+
+        painter.setNoPen()
+        painter.setBrush(item.iconBackgroundColor())
+        painter.drawEllipse(item.ldata().bbox().adjusted(-4.0, -4.0, 4.0, 4.0))
+
+        painter.setFont(item.iconFont())
+        painter.setPen(!item.selected() ? item.curColor(opt) : Color.WHITE)
+        painter.drawTextInRect(item.ldata().bbox(), AlignmentFlag.AlignCenter, String.fromCharCode(item.iconCode()))
     }
 
     static drawTapping(item: Tapping, painter: Painter, opt: PaintOptions): void {

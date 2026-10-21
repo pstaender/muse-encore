@@ -90,6 +90,8 @@ import type { PlayTechAnnotation } from '../../dom/playtechannotation'
 import type { Image } from '../../dom/image'
 import type { ChordBracket } from '../../dom/chordbracket'
 import type { Tapping } from '../../dom/tapping'
+import type { SoundFlag } from '../../dom/soundflag'
+import type { SystemDivider } from '../../dom/systemdivider'
 import { TappingLayout } from './tappinglayout'
 import {
     FBIDigitNone, FiguredBass, FiguredBassContLine, FiguredBassModifier, FiguredBassParenthesis, type FiguredBassItem,
@@ -345,6 +347,8 @@ export class TLayout {
         case ElementType.CHORD_BRACKET: TLayout.layoutChordBracket(item as ChordBracket, ctx); break
         case ElementType.TAPPING: TappingLayout.layoutTapping(item as Tapping, ctx); break
         case ElementType.TAPPING_HALF_SLUR: break // C++ layoutTappingHalfSlur: nothing to do
+        case ElementType.SOUND_FLAG: TLayout.layoutSoundFlag(item as SoundFlag, ctx); break
+        case ElementType.SYSTEM_DIVIDER: TLayout.layoutSystemDivider(item as SystemDivider, ctx); break
         default:
             if (item.isTextBase()) {
                 // TODO(port): specific text types (staff text, tempo text, rehearsal marks, ...)
@@ -2189,7 +2193,38 @@ export class TLayout {
     static layoutStaffText(item: StaffText, ctx: LayoutContext): void {
         TextLayout.layoutBaseTextBase(item, ctx)
         Autoplace.autoplaceSegmentElement(item, item.mutldata())
-        // TODO(port): sound flags
+
+        const flag = item.soundFlag()
+        if (flag) {
+            TLayout.layoutSoundFlag(flag)
+        }
+    }
+
+    static layoutSoundFlag(item: SoundFlag, _ctx?: LayoutContext): void {
+        const ldata = item.mutldata()
+        const score = item.score()
+        if (score && !score.showSoundFlags()) {
+            return
+        }
+
+        const parent = item.parentItem()
+        if (!parent) {
+            return
+        }
+
+        const spatium = item.spatium()
+        const iconHeight = spatium * 3.0
+
+        const parentBbox = parent.ldata().bbox()
+        const iconBBox = new RectF(parentBbox.x(), parentBbox.y(), iconHeight, iconHeight)
+
+        iconBBox.moveCenter(parentBbox.center())
+
+        // <icon><space><text>
+        const space = spatium / 2.0
+        iconBBox.setX(parentBbox.x() - iconBBox.width() - space)
+
+        ldata.setBbox(iconBBox)
     }
 
     static layoutSticking(item: TextBase, ctx: LayoutContext): void {
@@ -4744,6 +4779,14 @@ export class TLayout {
         ldata.setBbox(bbox)
     }
 
+    static layoutSystemDivider(item: SystemDivider, ctx: LayoutContext): void {
+        if (item.ldata().isValid()) {
+            return
+        }
+
+        TLayout.layoutSymbol(item, ctx)
+    }
+
     static layoutSymbol(item: SymbolItem, ctx: LayoutContext): void {
         const ldata = item.mutldata()
         if (!item.explicitParent()) {
@@ -4756,8 +4799,8 @@ export class TLayout {
         if (item.staff()) {
             ldata.setMag(item.staff()!.staffMag(item.tick()))
         }
-        // TODO(port): custom score fonts (scoreFont())
-        ldata.setBbox(item.symBbox(item.sym()))
+        const sf = item.scoreFont()
+        ldata.setBbox(sf ? sf.bbox(item.sym(), item.magS() * item.symbolsSize()) : item.symBbox(item.sym()))
         const w = ldata.bbox().width()
         const p = new PointF()
         if (item.align().vertical === AlignV.BOTTOM) {
