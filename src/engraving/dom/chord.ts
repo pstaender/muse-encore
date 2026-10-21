@@ -8,6 +8,7 @@
  * TODO(port): chord lines, stem slashes, percussion/tab note updates
  */
 
+import type { Tapping } from './tapping'
 import { PointF } from '../../framework/draw/types/geometry'
 import { Fraction } from '../types/fraction'
 import { Spatium } from '../types/dimension'
@@ -1139,8 +1140,9 @@ export class Chord extends ChordRest {
         return note
     }
 
-    tapping(): Articulation | null {
-        return this.m_articulations.find(a => a.isTapping()) ?? null
+    tapping(): Tapping | null {
+        // C++ DO_ASSERT(tappings.size() <= 1)
+        return (this.m_articulations.find(a => a.isTapping()) as Tapping | undefined) ?? null
     }
 
     override drop(data: EditData): EngravingItem | null {

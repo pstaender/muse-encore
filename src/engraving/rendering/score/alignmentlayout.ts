@@ -5,9 +5,11 @@
  *
  * Port of src/engraving/rendering/score/alignmentlayout.h/.cpp
  *
- * TODO(port): hammer-on/pull-off letters; optical centers of hairpin segments, fret diagrams and harmonies
+ * TODO(port): optical centers of hairpin segments, fret diagrams and harmonies
  */
 
+import type { Chord } from '../../dom/chord'
+import type { Tapping } from '../../dom/tapping'
 import { clamp, RealIsEqual } from '../../../framework/global/realfn'
 import { AlignV, ElementType } from '../../types/types'
 import type { Articulation } from '../../dom/articulation'
@@ -49,7 +51,15 @@ export class AlignmentLayout {
             }
         }
 
-        // TODO(port): tapping articulations
+        const scr = hopo.startElement()
+        if (scr && scr.isChord()) {
+            for (const art of (scr as unknown as Chord).articulations()) {
+                if (art.isTapping() && (art as Tapping).tappingText() && AlignmentLayout.isAbove(art) === above) {
+                    itemsToAlign.push(art)
+                }
+            }
+        }
+
         AlignmentLayout.alignItemsGroup(itemsToAlign, system)
     }
 

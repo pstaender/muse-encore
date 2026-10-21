@@ -19,7 +19,7 @@ import {
     RepeatPlayCountPreset, StaffGroup, TextPlace, TextStyleType, TieDotsPlacement, TiePlacement, TimeSigPlacement,
     TimeSigStyle, TimeSigVSMargin, TremoloType, TrillType, VoiceAssignment, AutoCustomHide, LyricsDashSystemStart,
     ArpeggioType, JumpType, GlissandoType, VeloType, ArticulationTextType, VibratoType, PartialSpannerDirection, GradualTempoChangeType,
-    ParenthesesMode, LHTappingSymbol, RHTappingSymbol, PlayingTechniqueType, CapoTransposeMode, AccidentalRole,
+    ParenthesesMode, LHTappingSymbol, RHTappingSymbol, TappingHand, PlayingTechniqueType, CapoTransposeMode, AccidentalRole,
     type EmbellishmentType,
 } from './types'
 import * as D from './typesconvdata'
@@ -71,7 +71,12 @@ function findTypeByXmlTag<T>(cont: readonly Item<T>[], tag: string, def: T): T {
     return it ? it.type : def
 }
 
-/** C++ LH_TAPPING_SYMBOL, RH_TAPPING_SYMBOL, PARENTHESES_MODE (not in the generated tables) */
+/** C++ TAPPING_HAND, LH_TAPPING_SYMBOL, RH_TAPPING_SYMBOL, PARENTHESES_MODE (not in the generated tables) */
+const TAPPING_HAND: readonly Item<TappingHand>[] = [
+    { type: TappingHand.INVALID, xml: 'invalid', userName: '' },
+    { type: TappingHand.LEFT, xml: 'left', userName: '' },
+    { type: TappingHand.RIGHT, xml: 'right', userName: '' },
+]
 const LH_TAPPING_SYMBOL: readonly Item<LHTappingSymbol>[] = [
     { type: LHTappingSymbol.DOT, xml: 'dot', userName: '' },
     { type: LHTappingSymbol.CIRCLED_T, xml: 'circledT', userName: '' },
@@ -394,6 +399,8 @@ export const TConv = {
     toXmlTimeSigVSMargin: (v: TimeSigVSMargin): string => findXmlTagByType(D.TIMESIG_MARGIN, v),
     toXmlNoteSpellingType: (v: NoteSpellingType): string => findXmlTagByType(D.NOTE_SPELLING_TYPE, v),
     toXmlChordStylePreset: (v: ChordStylePreset): string => findXmlTagByType(D.CHORD_STYLE_PRESET, v),
+    toXmlTappingHand: (v: TappingHand): string => findXmlTagByType(TAPPING_HAND, v),
+    fromXmlTappingHand: (tag: string, def: TappingHand): TappingHand => findTypeByXmlTag(TAPPING_HAND, tag, def),
     toXmlLHTappingSymbol: (v: LHTappingSymbol): string => findXmlTagByType(LH_TAPPING_SYMBOL, v),
     toXmlRHTappingSymbol: (v: RHTappingSymbol): string => findXmlTagByType(RH_TAPPING_SYMBOL, v),
     toXmlParenthesesMode: (v: ParenthesesMode): string => findXmlTagByType(PARENTHESES_MODE, v),

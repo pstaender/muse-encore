@@ -71,6 +71,8 @@ import type { Dynamic } from '../../dom/dynamic'
 import type { Expression } from '../../dom/expression'
 import type { PlayTechAnnotation } from '../../dom/playtechannotation'
 import type { Image } from '../../dom/image'
+import type { ChordBracket } from '../../dom/chordbracket'
+import type { Tapping, TappingHalfSlur } from '../../dom/tapping'
 import { FBIDigitNone, FiguredBassContLine, FiguredBassModifier, type FiguredBass, type FiguredBassItem } from '../../dom/figuredbass'
 import type { Capo } from '../../dom/capo'
 import type { StringTunings } from '../../dom/stringtunings'
@@ -234,6 +236,8 @@ export class TWrite {
         case ElementType.HARP_DIAGRAM: TWrite.writeHarpPedalDiagram(item as HarpPedalDiagram, xml, ctx); break
         case ElementType.FIGURED_BASS: TWrite.writeFiguredBass(item as FiguredBass, xml, ctx); break
         case ElementType.IMAGE: TWrite.writeImage(item as Image, xml, ctx); break
+        case ElementType.CHORD_BRACKET: TWrite.writeChordBracket(item as ChordBracket, xml, ctx); break
+        case ElementType.TAPPING: TWrite.writeTapping(item as Tapping, xml, ctx); break
         default:
             // TODO(port): element type not ported yet (C++: UNREACHABLE)
             break
@@ -463,6 +467,47 @@ export class TWrite {
         xml.startElement(item)
         TWrite.writeProperty(item, xml, Pid.ARPEGGIO_TYPE)
         TWrite.writeArpeggioProperties(item, xml, ctx)
+        xml.endElement()
+    }
+
+    static writeTapping(item: Tapping, xml: XmlWriter, ctx: WriteContext): void {
+        xml.startElement(item)
+
+        xml.tag('hand', TConv.toXmlTappingHand(item.hand()))
+
+        if (item.halfSlurAbove() && item.halfSlurAbove()!.isUserModified()) {
+            TWrite.writeTappingHalfSlur(item.halfSlurAbove()!, xml, ctx)
+        }
+        if (item.halfSlurBelow() && item.halfSlurBelow()!.isUserModified()) {
+            TWrite.writeTappingHalfSlur(item.halfSlurBelow()!, xml, ctx)
+        }
+
+        TWrite.writeArticulationProperties(item, xml, ctx)
+        xml.endElement()
+    }
+
+    static writeTappingHalfSlur(item: TappingHalfSlur, xml: XmlWriter, ctx: WriteContext): void {
+        xml.startElement(item)
+
+        xml.tag('isHalfSlurAbove', item.isHalfSlurAbove())
+        TWrite.writeSlurTieProperties(item, xml, ctx)
+
+        xml.endElement()
+    }
+
+    static writeChordBracket(item: ChordBracket, xml: XmlWriter, ctx: WriteContext): void {
+        if (!ctx.canWrite(item)) {
+            return
+        }
+
+        xml.startElement(item)
+
+        TWrite.writeProperty(item, xml, Pid.BRACKET_HOOK_LEN)
+        TWrite.writeProperty(item, xml, Pid.BRACKET_HOOK_POS)
+        TWrite.writeProperty(item, xml, Pid.BRACKET_RIGHT_SIDE)
+
+        TWrite.writeArpeggioProperties(item, xml, ctx)
+
         xml.endElement()
     }
 

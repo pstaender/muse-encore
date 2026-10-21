@@ -26,6 +26,7 @@ import {
     ElementType, OrnamentInterval, ParenthesesMode, PlayingTechniqueType, TrillType, ChordLineType, GradualTempoChangeType, GuitarBendType, VibratoType, track2staff, type track_idx_t,
     ChangeMethod, DynamicSpeed, SpannerSegmentType, VOICES,
     TremoloType, TremoloStyle, isTremoloTwoChord,
+    TappingHand,
 } from '../../types/types'
 import { Constants } from '../../types/constants'
 import { lrint } from '../../../framework/global/realfn'
@@ -93,6 +94,8 @@ import type { Expression } from '../../dom/expression'
 import type { PlayTechAnnotation } from '../../dom/playtechannotation'
 import type { FiguredBass, FiguredBassItem } from '../../dom/figuredbass'
 import { Image } from '../../dom/image'
+import { ChordBracket } from '../../dom/chordbracket'
+import { Tapping, TappingHalfSlur } from '../../dom/tapping'
 import type { Capo } from '../../dom/capo'
 import type { StringTunings } from '../../dom/stringtunings'
 import type { HarpPedalDiagram, HarpStringType, PedalPosition } from '../../dom/harppedaldiagram'
@@ -321,6 +324,8 @@ export class TRead {
         case ElementType.HARP_DIAGRAM: TRead.readHarpPedalDiagram(item as HarpPedalDiagram, xml, ctx); break
         case ElementType.FIGURED_BASS: TRead.readFiguredBass(item as FiguredBass, xml, ctx); break
         case ElementType.IMAGE: TRead.readImage(item as Image, xml, ctx); break
+        case ElementType.CHORD_BRACKET: TRead.readChordBracket(item as ChordBracket, xml, ctx); break
+        case ElementType.TAPPING: TRead.readTapping(item as Tapping, xml, ctx); break
         default:
             // TODO(port): element type not ported yet
             xml.skipCurrentElement()
@@ -3161,8 +3166,11 @@ export class TRead {
             TRead.readChordLine(cl, e, ctx)
             ch.add(cl)
         } else if (tag === 'ChordBracket') {
-            // TODO(port): chord brackets
-            e.skipCurrentElement()
+            const bracket = new ChordBracket(ch)
+            bracket.setTrack(ch.track())
+            TRead.readChordBracket(bracket, e, ctx)
+            bracket.setParent(ch)
+            ch.add(bracket)
         } else if (tag === 'combineVoice') {
             TRead.readPropertyIfTag(ch, tag, e, ctx, Pid.COMBINE_VOICE)
         } else {
@@ -3203,7 +3211,10 @@ export class TRead {
             TRead.readOrnament(ornament, e, ctx)
             ch.add(ornament)
         } else if (tag === 'Tapping') {
-            e.skipCurrentElement() // TODO(port): tapping
+            const tapping = new Tapping(ch)
+            tapping.setTrack(ch.track())
+            TRead.readTapping(tapping, e, ctx)
+            ch.add(tapping)
         } else if (tag === 'leadingSpace' || tag === 'trailingSpace') {
             e.skipCurrentElement()
         } else if (tag === 'small') {
@@ -3681,18 +3692,68 @@ export class TRead {
             const tag = e.name()
             if (tag === 'subtype') {
                 a.setArpeggioType(TConv.fromXmlArpeggioType(e.readAsciiText(), ArpeggioType.NORMAL))
-            } else if (tag === 'userLen1') {
-                a.setUserLen1(e.readDouble() * a.spatium())
-            } else if (tag === 'userLen2') {
-                a.setUserLen2(e.readDouble() * a.spatium())
-            } else if (tag === 'span') {
-                a.setSpan(e.readInt())
-            } else if (tag === 'play') {
-                a.setPlayArpeggio(e.readBool())
-            } else if (tag === 'timeStretch') {
-                a.setStretch(e.readDouble())
-            } else if (!TRead.readItemProperties(a, e, ctx)) {
+            } else if (!TRead.readArpeggioProperties(a, e, ctx)) {
                 e.unknown()
+            }
+        }
+    }
+
+    static readArpeggioProperties(a: Arpeggio, e: XmlReader, ctx: ReadContext): boolean {
+        const tag = e.name()
+        if (tag === 'userLen1') {
+            a.setUserLen1(e.readDouble() * a.spatium())
+        } else if (tag === 'userLen2') {
+            a.setUserLen2(e.readDouble() * a.spatium())
+        } else if (tag === 'span') {
+            a.setSpan(e.readInt())
+        } else if (tag === 'play') {
+            a.setPlayArpeggio(e.readBool())
+        } else if (tag === 'timeStretch') {
+            a.setStretch(e.readDouble())
+        } else if (!TRead.readItemProperties(a, e, ctx)) {
+            return false
+        }
+        return true
+    }
+
+    static readChordBracket(b: ChordBracket, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (TRead.readPropertyIfTag(b, tag, e, ctx, Pid.BRACKET_HOOK_LEN)) {
+            } else if (TRead.readPropertyIfTag(b, tag, e, ctx, Pid.BRACKET_HOOK_POS)) {
+            } else if (TRead.readPropertyIfTag(b, tag, e, ctx, Pid.BRACKET_RIGHT_SIDE)) {
+            } else if (!TRead.readArpeggioProperties(b, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
+    static readTapping(t: Tapping, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+            if (tag === 'hand') {
+                t.setHand(TConv.fromXmlTappingHand(xml.readAsciiText(), TappingHand.INVALID))
+            } else if (tag === TConv.toXmlElementType(ElementType.TAPPING_HALF_SLUR)) {
+                const tappingHalfSlur = new TappingHalfSlur(t)
+                TRead.readTappingHalfSlur(tappingHalfSlur, xml, ctx)
+                tappingHalfSlur.setParent(t)
+                if (tappingHalfSlur.isHalfSlurAbove()) {
+                    t.setHalfSlurAbove(tappingHalfSlur)
+                } else {
+                    t.setHalfSlurBelow(tappingHalfSlur)
+                }
+            } else if (!TRead.readArticulationProperties(t, xml, ctx)) {
+                xml.unknown()
+            }
+        }
+    }
+
+    static readTappingHalfSlur(t: TappingHalfSlur, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            if (xml.name() === 'isHalfSlurAbove') {
+                t.setIsHalfSlurAbove(xml.readBool())
+            } else if (!TRead.readSlurProperties(t, xml, ctx)) {
+                xml.unknown()
             }
         }
     }
@@ -3948,13 +4009,17 @@ export class TRead {
 
     static readSlur(s: Slur, e: XmlReader, ctx: ReadContext): void {
         while (e.readNextStartElement()) {
-            if (TRead.readPropertyIfTag(s, e.name(), e, ctx, Pid.PARTIAL_SPANNER_DIRECTION)) {
-                continue
-            }
-            if (!TRead.readSlurTieProperties(s, e, ctx)) {
+            if (!TRead.readSlurProperties(s, e, ctx)) {
                 e.unknown()
             }
         }
+    }
+
+    static readSlurProperties(s: Slur, e: XmlReader, ctx: ReadContext): boolean {
+        if (TRead.readPropertyIfTag(s, e.name(), e, ctx, Pid.PARTIAL_SPANNER_DIRECTION)) {
+            return true
+        }
+        return TRead.readSlurTieProperties(s, e, ctx)
     }
 
     static readPartialTie(p: PartialTie, xml: XmlReader, ctx: ReadContext): void {

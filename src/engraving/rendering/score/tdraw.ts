@@ -19,7 +19,7 @@ import { FillRule, PainterPath } from '../../../framework/draw/types/painterpath
 import type { Painter } from '../../../framework/draw/painter'
 import { RealIsNull } from '../../../framework/global/realfn'
 import { SmuflAnchorId, SymId } from '../../types/symid'
-import { ArpeggioType, ArticulationTextType, BarLineType, BracketType, ElementType, ChordLineType, FontStyle, GlissandoType, GuitarBendType, HookType, LineType, Orientation, SlurStyleType, VOICES, DPMM } from '../../types/types'
+import { ArpeggioType, ArticulationTextType, BarLineType, BracketType, ElementType, ChordLineType, FontStyle, GlissandoType, GuitarBendType, HookType, LineType, Orientation, SlurStyleType, VOICES, DPMM, DirectionV } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { DefaultStyle } from '../../style/defaultstyle'
 import { CrossMeasure } from '../../dom/chordrest'
@@ -28,6 +28,8 @@ import { Accidental as DrawAccidental, type Accidental } from '../../dom/acciden
 import type { ShadowNote } from '../../dom/shadownote'
 import type { StringTunings } from '../../dom/stringtunings'
 import { ImageType, type Image } from '../../dom/image'
+import type { ChordBracket } from '../../dom/chordbracket'
+import type { Tapping } from '../../dom/tapping'
 import { FiguredBass, FiguredBassContLine, FiguredBassParenthesis, type FiguredBassItem } from '../../dom/figuredbass'
 import { Rest as DrawRest } from '../../dom/rest'
 import type { MMRest } from '../../dom/mmrest'
@@ -171,6 +173,7 @@ export class TDraw {
             break
         case ElementType.SLUR_SEGMENT:
         case ElementType.HAMMER_ON_PULL_OFF_SEGMENT:
+        case ElementType.TAPPING_HALF_SLUR_SEGMENT:
             TDraw.drawSlurSegment(item as SlurSegment, painter, opt)
             break
         case ElementType.STAFF_LINES: TDraw.drawStaffLines(item as StaffLines, painter, opt)
@@ -235,6 +238,10 @@ export class TDraw {
         case ElementType.FIGURED_BASS: TDraw.drawFiguredBass(item as FiguredBass, painter, opt)
             break
         case ElementType.IMAGE: TDraw.drawImage(item as Image, painter, opt)
+            break
+        case ElementType.CHORD_BRACKET: TDraw.drawChordBracket(item as ChordBracket, painter, opt)
+            break
+        case ElementType.TAPPING: TDraw.drawTapping(item as Tapping, painter, opt)
             break
         default:
             // PAGE, SYSTEM, MEASURE, SEGMENT, CHORD, ... and types not ported yet
@@ -1710,6 +1717,42 @@ export class TDraw {
                 painter.drawPolyline(item.bracketR.slice(0, 3))
             }
         }
+    }
+
+    static drawTapping(item: Tapping, painter: Painter, opt: PaintOptions): void {
+        painter.setPen(item.curColor(opt))
+        const text = item.tappingText()
+        if (item.ldata().symId !== SymId.noSym) {
+            item.drawSymbol(item.ldata().symId, painter)
+        } else if (text) {
+            painter.translate(text.pos())
+            TDraw.drawTextBase(text, painter, opt)
+            painter.translate(text.pos().neg())
+        }
+        // else C++: assert(false && "Drawing Tapping item without text or symbol")
+    }
+
+    static drawChordBracket(item: ChordBracket, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+
+        const lineWidth = item.style().styleMM(Sid.chordBracketLineWidth)
+        painter.setPen(new Pen(item.curColor(opt), lineWidth, PenStyle.SolidLine, PenCapStyle.FlatCap))
+
+        const halfLineWidth = 0.5 * lineWidth
+        const y1 = ldata.bbox().top() + halfLineWidth
+        const y2 = ldata.bbox().bottom() - halfLineWidth
+
+        const w = item.absoluteFromSpatium(item.hookLength())
+
+        if (item.hookPos() !== DirectionV.DOWN) {
+            painter.drawLine(new LineF(0.0, y1, w, y1))
+        }
+        if (item.hookPos() !== DirectionV.UP) {
+            painter.drawLine(new LineF(0.0, y2, w, y2))
+        }
+
+        const x = item.rightSide() ? w - halfLineWidth : halfLineWidth
+        painter.drawLine(new LineF(x, y1, x, y2))
     }
 
     static drawImage(item: Image, painter: Painter, opt: PaintOptions): void {

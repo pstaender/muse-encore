@@ -5,9 +5,9 @@
  *
  * Port of src/engraving/rendering/score/slurtielayout.h/.cpp
  *
- * TODO(port): tapping half slurs
  */
 
+import type { TappingHalfSlur } from '../../dom/tapping'
 import { PointF, RectF } from '../../../framework/draw/types/geometry'
 import { PainterPath } from '../../../framework/draw/types/painterpath'
 import { Transform } from '../../../framework/draw/types/transform'
@@ -325,7 +325,9 @@ export class SlurTieLayout {
             p1.setY(p2.y() + (0.25 * item.spatium() * (item.up() ? -1 : 1)))
         }
 
-        // TODO(port): tapping half slurs
+        if (item.isTappingHalfSlur()) {
+            p1 = p2.minus(new PointF(2.5 * item.spatium(), 0.0))
+        }
 
         const isHangingSlur = sst === SpannerSegmentType.BEGIN || sst === SpannerSegmentType.END || incomingPartialSlur
                               || outgoingPartialSlur
@@ -797,7 +799,22 @@ export class SlurTieLayout {
             SlurTieLayout.avoidPreBendsOnTab(sc, ec, sp)
         }
 
-        // TODO(port): tapping half slurs
+        if (item.isTappingHalfSlur()) {
+            SlurTieLayout.adjustForTappingHalfSlurs(item as TappingHalfSlur, sp, note2)
+        }
+    }
+
+    private static adjustForTappingHalfSlurs(item: TappingHalfSlur, sp: SlurTiePos, endNote: Note | null): void {
+        if (item.staffType()!.isTabStaff() || !endNote) {
+            return
+        }
+
+        const staffLines = endNote.staff()!.lines(endNote.tick())
+        const noteIsInsideStaff = endNote.line() > 1 && endNote.line() < 2 * (staffLines - 1) - 1
+        const noteIsOnSpace = endNote.line() % 2 !== 0
+        if (noteIsInsideStaff && noteIsOnSpace) {
+            sp.p2 = new PointF(sp.p2.x(), sp.p2.y() + (item.up() ? 0.2 : -0.2) * item.spatium())
+        }
     }
 
     private static avoidPreBendsOnTab(sc: Chord | null, ec: Chord | null, sp: SlurTiePos): void {
@@ -2702,7 +2719,10 @@ export class SlurTieLayout {
     private static computeShoulderHeight(slurSeg: SlurSegment, slurLengthInSp: number, shoulderOffset: PointF): number {
         const spatium = slurSeg.spatium()
 
-        // TODO(port): tapping half slurs
+        if (slurSeg.isTappingHalfSlurSegment()) {
+            const shoulderH = (slurSeg.staffType()!.isTabStaff() ? 1.0 : 0.6) * spatium
+            return slurSeg.slur().up() ? shoulderH : -shoulderH
+        }
 
         let shoulderH = Math.sqrt(slurLengthInSp / 4) * spatium
 

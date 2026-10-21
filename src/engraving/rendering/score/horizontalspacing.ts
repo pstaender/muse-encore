@@ -8,6 +8,7 @@
  * TODO(port): glissandi, guitar bends, note lines
  */
 
+import type { ChordBracket } from '../../dom/chordbracket'
 import { RectF } from '../../../framework/draw/types/geometry'
 import { RealIsEqual, RealIsEqualOrLess, RealIsEqualOrMore, RealIsNull, clamp } from '../../../framework/global/realfn'
 import { Fraction } from '../../types/fraction'
@@ -1413,7 +1414,7 @@ export class HorizontalSpacing {
         } else if (type1 === ElementType.LYRICS && HorizontalSpacing.isSpecialLyricsPaddingType(type2)) {
             padding = HorizontalSpacing.computeLyricsPadding(item1 as Lyrics, item2, padding)
         } else if (type2 === ElementType.CHORD_BRACKET) {
-            // TODO(port): computeChordBracketPadding
+            padding = HorizontalSpacing.computeChordBracketPadding(item1, item2 as ChordBracket, padding)
         } else {
             padding *= scaling
         }
@@ -1422,6 +1423,15 @@ export class HorizontalSpacing {
             padding = HorizontalSpacing.computeLedgerRestPadding(item2 as Rest, padding)
         }
 
+        return padding
+    }
+
+    static computeChordBracketPadding(item1: EngravingItem, chordBracket: ChordBracket, padding: number): number {
+        const chord = chordBracket.chord()
+        if (chord && chord === item1.findAncestor(ElementType.CHORD)) {
+            // Padding a right-handed chord bracket to its own chord: use the same padding values as the left-handed case
+            return paddingTable(item1.score()).at(ElementType.CHORD_BRACKET, item1.type())
+        }
         return padding
     }
 

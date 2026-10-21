@@ -369,6 +369,12 @@ export class ChordLayout {
         ChordLayout.createParenGroups(item)
         ParenthesisLayout.layoutChordParentheses(item, ctx)
 
+        for (const e of item.el()) {
+            if (e.isChordBracket()) {
+                TLayout.layoutItem(e, ctx)
+            }
+        }
+
         ChordLayout.fillShape(item, ctx)
     }
 

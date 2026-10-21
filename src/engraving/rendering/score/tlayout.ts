@@ -88,6 +88,9 @@ import type { Dynamic } from '../../dom/dynamic'
 import type { Expression } from '../../dom/expression'
 import type { PlayTechAnnotation } from '../../dom/playtechannotation'
 import type { Image } from '../../dom/image'
+import type { ChordBracket } from '../../dom/chordbracket'
+import type { Tapping } from '../../dom/tapping'
+import { TappingLayout } from './tappinglayout'
 import {
     FBIDigitNone, FiguredBass, FiguredBassContLine, FiguredBassModifier, FiguredBassParenthesis, type FiguredBassItem,
 } from '../../dom/figuredbass'
@@ -339,6 +342,9 @@ export class TLayout {
         case ElementType.PLAYTECH_ANNOTATION: TLayout.layoutPlayTechAnnotation(item as PlayTechAnnotation, ctx); break
         case ElementType.FIGURED_BASS: TLayout.layoutFiguredBass(item as FiguredBass, ctx); break
         case ElementType.IMAGE: TLayout.layoutImage(item as Image, ctx); break
+        case ElementType.CHORD_BRACKET: TLayout.layoutChordBracket(item as ChordBracket, ctx); break
+        case ElementType.TAPPING: TappingLayout.layoutTapping(item as Tapping, ctx); break
+        case ElementType.TAPPING_HALF_SLUR: break // C++ layoutTappingHalfSlur: nothing to do
         default:
             if (item.isTextBase()) {
                 // TODO(port): specific text types (staff text, tempo text, rehearsal marks, ...)
@@ -1947,6 +1953,55 @@ export class TLayout {
         }
     }
 
+
+    static layoutChordBracket(item: ChordBracket, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        const spatium = item.spatium()
+        ldata.arpeggioHeight = ArpeggioLayout.computeHeight(item)
+        ldata.top = ArpeggioLayout.calcTop(item, ctx) - 0.25 * spatium
+        ldata.bottom = ArpeggioLayout.calcBottom(item, ldata.arpeggioHeight, ctx) + 0.5 * spatium
+
+        const minLen = 2 * item.spatium()
+        const diff = minLen - Math.abs(ldata.bottom)
+        if (diff > 0) {
+            ldata.bottom += diff
+            if (item.hookPos() === DirectionV.DOWN) {
+                ldata.top -= diff
+            } else if (item.hookPos() === DirectionV.AUTO) {
+                ldata.top -= 0.5 * diff
+            }
+        }
+
+        ldata.setMag(item.staff() ? item.staff()!.staffMag(item.tick()) : item.mag())
+        ldata.magS = ctx.conf().magS(ldata.mag())
+
+        ldata.setShape(new Shape(new RectF(0.0, ldata.top, item.hookLength().val() * spatium, ldata.bottom), item))
+
+        const upnote = item.chord()!.upNote()
+        ldata.setPosY(upnote.y() + upnote.ldata().bbox().top())
+
+        const chordShape = item.chord()!.shape().clone()
+        chordShape.removeTypes(new Set([ElementType.CHORD_BRACKET, ElementType.ARPEGGIO]))
+        const itemShape = item.shape().translated(new PointF(0.0, item.ldata().pos().y()))
+        if (item.rightSide()) {
+            let x = HorizontalSpacing.minHorizontalDistance(chordShape, itemShape, spatium)
+            x = Math.max(x, 0.0)
+            ldata.setPosX(x)
+        } else {
+            let x = HorizontalSpacing.minHorizontalDistance(itemShape, chordShape, spatium)
+            x = Math.max(x, 0.0)
+            ldata.setPosX(-x)
+        }
+
+        // Loop through staves spanned & regenerate chord shape
+        // This makes sure the arpeggio's shape is added to the shape of each chord it spans
+        const chord = item.chord()!
+        const seg = chord.segment()!
+        const staveSpan = Math.trunc((item.track() + item.span() - 1) / VOICES)
+        for (let staffIdx = item.staffIdx(); staffIdx <= staveSpan; staffIdx++) {
+            seg.createShape(staffIdx)
+        }
+    }
 
     static layoutImage(item: Image, _ctx?: LayoutContext): void {
         const ldata = item.mutldata()
@@ -4940,7 +4995,6 @@ export class TLayout {
         if (item instanceof SLine) {
             return TLayout.layoutSystemSLine(item, system, ctx)
         }
-        // TODO(port): hammer-on/pull-off, tapping half slurs
         return null
     }
 
@@ -4948,7 +5002,7 @@ export class TLayout {
                                       createSegment: (parent: System) => SpannerSegment): SpannerSegment {
         let seg: SpannerSegment | null = null
         for (const ss of spanner.spannerSegments()) {
-            if (!ss.system()) {
+            if (!ss.system() || ss.isTappingHalfSlurSegment()) {
                 seg = ss
                 break
             }

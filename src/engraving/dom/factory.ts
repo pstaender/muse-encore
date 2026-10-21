@@ -99,6 +99,8 @@ import { StringTunings } from './stringtunings'
 import { HarpPedalDiagram } from './harppedaldiagram'
 import { FiguredBass } from './figuredbass'
 import { Image } from './image'
+import { ChordBracket } from './chordbracket'
+import { Tapping } from './tapping'
 
 type Parent = EngravingObject | null
 
@@ -214,6 +216,8 @@ export class Factory {
         case ElementType.HARP_DIAGRAM: return new HarpPedalDiagram(segmentOrDummy())
         case ElementType.FIGURED_BASS: return new FiguredBass(segmentOrDummy())
         case ElementType.IMAGE: return new Image(itemOrDummy())
+        case ElementType.CHORD_BRACKET: return new ChordBracket(chordOrDummy())
+        case ElementType.TAPPING: return new Tapping(parent && parent.isChordRest() ? parent : dummy().chord())
         default:
             // TODO(port): element type not ported yet
             return null

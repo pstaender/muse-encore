@@ -13,6 +13,7 @@
  * the element itself.
  */
 
+import type { ChordBracket } from '../dom/chordbracket'
 import { Fraction } from '../types/fraction'
 import {
     AccidentalRole, BeamMode, BracketType, DirectionV, DurationType, ElementType, KeyMode, Key,
@@ -2233,7 +2234,11 @@ Score.prototype.cmdFlip = function (this: Score): void {
             const d = note.dotIsUp() ? DirectionV.DOWN : DirectionV.UP
             note.undoChangeProperty(Pid.DOT_POSITION, d)
         } else if (e.isChordBracket()) {
-            // TODO(port): ChordBracket (BRACKET_HOOK_POS)
+            const cb = e as unknown as ChordBracket
+            flipOnce(cb, () => {
+                const d = cb.hookPos() === DirectionV.UP ? DirectionV.DOWN : DirectionV.UP
+                cb.undoChangeProperty(Pid.BRACKET_HOOK_POS, d)
+            })
         } else if (e.isGuitarBendSegment()) {
             const bend = (e as unknown as SpannerSegment).spanner()!
             flipOnce(bend, () => {
@@ -2755,9 +2760,15 @@ Score.prototype.deleteItem = function (this: Score, el: EngravingItem | null): v
         break
     }
 
-    case ElementType.TAPPING_HALF_SLUR_SEGMENT:
+    case ElementType.TAPPING_HALF_SLUR_SEGMENT: {
+        const halfSlur = (el as unknown as SpannerSegment).spanner()!
+        const tapping = halfSlur.parent() as unknown as EngravingItem
+        this.undoRemoveElement(tapping)
+        break
+    }
+
     case ElementType.HAMMER_ON_PULL_OFF_TEXT:
-        // TODO(port): tapping, hammer-on/pull-off texts (undoRemoveHopoText)
+        // TODO(port): hammer-on/pull-off texts (undoRemoveHopoText)
         break
 
     case ElementType.STEM_SLASH: // cannot delete this elements
