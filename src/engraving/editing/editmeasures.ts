@@ -290,6 +290,9 @@ export class ChangeMeasureLen extends UndoCommand {
     override name(): string { return 'ChangeMeasureLen' }
     override objectItems(): Measure[] { return [this.measure] }
 
+    /** also called directly (without the undo stack) by the callers that are not undoable yet */
+    override redo(ed: EditData | null = null): void { super.redo(ed) }
+
     protected override flip(_ed: EditData | null): void {
         const oLen = this.measure.ticks()
 
@@ -321,8 +324,8 @@ export class InsertTime extends UndoCommand {
     override name(): string { return 'InsertTime' }
     override objectItems(): Score[] { return [this.score] }
 
-    override redo(_ed: EditData | null): void { this.score.insertTime(this.tick, this.len) }
-    override undo(_ed: EditData | null): void { this.score.insertTime(this.tick, this.len.neg()) }
+    override redo(_ed: EditData | null = null): void { this.score.insertTime(this.tick, this.len) }
+    override undo(_ed: EditData | null = null): void { this.score.insertTime(this.tick, this.len.neg()) }
 }
 
 export class InsertTimeUnmanagedSpanner extends UndoCommand {

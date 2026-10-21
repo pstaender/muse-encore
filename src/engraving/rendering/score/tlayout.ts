@@ -31,6 +31,7 @@ import { BARLINE_SPAN_1LINESTAFF_FROM, BARLINE_SPAN_1LINESTAFF_TO, type BarLine,
 import { SpacerType } from '../../dom/spacer'
 import { TimeSigType } from '../../dom/timesig'
 import { Accidental, AccidentalBracket } from '../../dom/accidental'
+import { isMarcatoArticulation, type ShadowNote } from '../../dom/shadownote'
 import { AccidentalType } from '../../dom/accidentaldata'
 import { KeySigEvent, type KeySym } from '../../dom/key'
 import { Text } from '../../dom/text'
@@ -301,6 +302,7 @@ export class TLayout {
         case ElementType.SPACER: TLayout.layoutSpacer(item as Spacer, ctx); break
         case ElementType.STEM: TLayout.layoutStem(item as Stem, ctx); break
         case ElementType.STEM_SLASH: TLayout.layoutStemSlash(item as StemSlash, ctx); break
+        case ElementType.SHADOW_NOTE: TLayout.layoutShadowNote(item as ShadowNote, ctx); break
         case ElementType.SYMBOL: TLayout.layoutSymbol(item as SymbolItem, ctx); break
         case ElementType.TEXT: TLayout.layoutText(item as Text, ctx); break
         case ElementType.TIE: TLayout.layoutTie(item as Tie, ctx); break
@@ -4513,6 +4515,136 @@ export class TLayout {
             }
         }
         item.setSpannerSegments(validSegments)
+    }
+
+    static layoutShadowNote(item: ShadowNote, ctx: LayoutContext): void {
+        if (!item.isValid()) {
+            item.setbbox(new RectF())
+            return
+        }
+
+        const _spatium = item.spatium()
+        const mag = item.mag()
+        const noteheadBbox = item.symBbox(item.noteheadSymbol())
+        const up = item.computeUp()
+
+        // Layout dots
+        let dotWidth = 0.0
+        if (item.duration().dots() > 0) {
+            const noteheadWidth = noteheadBbox.width()
+            const d = ctx.conf().styleMM(Sid.dotNoteDistance) * mag
+            const dd = ctx.conf().styleMM(Sid.dotDotDistance) * mag
+            dotWidth = (noteheadWidth + d)
+            if (item.hasFlag() && up) {
+                dotWidth = Math.max(dotWidth, noteheadWidth + item.symBbox(item.flagSym()).right())
+            }
+            for (let i = 0; i < item.duration().dots(); i++) {
+                dotWidth += dd * i
+            }
+        }
+
+        let newBbox = new RectF()
+        newBbox.setRect(noteheadBbox.x(), noteheadBbox.y(), noteheadBbox.width() + dotWidth, noteheadBbox.height())
+
+        // Layout stem and flag
+        if (item.hasStem()) {
+            const x = noteheadBbox.x()
+            const w = noteheadBbox.width()
+
+            const stemWidth = ctx.conf().styleMM(Sid.stemWidth)
+            const stemLength = (up ? -3.5 : 3.5) * _spatium
+            const stemAnchor = item.symSmuflAnchor(item.noteheadSymbol(), up ? SmuflAnchorId.stemUpSE : SmuflAnchorId.stemDownNW).y()
+
+            newBbox = newBbox.united(new RectF(up ? x + w - stemWidth : x,
+                stemAnchor,
+                stemWidth,
+                stemLength - stemAnchor))
+
+            if (item.hasFlag()) {
+                const flagBbox = item.symBbox(item.flagSym())
+                newBbox = newBbox.united(new RectF(up ? x + w - stemWidth : x,
+                    stemAnchor + stemLength + flagBbox.y(),
+                    flagBbox.width(),
+                    flagBbox.height()))
+            }
+        }
+
+        const lineIdx = item.lineIndex()
+
+        // Layout ledger lines if needed
+        if (item.ledgerLinesVisible()) {
+            const extraLen = ctx.conf().styleMM(Sid.ledgerLineLength) * mag
+            const step = 0.5 * _spatium * item.staffType()!.lineDistance().val()
+            const yOffset = item.staffOffsetY()
+            const x = noteheadBbox.x() - extraLen
+            const w = noteheadBbox.width() + 2 * extraLen
+
+            const lw = ctx.conf().styleMM(Sid.ledgerLineWidth)
+
+            const r = new RectF(x, -lw * 0.5, w, lw)
+            const topLine = Math.trunc(-2 + yOffset / step)
+            for (let i = topLine; i >= lineIdx; i -= 2) {
+                newBbox = newBbox.united(r.translated(new PointF(0, step * (i - lineIdx))))
+            }
+            const l = Math.trunc(item.staffType()!.lines() * 2 + yOffset / step) // first ledger line below staff
+            for (let i = l; i <= lineIdx; i += 2) {
+                newBbox = newBbox.united(r.translated(new PointF(0, step * (i - lineIdx))))
+            }
+        }
+
+        // Layout accidental
+        const acc = Accidental.subtype2symbol(item.accidentalType())
+        if (acc !== SymId.noSym) {
+            const symRect = item.symBbox(acc)
+            const accWidth = symRect.width() + ctx.conf().styleMM(Sid.accidentalNoteDistance) * mag
+            let dh = 0.0
+
+            if (symRect.y() < newBbox.y()) {
+                dh = symRect.height() - (newBbox.y() - symRect.y())
+                newBbox.setY(symRect.y())
+            } else if (symRect.y() > newBbox.y()) {
+                dh = newBbox.height() - (symRect.y() - newBbox.y())
+            }
+
+            newBbox.setX(newBbox.x() - accWidth)
+            newBbox.setWidth(newBbox.width() + accWidth)
+            newBbox.setHeight(newBbox.height() + dh)
+        }
+
+        const articulationIds = item.articulationIds()
+        if (!articulationIds.size) {
+            item.setbbox(newBbox)
+            return
+        }
+
+        // Layout articulations
+        const articulationsTop = -_spatium * 0.5 * lineIdx + item.segmentSkylineTopY()
+        const rectWithArticulations = RectF.fromPoints(new PointF(newBbox.x(), articulationsTop), newBbox.bottomRight())
+
+        for (const artic of articulationIds) {
+            const isMarcato = isMarcatoArticulation(artic)
+            const isLv = artic === SymId.articLaissezVibrerAbove || artic === SymId.articLaissezVibrerBelow
+            const symH = item.symHeight(artic)
+
+            if (!up || isMarcato) {
+                let topY = rectWithArticulations.y()
+                if (topY > 0.0) {
+                    topY = 0.0
+                }
+
+                rectWithArticulations.setTop(topY - symH - _spatium)
+            } else {
+                rectWithArticulations.setHeight(rectWithArticulations.height() + symH + _spatium)
+            }
+            if (isLv) {
+                const width = item.symWidth(artic) - item.symWidth(item.noteheadSymbol()) / 2
+                rectWithArticulations.setWidth(rectWithArticulations.width() + width)
+            }
+        }
+
+        newBbox = newBbox.united(rectWithArticulations)
+
+        item.setbbox(newBbox)
     }
 }
 

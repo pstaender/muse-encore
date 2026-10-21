@@ -23,7 +23,8 @@ import {
 import { Pid } from './property'
 import type { Score } from './score'
 import type { Segment } from './segment'
-import { TextBase, TextBaseLayoutData } from './textbase'
+import { TextBase, TextBaseLayoutData, isTextNavigationKey, textBaseRenderer } from './textbase'
+import { KeyboardKey, KeyboardModifier, type EditData } from '../editing/editdata'
 import type { FretDiagram } from './fret'
 
 const FALLBACK_SYMBOLTEXT_FONT = 'Bravura Text'
@@ -954,5 +955,125 @@ export class Harmony extends TextBase {
 
     override accessibleInfo(): string {
         return `${this.translatedTypeUserName()}: ${this.harmonyName()}`
+    }
+
+    // =================================================================================================================
+    //   editing (harmony.cpp)
+    // =================================================================================================================
+
+    override startEdit(ed: EditData): void {
+        if (this.ldata().renderItemList.length) {
+            // convert chord symbol to plain text
+            this.setPlainText(this.harmonyName())
+            // clear rendering
+            this.mutldata().renderItemList = []
+        }
+
+        if (this.leftParen()) {
+            this.leftParen()!.mutldata().reset()
+        }
+        if (this.rightParen()) {
+            this.rightParen()!.mutldata().reset()
+        }
+
+        // layout as text, without position reset
+        textBaseRenderer.layoutText1(this, true)
+        this.triggerLayout()
+
+        super.startEdit(ed)
+    }
+
+    override isEditAllowed(ed: EditData): boolean {
+        if (isTextNavigationKey(ed.key, ed.modifiers)) {
+            return false
+        }
+
+        if (ed.key === KeyboardKey.Key_Semicolon || ed.key === KeyboardKey.Key_Colon) {
+            return false
+        }
+
+        if ((ed.key === KeyboardKey.Key_Left || ed.key === KeyboardKey.Key_Right) && (ed.modifiers & KeyboardModifier.ControlModifier)) {
+            return false
+        }
+
+        if (ed.key === KeyboardKey.Key_Return || ed.key === KeyboardKey.Key_Enter) {
+            // This "edit" is actually handled in NotationInteraction::editElement
+            return true
+        }
+
+        return super.isEditAllowed(ed)
+    }
+
+    override edit(ed: EditData): boolean {
+        if (!this.isEditAllowed(ed)) {
+            return false
+        }
+
+        const rv = super.edit(ed)
+
+        // layout as text, without position reset
+        textBaseRenderer.layoutText1(this, true)
+        this.triggerLayout()
+
+        // check spelling
+        const str = this.xmlText()
+
+        const descriptions = this.parseHarmony(str, true)
+        let descriptionsValid = true
+        for (const cd of descriptions) {
+            if (!cd) {
+                descriptionsValid = false
+            }
+        }
+
+        let tpcsValid = true
+        for (const info of this.m_chords) {
+            tpcsValid &&= tpcIsValid(info.rootTpc())
+        }
+
+        this.m_isMisspelled = str.length > 0
+            && !descriptionsValid
+            && !tpcsValid
+            && this.m_harmonyType === HarmonyType.STANDARD
+
+        return rv
+    }
+
+    override endEdit(ed: EditData): void {
+        // get plain text
+        let s = this.plainText()
+
+        // if user explicitly added symbols to the text,
+        // convert them back to their respective replacement texts
+        if (this.harmonyType() !== HarmonyType.ROMAN) {
+            s = s.replaceAll('\u{1d12b}', 'bb') // double-flat
+            s = s.replaceAll('♭', 'b') // flat
+            s = s.replaceAll('', 'b') // flat
+            // do not replace natural sign
+            // (right now adding the symbol explicitly is the only way to force a natural sign to appear at all)
+            s = s.replaceAll('♯', '#') // sharp
+            s = s.replaceAll('', '#') // sharp
+            s = s.replaceAll('\u{1d12a}', 'x') // double-sharp
+            s = s.replaceAll('Δ', '^') // &Delta;
+            s = s.replaceAll('Ð', 'o') // &deg;
+            s = s.replaceAll('ø', '0') // &oslash;
+            s = s.replaceAll('Ø', '0') // &Oslash;
+        } else {
+            s = s.replaceAll('', '♭') // flat
+            s = s.replaceAll('', '♮') // natural
+            s = s.replaceAll('', '♯') // sharp
+        }
+
+        // TODO(port): score()->setPlayChord(true) (playback)
+
+        this.setHarmony(s)
+        this.setPlainText(this.harmonyName())
+
+        // disable spell check
+        this.m_isMisspelled = false
+
+        super.endEdit(ed)
+
+        // TODO(port): transposing the linked chord symbols of parts with another concert pitch setting
     }
 }

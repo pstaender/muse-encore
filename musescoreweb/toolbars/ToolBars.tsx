@@ -136,7 +136,9 @@ function NoteInputBar(): React.JSX.Element {
             if (!methodsShown) {
                 methodsShown = true
                 const methods = shown.filter(x => NOTE_INPUT_METHODS.includes(x.action)).map(x => x.action)
-                out.push(<ActionButton key={i.action} code={methods[0]} menu={methods.length > 1 ? actionItems(methods) : undefined} />)
+                // the button shows the method in use (in note input mode) and lists the shown methods in its menu
+                const current = methods.find(code => isActionChecked(code)) ?? methods[0]
+                out.push(<ActionButton key={i.action} code={current} menu={methods.length > 1 ? actionItems(methods) : undefined} />)
             }
             return
         }

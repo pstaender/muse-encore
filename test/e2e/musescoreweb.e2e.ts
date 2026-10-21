@@ -5,7 +5,9 @@ import { existsSync, readFileSync } from 'node:fs'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
 import { createServer, type ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { DEMOS, ROOT, hasSubmodule } from '../helpers'
+import { DEMOS, ROOT, hasSubmodule, openScore } from '../helpers'
+import { SegmentType } from '../../src/engraving/dom/segment'
+import type { Chord } from '../../src/engraving/dom/chord'
 
 const CHROME = process.env.CHROME_PATH ?? [
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -306,6 +308,107 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.waitForFunction(() => /^Rest/.test(document.getElementById('status')!.textContent!))
         await page.keyboard.press('ControlOrMeta+z')
         await page.waitForFunction(() => /^Note;.*Pitch: C♯5/.test(document.getElementById('status')!.textContent!))
+        await context.close()
+    }, 180000)
+
+    it('enters a triplet and a slur by keyboard, re-pitches notes and enters notes with the mouse', async () => {
+        const { page, context } = await newPage()
+        await page.goto(base)
+        await page.click('.home-footer button:has-text("New")')
+        await page.waitForSelector('dialog.new-score[open]')
+        await page.fill('.instruments input[type="search"]', 'flute')
+        await page.dblclick('.instruments [role="option"] >> text=Flute')
+        await page.click('dialog.new-score .dialog-buttons button:has-text("Done")')
+        await scoreShown(page)
+        const status = (): Promise<string> => page.textContent('#status').then(t => t ?? '')
+        const waitStatus = (re: RegExp): Promise<unknown> => page.waitForFunction(
+            (src) => new RegExp(src).test(document.getElementById('status')!.textContent!), re.source)
+        const pressed = (code: string): Promise<string | null> => page.getAttribute(`.tool-button[data-action="${code}"]`, 'aria-pressed')
+
+        // N, Ctrl+3: a triplet of eighths; S starts a slur at D, F ends it
+        await page.focus('#viewport')
+        await page.keyboard.press('n')
+        await page.keyboard.press('ControlOrMeta+3')
+        await waitStatus(/^Rest.*Duration: Triplet Eighth/)
+        await page.keyboard.press('c')
+        await page.keyboard.press('d')
+        await waitStatus(/^Note;.*Pitch: D5; Duration: Triplet Eighth/)
+        await page.keyboard.press('s')
+        await page.waitForFunction(() => document.querySelector('.tool-button[data-action="add-slur"]')?.getAttribute('aria-pressed') === 'true')
+        await page.keyboard.press('e')
+        await page.keyboard.press('f')
+        await waitStatus(/^Note;.*Pitch: F5; Duration: Eighth;.*Beat: 2;/)
+        await page.keyboard.press('s')
+        await page.waitForFunction(() => document.querySelector('.tool-button[data-action="add-slur"]')?.getAttribute('aria-pressed') === 'false')
+        await page.keyboard.press('Escape')
+
+        // re-pitch mode (Ctrl+Shift+I) from the first note: new pitches, the rhythm stays
+        for (let i = 0; i < 3; ++i) {
+            const before = await status()
+            await page.keyboard.press('ArrowLeft')
+            await page.waitForFunction(b => document.getElementById('status')!.textContent !== b, before)
+        }
+        await waitStatus(/^Note;.*Pitch: C5; Duration: Triplet Eighth;.*Beat: 1;/)
+        await page.keyboard.press('ControlOrMeta+Shift+i')
+        // note input in the re-pitch mode (hidden in the default toolbar): the note name button is not pressed
+        await page.waitForFunction(() => document.querySelector('.tool-button[data-action="note-input-by-note-name"]')?.getAttribute('aria-pressed') === 'false')
+        await page.keyboard.press('g')
+        await waitStatus(/^Note;.*Pitch: G4; Duration: Triplet Eighth;.*Beat: 1;/)
+        await page.keyboard.press('a')
+        await waitStatus(/^Note;.*Pitch: A4; Duration: Triplet Eighth;.*Beat: 1\.33/)
+        expect(await pressed('note-input-by-note-name')).toBe('false')
+        await page.keyboard.press('Escape')
+
+        // the mouse in note input mode: the shadow note follows it, a click on the middle line of measure 2 enters a B4
+        await page.keyboard.press('n')
+        // zoom 100 % (Ctrl+0), the top of the first page in view
+        await page.keyboard.press('ControlOrMeta+0')
+        await page.waitForTimeout(400)
+        await page.evaluate(() => {
+            const v = document.getElementById('viewport')!
+            const pr = document.querySelector('.page')!.getBoundingClientRect()
+            v.scrollBy(0, pr.top - v.getBoundingClientRect().top - 20)
+        })
+        await page.waitForTimeout(400)
+        const p = (await page.locator('.page').first().boundingBox())!
+        const x = p.x + p.width * 0.38
+        // the staff lines in the page bitmap at that x (dark pixels), the middle one of the first staff
+        const lineY = await page.evaluate((fx) => {
+            const c = document.querySelector<HTMLCanvasElement>('.page canvas')!
+            const col = Math.round(c.width * fx)
+            const d = c.getContext('2d')!.getImageData(col, 0, 1, c.height).data
+            // runs of non-white rows (antialiased lines), their centers
+            const lines: number[] = []
+            let runStart = -1
+            for (let y = 0; y <= c.height; ++y) {
+                const dark = y < c.height && d[y * 4] < 245
+                if (dark && runStart < 0) {
+                    runStart = y
+                } else if (!dark && runStart >= 0) {
+                    lines.push((runStart + y - 1) / 2)
+                    runStart = -1
+                }
+            }
+            // the first five equally spaced runs are the staff lines
+            for (let i = 0; i + 4 < lines.length; ++i) {
+                const gap = lines[i + 1] - lines[i]
+                if ([2, 3, 4].every(k => Math.abs(lines[i + k] - lines[i + k - 1] - gap) <= 1)) {
+                    return (lines[i + 2] + 0.5) / c.height
+                }
+            }
+            return -1
+        }, 0.38)
+        expect(lineY).toBeGreaterThan(0)
+        const y = p.y + p.height * lineY
+        await page.mouse.move(x, y - 40)
+        await page.mouse.move(x, y, { steps: 4 })
+        await page.waitForSelector('.page canvas.shadow-note')
+        await page.mouse.click(x, y)
+        await waitStatus(/^Note;.*Pitch: B4;.*Measure: 2;/)
+        expect(await page.locator('.page canvas.shadow-note').count()).toBe(1)
+        await page.keyboard.press('Escape')
+        await page.mouse.move(x, y + 5)
+        await page.waitForFunction(() => !document.querySelector('.page canvas.shadow-note'))
         await context.close()
     }, 180000)
 
@@ -615,4 +718,202 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         expect(await page.getAttribute('button[aria-label="List view"]', 'aria-checked')).toBe('true')
         await context.close()
     })
+
+    // -----------------------------------------------------------------------------------------------------------
+    //   copy/paste, text editing, drag, lasso: the positions of the elements come from the same layout in node
+    // -----------------------------------------------------------------------------------------------------------
+
+    /** fractions of the first page (x, y) of the chord/rests of the first staff and of the measures of Amazing grace */
+    async function amazingGraceLayout(): Promise<{
+        cr: { x: number; y: number; type: string }[]
+        measures: { left: number; right: number; staffTop: number; staffBottom: number }[]
+        tempo: { x: number; y: number } | null
+    }> {
+        const score = await openScore(`${DEMOS}/Amazing_grace.mscz`)
+        const page = score.pages()[0]
+        const pw = page.ldata().bbox().width()
+        const ph = page.ldata().bbox().height()
+        const cr: { x: number; y: number; type: string }[] = []
+        const measures: { left: number; right: number; staffTop: number; staffBottom: number }[] = []
+        for (let m = score.firstMeasure(); m && measures.length < 6; m = m.nextMeasure()) {
+            const r = m.pageBoundingRect()
+            const sys = m.system()!
+            const st = sys.staff(0)!.bbox().translated(sys.pagePos())
+            measures.push({ left: r.left() / pw, right: r.right() / pw, staffTop: st.top() / ph, staffBottom: st.bottom() / ph })
+            for (let s = m.first(SegmentType.ChordRest); s; s = s.next(SegmentType.ChordRest)) {
+                const e = s.element(0)
+                if (e) {
+                    const target = e.isChord() ? (e as unknown as Chord).upNote() : e
+                    const c = target.pageBoundingRect().center()
+                    cr.push({ x: c.x() / pw, y: c.y() / ph, type: e.typeName() })
+                }
+            }
+        }
+        let tempo: { x: number; y: number } | null = null
+        score.scanElements(e => {
+            if (!tempo && e.isText() && e.parent()?.isVBox()) { // the title
+                const c = e.pageBoundingRect().center()
+                tempo = { x: c.x() / pw, y: c.y() / ph }
+            }
+        })
+        return { cr, measures, tempo }
+    }
+
+    async function openAmazingGrace(): Promise<{ page: Page; context: BrowserContext; box: { x: number; y: number; width: number; height: number } }> {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const box = (await page.locator('.page').first().boundingBox())!
+        // a selection and its end repaint the pages like after the edits (the first paint differs in antialiasing)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+a')
+        await page.waitForTimeout(500)
+        await page.keyboard.press('Escape')
+        await page.waitForTimeout(1000)
+        return { page, context, box }
+    }
+
+    const statusText = (page: Page): Promise<string> => page.textContent('#status').then(t => t ?? '')
+    const undoButton = '.tool-button[data-action="action://notation/undo"]'
+
+    /** keeps the pixels of the first page (to compare later with pixelsChanged) */
+    async function pageSnapshot(page: Page): Promise<string> {
+        await page.waitForTimeout(400) // the page is redrawn after a change
+        await page.evaluate(() => {
+            const c = document.querySelector<HTMLCanvasElement>('.page canvas')!
+            ;(window as unknown as { snapshot: Uint8ClampedArray }).snapshot = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data
+        })
+        return ''
+    }
+
+    /**
+     * the number of pixels of the first page that differ from the snapshot (the paint order of equal elements may
+     * change after a partial layout, which changes the antialiasing of a few hundred pixels)
+     */
+    async function pixelsChanged(page: Page): Promise<number> {
+        await page.waitForTimeout(400)
+        return page.evaluate(() => {
+            const c = document.querySelector<HTMLCanvasElement>('.page canvas')!
+            const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data
+            const s = (window as unknown as { snapshot: Uint8ClampedArray }).snapshot
+            if (s.length !== d.length) {
+                return d.length
+            }
+            let n = 0
+            for (let i = 0; i < d.length; i += 4) {
+                if (Math.abs(d[i] - s[i]) > 60 || Math.abs(d[i + 2] - s[i + 2]) > 60) {
+                    ++n
+                }
+            }
+            return n
+        })
+    }
+
+    it('copies a measure and pastes it into another measure (Ctrl+C, Ctrl+V), undoable', async () => {
+        const layout = await amazingGraceLayout()
+        const { page, context, box } = await openAmazingGrace()
+        const at = (fx: number, fy: number): [number, number] => [box.x + box.width * fx, box.y + box.height * fy]
+
+        await pageSnapshot(page)
+        // empty staff space in measure 2 selects the measure
+        const m2 = layout.measures[1]
+        await page.mouse.click(...at(m2.left + (m2.right - m2.left) * 0.9, m2.staffTop + (m2.staffBottom - m2.staffTop) * 0.1))
+        await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Range selection'))
+        expect(await statusText(page)).toContain('Start measure: 2')
+        await page.keyboard.press('ControlOrMeta+c')
+
+        // the first chord/rest of measure 4
+        const m4 = layout.measures[3]
+        const target = layout.cr.find(c => c.x > m4.left && c.x < m4.right)!
+        await page.mouse.click(...at(target.x, target.y))
+        await page.waitForFunction(() => /^(Note|Rest|Chord);.*Measure: 4/.test(document.getElementById('status')!.textContent!))
+        const targetStatus = await statusText(page)
+        await page.keyboard.press('ControlOrMeta+v')
+        await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Range selection'))
+        expect(await statusText(page)).toContain('Start measure: 4')
+        expect(await page.isDisabled(undoButton)).toBe(false)
+        await page.keyboard.press('Escape')
+        expect(await pixelsChanged(page)).toBeGreaterThan(50)
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.keyboard.press('Escape')
+        await page.mouse.click(...at(target.x, target.y))
+        await page.waitForFunction(() => /^(Note|Rest|Chord);.*Measure: 4/.test(document.getElementById('status')!.textContent!))
+        expect(await statusText(page)).toBe(targetStatus)
+        await context.close()
+    }, 180000)
+
+    it('adds a staff text (Ctrl+T) and types its text', async () => {
+        const layout = await amazingGraceLayout()
+        const { page, context, box } = await openAmazingGrace()
+        const note = layout.cr.find(c => c.type === 'Chord')!
+        await page.mouse.click(box.x + box.width * note.x, box.y + box.height * note.y)
+        await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Note;'))
+        await page.keyboard.press('ControlOrMeta+t')
+        await page.waitForFunction(() => document.activeElement?.classList.contains('notation-text-input'))
+        await page.keyboard.type('Allegro molto')
+        await page.keyboard.press('Backspace')
+        await page.keyboard.press('Backspace')
+        await page.keyboard.press('Escape') // ends text editing, the text stays selected
+        await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Staff text: Allegro mol'))
+        expect(await page.isDisabled(undoButton)).toBe(false)
+        await context.close()
+    }, 180000)
+
+    it('adds lyrics to two notes (Ctrl+L, hyphen to the next note)', async () => {
+        const layout = await amazingGraceLayout()
+        const { page, context, box } = await openAmazingGrace()
+        const notes = layout.cr.filter(c => c.type === 'Chord')
+        await page.mouse.click(box.x + box.width * notes[0].x, box.y + box.height * notes[0].y)
+        await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Note;'))
+        await page.keyboard.press('ControlOrMeta+l')
+        await page.waitForFunction(() => document.activeElement?.classList.contains('notation-text-input'))
+        await page.keyboard.type('A')
+        await page.keyboard.press('-') // next-syllable
+        await page.keyboard.type('maz')
+        await page.keyboard.press('Escape')
+        await page.waitForFunction(() => /^Lyrics: maz/.test(document.getElementById('status')!.textContent!))
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => !/^Lyrics: maz/.test(document.getElementById('status')!.textContent!))
+        await context.close()
+    }, 180000)
+
+    it('drags an element with the mouse (undoable) and selects with the lasso (Shift+drag)', async () => {
+        const layout = await amazingGraceLayout()
+        const { page, context, box } = await openAmazingGrace()
+        const at = (fx: number, fy: number): [number, number] => [box.x + box.width * fx, box.y + box.height * fy]
+        expect(layout.tempo).not.toBeNull()
+
+        // the title: press, move, release
+        await pageSnapshot(page)
+
+        const [tx, ty] = at(layout.tempo!.x, layout.tempo!.y)
+        await page.mouse.move(tx, ty)
+        await page.mouse.down()
+        for (let i = 1; i <= 5; ++i) {
+            await page.mouse.move(tx + 8 * i, ty + 4 * i)
+        }
+        await page.mouse.up()
+        await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Title'))
+        expect(await page.isDisabled(undoButton)).toBe(false)
+        expect(await pixelsChanged(page)).toBeGreaterThan(1000)
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.keyboard.press('Escape')
+        expect(await pixelsChanged(page)).toBeLessThan(800)
+
+        // lasso around the first two measures of the top staff (from empty space above the staff)
+        const m1 = layout.measures[0]
+        const m2 = layout.measures[1]
+        const h = m1.staffBottom - m1.staffTop
+        await page.keyboard.down('Shift')
+        await page.mouse.move(...at(m1.left + 0.01, m1.staffTop - 0.7 * h))
+        await page.mouse.down()
+        for (let i = 1; i <= 5; ++i) {
+            await page.mouse.move(...at(m1.left + 0.01 + (m2.right - m1.left) * i / 5, m1.staffTop - 0.7 * h + 2 * h * i / 5))
+        }
+        await page.mouse.up()
+        await page.keyboard.up('Shift')
+        await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Range selection'))
+        expect(await statusText(page)).toContain('Start measure: 1')
+        await context.close()
+    }, 180000)
 })

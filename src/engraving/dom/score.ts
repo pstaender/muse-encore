@@ -41,7 +41,7 @@ import { Transpose } from '../editing/transpose'
 import { Interval } from './interval'
 import { Selection, SelectType, SelState } from './select'
 import { SelectionFilter } from './selectionfilter'
-import { PointF } from '../../framework/draw/types/geometry'
+import { PointF, type RectF } from '../../framework/draw/types/geometry'
 import { nidx } from '../types/types'
 import { CHORD_REST_OR_TIME_TICK_TYPE } from './segment'
 import { y2pitch } from './utils'
@@ -54,6 +54,7 @@ import type { EditData } from '../editing/editdata'
 import { EIDRegister } from '../infrastructure/eidregister'
 import type { Excerpt } from './excerpt'
 import { SynthesizerState } from './synthesizerstate'
+import { ShadowNote } from './shadownote'
 
 export enum LayoutMode {
     PAGE, FLOAT, LINE, SYSTEM, HORIZONTAL_FIXED,
@@ -201,6 +202,7 @@ export class Score extends EngravingObject {
     private m_selectionFilter = new SelectionFilter()
     private m_selectionChanged = false // C++ m_updateState.selectionChanged
     private m_is = new InputState()
+    private m_shadowNote: ShadowNote | null = null
     protected m_updatesLocked = false
     protected m_needSetUpTempoMap = false
 
@@ -403,6 +405,11 @@ export class Score extends EngravingObject {
 
     inputState(): InputState { return this.m_is }
     setInputState(st: InputState): void { this.m_is = st.clone() }
+    /** the shadow note of note input (C++ m_shadowNote, created in the constructor; here on first use) */
+    shadowNote(): ShadowNote {
+        this.m_shadowNote ??= new ShadowNote(this)
+        return this.m_shadowNote
+    }
     noteEntryMode(): boolean { return this.m_is.noteEntryMode() }
     usingNoteEntryMethod(m: NoteEntryMethod): boolean { return this.m_is.usingNoteEntryMethod(m) }
 
@@ -421,6 +428,85 @@ export class Score extends EngravingObject {
         this.m_selection.remove(el)
         this.setSelectionChanged(true)
         this.m_selection.update()
+    }
+
+    // ---- lasso selection (score.cpp: lassoSelect, lassoSelectEnd) ----
+
+    /** selects the elements whose bounding box is in bbox (canvas coordinates) */
+    lassoSelect(bbox: RectF): void {
+        this.select(null, SelectType.SINGLE, 0)
+        const fr = bbox.normalized()
+        for (const page of this.pages()) {
+            const pr = page.ldata().bbox()
+            const frr = fr.translated(page.pos().times(-1))
+            if (pr.right() < frr.left()) {
+                continue
+            }
+            if (pr.left() > frr.right()) {
+                break
+            }
+
+            const items = page.items(frr)
+            const itemsToSelect: EngravingItem[] = []
+
+            for (const item of items) {
+                if (frr.contains(item.pageBoundingRect())) {
+                    if (!item.isMeasure() && item.selectable()) {
+                        itemsToSelect.push(item)
+                    }
+                }
+            }
+
+            this.select(itemsToSelect, SelectType.ADD, 0)
+        }
+    }
+
+    lassoSelectEnd(): void {
+        let noteRestCount = 0
+        let startSegment: Segment | null = null
+        let endSegment: Segment | null = null
+        let startStaff = 0x7fffffff
+        let endStaff = 0
+        let endCR: ChordRest | null = null
+
+        if (this.m_selection.elements().length === 0) {
+            this.m_selection.setState(SelState.NONE)
+            return
+        }
+        this.m_selection.setState(SelState.LIST)
+
+        for (let e of this.m_selection.elements()) {
+            if (!e.isNote() && !e.isRest()) {
+                continue
+            }
+            ++noteRestCount
+            if (e.isNote()) {
+                e = e.parentItem()!
+            }
+            const seg = (e as unknown as ChordRest).segment()
+            if (!startSegment || seg.lessThan(startSegment)) {
+                startSegment = seg
+            }
+            if (!endSegment || endSegment.lessThan(seg)) { // C++ *seg > *endSegment
+                endSegment = seg
+                endCR = e as unknown as ChordRest
+            }
+            const idx = e.staffIdx()
+            if (idx < startStaff) {
+                startStaff = idx
+            }
+            if (idx > endStaff) {
+                endStaff = idx
+            }
+        }
+        if (noteRestCount > 0) {
+            endSegment = endCR!.nextSegmentAfterCR(SegmentType.ChordRest | SegmentType.EndBarLine | SegmentType.Clef)
+            this.m_selection.setRange(startSegment, endSegment, startStaff, endStaff + 1)
+            if (!this.m_selection.isRange()) {
+                this.m_selection.setState(SelState.RANGE)
+            }
+            this.m_selection.updateSelectedElements()
+        }
     }
 
     /** staffIdx is valid, if element is of type MEASURE */

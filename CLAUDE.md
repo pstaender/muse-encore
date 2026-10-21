@@ -20,7 +20,8 @@ the desktop app. License: GPL-3.0-only (same as MuseScore).
 
 ```
 src/
-  framework/global      realfn (fuzzy float compare like muse::RealIsEqual)
+  framework/global      realfn (fuzzy float compare like muse::RealIsEqual), clipboard.ts (MimeData/Clipboard: the
+                        in-memory replacement of QMimeData/QApplication::clipboard(), synced with the browser by the editor)
   framework/draw        geometry, PainterPath, Transform, Pen/Brush/Font, Painter,
                         FontProvider (opentype.js, replaces Qt font metrics), canvas and SVG paint providers
   engraving/types       enums (types.ts), Fraction, Spatium, SymId (generated)
@@ -30,17 +31,22 @@ src/
   engraving/rw          XmlReader, readers (read460 for 4.x incl. read400/read410 compat, read302 for 3.x, read206 for 2.x),
                         rw/compat (chord list hook, CompatUtils incl. doCompatibilityConversions = compatconversions.ts),
                         XmlWriter, rw/write (Writer, TWrite, MeasureWrite, StaffWrite, ConnectorInfoWriter, WriteContext),
-                        MscSaver (.mscz contents); infrastructure/MscWriter (zip via fflate), EID/EIDRegister
+                        MscSaver (.mscz contents); infrastructure/MscWriter (zip via fflate), EID/EIDRegister;
+                        rw/rwregister.ts: the reader/writer the DOM uses for the clipboard (mime data, paste)
   engraving/compat      EngravingCompat (pre/post layout conversions of old files), page format, dummy element
   engraving/rendering/score  layout (ScoreLayout, SystemLayout, ChordLayout, ...) and painting (TDraw)
   engraving/rendering/single  SingleLayout/SingleDraw: standalone items (palette cells) on the palette score
+  engraving/rendering/editmode  EditModeRenderer: text cursor/selection of an edited text, grips
   engraving/editing     score changes (edit.cpp, cmd.cpp, ... as Score module augmentations) through the undo stack
                         (undo.ts: UndoStack/UndoMacro/UndoCommand; startCmd/endCmd/undoRedo in cmd.ts, CmdState in
-                        cmdstate.ts); dom/noteentry.ts and dom/input.ts (InputState) for note input; dom/range.ts
+                        cmdstate.ts); dom/noteentry.ts and dom/input.ts (InputState) for note input; textedit.ts
+                        (TextBase editing + its undo commands), editdata.ts/elementeditdata.ts (EditData: drag, grips,
+                        keys); dom/paste.ts (Score::cmdPaste, pasteStaff, ...), dom/select.ts mime data; dom/range.ts
                         (ScoreRange/TrackList) for rewriting measures (time signature changes)
   notation, project     MasterNotation / NotationParts / MasterNotationParts / NotationProject: creating new scores
                         (createScore), the part and staff commands of the Layout panel (editing/editpart.ts, editstaff.ts);
-                        NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input
+                        NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input;
+                        NotationMidiInput: the real-time advance (no MIDI)
   notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands)
   palette               palette tree/palettes/cells (palettecreator: default + master palettes), cell icons
                         (PaletteCellIconEngine, EngravingItemPreviewPainter); api.ts

@@ -745,6 +745,21 @@ export class Measure extends MeasureBase {
     getSegment(st: SegmentType, f: Fraction): Segment { return this.getSegmentR(st, f.minus(this.tick())) }
     undoGetSegment(st: SegmentType, f: Fraction): Segment { return this.undoGetSegmentR(st, f.minus(this.tick())) }
 
+    undoGetChordRestOrTimeTickSegment(f: Fraction): Segment {
+        let seg = this.findSegment(SegmentType.ChordRest, f)
+        if (!seg) {
+            seg = this.findSegment(SegmentType.TimeTick, f)
+        }
+        if (!seg) {
+            if (f.minus(this.tick()).eq(this.ticks())) { // end of measure
+                seg = this.undoGetSegment(SegmentType.TimeTick, f)
+            } else {
+                seg = this.undoGetSegment(SegmentType.ChordRest, f)
+            }
+        }
+        return seg
+    }
+
     getChordRestOrTimeTickSegment(f: Fraction): Segment {
         let seg = this.findSegment(SegmentType.ChordRest, f)
         if (!seg) {

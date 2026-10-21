@@ -454,8 +454,10 @@ export class UndoMacro extends UndoCommand {
                 for (const sid of (command as unknown as { changedIds(): Iterable<Sid> }).changedIds()) {
                     result.changedStyleIdSet.add(sid)
                 }
+            } else if (type === CommandType.TextEdit) {
+                // TextEditUndoCommand (textedit.ts)
+                result.isTextEditing ||= (command as unknown as { cursor(): { editing(): boolean } }).cursor().editing()
             }
-            // TODO(port): TextEdit (TextEditUndoCommand::cursor().editing())
 
             if (undo) {
                 type = COMMAND_TYPE_INVERSION.get(type) ?? type
@@ -587,7 +589,14 @@ export class UndoStack {
     }
 
     undo(ed: EditData | null): void {
-        // TODO(port): text editing (TextEditData::startUndoIdx)
+        // Are we currently editing text?
+        if (ed && ed.element && ed.element.isTextBase()) {
+            const ted = ed.getData(ed.element) as { startUndoIdx?: number } | null // TextEditData (textedit.ts)
+            if (ted && ted.startUndoIdx !== undefined && ted.startUndoIdx === this.m_currentIndex) {
+                // No edits to undo, so do nothing
+                return
+            }
+        }
         if (this.m_currentIndex) {
             --this.m_currentIndex
             this.m_macroList[this.m_currentIndex].undo(ed)

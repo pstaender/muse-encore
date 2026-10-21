@@ -5,7 +5,6 @@
  *
  * Port of src/engraving/rw/write/writecontext.h/.cpp
  *
- * TODO(port): selection filter (SelectionFilter, clipboard writing of a selection)
  */
 
 import { Fraction } from '../../types/fraction'
@@ -13,6 +12,7 @@ import { nidx, type staff_idx_t, type track_idx_t } from '../../types/types'
 import type { EngravingItem } from '../../dom/engravingitem'
 import type { MeasureBase } from '../../dom/measurebase'
 import type { Score } from '../../dom/score'
+import type { SelectionFilter } from '../../dom/selectionfilter'
 
 export interface WriteRange {
     startMeasure: MeasureBase | null
@@ -28,6 +28,7 @@ export class WriteContext {
     private m_trackDiff = 0 // saved track is curTrack-trackDiff
     private m_clipboardmode = false // used to modify write() behaviour
     private m_range: WriteRange | null = null
+    private m_filter: SelectionFilter | null = null
 
     constructor(private readonly m_score: Score) {}
 
@@ -48,9 +49,29 @@ export class WriteContext {
     clipboardmode(): boolean { return this.m_clipboardmode }
     setClipboardmode(v: boolean): void { this.m_clipboardmode = v }
 
-    canWrite(_e: EngravingItem): boolean { return true }
-    canWriteNoteIdx(_noteIdx: number, _totalNotesInChord: number): boolean { return true }
-    canWriteVoice(_track: track_idx_t): boolean { return true }
+    setFilter(f: SelectionFilter): void { this.m_filter = f }
+
+    canWrite(e: EngravingItem): boolean {
+        if (!this.m_filter) {
+            return true
+        }
+        return this.m_filter.canSelect(e)
+    }
+
+    canWriteNoteIdx(noteIdx: number, totalNotesInChord: number): boolean {
+        if (!this.m_filter) {
+            return true
+        }
+        const sel = this.m_score.selection()
+        return this.m_filter.canSelectNoteIdx(noteIdx, totalNotesInChord, sel.rangeContainsMultiNoteChords())
+    }
+
+    canWriteVoice(track: track_idx_t): boolean {
+        if (!this.m_filter) {
+            return true
+        }
+        return this.m_filter.canSelectVoice(track)
+    }
 
     shouldWriteRange(): boolean { return this.m_range !== null }
     range(): WriteRange | null { return this.m_range }
@@ -64,5 +85,6 @@ export class WriteContext {
         this.m_trackDiff = o.m_trackDiff
         this.m_clipboardmode = o.m_clipboardmode
         this.m_range = o.m_range
+        this.m_filter = o.m_filter
     }
 }

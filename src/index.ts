@@ -58,6 +58,13 @@ import { SymId } from './engraving/types/symid'
 import { SymNames } from './engraving/types/symnames'
 import { BarLineType, ClefType, DynamicType, NoteHeadGroup, NoteHeadType, ParenthesesMode, nidx } from './engraving/types/types'
 import { KeyboardModifier } from './engraving/editing/editdata'
+// (imports of the copy/paste, text editing and drag section)
+import { MimeData, clipboard } from './framework/global/clipboard'
+import { KeyboardKey, MouseButton } from './engraving/editing/editdata'
+import { TextEditData } from './engraving/editing/textedit'
+import { mimeStaffListFormat, mimeSymbolFormat, mimeSymbolListFormat } from './engraving/dom/mscore'
+import type { ViewMouseEvent } from './notationscene/notationviewinputcontroller'
+import type { NotationKeyEvent } from './notation/internal/notationinteraction'
 // (imports of the parts section)
 import { MasterNotationParts } from './notation/internal/masternotationparts'
 import { InsertMode as PartsInsertMode } from './notation/internal/notationparts'
@@ -235,6 +242,7 @@ function drawSelectionRange(score: MasterScore, pageIdx: number, painter: Painte
     if (noteInputCursorPage(score) === pageIdx) {
         drawNoteInputCursor(score, painter)
     }
+    drawEditMode(score, page, painter, scaling)
     painter.translate(pagePos)
 }
 
@@ -1360,4 +1368,315 @@ export function addInstruments(score: MasterScore, instrumentIds: readonly strin
         }
     }
     return setInstruments(score, specs.map(s => s.spec))
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+//   copy/paste, text editing, drag and lasso (MuseScore's notation view: NotationViewInputController mouse and key
+//   events, NotationInteraction): the clipboard is the library's in-memory clipboard; the UI synchronizes it with the
+//   system clipboard (clipboardContents / setClipboardContents)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** the formats ('application/musescore/stafflist', ..., 'text/plain') and data of the clipboard */
+export function clipboardContents(): Record<string, string> {
+    const m = clipboard().mimeData()
+    const res: Record<string, string> = {}
+    for (const f of m.formats()) {
+        res[f] = m.data(f)
+    }
+    return res
+}
+
+export function setClipboardContents(data: Record<string, string>): void {
+    const m = new MimeData()
+    for (const [f, d] of Object.entries(data)) {
+        m.setData(f, d)
+    }
+    clipboard().setMimeData(m)
+}
+
+/** the actions whose shortcuts apply while a text is edited and have priority then (MuseScore's CTX_NOTATION_TEXT_EDITING) */
+export function isTextEditingAction(code: string): boolean {
+    return TEXT_EDITING_ACTIONS.has(code)
+}
+
+const TEXT_EDITING_ACTIONS: ReadonlySet<string> = new Set([
+    'next-word', 'next-text-element', 'prev-text-element', 'next-lyric-verse', 'prev-lyric-verse', 'next-syllable',
+    'add-melisma', 'text-b', 'text-i', 'text-u', 'text-s', 'text-sub', 'text-sup',
+])
+
+/** the clipboard formats MuseScore's copy writes (mime types) */
+export const CLIPBOARD_FORMATS: readonly string[] = [mimeSymbolFormat, mimeSymbolListFormat, mimeStaffListFormat,
+    TextEditData.mimeRichTextFormat]
+
+/** the selection as MuseScore's clipboard data (format and xml text), null without a selection */
+export function selectionMimeData(score: MasterScore): { format: string; data: string } | null {
+    const sel = score.selection()
+    const format = sel.mimeType()
+    if (!format || !sel.canCopy()) {
+        return null
+    }
+    return { format, data: sel.mimeData() }
+}
+
+/** a pointer event of the view: page and position on it (inches from its top left), as for selectAt */
+export interface ViewPointerEvent {
+    page: number
+    x: number
+    y: number
+    /** the position in view pixels (the drag threshold) */
+    clientX: number
+    clientY: number
+    /** 0 left, 1 middle, 2 right (DOM MouseEvent.button) */
+    button: number
+    /** DOM MouseEvent.buttons */
+    buttons: number
+    shift: boolean
+    /** Ctrl (Cmd on macOS) */
+    ctrl: boolean
+    alt: boolean
+    /** pixels per inch of the view (hit tolerance); default 100 */
+    dpi?: number
+}
+
+function viewMouseEvent(score: MasterScore, e: ViewPointerEvent): ViewMouseEvent | null {
+    const pos = pagePointToCanvas(score, e.page, e.x, e.y)
+    if (!pos) {
+        return null
+    }
+    const button = e.button === 1 ? MouseButton.MiddleButton : e.button === 2 ? MouseButton.RightButton : MouseButton.LeftButton
+    const buttons = ((e.buttons & 1) ? MouseButton.LeftButton : 0) | ((e.buttons & 2) ? MouseButton.RightButton : 0)
+        | ((e.buttons & 4) ? MouseButton.MiddleButton : 0)
+    const modifiers = (e.shift ? KeyboardModifier.ShiftModifier : 0) | (e.ctrl ? KeyboardModifier.ControlModifier : 0)
+        | (e.alt ? KeyboardModifier.AltModifier : 0)
+    return { logicPos: pos, physicalPos: { x: e.clientX, y: e.clientY }, button, buttons, shift: e.shift, ctrl: e.ctrl, alt: e.alt, modifiers }
+}
+
+/** C++ NotationViewInputController::mousePressEvent (selection, start of drags, grips, text cursor) */
+export function viewMousePress(score: MasterScore, e: ViewPointerEvent): void {
+    const ev = viewMouseEvent(score, e)
+    if (ev) {
+        notationState(score).controller.mousePressEvent(ev, hitWidth(e.dpi ?? 100))
+    }
+}
+
+/**
+ * C++ mouseMoveEvent (drag of elements and grips, lasso with Shift on empty space, text selection); returns the
+ * logical move of the canvas (inches) when the view should be moved instead
+ */
+export function viewMouseMove(score: MasterScore, e: ViewPointerEvent): { moveCanvas: { x: number; y: number } | null } {
+    const ev = viewMouseEvent(score, e)
+    if (!ev) {
+        return { moveCanvas: null }
+    }
+    const r = notationState(score).controller.mouseMoveEvent(ev)
+    return { moveCanvas: r.moveCanvas ? { x: r.moveCanvas.x() / DPI, y: r.moveCanvas.y() / DPI } : null }
+}
+
+export function viewMouseRelease(score: MasterScore, e: ViewPointerEvent): void {
+    const ev = viewMouseEvent(score, e)
+    if (ev) {
+        notationState(score).controller.mouseReleaseEvent(ev)
+    }
+}
+
+/** C++ mouseDoubleClickEvent (starts text editing, selects a word or all notes of a chord) */
+export function viewMouseDoubleClick(score: MasterScore, e: ViewPointerEvent): void {
+    const ev = viewMouseEvent(score, e)
+    if (ev) {
+        notationState(score).controller.mouseDoubleClickEvent(ev)
+    }
+}
+
+/** to be called after the double click interval (C++ QTimer): a third click selects the whole text */
+export function viewResetTripleClick(score: MasterScore): void {
+    notationState(score).controller.resetTripleClick()
+}
+
+/** a key press like DOM's KeyboardEvent (key, code); ctrl is Cmd on macOS, meta is Control on macOS */
+export interface ViewKeyEvent {
+    key: string
+    code?: string
+    shift: boolean
+    ctrl: boolean
+    alt: boolean
+    meta?: boolean
+}
+
+const DOM_KEYS: Record<string, number> = {
+    Escape: KeyboardKey.Key_Escape, Tab: KeyboardKey.Key_Tab, Backspace: KeyboardKey.Key_Backspace,
+    Enter: KeyboardKey.Key_Return, Insert: KeyboardKey.Key_Insert, Delete: KeyboardKey.Key_Delete,
+    Home: KeyboardKey.Key_Home, End: KeyboardKey.Key_End, ArrowLeft: KeyboardKey.Key_Left, ArrowUp: KeyboardKey.Key_Up,
+    ArrowRight: KeyboardKey.Key_Right, ArrowDown: KeyboardKey.Key_Down, PageUp: KeyboardKey.Key_PageUp,
+    PageDown: KeyboardKey.Key_PageDown, Shift: KeyboardKey.Key_Shift, Control: KeyboardKey.Key_Control,
+    Meta: KeyboardKey.Key_Meta, Alt: KeyboardKey.Key_Alt, F2: KeyboardKey.Key_F2,
+}
+
+/** the Qt key event (Qt::Key, modifiers, text) of a DOM key event */
+function notationKeyEvent(e: ViewKeyEvent): NotationKeyEvent {
+    let key = DOM_KEYS[e.key] ?? 0
+    let text = ''
+    if (!key && e.key.length > 0 && [...e.key].length === 1) {
+        text = e.key
+        // Qt keys of characters are their upper case code (Key_A = 'A')
+        key = e.key.toUpperCase().codePointAt(0)!
+        if (e.key === ' ') {
+            key = KeyboardKey.Key_Space
+        }
+    }
+    if (e.key === 'Backtab' || (e.key === 'Tab' && e.shift)) {
+        key = KeyboardKey.Key_Backtab
+    }
+    if ((e.ctrl || e.meta) && !e.alt) {
+        text = '' // no text with Ctrl (like Qt on macOS)
+    }
+    const modifiers = (e.shift ? KeyboardModifier.ShiftModifier : 0) | (e.ctrl ? KeyboardModifier.ControlModifier : 0)
+        | (e.alt ? KeyboardModifier.AltModifier : 0) | (e.meta ? KeyboardModifier.MetaModifier : 0)
+        | (e.code?.startsWith('Numpad') ? KeyboardModifier.KeypadModifier : 0)
+    return { key, modifiers, text }
+}
+
+/**
+ * C++ shortcutOverrideEvent: true if the key goes to the notation view (editing of a text or element, Enter to edit
+ * a selected text) instead of being a shortcut; then viewKeyPress handles it
+ */
+export function viewShortcutOverride(score: MasterScore, e: ViewKeyEvent): boolean {
+    return notationState(score).controller.shortcutOverrideEvent(notationKeyEvent(e))
+}
+
+/** C++ keyPressEvent (editing of the edited text or element); returns true if the key was handled */
+export function viewKeyPress(score: MasterScore, e: ViewKeyEvent): boolean {
+    return notationState(score).controller.keyPressEvent(notationKeyEvent(e))
+}
+
+/** C++ inputMethodEvent: text typed into the edited text (commit), or the preedit string of an input method composition */
+export function viewInputText(score: MasterScore, commit: string, preedit = ''): void {
+    notationState(score).controller.inputMethodEvent(commit, preedit)
+}
+
+export interface TextEditingInfo {
+    /** a text is edited */
+    active: boolean
+    /** MuseScore's xml name of the edited element ("StaffText", "Lyrics", ...) */
+    type: string
+    /** the text cursor (inches from the page's top left) */
+    cursor: { page: number; x: number; y: number; width: number; height: number } | null
+    /** the plain text */
+    text: string
+}
+
+export function textEditingInfo(score: MasterScore): TextEditingInfo {
+    const interaction = notationState(score).interaction
+    const text = interaction.isTextEditingStarted() ? interaction.editedText() : null
+    if (!text) {
+        return { active: false, type: '', cursor: null, text: '' }
+    }
+    let cursor: TextEditingInfo['cursor'] = null
+    const page = text.findAncestor(ElementType.PAGE) as unknown as { pos(): PointF } | null
+    if (page) {
+        const r = text.cursor().cursorRect().translated(text.canvasPos()).translated(page.pos().times(-1))
+        cursor = { page: score.pages().indexOf(page as never), x: r.x() / DPI, y: r.y() / DPI, width: r.width() / DPI, height: r.height() / DPI }
+    }
+    return { active: true, type: text.typeName(), cursor, text: text.plainText() }
+}
+
+/** true while elements, a grip or the lasso are dragged */
+export function isDragging(score: MasterScore): boolean {
+    return notationState(score).interaction.isDragStarted()
+}
+
+/** the edit mode overlays: the edited text (cursor, selection, frame), the grips, the lasso */
+function drawEditMode(score: MasterScore, page: EngravingItem, painter: Painter, scaling: number): void {
+    const interaction = notationState(score).interaction
+    const opt = { isPrinting: false }
+    const edited = interaction.editData().element
+    if (edited && edited.findAncestor(ElementType.PAGE) === page) {
+        interaction.drawTextEditMode(painter, scaling, opt)
+        interaction.drawGripPoints(painter, scaling, opt)
+    }
+    interaction.drawLasso(painter, scaling)
+}
+
+//   note input in the view: the shadow note at the mouse position, the right click, changes made by a timer
+//   (MuseScore's NotationViewInputController hover/right click, NotationInteraction::showShadowNoteForPosition)
+// ---------------------------------------------------------------------------------------------------------------------
+
+import { TDraw } from './engraving/rendering/score/tdraw'
+
+/** a rectangle on a page (inches from the page's top left) */
+export interface PageRect {
+    page: number
+    x: number
+    y: number
+    width: number
+    height: number
+}
+
+function pageRectOf(score: MasterScore, pageIdx: number, r: RectF): PageRect | null {
+    const page = score.pages()[pageIdx]
+    if (!page || !r.isValid()) {
+        return null
+    }
+    const pr = r.translated(page.pos().times(-1))
+    return { page: pageIdx, x: pr.x() / DPI, y: pr.y() / DPI, width: pr.width() / DPI, height: pr.height() / DPI }
+}
+
+/**
+ * In note input mode: shows the shadow note (the preview of the note a click would enter) at a point of a page
+ * (inches from the page's top left), like moving the mouse over MuseScore's notation view. Returns its bounds for
+ * repainting (drawShadowNote), null if it is not shown (not in note input mode or no input position there).
+ */
+export function showShadowNote(score: MasterScore, pageIdx: number, x: number, y: number): PageRect | null {
+    const pos = pagePointToCanvas(score, pageIdx, x, y)
+    const st = notationState(score)
+    if (!pos || !st.controller.hoverMove(pos)) {
+        if (score.shadowNote().visible()) {
+            st.controller.hoverLeave()
+        }
+        return null
+    }
+    return pageRectOf(score, pageIdx, st.interaction.shadowNoteRect())
+}
+
+/** hides the shadow note (the mouse left the view); returns true if it was shown */
+export function hideShadowNote(score: MasterScore): boolean {
+    const shown = score.shadowNote().visible() && score.shadowNote().isValid()
+    notationState(score).controller.hoverLeave()
+    return shown
+}
+
+/**
+ * Draws only the shadow note (if shown) onto a transparent canvas, with the same coordinates as drawPage (dpi,
+ * region): MuseScore's view paints it over the score.
+ */
+export function drawShadowNote(score: MasterScore, pageIdx: number, ctx: Canvas2D,
+    options: { dpi?: number; region?: { x: number; y: number; width: number; height: number } } = {}): void {
+    const page = score.pages()[pageIdx]
+    const note = score.shadowNote()
+    if (!page || !note.visible() || !note.isValid()) {
+        return
+    }
+    const dpi = options.dpi ?? 100
+    const scale = dpi / DPI
+    const r = options.region
+    const provider = new CanvasPaintProvider(ctx, new Transform(scale, 0, 0, scale, r ? -r.x : 0, r ? -r.y : 0))
+    const painter = new Painter(provider, fontProvider(), 'shadow_' + pageIdx)
+    painter.translate(page.pos().times(-1))
+    TDraw.drawItem(note, painter, { isPrinting: false }) // C++ score()->renderer()->drawItem(shadowNote)
+}
+
+/**
+ * A right click at a point of a page in note input mode removes the note there (MuseScore's "remove-note"); returns
+ * false outside of note input mode. The score is laid out again.
+ */
+export function rightClickAt(score: MasterScore, pageIdx: number, x: number, y: number): boolean {
+    const pos = pagePointToCanvas(score, pageIdx, x, y)
+    return !!pos && notationState(score).controller.rightClick(pos)
+}
+
+/**
+ * Calls the listener after changes that were not made by a call of this API: the real-time note input advances by
+ * a timer ("realtime-advance" in the automatic real-time mode). Returns a function that removes the listener.
+ */
+export function onNotationChanged(score: MasterScore, listener: () => void): () => void {
+    return notationState(score).interaction.notationChanged().onNotify(listener)
 }

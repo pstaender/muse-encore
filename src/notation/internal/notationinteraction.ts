@@ -7,9 +7,10 @@
  * selection, the editing commands (startEdit/apply around the Score commands), undo/redo, and of
  * notationselectionrange.cpp.
  *
- * TODO(port): drag, grips, text editing, showItem (the UI scrolls to selectionBounds()),
- * the hit element context, playback, moveElementSelection (next/prev-element: Score::nextElement/prevElement),
- * moveStringSelection.
+ * The copy/paste, text editing and drag sections are at the end of the class.
+ *
+ * TODO(port): showItem (the UI scrolls to selectionBounds()), playback, moveElementSelection (next/prev-element:
+ * Score::nextElement/prevElement), moveStringSelection, anchor lines, drop of dragged palette items / mime data.
  */
 
 import { PointF, RectF } from '../../framework/draw/types/geometry'
@@ -60,6 +61,55 @@ import type { LayoutBreak } from '../../engraving/dom/layoutbreak'
 import type { Spanner } from '../../engraving/dom/spanner'
 import type { Hairpin } from '../../engraving/dom/hairpin'
 import type { Clef } from '../../engraving/dom/clef'
+// (imports of the copy/paste, editing and drag sections)
+import { Fraction } from '../../engraving/types/fraction'
+import { FontStyle, LyricsSyllabic, TextStyleType, trackZeroVoice } from '../../engraving/types/types'
+import { MScore, MsError } from '../../engraving/dom/mscore'
+import { XmlReader } from '../../engraving/rw/xmlreader'
+import { MimeData, clipboard } from '../../framework/global/clipboard'
+import { Grip, KeyboardKey, MouseButton } from '../../engraving/editing/editdata'
+import { RemoveText, TextEditData } from '../../engraving/editing/textedit'
+import { SelectTextType, TextCursorMoveMode, TextCursorMoveOperation, VerticalAlignment, textBaseRenderer, type TextBase } from '../../engraving/dom/textbase'
+import { HarmonyType, type Harmony } from '../../engraving/dom/harmony'
+import { Lyrics } from '../../engraving/dom/lyrics'
+import { Lasso } from '../../engraving/dom/lasso'
+import { segmentsAreAdjacent } from '../../engraving/dom/utils'
+import { EditModeRenderer } from '../../engraving/rendering/editmode/editmoderenderer'
+import { Color } from '../../framework/draw/types/color'
+import { mtrc } from '../../framework/global/translation'
+import { isVerticalBoxTextStyle } from '../notationtypes'
+import type { ElementGroup } from '../../engraving/dom/elementgroup'
+import type { PaintOptions } from '../../engraving/rendering/paintoptions'
+import type { TBox } from '../../engraving/dom/box'
+import type { FretDiagram } from '../../engraving/dom/fret'
+import '../../engraving/dom/paste'
+// (imports of the note input section)
+import { Constants } from '../../engraving/types/constants'
+import { NoteHeadGroup, type BeamMode } from '../../engraving/types/types'
+import { Sid } from '../../engraving/style/styledef'
+import { Note as NoteInputNote } from '../../engraving/dom/note'
+import { Tuplet } from '../../engraving/dom/tuplet'
+import { TDuration as TDurationValue } from '../../engraving/dom/durationtype'
+import { MScore as NoteInputMScore, MsError as NoteInputMsError } from '../../engraving/dom/mscore'
+import { ScoreRenderer } from '../../engraving/rendering/score/scorerenderer'
+import { NoteType as GraceNoteType } from '../../engraving/dom/chordrest'
+import { isNotesIntervalValid, type TupletOptions } from '../notationtypes'
+import type { ShadowNote } from '../../engraving/dom/shadownote'
+import type { Slur } from '../../engraving/dom/slur'
+import type { OttavaType } from '../../engraving/dom/ottava'
+import type { HairpinType } from '../../engraving/dom/hairpin'
+import type { Position } from '../../engraving/dom/score'
+import type { SymId } from '../../engraving/types/symid'
+import { ArticulationsUpdateMode, flipArticulations, splitArticulations } from '../../engraving/dom/articulation'
+import { PlacementV } from '../../engraving/types/types'
+
+/** C++ NotationInteraction::ShadowNoteParams */
+interface ShadowNoteParams {
+    duration: TDuration
+    accidentalType: AccidentalType
+    articulationIds: ReadonlySet<SymId>
+    position: Position
+}
 
 export enum MoveDirection {
     Undefined, Left, Right, Up, Down,
@@ -161,21 +211,520 @@ export class NotationInteraction {
     }
 
     undo(): void {
-        this.m_undoStack.undo()
+        this.m_undoStack.undo(this.m_editData)
     }
 
     redo(): void {
-        this.m_undoStack.redo()
+        this.m_undoStack.redo(this.m_editData)
     }
 
     /** C++ showItem(): the view scrolls to the item; here the UI scrolls to selectionBounds() after a command */
     showItem(_el: EngravingItem | null): void {}
 
-    /** TODO(port): the shadow note (note input preview at the mouse position) */
-    hideShadowNote(): void {}
-
     /** C++ checkAndShowError(): shows MScore's last error (MScoreErrorsController); TODO(port): error messages */
     checkAndShowError(): void {}
+
+    // =================================================================================================================
+    //   note input: the shadow note, slurs, tuplets, lines, grace notes, beams, intervals (section of the note input
+    //   port; notationinteraction.cpp)
+    // =================================================================================================================
+
+    private m_shadowNoteChanged = new Notification()
+
+    shadowNote(): ShadowNote {
+        return this.score().shadowNote()
+    }
+
+    /** returns true if the shadow note is shown (C++ sends shadowNoteChanged(visible)) */
+    showShadowNoteForPosition(pos: PointF): boolean {
+        const inputState = this.score().inputState()
+        const shadowNote = this.score().shadowNote()
+
+        const position = this.score().getPosition(pos, inputState.voice())
+        if (!position) {
+            shadowNote.setVisible(false)
+            this.m_shadowNoteChanged.notify()
+            return false
+        }
+
+        const params: ShadowNoteParams = {
+            duration: inputState.duration(),
+            accidentalType: inputState.accidentalType(),
+            articulationIds: inputState.articulationIds(),
+            position,
+        }
+
+        const show = this.doShowShadowNote(shadowNote, params)
+        this.m_shadowNoteChanged.notify()
+        return show
+    }
+
+    private doShowShadowNote(shadowNote: ShadowNote, params: ShadowNoteParams): boolean {
+        const position = params.position
+
+        const inputState = this.score().inputState()
+        const staff = this.score().staff(position.staffIdx)!
+
+        let segment = position.segment!
+        let segmentSkylineTopY = 0
+        let segmentSkylineBottomY = 0
+
+        const shadowNoteActualSegment = position.segment!.prev1enabled()
+        if (shadowNoteActualSegment) {
+            segment = shadowNoteActualSegment
+            segmentSkylineTopY = shadowNoteActualSegment.elementsTopOffsetFromSkyline(position.staffIdx)
+            segmentSkylineBottomY = shadowNoteActualSegment.elementsBottomOffsetFromSkyline(position.staffIdx)
+        }
+
+        const tick = segment.tick()
+        const mag = staff.staffMag(tick)
+
+        const instr = staff.part().instrument(tick)
+
+        // in any empty measure, pos will be right next to barline
+        // so pad this by barNoteDistance
+        const relX = position.pos.x() - position.segment!.measure().canvasPos().x()
+        position.pos.setX(position.pos.x() - Math.min(relX - this.score().style().styleMM(Sid.barNoteDistance) * mag, 0.0))
+
+        let noteheadGroup = NoteHeadGroup.HEAD_NORMAL
+        const noteHead = params.duration.headType()
+
+        const line = position.line
+        let voice = 0
+        let drumNotePitch = -1
+
+        if (instr.useDrumset()) {
+            const ds = instr.drumset()!
+
+            const noteInputPitch = inputState.drumNote()
+
+            if (ds.isValid(noteInputPitch) && ds.line(noteInputPitch) === line) {
+                noteheadGroup = ds.noteHead(noteInputPitch)
+                voice = ds.voice(noteInputPitch)
+                drumNotePitch = noteInputPitch
+            } else {
+                const pitch = ds.defaultPitchForLine(line)
+                if (ds.isValid(pitch)) {
+                    noteheadGroup = ds.noteHead(pitch)
+                    voice = ds.voice(pitch)
+                    drumNotePitch = pitch
+                }
+                if (drumNotePitch < 0) {
+                    shadowNote.setVisible(false)
+                    return false
+                }
+            }
+        } else {
+            voice = inputState.voice()
+        }
+
+        shadowNote.setVisible(true)
+        shadowNote.mutldata().setMag(mag)
+        shadowNote.setTick(tick)
+        shadowNote.setStaffIdx(position.staffIdx)
+        shadowNote.setVoice(voice)
+        shadowNote.setLineIndex(line)
+
+        // C++: configuration()->noteInputPreviewColor() (default: the selection color, so the highlight color is used)
+        shadowNote.setColor(EngravingConfiguration.highlightSelectionColor(voice))
+
+        let symNotehead: SymId
+
+        if (inputState.rest()) {
+            const rest = Factory.createItem(ElementType.REST, scoreDummy(this.score()).segment()) as unknown as Rest
+            rest.setDurationType(params.duration)
+            rest.setTicks(params.duration.fraction())
+            symNotehead = rest.getSymbol(params.duration.type(), 0, staff.lines(position.segment!.tick()))
+            shadowNote.setState(symNotehead, params.duration, true, segmentSkylineTopY, segmentSkylineBottomY)
+        } else {
+            if (noteheadGroup === NoteHeadGroup.HEAD_CUSTOM) {
+                symNotehead = instr.drumset()!.noteHeads(drumNotePitch, noteHead)
+            } else {
+                symNotehead = NoteInputNote.noteHeadSym(0, noteheadGroup, noteHead)
+            }
+
+            shadowNote.setState(symNotehead, params.duration, false, segmentSkylineTopY, segmentSkylineBottomY,
+                params.accidentalType, params.articulationIds)
+        }
+
+        ScoreRenderer.layoutItem(shadowNote)
+
+        shadowNote.setPos(position.pos)
+
+        return true
+    }
+
+    hideShadowNote(): void {
+        this.score().shadowNote().setVisible(false)
+        this.m_shadowNoteChanged.notify()
+    }
+
+    /** in canvas coordinates; empty if there is no visible shadow note */
+    shadowNoteRect(): RectF {
+        const note = this.score().shadowNote()
+        if (!note.visible() || !note.isValid()) {
+            return new RectF()
+        }
+
+        const rect = note.canvasBoundingRect()
+
+        let penWidth = note.style().styleMM(Sid.stemWidth)
+        if (note.ledgerLinesVisible()) {
+            const w = note.style().styleMM(Sid.ledgerLineWidth)
+            penWidth = Math.max(penWidth, w)
+        }
+
+        penWidth *= note.mag()
+        return rect.adjusted(-penWidth, -penWidth, penWidth, penWidth)
+    }
+
+    shadowNoteChanged(): Notification { return this.m_shadowNoteChanged }
+
+    addSlurToSelection(): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        // Calls `startEdit` internally
+        this.doAddSlur()
+    }
+
+    /** NOTE Copied from ScoreView::cmdAddSlur */
+    doAddSlur(slurTemplate: Slur | null = null): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Add slur'))
+
+        let firstChordRest: ChordRest | null = null
+        let secondChordRest: ChordRest | null = null
+        const sel = this.score().selection()
+        const el = sel.uniqueElements()
+
+        if (sel.isRange()) {
+            const startTrack = staff2track(sel.staffStart())
+            const endTrack = staff2track(sel.staffEnd())
+            for (let track = startTrack; track < endTrack; ++track) {
+                firstChordRest = null
+                secondChordRest = null
+                for (let e of el) {
+                    if (e.track() !== track) {
+                        continue
+                    }
+                    if (e.isNote()) {
+                        e = (e as unknown as Note).chord()
+                    }
+                    if (!e.isChord()) {
+                        continue
+                    }
+                    const cr = e as unknown as ChordRest
+                    if (!firstChordRest || firstChordRest.tick().gt(cr.tick())) {
+                        firstChordRest = cr
+                    }
+                    if (!secondChordRest || secondChordRest.tick().lt(cr.tick())) {
+                        secondChordRest = cr
+                    }
+                }
+
+                const firstCrTrill = !!firstChordRest && firstChordRest.isChord() && (firstChordRest as unknown as Chord).isTrillCueNote()
+                const secondCrTrill = !!secondChordRest && secondChordRest.isChord() && (secondChordRest as unknown as Chord).isTrillCueNote()
+
+                if (firstChordRest && (firstChordRest !== secondChordRest) && !(firstCrTrill || secondCrTrill)) {
+                    this.doAddSlurBetween(firstChordRest, secondChordRest, slurTemplate)
+                }
+            }
+        } else if (sel.isSingle()) {
+            const element = sel.element()!
+            if (element.isNote() && !(element as unknown as Note).isTrillCueNote()) {
+                this.doAddSlurBetween((element as unknown as Note).chord(), null, slurTemplate)
+            }
+            // TODO(port): hammer-on/pull-off templates on a selected slur segment
+        } else {
+            let firstItem: EngravingItem | null = null
+            let secondItem: EngravingItem | null = null
+            for (let e of el) {
+                if (e.isNote()) {
+                    e = (e as unknown as Note).chord()
+                }
+
+                const meas = e.findMeasure()
+                const header = !!meas && meas.header() && e.tick().eq(meas.tick())
+
+                if (!e.isChord() && !e.isBarLine() && !header) {
+                    continue
+                }
+
+                if (!firstItem || e.isBefore(firstItem)) {
+                    firstItem = e
+                }
+                if (!secondItem || secondItem.isBefore(e)) {
+                    secondItem = e
+                }
+            }
+
+            if (firstChordRest === secondItem && (!firstItem || firstItem.isChordRest())) {
+                // TODO(port): ChordRestNavigateOptions disableOverRepeats
+                secondItem = nextChordRest(firstItem as unknown as ChordRest | null)
+            }
+
+            const firstCrTrill = !!firstItem && firstItem.isChord() && (firstItem as unknown as Chord).isTrillCueNote()
+            const secondCrTrill = !!secondItem && secondItem.isChord() && (secondItem as unknown as Chord).isTrillCueNote()
+
+            if (firstItem && secondItem && (firstItem.isChordRest() || secondItem.isChordRest()) && !(firstCrTrill || secondCrTrill)) {
+                this.doAddSlurBetween(firstItem, secondItem, slurTemplate)
+            }
+        }
+
+        this.apply()
+    }
+
+    /** C++ doAddSlur(EngravingItem* firstItem, EngravingItem* secondItem, const Slur* slurTemplate) */
+    private doAddSlurBetween(firstItem: EngravingItem, secondItem: EngravingItem | null, slurTemplate: Slur | null): void {
+        const meas = firstItem ? firstItem.findMeasure() : null
+        const header = !!meas && meas.header() && firstItem.tick().eq(meas.tick()) && !firstItem.isChordRest()
+
+        if (firstItem && secondItem
+            && ((firstItem.isBarLine() !== secondItem.isBarLine()) || (header && secondItem.isChordRest()))) {
+            // TODO(port): partial slurs (incoming/outgoing over a repeat bar line: undoSetIncoming/undoSetOutgoing)
+            return
+        }
+
+        const firstChordRest = firstItem as unknown as ChordRest
+        const secondChordRest = secondItem as unknown as ChordRest | null
+
+        let slur = firstChordRest.slur(secondChordRest)
+        if (!slur || slur.slurDirection() !== DirectionV.AUTO) {
+            slur = this.score().addSlur(firstChordRest, secondChordRest, slurTemplate)
+        }
+        // TODO(port): replacing an existing slur with a hammer-on/pull-off
+
+        if (this.m_noteInput.isNoteInputMode()) {
+            this.m_noteInput.addSlur(slur)
+        } else if (!secondItem) {
+            const segment = slur.frontSegment()
+            this.select([segment], SelectType.SINGLE)
+            // TODO(port): startEditGrip(segment, Grip::END)
+        }
+    }
+
+    addOttavaToSelection(type: OttavaType): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add ottava'))
+        this.score().cmdAddOttava(type)
+        this.apply()
+    }
+
+    addHairpinsToSelection(type: HairpinType): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add hairpin'))
+        const hairpins = this.score().addHairpins(type)
+        this.apply()
+
+        if (!this.noteInput().isNoteInputMode() && hairpins.length === 1) {
+            const segment = hairpins[0].frontSegment()
+            if (segment) {
+                this.select([segment], SelectType.SINGLE)
+            }
+            // TODO(port): startEditGrip(segment, Grip::END)
+        }
+    }
+
+    canAddTupletToSelectedChordRests(): boolean {
+        for (const chordRest of this.score().getSelectedChordRests()) {
+            if (chordRest.isGrace() || (chordRest.isChord() && (chordRest as unknown as Chord).isTrillCueNote())) {
+                continue
+            }
+
+            if (chordRest.durationType().lt(new TDurationValue(DurationType.V_512TH))
+                && !chordRest.durationType().equals(new TDurationValue(DurationType.V_MEASURE))) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    addTupletToSelectedChordRests(options: TupletOptions): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add tuplet'))
+
+        for (const chordRest of this.score().getSelectedChordRests()) {
+            if (!chordRest.isGrace() && !(chordRest.isChord() && (chordRest as unknown as Chord).isTrillCueNote())) {
+                let ratio = options.ratio
+                if (options.autoBaseLen) {
+                    ratio = new Fraction(ratio.numerator(), Tuplet.computeTupletDenominator(ratio.numerator(), chordRest.ticks()))
+                }
+                this.score().addTuplet(chordRest, ratio, options.numberType, options.bracketType)
+            }
+        }
+
+        this.apply()
+    }
+
+    addBeamToSelectedChordRests(mode: BeamMode): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Set beam type'))
+        this.score().cmdSetBeamMode(mode)
+        this.apply()
+    }
+
+    addGraceNotesToSelectedNotes(type: GraceNoteType): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        let denominator = 1
+
+        switch (type) {
+        case GraceNoteType.GRACE4:
+        case GraceNoteType.INVALID:
+        case GraceNoteType.NORMAL:
+            denominator = 1
+            break
+        case GraceNoteType.ACCIACCATURA:
+        case GraceNoteType.APPOGGIATURA:
+        case GraceNoteType.GRACE8_AFTER:
+            denominator = 2
+            break
+        case GraceNoteType.GRACE16:
+        case GraceNoteType.GRACE16_AFTER:
+            denominator = 4
+            break
+        case GraceNoteType.GRACE32:
+        case GraceNoteType.GRACE32_AFTER:
+            denominator = 8
+            break
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add grace note'))
+        this.score().cmdAddGrace(type, Constants.DIVISION / denominator)
+        this.apply()
+    }
+
+    addIntervalToSelectedNotes(interval: number): void {
+        if (!isNotesIntervalValid(interval)) {
+            return
+        }
+
+        let notes: Note[] = []
+
+        const score = this.score()
+        if (score.selection().isRange()) {
+            const hasMultiNoteChords = score.selection().rangeContainsMultiNoteChords()
+            for (const chordRest of score.getSelectedChordRests()) {
+                if (!chordRest.isChord()) {
+                    continue
+                }
+                const chord = chordRest as unknown as Chord
+                const nl = chord.notes()
+                if (interval > 0) {
+                    for (let noteIdx = nl.length; noteIdx > 0; --noteIdx) {
+                        if (score.selectionFilter().canSelectNoteIdx(noteIdx - 1, nl.length, hasMultiNoteChords)) {
+                            notes.push(nl[noteIdx - 1])
+                            break
+                        }
+                    }
+                } else {
+                    for (let noteIdx = 0; noteIdx < nl.length; ++noteIdx) {
+                        if (score.selectionFilter().canSelectNoteIdx(noteIdx, nl.length, hasMultiNoteChords)) {
+                            notes.push(nl[noteIdx])
+                            break
+                        }
+                    }
+                }
+            }
+        } else {
+            notes = score.selection().noteList()
+        }
+
+        if (!notes.length) {
+            NoteInputMScore.setError(NoteInputMsError.NO_NOTE_SELECTED)
+            this.checkAndShowError()
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add interval'))
+        score.addInterval(interval, notes)
+        this.apply()
+    }
+
+    addLaissezVibToSelection(): void {
+        // Calls `startEdit` internally
+        this.score().cmdToggleLaissezVib()
+
+        this.notifyAboutNotationChanged()
+    }
+
+    /** C++ toggleArticulation(SymId): the palette's toggle of an articulation (bowing actions) */
+    toggleArticulation(symId: SymId): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Toggle articulation'))
+        this.score().toggleArticulation(symId)
+        this.apply()
+    }
+
+    toggleArticulationForSelection(articulationSymbolId: SymId): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        const notes = this.score().selection().noteList()
+        if (!notes.length) {
+            // no notes, but maybe they have an articulation selected. we should use that chord
+            const e = this.score().selection().element()
+            if (e && e.isArticulationFamily()) {
+                const c = e.explicitParent() as unknown as Chord | null
+                if (c) {
+                    notes.unshift(...c.notes())
+                }
+            }
+        }
+
+        const updateMode = this.notesHaveActiculation(notes, articulationSymbolId)
+            ? ArticulationsUpdateMode.Remove : ArticulationsUpdateMode.Insert
+
+        const chords = new Set<Chord>()
+        for (const note of notes) {
+            if (note.isTrillCueNote()) {
+                return
+            }
+            chords.add(note.chord())
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Toggle articulation'))
+        for (const chord of chords) {
+            chord.updateArticulations(new Set([articulationSymbolId]), updateMode)
+        }
+        this.apply()
+    }
+
+    private notesHaveActiculation(notes: readonly Note[], articulationSymbolId: SymId): boolean {
+        for (const note of notes) {
+            const chord = note.chord()
+
+            let chordArticulations = chord.articulationSymbolIds()
+            chordArticulations = flipArticulations(chordArticulations, PlacementV.ABOVE)
+            chordArticulations = splitArticulations(chordArticulations)
+
+            if (!chordArticulations.has(articulationSymbolId)) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    // =================================================================================================================
+    //   (end of the note input section)
+    // =================================================================================================================
 
     // ---------------------------------------------------------------------------------
     // editing commands
@@ -241,11 +790,23 @@ export class NotationInteraction {
         }
 
         this.startEdit(new TranslatableString('undoableAction', 'Delete'))
-        // TODO(port): text editing (deleteSelectedText), element/grip editing
-        this.score().cmdDeleteSelection()
+
+        if (this.isTextEditingStarted()) {
+            const textBase = this.m_editData.element as unknown as TextBase
+            if (!textBase.deleteSelectedText(this.m_editData)) {
+                this.m_editData.key = KeyboardKey.Key_Backspace
+                this.m_editData.modifiers = 0
+                textBase.edit(this.m_editData)
+            }
+        } else {
+            this.doEndEditElement()
+            this.resetGripEdit()
+            this.score().cmdDeleteSelection()
+        }
 
         this.checkAndShowError()
         this.apply()
+        this.resetHitElementContext()
     }
 
     flipSelection(): void {
@@ -495,7 +1056,14 @@ export class NotationInteraction {
 
         const posOnPage = pos.minus(page.pos())
 
-        // TODO(port): text editing (the edited element is preferred)
+        if (this.isTextEditingStarted()) {
+            const editW = width * 2
+            const editHitRect = new RectF(posOnPage.x() - editW, posOnPage.y() - editW, 2.0 * editW, 2.0 * editW)
+            if (this.m_editData.element!.intersects(editHitRect)) {
+                hitElements.push(this.m_editData.element!)
+                return hitElements
+            }
+        }
 
         const hitRect = new RectF(posOnPage.x() - width, posOnPage.y() - width, 3.0 * width, 3.0 * width)
 
@@ -668,7 +1236,11 @@ export class NotationInteraction {
     }
 
     private doSelect(elements: readonly EngravingItem[], type: SelectType, staffIndex: staff_idx_t, controlModifier: boolean): void {
-        // TODO(port): end text/element editing
+        if (this.needEndTextEditing(elements)) {
+            this.endEditText()
+        } else if (this.needEndElementEditing(elements)) {
+            this.endEditElement()
+        }
 
         if (elements.length === 1 && type === SelectType.ADD && controlModifier) {
             if (this.score().selection().isRange()) {
@@ -721,7 +1293,12 @@ export class NotationInteraction {
     }
 
     selectAll(): boolean {
-        // TODO(port): text editing (select all text)
+        if (this.isTextEditingStarted()) {
+            const textBase = this.m_editData.element as unknown as TextBase
+            textBase.selectAll(textBase.cursorFromEditData(this.m_editData))
+            this.notifyAboutTextEditingChanged()
+            return true
+        }
         this.score().cmdSelectAll()
 
         return this.notifyAboutSelectionChangedIfNeed()
@@ -744,14 +1321,26 @@ export class NotationInteraction {
     }
 
     clearSelection(): boolean {
-        // TODO(port): end element editing, drag
+        if (this.isEditingElement()) {
+            this.endEditElement()
+        }
+
+        if (this.isDragStarted()) {
+            this.doEndDrag()
+            this.rollback()
+            this.notifyAboutNotationChanged()
+        }
+
         if (this.score().selection().isNone()) {
             return false
         }
 
         this.score().deselectAll()
 
-        return this.notifyAboutSelectionChangedIfNeed()
+        const changed = this.notifyAboutSelectionChangedIfNeed()
+
+        this.setHitElementContext({ element: null, staff: null })
+        return changed
     }
 
     /** Left/Right of the notation view (Score::move: next/prev-chord, measure, track) */
@@ -1125,7 +1714,7 @@ export class NotationInteraction {
         }
 
         if (element.isSlur()) {
-            // TODO(port): doAddSlur (ScoreView::cmdAddSlur)
+            this.doAddSlur(element as unknown as Slur)
             return
         }
 
@@ -1284,7 +1873,7 @@ export class NotationInteraction {
         }
 
         if (element.isSlur()) {
-            // TODO(port): doAddSlur (ScoreView::cmdAddSlur)
+            this.doAddSlur(element as unknown as Slur)
             return
         }
 
@@ -1406,15 +1995,2054 @@ export class NotationInteraction {
         }
     }
 
-    /** TODO(port): starting the edit of elements that need it (needStartEditingAfterSelecting: texts, lines) */
-    private selectAndStartEditIfNeeded(element: EngravingItem): void {
+    selectAndStartEditIfNeeded(element: EngravingItem): void {
         if (element.isSpanner() && (element as unknown as Spanner).spannerSegments().length) {
             element = (element as unknown as Spanner).spannerSegments()[0]
         }
 
         this.select([element], SelectType.SINGLE)
+
+        if (element.needStartEditingAfterSelecting()) {
+            this.startEditElement(element)
+        }
     }
 
+    // =================================================================================================================
+    //   copy/paste (copySelection, pasteSelection, swapSelection, repeatSelection): the clipboard is the application's
+    //   in-memory clipboard (framework/global/clipboard.ts, C++ QApplication::clipboard()); the UI synchronizes it
+    // =================================================================================================================
+
+    copySelection(): void {
+        if (!this.score().selection().canCopy()) {
+            this.checkAndShowError()
+            return
+        }
+
+        if (this.isTextEditingStarted()) {
+            this.m_editData.element!.editCopy(this.m_editData)
+            const ted = this.m_editData.getData(this.m_editData.element) as TextEditData
+            if (ted.selectedText.length) {
+                const mimeData = new MimeData()
+                mimeData.setData(TextEditData.mimeRichTextFormat, ted.selectedText)
+                mimeData.setText(ted.selectedPlainText)
+                clipboard().setMimeData(mimeData)
+            }
+        } else {
+            const mimeData = this.selectionQMimeData()
+            if (!mimeData) {
+                return
+            }
+            clipboard().setMimeData(mimeData)
+        }
+    }
+
+    /** C++ NotationSelection::qMimeData() */
+    selectionQMimeData(): MimeData | null {
+        const mimeType = this.score().selection().mimeType()
+        if (!mimeType) {
+            return null
+        }
+
+        const mimeData = new MimeData()
+        mimeData.setData(mimeType, this.score().selection().mimeData())
+        return mimeData
+    }
+
+    repeatSelection(): void {
+        const selection = this.score().selection()
+        if (this.score().noteEntryMode() && selection.isSingle()) {
+            // Single selections require special handling in note entry mode...
+            const el = selection.element()
+            if (!el || this.score().inputState().endOfScore()) {
+                return
+            }
+            let c: Chord | null = null
+            if (el.isNote()) {
+                c = (el as unknown as Note).chord()
+            } else if (el.isRest()) {
+                let prevSegment = (el as unknown as Rest).segment().prev1WithElemsOnTrack(el.track())
+
+                // Looking for the previous Chord
+                while (prevSegment) {
+                    if (prevSegment.element(el.track())!.isChord()) {
+                        c = prevSegment.element(el.track()) as unknown as Chord
+                        break
+                    }
+                    prevSegment = prevSegment.prev1WithElemsOnTrack(el.track())
+                }
+            }
+            if (c) {
+                this.startEdit(new TranslatableString('undoableAction', 'Repeat selection'))
+                for (const note of c.notes()) {
+                    const nval = note.noteVal()
+                    this.score().addPitch(nval, note !== c.notes()[0])
+                }
+                this.apply()
+            }
+            return
+        }
+
+        //! NOTE: Ideally we would use our copy-paste logic for this case, but this isn't
+        //! fully compatible with list selections right now...
+        if (selection.isList() && selection.noteList().length) {
+            const firstTick = selection.tickStart()
+            const lastTick = selection.tickEnd()
+            // Only "single-tick" list selections are currently supported...
+            if (!firstTick.eq(lastTick)) {
+                MScore.setError(MsError.CANNOT_REPEAT_SELECTION)
+                this.checkAndShowError()
+                return
+            }
+            this.startEdit(new TranslatableString('undoableAction', 'Repeat selection'))
+            if (!this.score().cmdRepeatListSelection()) {
+                this.rollback()
+                MScore.setError(MsError.CANNOT_REPEAT_SELECTION)
+                return
+            }
+            this.apply()
+            return
+        }
+
+        // If a list selection with no notes is a rest, convert to a range selection
+        if (selection.isList()) {
+            const cr = this.score().getSelectedChordRest()
+            if (!cr) {
+                MScore.setError(MsError.CANNOT_REPEAT_SELECTION)
+                this.checkAndShowError()
+                return
+            }
+            this.score().select([cr], SelectType.RANGE)
+        }
+
+        // Use copy-paste logic for range selections...
+        if (!selection.isRange() || !selection.canCopy()) {
+            MScore.setError(MsError.CANNOT_REPEAT_SELECTION)
+            this.checkAndShowError()
+            return
+        }
+
+        const xml = new XmlReader(selection.mimeData())
+        const dStaff = selection.staffStart()
+        let endSegment = selection.endSegment()
+
+        if (endSegment && endSegment.segmentType() !== SegmentType.ChordRest) {
+            endSegment = endSegment.next1(SegmentType.ChordRest)
+        }
+        if (!endSegment) {
+            return
+        }
+        for (let track = staff2track(dStaff); track < staff2track(dStaff + 1); ++track) {
+            const e = endSegment.element(track)
+            if (!e) {
+                continue
+            }
+            this.startEdit(new TranslatableString('undoableAction', 'Repeat selection'))
+            const cr = e as unknown as ChordRest
+            if (!this.score().pasteStaff(xml, cr.segment(), cr.staffIdx())) {
+                this.rollback()
+                this.checkAndShowError()
+                return
+            }
+            this.apply()
+
+            this.showItem(cr)
+            break
+        }
+    }
+
+    pasteSelection(scale: Fraction = new Fraction(1, 1)): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Paste'))
+
+        let succeeded = true
+        if (this.isTextEditingStarted()) {
+            this.pasteIntoTextEdit()
+        } else {
+            const mimeData = clipboard().mimeData()
+            succeeded = this.score().cmdPaste(mimeData, scale)
+            this.m_editData.element = null
+        }
+
+        if (succeeded) {
+            this.apply()
+            const pastedElement = this.score().selection().element()
+            if (pastedElement) {
+                this.selectAndStartEditIfNeeded(pastedElement)
+            }
+        } else {
+            this.rollback()
+        }
+
+        this.checkAndShowError()
+    }
+
+    private pasteIntoTextEdit(): void {
+        const mimeData = clipboard().mimeData()
+        const textBase = this.m_editData.element as unknown as TextBase
+        if (mimeData.hasFormat(TextEditData.mimeRichTextFormat)) {
+            const txt = mimeData.data(TextEditData.mimeRichTextFormat)
+            textBase.paste(this.m_editData, txt)
+            return
+        }
+
+        let clipboardText = mimeData.text()
+        let textForPaste = clipboardText
+        if ((!clipboardText.startsWith('<') || !clipboardText.includes('>')) && textBase.isLyrics()) {
+            textForPaste = extractSyllable(clipboardText)
+        }
+
+        textBase.paste(this.m_editData, textForPaste)
+
+        if (textForPaste.length === 0 || !textBase.isLyrics()) {
+            return
+        }
+
+        if (textForPaste.endsWith('-')) {
+            this.navigateToNextSyllable()
+        } else if (textForPaste.endsWith('_')) {
+            this.addMelisma()
+        } else {
+            this.navigateToLyrics(false, false, false)
+        }
+
+        clipboardText = clipboardText.substring(clipboardText.indexOf(textForPaste) + textForPaste.length)
+        clipboard().setText(clipboardText)
+    }
+
+    swapSelection(): void {
+        if (!this.score().selection().canCopy()) {
+            return
+        }
+
+        // Store the old selection...
+        const selection = this.score().selection()
+        const oldSelection = selection.mimeData()
+
+        // Paste using contents of clipboard...
+        this.pasteSelection()
+
+        // Save old selection to clipboard...
+        const mimeData = new MimeData()
+        mimeData.setData(selection.mimeType(), oldSelection)
+        clipboard().setMimeData(mimeData)
+    }
+
+    // =================================================================================================================
+    //   element and text editing (edit mode): startEditElement / editElement / endEditElement, text editing, adding
+    //   texts, lyrics and chord symbol navigation, nudging
+    // =================================================================================================================
+
+    private m_editData = new EditData()
+    private m_hitElementContext: HitElementContext = { element: null, staff: null }
+    private m_textEditingStarted = new Notification()
+    private m_textEditingChanged = new Notification()
+    private m_textEditingEnded = new Notification()
+    private m_isEditingElementChanged = new Notification()
+
+    editData(): EditData { return this.m_editData }
+
+    textEditingStarted(): Notification { return this.m_textEditingStarted }
+    textEditingChanged(): Notification { return this.m_textEditingChanged }
+    textEditingEnded(): Notification { return this.m_textEditingEnded }
+    isEditingElementChanged(): Notification { return this.m_isEditingElementChanged }
+
+    private notifyAboutTextEditingStarted(): void { this.m_textEditingStarted.notify() }
+    private notifyAboutTextEditingChanged(): void { this.m_textEditingChanged.notify() }
+    private notifyAboutTextEditingEnded(): void { this.m_textEditingEnded.notify() }
+
+    hitElementContext(): HitElementContext { return this.m_hitElementContext }
+    setHitElementContext(context: HitElementContext): void { this.m_hitElementContext = context }
+    resetHitElementContext(): void { this.setHitElementContext({ element: null, staff: null }) }
+
+    contextItem(): EngravingItem | null {
+        const item = this.score().selection().element()
+        return item ? item : this.hitElementContext().element
+    }
+
+    isTextSelected(): boolean {
+        const selectedElement = this.score().selection().element()
+        if (!selectedElement) {
+            return false
+        }
+        return selectedElement.isTextBase()
+    }
+
+    isTextEditingStarted(): boolean {
+        const element = this.m_editData.element
+        return !!element && element.isTextBase() && (element as unknown as TextBase).cursor().editing()
+    }
+
+    textEditingAllowed(element: EngravingItem | null): boolean {
+        return !!element && element.isEditable() && (element.isTextBase() || element.isTBox())
+    }
+
+    /** C++ startEditText(EngravingItem*, const PointF& cursorPos) */
+    startEditText(element: EngravingItem | null, cursorPos: PointF = new PointF()): void {
+        if (!element) {
+            return
+        }
+
+        if (element.isTBox()) {
+            element = (element as unknown as TBox).text()
+        }
+
+        if (element !== this.score().selection().element()) {
+            this.select([element], SelectType.SINGLE)
+        }
+
+        this.m_editData.clear()
+        this.m_editData.element = element
+        this.m_editData.startMove = bindCursorPosToText(cursorPos, this.m_editData.element)
+
+        this.m_editData.element.startEdit(this.m_editData)
+
+        this.m_isEditingElementChanged.notify()
+        this.notifyAboutTextEditingStarted()
+        this.notifyAboutTextEditingChanged()
+    }
+
+    /** C++ private startEditText(TextBase*): selects the text and puts the cursor at its end */
+    private startEditTextAtEnd(text: TextBase): void {
+        this.doEndEditElement()
+        this.select([text], SelectType.SINGLE)
+
+        //! NOTE: Copied from ScoreView::cmdAddText
+        const measure = text.findMeasure()
+        if (measure && measure.hasMMRest() && text.links()) {
+            const mmRest = measure.mmRest()
+            for (const link of text.links()!) {
+                const linkedText = link as unknown as TextBase
+                if (text !== linkedText && linkedText.findMeasure() === mmRest) {
+                    text = linkedText
+                    break
+                }
+            }
+        }
+
+        this.startEditText(text, new PointF())
+        text.cursor().moveCursorToEnd()
+    }
+
+    /**
+     * C++ editText(QInputMethodEvent*): the committed text of the input method (and keys typed into the text edit
+     * field), or the preedit string of a composition
+     */
+    editText(commitString: string, preeditString = ''): void {
+        if (!this.isTextEditingStarted()) {
+            return
+        }
+
+        const text = this.m_editData.element as unknown as TextBase
+        const cursor = text.cursor()
+
+        // remove preedit string
+        let n = this.m_editData.preeditString.length
+        while (n--) {
+            if (cursor.movePosition(TextCursorMoveOperation.Left)) {
+                const curLine = cursor.curLine()
+                curLine.remove(cursor.column(), cursor)
+                text.triggerLayout()
+                text.setTextInvalid()
+            }
+        }
+
+        if (commitString.length) {
+            this.score().startCmd(new TranslatableString('undoableAction', 'Edit text'))
+            text.insertText(this.m_editData, commitString)
+            this.score().endCmd()
+            this.m_editData.preeditString = ''
+        } else {
+            this.m_editData.preeditString = preeditString
+
+            if (preeditString.length) {
+                cursor.updateCursorFormat()
+                text.editInsertText(cursor, preeditString)
+                text.setTextInvalid()
+                textBaseRenderer.layoutText1(text)
+                this.score().update()
+            }
+        }
+
+        this.notifyAboutTextEditingChanged()
+    }
+
+    private needStartEditGrip(event: NotationKeyEvent): boolean {
+        if (!this.m_editData.element || !this.m_editData.element.hasGrips()) {
+            return false
+        }
+
+        if (this.isGripEditStarted()) {
+            return false
+        }
+
+        return [KeyboardKey.Key_Left, KeyboardKey.Key_Right, KeyboardKey.Key_Up, KeyboardKey.Key_Down].includes(event.key)
+    }
+
+    private handleKeyPress(event: NotationKeyEvent): boolean {
+        const editElem = this.m_editData.element
+        if (!editElem) {
+            return false
+        }
+
+        if (editElem.isTextBase() && this.doTextEdit(event, editElem as unknown as TextBase)) {
+            return true
+        }
+
+        //: Means: an editing operation triggered by a keystroke
+        this.startEdit(new TranslatableString('undoableAction', 'Keystroke edit'))
+
+        if (editElem.edit(this.m_editData)) {
+            this.apply()
+            return true
+        } else {
+            this.rollback()
+        }
+
+        if (event.modifiers & KeyboardModifier.AltModifier) {
+            return false
+        }
+
+        const vRaster = editElem.isBeam() ? 4 : MScore.vRaster()
+        const hRaster = editElem.isBeam() ? 4 : MScore.hRaster()
+
+        switch (event.key) {
+        case KeyboardKey.Key_Tab:
+            if (!editElem.hasGrips()) {
+                return false
+            }
+            editElem.nextGrip(this.m_editData)
+            this.notifyAboutNotationChanged()
+            return true
+        case KeyboardKey.Key_Backtab:
+            if (!editElem.hasGrips()) {
+                return false
+            }
+            editElem.prevGrip(this.m_editData)
+            this.notifyAboutNotationChanged()
+            return true
+        case KeyboardKey.Key_Left:
+            this.m_editData.delta = new PointF(-nudgeDistanceRaster(this.m_editData, hRaster), 0)
+            break
+        case KeyboardKey.Key_Right:
+            this.m_editData.delta = new PointF(nudgeDistanceRaster(this.m_editData, hRaster), 0)
+            break
+        case KeyboardKey.Key_Up:
+            this.m_editData.delta = new PointF(0, -nudgeDistanceRaster(this.m_editData, vRaster))
+            break
+        case KeyboardKey.Key_Down:
+            this.m_editData.delta = new PointF(0, nudgeDistanceRaster(this.m_editData, vRaster))
+            break
+        default:
+            return false
+        }
+
+        this.m_editData.evtDelta = this.m_editData.delta.clone()
+        this.m_editData.moveDelta = this.m_editData.delta.clone()
+        this.m_editData.hRaster = hRaster !== 0
+        this.m_editData.vRaster = vRaster !== 0
+        // C++ assigns the raster values to the bool members (always true here)
+
+        this.m_editData.isEditMode = this.isEditingElement()
+
+        //: Means: an editing operation triggered by a keystroke
+        this.startEdit(new TranslatableString('undoableAction', 'Keystroke edit'))
+
+        if (this.m_editData.curGrip !== Grip.NO_GRIP && this.m_editData.curGrip < this.m_editData.grips) {
+            this.m_editData.pos = this.m_editData.grip[this.m_editData.curGrip].center().plus(this.m_editData.delta)
+
+            editElem.startDragGrip(this.m_editData)
+            editElem.dragGrip(this.m_editData)
+            editElem.endDragGrip(this.m_editData)
+        } else {
+            editElem.startDrag(this.m_editData)
+            editElem.drag(this.m_editData)
+            editElem.endDrag(this.m_editData)
+        }
+
+        this.apply()
+        return true
+    }
+
+    private doTextEdit(event: NotationKeyEvent, tb: TextBase): boolean {
+        //: Means: an editing operation triggered by a keystroke
+        this.startEdit(new TranslatableString('undoableAction', 'Keystroke edit'))
+
+        if (!tb.edit(this.m_editData)) {
+            this.rollback()
+            return false
+        }
+
+        this.apply()
+
+        // Replace newly added straight quotes with curly ones in a separate undo action...
+        const isSingleQuoteInput = event.text === '\''
+        const isDoubleQuoteInput = event.text === '"'
+        if (!isSingleQuoteInput && !isDoubleQuoteInput) {
+            return true
+        }
+
+        const ted = this.m_editData.getData(tb) as TextEditData | null
+        const cursor = ted ? ted.cursor() : null
+        if (!cursor) {
+            return true
+        }
+
+        let useCloseQuote = false // Use close if there's a non-space before the newly inputted quote
+
+        const row = cursor.row()
+        const col = cursor.column()
+        if (col > 1) {
+            const prev = cursor.extractText(row, col - 2, row, col - 1)
+            useCloseQuote = prev.length > 0 && !/\s/.test(prev[0])
+        }
+
+        //: Means: an editing operation triggered by a keystroke
+        this.startEdit(new TranslatableString('undoableAction', 'Keystroke edit'))
+
+        cursor.movePosition(TextCursorMoveOperation.Left)
+        this.score().undo(new RemoveText(cursor, event.text), this.m_editData)
+
+        //: Single open quotation mark
+        const singleOpenQuote = mtrc('notation', '‘')
+        //: Single close quotation mark
+        const singleCloseQuote = mtrc('notation', '’')
+        //: Double open quotation mark
+        const doubleOpenQuote = mtrc('notation', '“')
+        //: Double close quotation mark
+        const doubleCloseQuote = mtrc('notation', '”')
+
+        const replacement = isSingleQuoteInput
+            ? (useCloseQuote ? singleCloseQuote : singleOpenQuote)
+            : (useCloseQuote ? doubleCloseQuote : doubleOpenQuote)
+
+        tb.insertText(this.m_editData, replacement)
+        this.apply()
+
+        return true
+    }
+
+    endEditText(): void {
+        if (!this.isTextEditingStarted()) {
+            return
+        }
+
+        this.doEndEditElement()
+
+        this.m_isEditingElementChanged.notify()
+        this.notifyAboutTextEditingEnded()
+
+        this.notifyAboutTextEditingChanged()
+        this.notifyAboutSelectionChangedIfNeed()
+    }
+
+    changeTextCursorPosition(newCursorPos: PointF): void {
+        if (!this.isTextEditingStarted() || !this.m_editData.element) {
+            return
+        }
+
+        this.m_editData.startMove = bindCursorPosToText(newCursorPos, this.m_editData.element)
+
+        const textEl = this.m_editData.element as unknown as TextBase
+
+        textEl.mousePress(this.m_editData)
+        if (this.m_editData.buttons === MouseButton.MiddleButton) {
+            const txt = clipboard().text()
+            textEl.paste(this.m_editData, txt)
+        }
+
+        this.notifyAboutTextEditingChanged()
+    }
+
+    selectText(type: SelectTextType): void {
+        if (!this.isTextEditingStarted()) {
+            return
+        }
+
+        const text = this.m_editData.element as unknown as TextBase
+        text.select(this.m_editData, type)
+        text.endHexState(this.m_editData)
+        text.setPrimed(false)
+
+        this.notifyAboutTextEditingChanged()
+    }
+
+    editedText(): TextBase | null {
+        const e = this.m_editData.element
+        return e && e.isTextBase() ? e as unknown as TextBase : null
+    }
+
+    isEditingElement(): boolean {
+        return this.m_editData.element !== null
+    }
+
+    startEditElement(element: EngravingItem | null): void {
+        if (!element || !element.isEditable()) {
+            return
+        }
+
+        if (this.isEditingElement()) {
+            return
+        }
+
+        if (element.isTextBase()) {
+            this.startEditText(element)
+        } else if (element.hasGrips() && !element.isImage()) {
+            this.startEditGripFor(element, element.defaultGrip())
+        } else {
+            element.startEdit(this.m_editData)
+            this.m_editData.element = element
+        }
+
+        this.m_isEditingElementChanged.notify()
+    }
+
+    changeEditElement(newElement: EngravingItem): void {
+        if (this.m_editData.element === newElement) {
+            return
+        }
+
+        const currentGrip = this.m_editData.curGrip
+        const gripEditStarted = this.isGripEditStarted()
+
+        this.doEndEditElement()
+
+        if (gripEditStarted) {
+            this.startEditGripFor(newElement, currentGrip)
+        } else {
+            this.startEditElement(newElement)
+        }
+    }
+
+    /**
+     * C++ isEditAllowed(QKeyEvent*) (the shortcut override): true if the key goes to the edited element (e.g. typing
+     * into a text), false if it is a shortcut
+     */
+    isEditAllowed(event: NotationKeyEvent): boolean {
+        if (!this.m_editData.element) {
+            return false
+        }
+
+        const editData = this.m_editData.clone()
+        editData.modifiers = event.modifiers
+        editData.key = event.key
+        editData.s = event.text
+
+        if (editData.element!.isEditAllowed(editData)) {
+            return true
+        }
+
+        if (event.modifiers & KeyboardModifier.AltModifier) {
+            return false
+        }
+
+        if (editData.element!.isTextBase()) {
+            return false
+        }
+
+        const navigationKeys = [KeyboardKey.Key_Left, KeyboardKey.Key_Right, KeyboardKey.Key_Up, KeyboardKey.Key_Down]
+
+        if (editData.element!.hasGrips()) {
+            navigationKeys.push(KeyboardKey.Key_Tab, KeyboardKey.Key_Backtab)
+        }
+
+        return navigationKeys.includes(event.key)
+    }
+
+    /** C++ editElement(QKeyEvent*); returns true if the key was handled (C++ event->accept()) */
+    editElement(event: NotationKeyEvent): boolean {
+        if (!this.m_editData.element) {
+            return false
+        }
+
+        this.m_editData.modifiers = event.modifiers
+
+        if (this.isDragStarted()) {
+            return false // ignore all key strokes while dragging
+        }
+
+        this.m_editData.key = event.key
+        this.m_editData.s = event.text
+
+        // TODO(port): brackets (they get deleted during layout with their system: restore the selected bracket)
+        if (this.m_editData.element.isHarmony()) {
+            if (this.isTextEditingStarted() && (event.key === KeyboardKey.Key_Return || event.key === KeyboardKey.Key_Enter)) {
+                this.endEditText()
+                return true
+            }
+        }
+
+        if (this.needStartEditGrip(event)) {
+            this.m_editData.curGrip = this.m_editData.element.defaultGrip()
+        }
+
+        let accepted = false
+        if (this.handleKeyPress(event)) {
+            accepted = true
+        }
+
+        if (this.isTextEditingStarted()) {
+            this.notifyAboutTextEditingChanged()
+        }
+        return accepted
+    }
+
+    endEditElement(): void {
+        if (!this.m_editData.element) {
+            return
+        }
+
+        if (this.isTextEditingStarted()) {
+            this.endEditText()
+            return
+        }
+
+        if (this.isDragStarted()) {
+            this.doEndDrag()
+            this.rollback()
+        }
+
+        this.doEndEditElement()
+
+        this.m_isEditingElementChanged.notify()
+        this.notifyAboutNotationChanged()
+    }
+
+    doEndEditElement(): void {
+        if (this.m_editData.element) {
+            this.m_editData.element.endEdit(this.m_editData)
+        }
+        this.m_editData.clear()
+    }
+
+    private needEndTextEditing(newSelectedElements: readonly EngravingItem[]): boolean {
+        if (!this.isTextEditingStarted()) {
+            return false
+        }
+
+        if (newSelectedElements.length === 0) {
+            return false
+        }
+
+        if (newSelectedElements.length > 1) {
+            return true
+        }
+
+        // TODO(port): sound flags of staff texts (SoundFlag)
+
+        return newSelectedElements[0] !== this.m_editData.element
+    }
+
+    private needEndElementEditing(newSelectedElements: readonly EngravingItem[]): boolean {
+        if (!this.isEditingElement()) {
+            return false
+        }
+
+        if (newSelectedElements.length !== 1) {
+            return true
+        }
+
+        return newSelectedElements[0] !== this.score().selection().element()
+    }
+
+    private resetGripEdit(): void {
+        this.m_editData.grips = 0
+        this.m_editData.curGrip = Grip.NO_GRIP
+        this.m_editData.grip = []
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   adding texts (Ctrl+T etc.: NotationActionController::addText)
+    // ---------------------------------------------------------------------------------
+
+    addTextToTopFrame(type: TextStyleType): void {
+        this.addText(type)
+    }
+
+    canAddTextToItem(type: TextStyleType, item: EngravingItem | null): boolean {
+        if (isVerticalBoxTextStyle(type)) {
+            return !!item && item.isVBox()
+        }
+
+        if (type === TextStyleType.FRAME) {
+            return !!item && item.isBox()
+        }
+
+        const harmonyTypes = [TextStyleType.HARMONY_A, TextStyleType.HARMONY_ROMAN, TextStyleType.HARMONY_NASHVILLE]
+
+        const isHarmony = harmonyTypes.includes(type)
+        if (isHarmony && item && item.isFretDiagram()) {
+            return true
+        }
+
+        const needSelectNoteOrRestTypes = [
+            TextStyleType.SYSTEM,
+            TextStyleType.STAFF,
+            TextStyleType.DYNAMICS,
+            TextStyleType.EXPRESSION,
+            TextStyleType.REHEARSAL_MARK,
+            TextStyleType.INSTRUMENT_CHANGE,
+            TextStyleType.FINGERING,
+            TextStyleType.LH_GUITAR_FINGERING,
+            TextStyleType.RH_GUITAR_FINGERING,
+            TextStyleType.STRING_NUMBER,
+            TextStyleType.STICKING,
+            TextStyleType.HARMONY_A,
+            TextStyleType.HARMONY_ROMAN,
+            TextStyleType.HARMONY_NASHVILLE,
+            TextStyleType.LYRICS_ODD,
+            TextStyleType.TEMPO,
+        ]
+
+        if (needSelectNoteOrRestTypes.includes(type)) {
+            const requiredElementTypes = [
+                ElementType.NOTE,
+                ElementType.REST,
+                ElementType.MMREST,
+                ElementType.MEASURE_REPEAT,
+                ElementType.CHORD,
+            ]
+
+            return !!item && requiredElementTypes.includes(item.type())
+        }
+
+        return true
+    }
+
+    addTextToItem(type: TextStyleType, item: EngravingItem | null): void {
+        if (!this.score().firstMeasure()) {
+            // C++: LOGE() << "Need to create measure"
+            return
+        }
+
+        if (!this.canAddTextToItem(type, item)) {
+            MScore.setError(MsError.NO_NOTE_REST_SELECTED)
+            this.checkAndShowError()
+            return
+        }
+
+        this.addText(type, item)
+    }
+
+    addText(type: TextStyleType, item: EngravingItem | null = null): void {
+        if (this.m_noteInput.isNoteInputMode()) {
+            this.m_noteInput.endNoteInput()
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add text'))
+        const text = this.score().addText(type, item)
+
+        if (!text) {
+            this.rollback()
+            return
+        }
+
+        if (text.isInstrumentChange()) {
+            // TODO(port): selectInstrument (the instruments dialog chooses the new instrument)
+        }
+
+        // TODO(port): setInitialTrackAndVoiceAssignment (voice assignment of texts)
+
+        this.apply()
+        this.showItem(text)
+
+        if (!text.isInstrumentChange()) {
+            this.startEditTextAtEnd(text)
+        }
+
+        if (text.isRehearsalMark() || text.isTempoText()) {
+            text.cursor().selectWord()
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   text styles (text-b, text-i, ...)
+    // ---------------------------------------------------------------------------------
+
+    private toggleFontStyle(style: FontStyle): void {
+        if (!this.m_editData.element || !this.m_editData.element.isTextBase()) {
+            return
+        }
+        const text = this.m_editData.element as unknown as TextBase
+        const currentStyle = text.getProperty(Pid.FONT_STYLE) as number
+        this.score().startCmd(new TranslatableString('undoableAction', 'Format text'))
+        text.undoChangeProperty(Pid.FONT_STYLE, currentStyle ^ style, PropertyFlags.UNSTYLED)
+        this.score().endCmd()
+        this.notifyAboutTextEditingChanged()
+    }
+
+    private toggleVerticalAlignment(align: VerticalAlignment): void {
+        if (!this.m_editData.element || !this.m_editData.element.isTextBase()) {
+            return
+        }
+        const text = this.m_editData.element as unknown as TextBase
+        const currentAlign = text.getProperty(Pid.TEXT_SCRIPT_ALIGN) as number
+
+        let actionName: TranslatableString
+        switch (align) {
+        case VerticalAlignment.AlignSubScript:
+            actionName = new TranslatableString('undoableAction', 'Toggle subscript')
+            break
+        case VerticalAlignment.AlignSuperScript:
+            actionName = new TranslatableString('undoableAction', 'Toggle superscript')
+            break
+        default:
+            actionName = new TranslatableString('undoableAction', 'Toggle subscript/superscript')
+            break
+        }
+
+        this.score().startCmd(actionName)
+        text.undoChangeProperty(Pid.TEXT_SCRIPT_ALIGN, currentAlign === align ? VerticalAlignment.AlignNormal : align,
+            PropertyFlags.UNSTYLED)
+        this.score().endCmd()
+        this.notifyAboutTextEditingChanged()
+    }
+
+    toggleBold(): void { this.toggleFontStyle(FontStyle.Bold) }
+    toggleItalic(): void { this.toggleFontStyle(FontStyle.Italic) }
+    toggleUnderline(): void { this.toggleFontStyle(FontStyle.Underline) }
+    toggleStrike(): void { this.toggleFontStyle(FontStyle.Strike) }
+    toggleSubScript(): void { this.toggleVerticalAlignment(VerticalAlignment.AlignSubScript) }
+    toggleSuperScript(): void { this.toggleVerticalAlignment(VerticalAlignment.AlignSuperScript) }
+
+    // ---------------------------------------------------------------------------------
+    //   nudging (arrow keys on a selected text or articulation), moving lyrics
+    // ---------------------------------------------------------------------------------
+
+    moveLyrics(d: MoveDirection): void {
+        const el = this.score().selection().element()
+        if (!el || !el.isLyrics()) {
+            return
+        }
+        this.startEdit(new TranslatableString('undoableAction', 'Move lyrics'))
+        // C++ Score::cmdMoveLyrics(lyrics, toDirection(d))
+        const lyrics = el as unknown as Lyrics
+        const verse = lyrics.verse() + (d === MoveDirection.Up ? -1 : 1)
+        if (verse >= 0) {
+            lyrics.undoChangeProperty(Pid.VERSE, verse)
+        }
+        this.apply()
+    }
+
+    nudge(d: MoveDirection, quickly: boolean): void {
+        const el = this.score().selection().element()
+        if (!el || !(el.isTextBase() || el.isArticulationFamily())) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Nudge element'))
+
+        let step = quickly ? MScore.nudgeStep10 : MScore.nudgeStep
+        step = step * el.spatium()
+
+        switch (d) {
+        case MoveDirection.Undefined:
+            this.rollback()
+            return
+        case MoveDirection.Left:
+            el.undoChangeProperty(Pid.OFFSET, el.offset().minus(new PointF(step, 0.0)), PropertyFlags.UNSTYLED)
+            break
+        case MoveDirection.Right:
+            el.undoChangeProperty(Pid.OFFSET, el.offset().plus(new PointF(step, 0.0)), PropertyFlags.UNSTYLED)
+            break
+        case MoveDirection.Up:
+            el.undoChangeProperty(Pid.OFFSET, el.offset().minus(new PointF(0.0, step)), PropertyFlags.UNSTYLED)
+            break
+        case MoveDirection.Down:
+            el.undoChangeProperty(Pid.OFFSET, el.offset().plus(new PointF(0.0, step)), PropertyFlags.UNSTYLED)
+            break
+        }
+
+        this.apply()
+
+        this.notifyAboutDragChanged()
+    }
+
+    nudgeAnchors(d: MoveDirection): void {
+        if (!this.m_editData.element) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Nudge'))
+        const vRaster = 0 // C++ getVRaster(): 0 unless snapping to the grid
+        const hRaster = 0
+
+        switch (d) {
+        case MoveDirection.Left:
+            this.m_editData.delta = new PointF(-nudgeDistanceRaster(this.m_editData, hRaster), 0)
+            break
+        case MoveDirection.Right:
+            this.m_editData.delta = new PointF(nudgeDistanceRaster(this.m_editData, hRaster), 0)
+            break
+        case MoveDirection.Up:
+            this.m_editData.delta = new PointF(0, -nudgeDistanceRaster(this.m_editData, vRaster))
+            break
+        case MoveDirection.Down:
+            this.m_editData.delta = new PointF(0, nudgeDistanceRaster(this.m_editData, vRaster))
+            break
+        default:
+            this.rollback()
+            return
+        }
+
+        this.m_editData.evtDelta = this.m_editData.delta.clone()
+        this.m_editData.moveDelta = this.m_editData.delta.clone()
+        this.m_editData.hRaster = false
+        this.m_editData.vRaster = false
+
+        const element = this.m_editData.element
+        if (this.m_editData.curGrip !== Grip.NO_GRIP && this.m_editData.curGrip < this.m_editData.grips) {
+            this.m_editData.pos = this.m_editData.grip[this.m_editData.curGrip].center().plus(this.m_editData.delta)
+
+            element.startDragGrip(this.m_editData)
+            element.dragGrip(this.m_editData)
+            element.endDragGrip(this.m_editData)
+        } else {
+            element.startDrag(this.m_editData)
+            element.drag(this.m_editData)
+            element.endDrag(this.m_editData)
+        }
+
+        this.apply()
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   lyrics navigation (Space, -, _, Enter, Up/Down while editing lyrics)
+    // ---------------------------------------------------------------------------------
+
+    /** C++ navigateToLyrics(bool back, bool moveOnly, bool end); Copied from ScoreView::lyricsTab */
+    navigateToLyrics(back: boolean, moveOnly: boolean, end: boolean): void {
+        if (!this.m_editData.element || !this.m_editData.element.isLyrics()) {
+            // C++: LOGW("nextLyric called with invalid current element")
+            return
+        }
+        const lyrics = this.m_editData.element as unknown as Lyrics
+        const track = lyrics.track()
+        let segment: Segment | null = lyrics.segment()
+        const verse = lyrics.verse()
+        const placement = lyrics.placement()
+        const pFlags = lyrics.propertyFlags(Pid.PLACEMENT)
+        const fStyle = lyrics.fontStyle()
+        const fFlags = lyrics.propertyFlags(Pid.FONT_STYLE)
+        const styleType = lyrics.textStyleType()
+
+        let nextSegment: Segment | null = segment
+        if (back) {
+            // search prev chord
+            while ((nextSegment = nextSegment!.prev1(SegmentType.ChordRest))) {
+                const el = nextSegment.element(track)
+                if (!el) {
+                    continue
+                }
+                if (el.isChord()) {
+                    break
+                } else if (el.isRest()) {
+                    const nextLyrics = (el as unknown as ChordRest).lyricsVerse(verse, placement)
+                    if (nextLyrics) {
+                        break
+                    }
+                }
+            }
+        } else {
+            // search next chord
+            while ((nextSegment = nextSegment!.next1(SegmentType.ChordRest))) {
+                const el = nextSegment.element(track)
+                if (!el) {
+                    continue
+                }
+                if (el.isChord()) {
+                    break
+                } else if (el.isRest()) {
+                    const nextLyrics = (el as unknown as ChordRest).lyricsVerse(verse, placement)
+                    if (nextLyrics) {
+                        break
+                    }
+                }
+            }
+        }
+        if (!nextSegment) {
+            return
+        }
+
+        this.endEditText()
+
+        // look for the lyrics we are moving from; may be the current lyrics or a previous one
+        // if we are skipping several chords with spaces
+        let fromLyrics: Lyrics | null = null
+        if (!back) {
+            while (segment) {
+                const cr = segment.element(track) as unknown as ChordRest | null
+                if (cr) {
+                    fromLyrics = cr.lyricsVerse(verse, placement)
+                    if (fromLyrics) {
+                        break
+                    }
+                }
+                segment = segment.prev1(SegmentType.ChordRest)
+            }
+        }
+
+        let cr = nextSegment.element(track) as unknown as ChordRest | null
+        if (!cr) {
+            return
+        }
+        let nextLyrics = cr.lyricsVerse(verse, placement)
+
+        let newLyrics = false
+        if (!nextLyrics) {
+            nextLyrics = Factory.createItem(ElementType.LYRICS, cr) as Lyrics
+            nextLyrics.setTrack(track)
+            cr = nextSegment.element(track) as unknown as ChordRest
+            nextLyrics.setParent(cr)
+            nextLyrics.setVerse(verse)
+            nextLyrics.setTextStyleType(styleType)
+            nextLyrics.setPlacement(placement)
+            nextLyrics.setPropertyFlags(Pid.PLACEMENT, pFlags)
+            nextLyrics.setSyllabic(LyricsSyllabic.SINGLE)
+            nextLyrics.setFontStyle(fStyle)
+            nextLyrics.setPropertyFlags(Pid.FONT_STYLE, fFlags)
+            newLyrics = true
+        }
+
+        this.score().startCmd(new TranslatableString('undoableAction', 'Navigate to lyrics'))
+        if (fromLyrics && !moveOnly) {
+            switch (nextLyrics.syllabic()) {
+            // as we arrived at nextLyrics by a [Space], it can be the beginning
+            // of a multi-syllable, but cannot have syllabic dashes before
+            case LyricsSyllabic.SINGLE:
+            case LyricsSyllabic.BEGIN:
+                break
+            case LyricsSyllabic.END:
+                nextLyrics.undoChangeProperty(Pid.SYLLABIC, LyricsSyllabic.SINGLE)
+                break
+            case LyricsSyllabic.MIDDLE:
+                nextLyrics.undoChangeProperty(Pid.SYLLABIC, LyricsSyllabic.BEGIN)
+                break
+            }
+            // as we moved away from fromLyrics by a [Space], it can be
+            // the end of a multi-syllable, but cannot have syllabic dashes after
+            switch (fromLyrics.syllabic()) {
+            case LyricsSyllabic.SINGLE:
+            case LyricsSyllabic.END:
+                break
+            case LyricsSyllabic.BEGIN:
+                fromLyrics.undoChangeProperty(Pid.SYLLABIC, LyricsSyllabic.SINGLE)
+                break
+            case LyricsSyllabic.MIDDLE:
+                fromLyrics.undoChangeProperty(Pid.SYLLABIC, LyricsSyllabic.END)
+                break
+            }
+            // for the same reason, it cannot have a melisma
+            const separator = fromLyrics.separator() as unknown as { isEndMelisma(): boolean } | null
+            if (separator && !separator.isEndMelisma()) {
+                fromLyrics.undoChangeProperty(Pid.LYRIC_TICKS, Fraction.fromTicks(0))
+            }
+        }
+
+        if (newLyrics) {
+            this.score().undoAddElement(nextLyrics)
+        }
+        this.score().endCmd()
+        this.score().select([nextLyrics], SelectType.SINGLE, 0)
+        this.score().setLayoutAll()
+
+        this.startEditText(nextLyrics, new PointF())
+
+        const cursor = nextLyrics.cursor()
+        if (end) {
+            nextLyrics.selectAll(cursor)
+        } else if (!newLyrics) {
+            cursor.movePosition(TextCursorMoveOperation.End, TextCursorMoveMode.MoveAnchor)
+            cursor.movePosition(TextCursorMoveOperation.Start, TextCursorMoveMode.KeepAnchor)
+        }
+
+        this.showItem(nextLyrics)
+    }
+
+    /** C++ navigateToLyrics(MoveDirection, bool moveOnly) */
+    navigateToLyricsDirection(direction: MoveDirection, moveOnly: boolean): void {
+        this.navigateToLyrics(direction === MoveDirection.Left, moveOnly, false)
+    }
+
+    /** Copied from ScoreView::lyricsMinus; TODO(port): partial lyrics dashes at repeats */
+    navigateToNextSyllable(): void {
+        if (!this.m_editData.element || !this.m_editData.element.isLyrics()) {
+            return
+        }
+        const lyrics = this.m_editData.element as unknown as Lyrics
+        const track = lyrics.track()
+        let toLyricTrack = track
+        let segment: Segment | null = lyrics.segment()
+        const verse = lyrics.verse()
+        const placement = lyrics.placement()
+        const pFlags = lyrics.propertyFlags(Pid.PLACEMENT)
+        const fStyle = lyrics.fontStyle()
+        const fFlags = lyrics.propertyFlags(Pid.FONT_STYLE)
+        const styleType = lyrics.textStyleType()
+
+        // search next chord
+        let nextSegment: Segment | null = segment
+        while ((nextSegment = nextSegment!.next1(SegmentType.ChordRest))) {
+            let el = nextSegment.element(track)
+            if (!el || !el.isChord()) {
+                const strack = trackZeroVoice(track)
+                const etrack = strack + VOICES
+                for (let t = strack; t < etrack; ++t) {
+                    el = nextSegment.element(t)
+                    if (el && el.isChord() && (el as unknown as Chord).lyricsVerse(verse, placement)) {
+                        toLyricTrack = t
+                        break
+                    }
+                }
+            }
+
+            if (el && el.isChord()) {
+                break
+            }
+        }
+
+        if (!segmentsAreAdjacent(segment, nextSegment)) {
+            nextSegment = null
+        }
+
+        if (!nextSegment) {
+            // TODO(port): dashes at repeats without end syllable, partial dashes (hasPrecedingRepeat/hasFollowingRepeat)
+            return
+        }
+
+        this.endEditText()
+
+        // look for the lyrics we are moving from; may be the current lyrics or a previous one
+        // we are extending with several dashes
+        let fromLyrics: Lyrics | null = null
+        const curSeg = segment
+        while (segment && segmentsAreAdjacent(segment, curSeg)) {
+            const cr = segment.element(track) as unknown as ChordRest | null
+            if (!cr) {
+                segment = segment.prev1(SegmentType.ChordRest)
+                continue
+            }
+            fromLyrics = cr.lyricsVerse(verse, placement)
+            if (fromLyrics) {
+                break
+            }
+            segment = segment.prev1(SegmentType.ChordRest)
+        }
+
+        this.score().startCmd(new TranslatableString('undoableAction', 'Navigate to next syllable'))
+        let cr = nextSegment.element(toLyricTrack) as unknown as ChordRest | null
+        let toLyrics = cr ? cr.lyricsVerse(verse, placement) : null
+
+        if (!toLyrics && !cr) {
+            this.score().endCmd()
+            return
+        }
+
+        // If no lyrics in current track, check others
+        if (!toLyrics) {
+            const strack = trackZeroVoice(track)
+            const etrack = strack + VOICES
+            for (let t = strack; t < etrack; ++t) {
+                if (t === track) {
+                    continue
+                }
+                cr = nextSegment.element(t) as unknown as ChordRest | null
+                if (cr) {
+                    toLyrics = cr.lyricsVerse(verse, placement)
+                    if (toLyrics) {
+                        break
+                    }
+                }
+            }
+        }
+
+        // Make sure we end up with either the cr of toLyrics or cr on correct track
+        cr = !toLyrics ? nextSegment.element(track) as unknown as ChordRest : cr
+
+        // TODO(port): disallow dashes between non-adjacent repeat sections (findPreviousRepeatMeasures)
+
+        const newLyrics = !toLyrics
+        if (!toLyrics) {
+            const toLyricsChord = cr!
+            toLyrics = Factory.createItem(ElementType.LYRICS, toLyricsChord) as Lyrics
+            toLyrics.setTrack(track)
+            toLyrics.setParent(toLyricsChord)
+
+            toLyrics.setVerse(verse)
+            toLyrics.setTextStyleType(styleType)
+
+            toLyrics.setPlacement(placement)
+            toLyrics.setPropertyFlags(Pid.PLACEMENT, pFlags)
+            toLyrics.setSyllabic(LyricsSyllabic.END)
+            toLyrics.setFontStyle(fStyle)
+            toLyrics.setPropertyFlags(Pid.FONT_STYLE, fFlags)
+        } else {
+            // as we arrived at toLyrics by a dash, it cannot be initial or isolated
+            if (toLyrics.syllabic() === LyricsSyllabic.BEGIN) {
+                toLyrics.undoChangeProperty(Pid.SYLLABIC, LyricsSyllabic.MIDDLE)
+            } else if (toLyrics.syllabic() === LyricsSyllabic.SINGLE) {
+                toLyrics.undoChangeProperty(Pid.SYLLABIC, LyricsSyllabic.END)
+            }
+        }
+
+        if (fromLyrics) {
+            // as we moved away from fromLyrics by a dash,
+            // it can have syll. dashes before and after but cannot be isolated or terminal
+            switch (fromLyrics.syllabic()) {
+            case LyricsSyllabic.BEGIN:
+            case LyricsSyllabic.MIDDLE:
+                break
+            case LyricsSyllabic.SINGLE:
+                fromLyrics.undoChangeProperty(Pid.SYLLABIC, LyricsSyllabic.BEGIN)
+                break
+            case LyricsSyllabic.END:
+                fromLyrics.undoChangeProperty(Pid.SYLLABIC, LyricsSyllabic.MIDDLE)
+                break
+            }
+            // for the same reason, it cannot have a melisma
+            fromLyrics.undoChangeProperty(Pid.LYRIC_TICKS, new Fraction(0, 1))
+        }
+
+        if (newLyrics) {
+            this.score().undoAddElement(toLyrics)
+        }
+
+        this.score().endCmd()
+        this.score().select([toLyrics], SelectType.SINGLE, 0)
+        this.score().setLayoutAll()
+
+        this.startEditText(toLyrics, new PointF())
+
+        toLyrics.selectAll(toLyrics.cursor())
+        this.showItem(toLyrics)
+    }
+
+    /** Copied from ScoreView::lyricsUpDown */
+    navigateToLyricsVerse(direction: MoveDirection): void {
+        if (!this.m_editData.element || !this.m_editData.element.isLyrics()) {
+            return
+        }
+        let lyrics = this.m_editData.element as unknown as Lyrics
+        const track = lyrics.track()
+        const cr = lyrics.chordRest()
+        let verse = lyrics.verse()
+        const placement = lyrics.placement()
+        const pFlags = lyrics.propertyFlags(Pid.PLACEMENT)
+        const fStyle = lyrics.fontStyle()
+        const fFlags = lyrics.propertyFlags(Pid.FONT_STYLE)
+        const styleType = lyrics.textStyleType()
+
+        if (direction === MoveDirection.Up) {
+            if (verse === 0) {
+                return
+            }
+            --verse
+        } else {
+            ++verse
+            if (verse > cr.lastVerse(placement)) {
+                return
+            }
+        }
+
+        this.endEditText()
+
+        let l = cr.lyricsVerse(verse, placement)
+        if (!l) {
+            l = Factory.createItem(ElementType.LYRICS, cr) as Lyrics
+            l.setTrack(track)
+            l.setParent(cr)
+            l.setVerse(verse)
+            l.setTextStyleType(styleType)
+            l.setPlacement(placement)
+            l.setPropertyFlags(Pid.PLACEMENT, pFlags)
+            l.setFontStyle(fStyle)
+            l.setPropertyFlags(Pid.FONT_STYLE, fFlags)
+
+            this.score().startCmd(new TranslatableString('undoableAction', 'Navigate to verse'))
+            this.score().undoAddElement(l)
+            this.score().endCmd()
+        }
+
+        this.score().select([l], SelectType.SINGLE, 0)
+        this.startEditText(l, new PointF())
+
+        lyrics = this.m_editData.element as unknown as Lyrics
+
+        this.score().setLayoutAll()
+        this.score().update()
+
+        lyrics.selectAll(lyrics.cursor())
+        this.showItem(lyrics)
+    }
+
+    /** Copied from ScoreView::lyricsUnderscore; TODO(port): partial melisma lines at repeats */
+    addMelisma(): void {
+        if (!this.m_editData.element || !this.m_editData.element.isLyrics()) {
+            return
+        }
+        const lyrics = this.m_editData.element as unknown as Lyrics
+        const track = lyrics.track()
+        let segment: Segment | null = lyrics.segment()
+        const verse = lyrics.verse()
+        const placement = lyrics.placement()
+        const pFlags = lyrics.propertyFlags(Pid.PLACEMENT)
+        const fStyle = lyrics.fontStyle()
+        const fFlags = lyrics.propertyFlags(Pid.FONT_STYLE)
+        const endTick = segment.tick() // a previous melisma cannot extend beyond this point
+        this.endEditText()
+
+        // search next chord
+        let nextSegment: Segment | null = segment
+        while ((nextSegment = nextSegment!.next1(SegmentType.ChordRest))) {
+            const el = nextSegment.element(track)
+            if (el && el.isChord()) {
+                break
+            }
+        }
+
+        if (!segmentsAreAdjacent(segment, nextSegment)) {
+            nextSegment = null
+        }
+
+        // look for the lyrics we are moving from; may be the current lyrics or a previous one
+        // we are extending with several underscores
+        const curSeg = segment
+        let fromLyrics: Lyrics | null = null
+        while (segment && segmentsAreAdjacent(segment, curSeg)) {
+            const cr = segment.element(track) as unknown as ChordRest | null
+            if (cr) {
+                fromLyrics = cr.lyricsVerse(verse, placement)
+                if (fromLyrics) {
+                    break
+                }
+                // TODO(port): a partial melisma to extend (PartialLyricsLine)
+            }
+            segment = segment.prev1(SegmentType.ChordRest)
+            // if the segment has a rest in this track, stop going back
+            const e = segment ? segment.element(track) : null
+            if (e && !e.isChord()) {
+                break
+            }
+        }
+
+        // one-chord melisma?
+        // if still at melisma initial chord and there is a valid next chord (if not,
+        // there will be no melisma anyway), set a temporary melisma duration
+        if (fromLyrics === lyrics && nextSegment) {
+            this.score().startCmd(new TranslatableString('undoableAction', 'Enter lyrics extension line'))
+            lyrics.undoChangeProperty(Pid.LYRIC_TICKS, Lyrics.TEMP_MELISMA_TICKS)
+            this.score().setLayoutAll()
+            this.score().endCmd()
+        }
+
+        if (!nextSegment) {
+            this.score().startCmd(new TranslatableString('undoableAction', 'Enter lyrics extension line'))
+            if (fromLyrics) {
+                switch (fromLyrics.syllabic()) {
+                case LyricsSyllabic.SINGLE:
+                case LyricsSyllabic.END:
+                    break
+                default:
+                    fromLyrics.undoChangeProperty(Pid.SYLLABIC, LyricsSyllabic.END)
+                    break
+                }
+                const initialCR = lyrics.chordRest()
+                if (fromLyrics.segment().tick().lt(endTick)
+                    || (endTick.plus(initialCR.actualTicks()).eq(segment!.measure().endTick()) && initialCR.hasFollowingJumpItem())) {
+                    const t = endTick.minus(fromLyrics.segment().tick())
+                    const ticks = t.gt(Lyrics.TEMP_MELISMA_TICKS) ? t : Lyrics.TEMP_MELISMA_TICKS
+                    fromLyrics.undoChangeProperty(Pid.LYRIC_TICKS, ticks)
+                }
+            }
+
+            // TODO(port): incoming partial melisma after a repeat (PartialLyricsLine)
+
+            if (fromLyrics) {
+                this.score().select([fromLyrics], SelectType.SINGLE, 0)
+            }
+            this.score().setLayoutAll()
+            this.score().endCmd()
+            return
+        }
+
+        // if a place for a new lyrics has been found, create a lyrics there
+        const nextCR = nextSegment.element(track) as unknown as ChordRest
+
+        // TODO(port): disallow melisma lines between non-adjacent repeat sections (findPreviousRepeatMeasures)
+
+        this.score().startCmd(new TranslatableString('undoableAction', 'Enter lyrics extension line'))
+        let toLyrics = nextCR.lyricsVerse(verse, placement)
+        const newLyrics = toLyrics === null
+        if (!toLyrics) {
+            toLyrics = Factory.createItem(ElementType.LYRICS, nextCR) as Lyrics
+            toLyrics.setTrack(track)
+            toLyrics.setParent(nextCR)
+
+            toLyrics.setVerse(verse)
+            const styleType = toLyrics.isEven() ? TextStyleType.LYRICS_EVEN : TextStyleType.LYRICS_ODD
+            toLyrics.setTextStyleType(styleType)
+
+            toLyrics.setPlacement(placement)
+            toLyrics.setPropertyFlags(Pid.PLACEMENT, pFlags)
+            toLyrics.setSyllabic(LyricsSyllabic.SINGLE)
+            toLyrics.setFontStyle(fStyle)
+            toLyrics.setPropertyFlags(Pid.FONT_STYLE, fFlags)
+        } else if (toLyrics.syllabic() === LyricsSyllabic.MIDDLE) {
+            // as we arrived at toLyrics by an underscore, it cannot have syllabic dashes before
+            toLyrics.undoChangeProperty(Pid.SYLLABIC, LyricsSyllabic.BEGIN)
+        } else if (toLyrics.syllabic() === LyricsSyllabic.END) {
+            toLyrics.undoChangeProperty(Pid.SYLLABIC, LyricsSyllabic.SINGLE)
+        }
+
+        if (fromLyrics) {
+            // as we moved away from fromLyrics by an underscore,
+            // it can be isolated or terminal but cannot have dashes after
+            switch (fromLyrics.syllabic()) {
+            case LyricsSyllabic.SINGLE:
+            case LyricsSyllabic.END:
+                break
+            default:
+                fromLyrics.undoChangeProperty(Pid.SYLLABIC, LyricsSyllabic.END)
+                break
+            }
+            // for the same reason, if it has a melisma, this cannot extend beyond toLyrics
+            if (fromLyrics.segment().tick().lt(endTick)) {
+                fromLyrics.undoChangeProperty(Pid.LYRIC_TICKS, endTick.minus(fromLyrics.segment().tick()))
+            }
+        }
+        this.score().endCmd()
+
+        this.score().startCmd(new TranslatableString('undoableAction', 'Enter lyrics extension line'))
+        if (newLyrics) {
+            this.score().undoAddElement(toLyrics)
+        }
+        this.score().endCmd()
+
+        this.score().select([toLyrics], SelectType.SINGLE, 0)
+        this.startEditText(toLyrics, new PointF())
+
+        toLyrics.selectAll(toLyrics.cursor())
+    }
+
+    /** Copied from ScoreView::lyricsReturn */
+    addLyricsVerse(): void {
+        if (!this.m_editData.element || !this.m_editData.element.isLyrics()) {
+            return
+        }
+        const oldLyrics = this.m_editData.element as unknown as Lyrics
+        const fStyle = oldLyrics.fontStyle()
+        const fFlags = oldLyrics.propertyFlags(Pid.FONT_STYLE)
+
+        this.endEditText()
+
+        this.score().startCmd(new TranslatableString('undoableAction', 'Add lyrics verse'))
+        const newVerse = oldLyrics.verse() + 1
+
+        const lyrics = Factory.createItem(ElementType.LYRICS, oldLyrics.chordRest()) as Lyrics
+        lyrics.setTrack(oldLyrics.track())
+        lyrics.setParent(oldLyrics.chordRest())
+        lyrics.setPlacement(oldLyrics.placement())
+        lyrics.setPropertyFlags(Pid.PLACEMENT, oldLyrics.propertyFlags(Pid.PLACEMENT))
+
+        lyrics.setVerse(newVerse)
+        const styleType = lyrics.isEven() ? TextStyleType.LYRICS_EVEN : TextStyleType.LYRICS_ODD
+        lyrics.setTextStyleType(styleType)
+
+        lyrics.setFontStyle(fStyle)
+        lyrics.setPropertyFlags(Pid.FONT_STYLE, fFlags)
+
+        this.score().undoAddElement(lyrics)
+        this.score().endCmd()
+
+        this.score().select([lyrics], SelectType.SINGLE, 0)
+        this.startEditText(lyrics, new PointF())
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   chord symbol navigation (Space, Shift+Space, Tab while editing a chord symbol)
+    // ---------------------------------------------------------------------------------
+
+    private editedHarmony(): Harmony | null {
+        const e = this.m_editData.element
+        if (!e || !e.isHarmony()) {
+            return null
+        }
+        const harmony = e as unknown as Harmony
+        if (!harmony.parent() || (!harmony.parent()!.isSegment() && !harmony.parent()!.isFretDiagram())) {
+            return null
+        }
+        return harmony
+    }
+
+    private harmonySegment(harmony: Harmony | null): Segment | null {
+        if (!harmony || !harmony.parent()) {
+            return null
+        }
+
+        const parent = harmony.parent()!
+        let segment = parent.isSegment() ? parent as unknown as Segment : null
+        if (!segment && parent.isFretDiagram()) {
+            segment = (parent as unknown as FretDiagram).segment()
+        }
+
+        return segment
+    }
+
+    private findHarmonyInSegment(segment: Segment, track: track_idx_t, textStyleType: TextStyleType): Harmony | null {
+        for (const e of segment.annotations()) {
+            if (!e.isHarmony() && !e.isFretDiagram()) {
+                continue
+            }
+
+            let harmony = e.isHarmony() ? e as unknown as Harmony : null
+            if (e.isFretDiagram()) {
+                harmony = (e as unknown as FretDiagram).harmony()
+            }
+
+            if (!harmony) {
+                continue
+            }
+
+            if (harmony.track() === track && harmony.textStyleType() === textStyleType) {
+                return harmony
+            }
+        }
+
+        return null
+    }
+
+    private createHarmony(segment: Segment, track: track_idx_t, type: HarmonyType): Harmony {
+        const harmony = Factory.createItem(ElementType.HARMONY, scoreDummy(this.score()).segment()) as Harmony
+        harmony.setScore(this.score())
+        harmony.setParent(segment)
+        harmony.setTrack(track)
+        harmony.setHarmonyType(type)
+
+        return harmony
+    }
+
+    /** Copied from ScoreView::harmonyBeatsTab */
+    navigateToNearHarmony(direction: MoveDirection, nearNoteOrRest: boolean): void {
+        const harmony = this.editedHarmony()
+        if (!harmony) {
+            return
+        }
+
+        let segment = this.harmonySegment(harmony)
+        if (!segment) {
+            return
+        }
+
+        let measure: Measure | null = segment.measure()
+        const tick = segment.tick()
+        const track = harmony.track()
+        const backDirection = direction === MoveDirection.Left
+
+        if (backDirection && tick.eq(measure.tick())) {
+            // previous bar, if any
+            measure = measure.prevMeasure()
+            if (!measure) {
+                return
+            }
+        }
+
+        const f = measure.ticks()
+        const ticksPerBeat = Math.trunc(f.ticks()
+            / ((f.numerator() > 3 && (f.numerator() % 3) === 0 && f.denominator() > 4) ? f.numerator() / 3 : f.numerator()))
+        const tickInBar = tick.minus(measure.tick())
+        const newTick = measure.tick().plus(Fraction.fromTicks(
+            Math.trunc((tickInBar.ticks() + (backDirection ? -1 : ticksPerBeat)) / ticksPerBeat) * ticksPerBeat))
+
+        this.endEditText()
+
+        this.startEdit(new TranslatableString('undoableAction', 'Navigate to next chord symbol'))
+
+        // look for next/prev beat, note, rest or chord
+        for (;;) {
+            segment = backDirection ? segment!.prev1(SegmentType.ChordRest) : segment!.next1(SegmentType.ChordRest)
+
+            if (!segment || (backDirection ? segment.tick().lt(newTick) : segment.tick().gt(newTick))) {
+                // no segment or moved past the beat - create new segment
+                if (!backDirection && newTick.ge(measure.tick().plus(f))) {
+                    // next bar, if any
+                    measure = measure.nextMeasure()
+                    if (!measure) {
+                        this.rollback()
+                        return
+                    }
+                }
+
+                segment = measure.undoGetSegment(SegmentType.ChordRest, newTick)
+                break
+            }
+
+            if (segment.tick().eq(newTick)) {
+                break
+            }
+
+            if (nearNoteOrRest) {
+                const minTrack = trackZeroVoice(track)
+                const maxTrack = minTrack + VOICES - 1
+                if (segment.hasAnnotationOrElement(ElementType.HARMONY, minTrack, maxTrack)) {
+                    break
+                }
+            }
+        }
+
+        let nextHarmony = this.findHarmonyInSegment(segment, track, harmony.textStyleType())
+        if (!nextHarmony) {
+            nextHarmony = this.createHarmony(segment, track, harmony.harmonyType())
+            this.score().undoAddElement(nextHarmony)
+        }
+
+        this.apply()
+        this.startEditTextAtEnd(nextHarmony)
+        this.showItem(nextHarmony)
+    }
+
+    /** Copied from ScoreView::harmonyTab */
+    navigateToHarmonyInNearMeasure(direction: MoveDirection): void {
+        const harmony = this.editedHarmony()
+        if (!harmony) {
+            return
+        }
+
+        let segment = this.harmonySegment(harmony)
+        if (!segment) {
+            return
+        }
+
+        // moving to next/prev measure
+        let measure: Measure | null = segment.measure()
+        if (measure) {
+            measure = direction === MoveDirection.Left ? measure.prevMeasure() : measure.nextMeasure()
+        }
+
+        if (!measure) {
+            return
+        }
+
+        segment = measure.findSegment(SegmentType.ChordRest, measure.tick())
+        if (!segment) {
+            return
+        }
+
+        const track = harmony.track()
+
+        this.doEndEditElement()
+
+        let nextHarmony = this.findHarmonyInSegment(segment, track, harmony.textStyleType())
+        if (!nextHarmony) {
+            nextHarmony = this.createHarmony(segment, track, harmony.harmonyType())
+
+            this.startEdit(new TranslatableString('undoableAction', 'Navigate to next chord symbol'))
+            this.score().undoAddElement(nextHarmony)
+            this.apply()
+        }
+
+        this.startEditTextAtEnd(nextHarmony)
+        this.showItem(nextHarmony)
+    }
+
+    // =================================================================================================================
+    //   drag (elements, grips, lasso): startDrag / drag / endDrag, startEditGrip
+    // =================================================================================================================
+
+    private m_dragData = new DragData()
+    private m_lasso: Lasso | null = null
+    private m_dragChanged = new Notification()
+
+    dragChanged(): Notification { return this.m_dragChanged }
+    private notifyAboutDragChanged(): void { this.m_dragChanged.notify() }
+
+    isDragStarted(): boolean {
+        if (this.m_dragData.dragGroups.length > 0) {
+            return true
+        }
+
+        if (this.m_lasso && !this.m_lasso.isEmpty()) {
+            return true
+        }
+
+        return false
+    }
+
+    /** modifiers: C++ QGuiApplication::keyboardModifiers() (KeyboardModifier flags) */
+    startDrag(elems: readonly EngravingItem[], eoffset: PointF, isDraggable: (e: EngravingItem) => boolean, modifiers = 0): void {
+        this.m_dragData.reset()
+        this.m_dragData.elements = [...elems]
+        this.m_dragData.elementOffset = eoffset.clone()
+        this.m_editData.modifiers = modifiers
+
+        for (const e of this.m_dragData.elements) {
+            let draggable = isDraggable(e)
+
+            if (!draggable && e.isSpanner()) {
+                const s = e as unknown as Spanner
+                draggable = s.spannerSegments().length > 0 && isDraggable(s.spannerSegments()[0])
+            }
+
+            if (!draggable) {
+                continue
+            }
+
+            const g = e.getDragGroup(isDraggable)
+            if (g && g.enabled()) {
+                this.m_dragData.dragGroups.push(g)
+            }
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Drag element(s)', undefined, this.m_dragData.elements.length))
+
+        // TODO(port): m_scoreCallbacks.setSelectionProximity (used by the drop of elements)
+
+        if (this.isGripEditStarted()) {
+            this.m_editData.element!.startDragGrip(this.m_editData)
+            return
+        }
+
+        this.m_dragData.ed.modifiers = modifiers
+        for (const group of this.m_dragData.dragGroups) {
+            group.startDrag(this.m_dragData.ed)
+        }
+    }
+
+    private doDragLasso(pt: PointF): void {
+        if (!this.m_lasso) {
+            this.m_lasso = new Lasso(this.score())
+        }
+
+        const r = new RectF()
+        r.setCoords(this.m_dragData.beginMove.x(), this.m_dragData.beginMove.y(), pt.x(), pt.y())
+        this.m_lasso.mutldata().setBbox(r.normalized())
+        this.score().lassoSelect(this.m_lasso.ldata().bbox())
+        this.score().update()
+    }
+
+    private endLasso(): void {
+        if (!this.m_lasso) {
+            return
+        }
+
+        this.m_lasso.mutldata().setBbox(new RectF())
+        this.score().lassoSelectEnd()
+        this.score().update()
+    }
+
+    /** the lasso rectangle (canvas coordinates) while it is dragged, null otherwise */
+    lassoRect(): RectF | null {
+        return this.m_lasso && !this.m_lasso.isEmpty() ? this.m_lasso.ldata().bbox().clone() : null
+    }
+
+    drag(fromPos: PointF, toPos: PointF, mode: DragMode, modifiers = 0): void {
+        if (this.m_dragData.beginMove.isNull()) {
+            this.m_dragData.beginMove = fromPos.clone()
+            this.m_dragData.ed.pos = fromPos.clone()
+        }
+
+        const normalizedBegin = this.m_dragData.beginMove.minus(this.m_dragData.elementOffset)
+        const delta = toPos.minus(normalizedBegin)
+        const evtDelta = toPos.minus(this.m_dragData.ed.pos)
+        const moveDelta = delta.minus(this.m_dragData.elementOffset)
+
+        const constrainDirection = !(this.isGripEditStarted() && this.m_editData.element && this.m_editData.element.isBarLine())
+        if (constrainDirection) {
+            switch (mode) {
+            case DragMode.BothXY:
+                break
+            case DragMode.OnlyX:
+                delta.setY(this.m_dragData.ed.delta.y())
+                moveDelta.setY(this.m_dragData.ed.moveDelta.y())
+                evtDelta.setY(0.0)
+                break
+            case DragMode.OnlyY:
+                delta.setX(this.m_dragData.ed.delta.x())
+                moveDelta.setX(this.m_dragData.ed.moveDelta.x())
+                evtDelta.setX(0.0)
+                break
+            }
+        }
+
+        this.m_dragData.ed.lastPos = this.m_dragData.ed.pos.clone()
+
+        this.m_dragData.ed.hRaster = false // C++ configuration()->isSnappedToGrid(Horizontal)
+        this.m_dragData.ed.vRaster = false
+        this.m_dragData.ed.delta = delta
+        this.m_dragData.ed.moveDelta = moveDelta
+        this.m_dragData.ed.evtDelta = evtDelta
+        this.m_dragData.ed.pos = toPos.clone()
+        this.m_dragData.ed.modifiers = modifiers
+
+        this.m_dragData.ed.isEditMode = this.isEditingElement()
+
+        if (this.isTextEditingStarted()) {
+            this.m_editData.pos = toPos.clone()
+            ;(this.m_editData.element as unknown as TextBase).dragTo(this.m_editData)
+
+            this.notifyAboutTextEditingChanged()
+            return
+        }
+
+        if (this.isGripEditStarted()) {
+            this.m_dragData.ed.curGrip = this.m_editData.curGrip
+            this.m_dragData.ed.delta = evtDelta
+            this.m_dragData.ed.moveDelta = this.m_dragData.ed.delta.minus(this.m_dragData.elementOffset)
+            this.m_dragData.ed.addData(this.m_editData.getData(this.m_editData.element))
+            this.m_editData.element!.dragGrip(this.m_dragData.ed)
+
+            // TODO(port): dynamics: addHairpinOnGripDrag
+        } else {
+            for (const group of this.m_dragData.dragGroups) {
+                group.drag(this.m_dragData.ed)
+            }
+        }
+
+        this.score().update()
+
+        // TODO(port): anchor lines (updateGripAnchorLines / updateDragAnchorLines)
+
+        if (this.m_dragData.elements.length === 0) {
+            this.doDragLasso(toPos)
+        }
+
+        this.notifyAboutDragChanged()
+    }
+
+    doEndDrag(): void {
+        if (this.isGripEditStarted()) {
+            this.m_editData.element!.endDragGrip(this.m_editData)
+            this.m_editData.element!.endEdit(this.m_editData)
+        } else {
+            for (const group of this.m_dragData.dragGroups) {
+                group.endDrag(this.m_dragData.ed)
+            }
+            if (this.m_lasso && !this.m_lasso.isEmpty()) {
+                this.endLasso()
+            }
+        }
+
+        this.m_dragData.reset()
+    }
+
+    endDrag(): void {
+        this.doEndDrag()
+        this.apply()
+
+        if (this.m_editData.isHairpinDragCreatedFromDynamic) {
+            // Merge the two actions of hairpin creation + hairpin drag
+            this.m_undoStack.mergeCommands(this.m_undoStack.currentStateIndex() - 2)
+        }
+
+        this.notifyAboutDragChanged()
+        this.checkAndShowError()
+    }
+
+    isGripEditStarted(): boolean {
+        return !!this.m_editData.element && this.m_editData.curGrip !== Grip.NO_GRIP
+    }
+
+    isHitGrip(pos: PointF): boolean {
+        return !!this.score().selection().element() && findGrip(this.m_editData.grip, pos) !== -1
+    }
+
+    /** C++ startEditGrip(const PointF& pos) */
+    startEditGrip(pos: PointF): void {
+        const grip = findGrip(this.m_editData.grip, pos)
+        if (grip === -1) {
+            return
+        }
+        this.startEditGripFor(this.score().selection().element()!, grip as Grip)
+    }
+
+    /** C++ startEditGrip(EngravingItem*, Grip) */
+    startEditGripFor(element: EngravingItem, grip: Grip): void {
+        if (this.m_editData.element === element && this.m_editData.curGrip === grip) {
+            return
+        }
+
+        this.m_editData.element = element
+        this.m_editData.curGrip = grip
+
+        this.m_editData.element.startEdit(this.m_editData)
+
+        this.notifyAboutNotationChanged()
+    }
+
+    endEditGrip(): void {
+        if (this.m_editData.curGrip === Grip.NO_GRIP) {
+            return
+        }
+
+        this.m_editData.curGrip = Grip.NO_GRIP
+        this.notifyAboutNotationChanged()
+    }
+
+    // =================================================================================================================
+    //   painting of the edit mode (C++ drawTextEditMode, drawGripPoints, drawLasso of the notation view)
+    // =================================================================================================================
+
+    /** EditModeRenderer::drawTextBase: the text cursor, the selected text and the frame of the edited text */
+    drawTextEditMode(painter: Painter, scaling: number, opt: PaintOptions): void {
+        if (!this.isTextEditingStarted()) {
+            return
+        }
+
+        EditModeRenderer.drawItem(this.m_editData.element!, painter, this.m_editData, scaling, opt)
+    }
+
+    /** the grips of the edited element (grip edit); C++ also updates EditData.grip for the hit test of the grips */
+    drawGripPoints(painter: Painter, scaling: number, opt: PaintOptions): void {
+        if (this.isDragStarted() && !this.isGripEditStarted()) {
+            return
+        }
+
+        const editedElement = this.m_editData.element
+        // TODO(port): dynamics: grips of the selected dynamic (findAdjacentHairpins)
+
+        const gripsCount = editedElement ? editedElement.gripsCount() : 0
+
+        if (gripsCount === 0) {
+            return
+        }
+
+        this.updateGrips(scaling)
+        EditModeRenderer.drawItem(editedElement!, painter, this.m_editData, scaling, opt)
+    }
+
+    /** fills EditData.grip (canvas coordinates) for the given view scaling (C++ part of drawGripPoints) */
+    updateGrips(scaling: number): void {
+        const editedElement = this.m_editData.element
+        const gripsCount = editedElement ? editedElement.gripsCount() : 0
+        this.m_editData.grips = gripsCount
+        this.m_editData.grip = []
+        if (!gripsCount) {
+            return
+        }
+
+        const DEFAULT_GRIP_SIZE = 8
+        const gripSize = DEFAULT_GRIP_SIZE / scaling
+        const newRect = new RectF(-gripSize / 2, -gripSize / 2, gripSize, gripSize)
+
+        const page = editedElement!.findAncestor(ElementType.PAGE) as unknown as EngravingItem | null
+        const pageOffset = page ? page.pos() : editedElement!.pos()
+
+        for (let i = 0; i < gripsCount; ++i) {
+            this.m_editData.grip.push(newRect.translated(pageOffset))
+        }
+
+        editedElement!.updateGrips(this.m_editData)
+    }
+
+    /** TDraw::draw(const Lasso*): always 2 pixel width */
+    drawLasso(painter: Painter, scaling: number): void {
+        if (!this.m_lasso || this.m_lasso.isEmpty()) {
+            return
+        }
+
+        const ldata = this.m_lasso.ldata()
+        painter.setBrush(new Brush(LASSO_COLOR))
+        const w = 2.0 / scaling
+        painter.setPen(new Pen(EngravingConfiguration.selectionColor(), w))
+        painter.drawRect(ldata.bbox())
+    }
 }
 
 /** a copy of the selection state (C++ copies the Selection in applyPaletteElement: the drops change the selection) */
@@ -1471,4 +4099,132 @@ function rectDistanceTo(r: RectF, p: PointF): number {
     const dx = Math.max(r.left() - p.x(), 0, p.x() - r.right())
     const dy = Math.max(r.top() - p.y(), 0, p.y() - r.bottom())
     return Math.sqrt(dx * dx + dy * dy)
+}
+
+// =====================================================================================================================
+//   copy/paste, editing and drag: types and helpers
+// =====================================================================================================================
+
+/** C++ INotationInteraction::HitElementContext */
+export interface HitElementContext {
+    element: EngravingItem | null
+    staff: Staff | null
+}
+
+export enum DragMode {
+    BothXY,
+    OnlyX,
+    OnlyY,
+}
+
+/** a key press for the edited element (C++ QKeyEvent): the Qt key (editing/editdata.ts KeyboardKey), KeyboardModifier flags, the text */
+export interface NotationKeyEvent {
+    key: number
+    modifiers: number
+    text: string
+}
+
+/** C++ NotationInteraction::DragData */
+class DragData {
+    beginMove = new PointF()
+    elementOffset = new PointF()
+    ed = new EditData()
+    dragGroups: ElementGroup[] = []
+    elements: EngravingItem[] = []
+
+    reset(): void {
+        this.beginMove = new PointF()
+        this.elementOffset = new PointF()
+        this.ed = new EditData()
+        this.dragGroups = []
+    }
+}
+
+/** C++ EngravingConfiguration::lassoColor() ("#00323200": transparent) */
+const LASSO_COLOR = new Color(0x32, 0x32, 0x00, 0)
+
+function nudgeDistance(editData: EditData): number {
+    const spatium = editData.element!.spatium()
+
+    if (editData.element!.isBeam()) {
+        if (editData.modifiers & KeyboardModifier.ControlModifier) {
+            return spatium
+        } else if (editData.modifiers & KeyboardModifier.AltModifier) {
+            return spatium * 4
+        }
+
+        return spatium * 0.25
+    }
+
+    if (editData.modifiers & KeyboardModifier.ControlModifier) {
+        return spatium * MScore.nudgeStep10
+    } else if (editData.modifiers & KeyboardModifier.AltModifier) {
+        return spatium * MScore.nudgeStep50
+    }
+
+    return spatium * MScore.nudgeStep
+}
+
+/** C++ nudgeDistance(const EditData&, double raster) */
+function nudgeDistanceRaster(editData: EditData, raster: number): number {
+    let distance = nudgeDistance(editData)
+    if (raster > 0) {
+        raster = editData.element!.spatium() / raster
+        if (distance < raster) {
+            distance = raster
+        }
+    }
+
+    return distance
+}
+
+function bindCursorPosToText(cursorPos: PointF, text: EngravingItem | null): PointF {
+    if (cursorPos.isNull() || !text || !text.isTextBase()) {
+        return new PointF()
+    }
+
+    const bbox = text.canvasBoundingRect()
+    return new PointF(
+        cursorPos.x() < bbox.left() ? bbox.left()
+            : cursorPos.x() >= bbox.right() ? bbox.right() - 1 : cursorPos.x(),
+        cursorPos.y() < bbox.top() ? bbox.top()
+            : cursorPos.y() >= bbox.bottom() ? bbox.bottom() - 1 : cursorPos.y())
+}
+
+function findGrip(grips: readonly RectF[], canvasPos: PointF): number {
+    if (grips.length === 0) {
+        return -1
+    }
+    const align = grips[0].width() / 2
+    for (let i = 0; i < grips.length; ++i) {
+        if (grips[i].adjusted(-align, -align, align, align).contains(canvasPos)) {
+            return i
+        }
+    }
+    return -1
+}
+
+/** the first syllable of a text pasted into lyrics */
+function extractSyllable(text: string): string {
+    let t = text.replace(/(\r|\n)+/g, '\n')
+    if (t.startsWith('\n')) {
+        t = t.replaceAll('\n', '')
+    }
+
+    const textPos = t.search(/\S/)
+    if (textPos === -1) {
+        return ''
+    }
+
+    const separators = /(_| |-|\n)/g
+    separators.lastIndex = textPos
+    const match = separators.exec(t)
+    let splitPos: number
+    if (!match) {
+        splitPos = t.length
+    } else {
+        splitPos = match.index + match[0].length
+    }
+
+    return t.substring(textPos, splitPos)
 }

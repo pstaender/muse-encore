@@ -446,6 +446,30 @@ export abstract class ChordRest extends DurationElement {
     }
 
     el(): EngravingItem[] { return this.m_el }
+
+    /**
+     * - this is normally called after cloning a chord to tie a note over the barline
+     * - there is no special undo handling; the assumption is that undo will simply remove the cloned chord
+     * - two note tremolos are converted into simple notes
+     * - single note tremolos are optionally retained
+     */
+    removeMarkings(_keepTremolo = false): void {
+        this.m_el = []
+        this.m_lyrics = []
+    }
+
+    undoAddAnnotation(a: EngravingItem): void {
+        let seg = this.segment()
+        const m = this.measure()
+        if (m && m.isMMRest()) {
+            seg = m.mmRestFirst()!.findSegmentR(SegmentTypeValue.ChordRest, new Fraction(0, 1))!
+        }
+
+        a.setTrack(/*a->systemFlag() ? 0 : */ this.track())
+        a.setParent(seg)
+        this.score().undoAddElement(a)
+    }
+
     protected addEl(e: EngravingItem): void { this.m_el.push(e) }
     protected removeEl(e: EngravingItem): boolean {
         const i = this.m_el.indexOf(e)
@@ -592,12 +616,6 @@ export abstract class ChordRest extends DurationElement {
             nl.setTrack(this.track())
             this.m_lyrics.push(nl)
         }
-    }
-
-    /** C++ ChordRest::removeMarkings */
-    removeMarkings(_keepTremolo = false): void {
-        this.m_el = []
-        this.m_lyrics = []
     }
 
     tabDur(): TabDurationSymbol | null { return this.m_tabDur }

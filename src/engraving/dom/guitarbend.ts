@@ -847,7 +847,7 @@ export class GuitarBendText extends TextBase {
         this.initElementStyle(guitarBendStyle)
     }
 
-    isEditable(): boolean { return false }
+    override isEditable(): boolean { return false }
 
     override positionRelativeToNoteheadRest(): boolean { return false }
 }

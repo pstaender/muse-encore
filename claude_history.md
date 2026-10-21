@@ -686,6 +686,121 @@
   notifications (partsChanged etc.), the instruments dialog listing the existing instruments (it only adds), part
   scores are not laid out after a change, rebuildMidiMapping/markInstrumentsAsPrimary (playback).
 
+## 2026-10-21 — Note input methods, tuplets, slurs, lines, shadow note
+
+- Note input methods (all of NoteInputBarModel's NOTE_INPUT_METHOD_ACTIONS are registered: note-input-rhythm,
+  -repitch, -realtime-auto, -realtime-manual, -timewise; toggle-insert-mode Ctrl+I): noteentry.ts Score::repitchNote,
+  repitchReplaceNote (ties kept forward, chord lines, forced accidentals), insertChordByInsertingTime (insert/timewise:
+  undoInsertTime + InsertTime + ChangeMeasureLen + segment ticks, rests filled in all tracks, crossing chords split
+  with ties); wired into addPitch/putNote/cmdAddPitch ("insert-c".. Ctrl+Shift+C.., mouse Ctrl+click). Rhythm-only
+  input already worked through padToggle. ChangeMeasureLen and InsertTime (editmeasures.ts) are undo commands now
+  (callers that are not undoable yet still call redo() directly).
+- Real-time input: notation/internal/notationmidiinput.ts (NotationMidiInput::onRealtimeAdvance, the automatic mode's
+  timer with the 750 ms default delay, doRealtimeAdvance without the 100 ms metronome delay) and cmd.ts
+  Score::realtimeAdvance; "realtime-advance" (Enter). There is no MIDI input: notes are entered with the note name keys,
+  which (like in MuseScore, putNote) move the cursor; activeMidiPitches is always empty (rests at the new position).
+  API onNotationChanged(score, listener) for the timer's changes; the editor redraws on it.
+- Tuplets: edit.ts Score::addTuplet, cmdCreateTuplet; NotationInteraction canAddTupletToSelectedChordRests /
+  addTupletToSelectedChordRests (TupletOptions in notationtypes.ts with Tuplet::computeTupletDenominator), NotationNoteInput
+  ::addTuplet (note input: changeCRlen to the input duration, then the tuplet); actions duplet..nonuplet (Ctrl+2..9)
+  with the style's bracket/number types. Not ported: custom-tuplet (action data), tuplet-dialog (OtherTupletDialog),
+  the "Cannot create tuplet" message box.
+- Slurs: Score::addSlur (follows tied chains), ChordRest::slur (module augmentation in edit.ts),
+  NotationInteraction::addSlurToSelection/doAddSlur (range: per track, single note: to the next chord, list: first to
+  last) also for palette slurs; in note input S starts a slur at the last note, addPitch extends it, S ends it
+  (resetSlur); "add-slur" is checked while one is open. Not ported: partial slurs over repeat bar lines
+  (incoming/outgoing), hammer-on/pull-off templates, startEditGrip after adding (the segment is only selected).
+- Lines: Score::addHairpins / addHairpin(type, cr1, cr2) (= addHairpinOfType) / addHairpin(type, ticks, track)
+  (= addHairpinAtTicks), cmdAddOttava; EngravingItem::setInitialTrackAndVoiceAssignment (dynamicsApplyToAllVoices
+  default); actions add-hairpin (Shift+,), add-hairpin-reverse (Shift+.), add-8va, add-8vb.
+- More actions: grace notes (Score::setGraceNote/cmdAddGrace, Chord::setShowStemSlashInAdvance/requestShowStemSlash;
+  acciaccatura, appoggiatura, grace4/16/32, grace8/16/32after), beams (cmdSetBeamMode: beam-auto/none/break-left/
+  break-inner-8th/16th/join), intervals (addIntervalToSelectedNotes: interval2..10, interval-2..-10, Alt+digits),
+  full-measure-rest (cmdFullMeasureRest), set-visible/unset-visible, articulations (add-staccato/tenuto/sforzato/
+  marcato with Shift+S/N/V/O, add-up-bow/down-bow: Chord::updateArticulations is now complete incl. Remove mode and
+  splitting combined articulations, splitArticulations/flipArticulations/updateArticulations (= updateArticulationIds)
+  of articulation.cpp, NotationInteraction::toggleArticulationForSelection, NotationNoteInput::setArticulation),
+  lv (laissez vibrer). Checked states of the note input toolbar: add-slur, the four articulations, lv.
+- Shadow note: dom/shadownote.ts (ShadowNote), TLayout::layoutShadowNote, TDraw::draw(ShadowNote),
+  Score.shadowNote(), NotationInteraction::showShadowNoteForPosition/doShowShadowNote/hideShadowNote/shadowNoteRect
+  (color: EngravingConfiguration.highlightSelectionColor = QColor::lighter(135) of the voice color),
+  NotationViewInputController hoverMove/hoverLeave and the right click in note input mode (removeNote). API:
+  showShadowNote(score, page, x, y) -> bounds, hideShadowNote, drawShadowNote(score, page, ctx, {dpi, region}),
+  rightClickAt. Editor: the shadow note is drawn on a small overlay canvas over the page at the mouse position;
+  keyboard input hides it until the mouse moves (like MuseScore); a right click in note input removes the note.
+- Editor: the note input method button shows the method in use; the new actions use MuseScore's shortcuts from the
+  generated table (Ctrl+2..9, S, Shift+,/., Ctrl+Shift+I, Ctrl+I, Enter, Shift+S/N/V/O, Alt+1..9, ...).
+- Checked against MuseScore: a score built with these commands (triplet, quintuplet, slurs, hairpins, 8va, grace
+  note, interval, beams) saved with saveMscz and re-saved by mscore differs only in the order of two spanners starting
+  at the same tick; its rendering matches MuseScore's at 1.6 % (stem positions of very high chords).
+- Tests: test/noteinputmethods.test.ts (each feature with undo/redo restoring the SVG hash of all pages), e2e
+  "enters a triplet and a slur by keyboard, re-pitches notes and enters notes with the mouse".
+- Missing: regroupNotesAndRests (realtimeAdvance across bar lines), MIDI input, metronome, tuplet dialog,
+  custom-tuplet, add-noteline, chord symbols/text (other agent), the shadow note popup (percussion), TAB shadow notes
+  and string selection, the error message boxes (checkAndShowError), playback of entered notes.
+
+## 2026-10-21 — Copy/paste, text and lyrics editing, dragging
+
+- Copy/paste: Selection::mimeType/mimeData/staffMimeData/symbolListMimeData/canCopy (dom/select.ts), EngravingItem
+  mimeData + readType/readMimeData (dom/paste.ts), Score::cmdPaste/cmdPasteSymbol/cmdPasteStaffList/cmdPasteSymbolList,
+  pasteStaff/pasteChordRest/pasteSymbols, cmdRepeatListSelection (dom/paste.ts), Read460::pasteStaff/pasteSymbols/
+  doReadItem, ConnectorInfoReader paste mode (spanners added through the undo stack, Score receiver), Score::makeGap1
+  (cmd.ts section), Transpose::transposeChord, Measure::undoGetChordRestOrTimeTickSegment, Chord/ChordRest::removeMarkings,
+  SelectionFilter element types (setFiltered/isFiltered/canSelect), Writer::writeSegments/doWriteItem with a filter.
+  rw/rwregister.ts gives the DOM the reader/writer (and new XmlWriters) without import cycles.
+  NotationInteraction: copySelection, pasteSelection(scale) (incl. pasting into an edited text / lyrics syllables),
+  swapSelection, repeatSelection; actions action://notation/copy|cut|paste, notation-paste-half/-double/-special,
+  notation-swap (Ctrl+Shift+X), repeat-sel (R). The clipboard is framework/global/clipboard.ts (in-memory MimeData);
+  API clipboardContents/setClipboardContents/selectionMimeData.
+  MuseScore's own tests reproduce exactly (staves of writeMscx vs the -ref files): copypaste01-12, 19, 22-27, 50,
+  copypasteNote01-10 and the copypastesymbollist tests (articulation, ornament, chord names, lyrics, staff text,
+  tremolo, rests, ranges) — test/copypaste.test.ts.
+- Text editing: TextCursor movement/selection (movePosition, set, selectWord, cursorRect, selectedText, ...), TextBlock
+  remove/removeRange/split/simplify/column/boundingRect, editing/textedit.ts (TextEditData, ChangeTextProperties,
+  InsertText, RemoveText, SplitText, JoinText; TextBase startEdit/edit/isEditAllowed/endEdit (one undo step merged
+  with adding the text, empty texts removed), insertText/insertSym/paste/deleteSelectedText/endHexState), Lyrics
+  (isEditAllowed, endEdit, adjustPrevious, paste), Harmony (startEdit as plain text, edit, endEdit -> setHarmony),
+  TextBase select/mousePress/dragTo/editCopy/editCut/nudge. UndoStack.undo respects TextEditData.startUndoIdx.
+  NotationInteraction: startEditText, editText (input method commit/preedit), editElement/isEditAllowed (key events),
+  doTextEdit (curly quotes), endEditText, selectText, addText/addTextToItem (Score::addText for staff/system text,
+  expression, dynamics, rehearsal marks with createRehearsalMarkText, fingering, chord symbols, lyrics, tempo),
+  lyrics navigation (navigateToLyrics, navigateToNextSyllable, addMelisma, addLyricsVerse, navigateToLyricsVerse,
+  moveLyrics), chord symbol navigation (navigateToNearHarmony, navigateToHarmonyInNearMeasure), toggleBold/... ,
+  nudge (arrows on a selected text). Actions: staff-text (Ctrl+T), system-text, tempo, rehearsalmark-text,
+  chord-text (Ctrl+K), lyrics (Ctrl+L), title/subtitle/composer/poet/part/frame/expression/fingering texts,
+  next-syllable (-), add-melisma (_), next-word (Space), next/prev-lyric-verse, add-lyric-verse, edit-element (F2),
+  edit-text (Enter), text-b/i/u/s/sub/sup. EditModeRenderer draws the text cursor, selection (translucent instead of
+  HardLight) and frame; drawPage(printing: false) paints it (and grips, lasso).
+- Drag: EngravingItem startDrag/drag/endDrag (offset through undoPropertyChanged), getDragGroup/ElementGroup,
+  startEdit/edit/isEditAllowed/endEdit, grips (startDragGrip/dragGrip/endDragGrip, gripsPositions, nextGrip/prevGrip),
+  Note drag (vertical: pitch, horizontal: leading space), LineSegment grips and drag (hairpins, lines), SlurTieSegment/
+  SlurSegment grips, Lasso (dom/lasso.ts) with Score::lassoSelect/lassoSelectEnd. NotationInteraction startDrag/drag/
+  endDrag/doDragLasso/endLasso, grip edit (startEditGrip, isHitGrip, endEditGrip), handleKeyPress (arrow nudging of
+  edited elements and grips), nudgeAnchors. NotationViewInputController: mousePressEvent/mouseMoveEvent/
+  mouseReleaseEvent/mouseDoubleClickEvent (triple click selects the text), keyPressEvent, shortcutOverrideEvent,
+  inputMethodEvent; API viewMousePress/Move/Release/DoubleClick, viewKeyPress, viewShortcutOverride, viewInputText,
+  textEditingInfo, isDragging, isTextEditingAction.
+- Editor: the view sends the pointer events to the library (drag, grips, lasso with Shift on empty space, double
+  click edits a text, empty space moves the canvas); a hidden textarea at the text cursor gets the keys while a text
+  is edited (input method compositions and dead keys work); actions.ts asks the view first (setShortcutOverride, like
+  MuseScore's shortcutOverrideEvent) and chooses among actions with the same shortcut an enabled one of the higher
+  context priority (text editing actions: "-" is next-syllable while editing lyrics, else flat). Copy/cut/paste are
+  the browser's clipboard events with MuseScore's mime types as DataTransfer formats; the in-memory clipboard is the
+  fallback (and the Edit menu's Paste). The menus show Ctrl+C/X/V for the notation's copy/cut/paste.
+- cmd.ts endCmd: a rolled back command that changed something is laid out (removing an empty new text left a stale
+  layout).
+- Tests: test/copypaste.test.ts, textedit.test.ts, drag.test.ts (undo/redo restore the SVG of all pages); e2e: copy a
+  measure and paste it, add a staff text and type, lyrics on two notes, drag the title, lasso.
+- Known: after a command + undo, some real scores (Amazing Grace) paint slur/tie segments of a system in another
+  order than after a full layout (same SVG content, other order; a full relayout restores it) — the e2e tests compare
+  states, not pixels, for undo.
+- Missing (TODO(port)): rebasing line anchors while dragging (MoveElementAnchors, time tick anchors), changing slur/line
+  anchor notes by dragging grips, the slur shoulder grip, bar line/beam/bracket/box grips, dynamics grips (hairpin from
+  a dynamic), anchor lines, outgoing drags of elements/ranges, Alt+click paste of a range, drag and drop of palette
+  items onto the score, image paste, figured bass, sticking, instrument change text (dialog), partial lyrics dashes and
+  melismas at repeats, FSymbol drops into texts, the text style popup and text toolbar, copyLyrics,
+  TempoText::updateTempo (playback tempo), prev/next-element navigation into texts (navigateToNearText).
+
 ## 2026-10-21 — Time signature changes that rewrite measures
 
 - Score::cmdAddTimeSig complete (deselectAll, local (ctrl) time signatures, measure repeat groups, errors unwind the

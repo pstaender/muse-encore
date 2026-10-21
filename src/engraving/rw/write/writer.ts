@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/rw/write/writer.h/.cpp (and compat/writescorehook.cpp)
  *
- * TODO(port): audio, synthesizer state, clipboard writing (writeSegments of a selection, doWriteItem)
+ * TODO(port): audio, synthesizer state
  */
 
 import { Fraction } from '../../types/fraction'
@@ -22,6 +22,11 @@ import { XmlWriter } from '../xmlwriter'
 import { TWrite } from './twrite'
 import { StaffWrite } from './staffwrite'
 import { WriteContext } from './writecontext'
+import { RWRegister } from '../rwregister'
+import type { track_idx_t } from '../../types/types'
+import type { Segment } from '../../dom/segment'
+import type { EngravingItem } from '../../dom/engravingitem'
+import type { SelectionFilter } from '../../dom/selectionfilter'
 
 /** the version MuseScore 4.7.5 writes (Constants::MSC_VERSION_STR, application version and revision) */
 export const MSC_VERSION_STR = '4.70'
@@ -272,4 +277,33 @@ export class Writer {
             ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
         }
     }
+
+    // ---------------------------------------------------------
+    //   clipboard (Selection::staffMimeData, symbolListMimeData, EngravingItem::mimeData)
+    // ---------------------------------------------------------
+
+    /** curTick is updated (C++ Fraction&) */
+    static writeSegments(xml: XmlWriter, filter: SelectionFilter, strack: track_idx_t, etrack: track_idx_t,
+        sseg: Segment, eseg: Segment | null, writeSystemElements: boolean, forceTimeSig: boolean, curTick: { v: Fraction }): void {
+        const ctx = new WriteContext(sseg.score())
+        ctx.setClipboardmode(true)
+        ctx.setFilter(filter)
+        ctx.setCurTrack(strack)
+        ctx.setCurTick(curTick.v)
+        TWrite.writeSegments(xml, ctx, strack, etrack, sseg, eseg, writeSystemElements, forceTimeSig)
+        curTick.v = ctx.curTick()
+    }
+
+    /** C++ Writer::doWriteItem (IWriter::writeItem) */
+    static doWriteItem(item: EngravingItem, xml: XmlWriter): void {
+        const ctx = new WriteContext(item.score())
+        ctx.setClipboardmode(true)
+        TWrite.writeItem(item, xml, ctx)
+    }
 }
+
+RWRegister.setWriter({
+    writeSegments: Writer.writeSegments,
+    writeItem: Writer.doWriteItem,
+    createXmlWriter: () => new XmlWriter(),
+})

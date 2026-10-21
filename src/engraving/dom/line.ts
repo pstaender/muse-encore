@@ -5,16 +5,17 @@
  *
  * Port of src/engraving/dom/line.h/.cpp
  *
- * TODO(port): editing (grips, dragging, rebasing anchors)
+ * TODO(port): editing: rebasing anchors when a grip or the line is dragged (rebaseAnchors, MoveElementAnchors),
+ * moving the start/end with Shift+arrows (LineSegment::edit), the time tick anchors
  */
 
 import { Color } from '../../framework/draw/types/color'
-import { PointF } from '../../framework/draw/types/geometry'
+import { LineF, PointF, type RectF } from '../../framework/draw/types/geometry'
 import { Spatium } from '../types/dimension'
 import type { PropertyValue } from '../types/propertyvalue'
 import { ElementType, LineType } from '../types/types'
 import { Sid } from '../style/styledef'
-import { Grip } from '../editing/editdata'
+import { Grip, KeyboardModifier, type EditData } from '../editing/editdata'
 import { ElementFlag } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
 import { Pid, PropertyFlags } from './property'
@@ -30,6 +31,96 @@ export abstract class LineSegment extends SpannerSegment {
     }
 
     line(): SLine { return this.spanner() as SLine }
+
+    // ---- grips and drag (line.cpp) ----
+
+    override needStartEditingAfterSelecting(): boolean { return true }
+    override gripsCount(): number { return 3 }
+    override initialEditModeGrip(): Grip { return Grip.END }
+    override defaultGrip(): Grip { return Grip.MIDDLE }
+
+    override gripsPositions(_ed?: EditData): PointF[] {
+        const grips: PointF[] = []
+        const pp = this.pagePos()
+        grips[Grip.START] = pp
+        grips[Grip.END] = this.pos2().plus(pp)
+        grips[Grip.MIDDLE] = this.pos2().times(0.5).plus(pp)
+        return grips
+    }
+
+    override startDrag(ed: EditData): void {
+        super.startDrag(ed)
+        const eed = ed.getData(this)
+        if (!eed) {
+            return
+        }
+        eed.pushProperty(Pid.OFFSET2)
+    }
+
+    override startDragGrip(ed: EditData): void {
+        const eed = ed.getData(this)
+        if (!eed) {
+            return
+        }
+        eed.pushProperty(Pid.OFFSET)
+        eed.pushProperty(Pid.OFFSET2)
+        eed.pushProperty(Pid.AUTOPLACE)
+        if (ed.modifiers & KeyboardModifier.AltModifier) {
+            this.setAutoplace(false)
+        }
+        // TODO(port): EditTimeTickAnchors::updateAnchors(this)
+    }
+
+    override dragGrip(ed: EditData): void {
+        // Only for resizing according to the diagonal properties
+        const deltaResize = new PointF(ed.evtDelta.x(), this.line().diagonal() ? ed.evtDelta.y() : 0.0)
+
+        switch (ed.curGrip) {
+        case Grip.START: // Resize the begin of element (left grip)
+            this.setOffset(this.offset().plus(deltaResize))
+            this.m_offset2 = this.m_offset2.minus(deltaResize)
+
+            if (this.isStyled(Pid.OFFSET)) {
+                this.setPropertyFlags(Pid.OFFSET, PropertyFlags.UNSTYLED)
+            }
+            // TODO(port): rebaseAnchors(ed, ed.curGrip)
+            break
+        case Grip.END: // Resize the end of element (right grip)
+            this.m_offset2 = this.m_offset2.plus(deltaResize)
+            break
+        case Grip.MIDDLE: { // Move the element (middle grip)
+            // Only for moving, no y limitation
+            this.setOffset(this.offset().plus(ed.evtDelta))
+            this.setOffsetChanged(true)
+            if (this.isStyled(Pid.OFFSET)) {
+                this.setPropertyFlags(Pid.OFFSET, PropertyFlags.UNSTYLED)
+            }
+            break
+        }
+        default:
+            return
+        }
+        // TODO(port): note anchored lines: changing the end note (ed.view()->elementNear)
+
+        this.triggerLayout()
+    }
+
+    override dragAnchorLines(): LineF[] {
+        return [] // TODO(port): gripAnchorLines(Grip::MIDDLE)
+    }
+
+    override drag(ed: EditData): RectF {
+        this.setOffset(this.offset().plus(ed.evtDelta))
+        this.setOffsetChanged(true)
+
+        if (this.isStyled(Pid.OFFSET)) {
+            this.setPropertyFlags(Pid.OFFSET, PropertyFlags.UNSTYLED)
+        }
+
+        // TODO(port): rebaseAnchors(ed, Grip::MIDDLE)
+
+        return this.canvasBoundingRect()
+    }
 
     override propertyDelegate(pid: Pid): EngravingObject | null {
         if (pid === Pid.DIAGONAL

@@ -20,6 +20,7 @@ import { MScore, MsError, UpDownMode } from '../dom/mscore'
 import { Score, Position, type NoteInputParams } from '../dom/score'
 import { SelectType } from '../dom/select'
 import { SelectionFilter } from '../dom/selectionfilter'
+import { ElementsSelectionFilterTypes } from '../dom/selectionfilter' // (import of the copy/paste section)
 import { SegmentType } from '../dom/segment'
 import { TimeSigFrac } from '../dom/sig'
 import { nextChordRest, noteIsBefore, prevChordRest, type Chord } from '../dom/chord'
@@ -173,13 +174,15 @@ Score.prototype.endCmd = function (this: Score, rollback = false, layoutAllParts
         rollback = true
     }
 
+    // a rolled back command that changed something must be laid out too (see below)
+    const changedSomething = !this.undoStack().activeCommand()!.empty()
     if (rollback) {
         this.undoStack().activeCommand()!.unwind()
     }
 
     // TODO(port): not all undo commands of the port trigger the layout of their range yet (C++ setProperty()
     // implementations call triggerLayout()): without a range a command that changed something lays out the whole score
-    if (!this.undoStack().activeCommand()!.empty() && !this.cmdState().layoutRange()) {
+    if (changedSomething && !this.cmdState().layoutRange()) {
         this.setLayoutAll()
     }
 
@@ -2167,10 +2170,10 @@ Score.prototype.cmdAddPitch = function (this: Score, paramsOrStep: NoteInputPara
     pos.line = relStep(step, clef)
 
     if (is.usingNoteEntryMethod(NoteEntryMethod.REPITCH)) {
-        // TODO(port): repitchNote(pos, !addFlag)
+        this.repitchNote(pos, !addFlag)
     } else {
         if (insert) {
-            // TODO(port): insertChordByInsertingTime(pos)
+            this.insertChordByInsertingTime(pos)
         } else {
             this.putNote(pos, !addFlag)
         }
@@ -2631,3 +2634,164 @@ Score.prototype.cmdAddSpanner = function (this: Score, spanner: Spanner, staffId
     this.undoAddElement(spanner, true, ctrlModifier)
 }
 
+// =====================================================================================================================
+//   copy/paste: makeGap1 (cmd.cpp), used by the paste of a staff list (Read460::pasteStaff)
+// =====================================================================================================================
+
+declare module '../dom/score' {
+    interface Score {
+        /**
+         * make time gap for each voice starting at tick+voiceOffset[voice] by removing/shortening chord/rest
+         * - cr is top level (not part of a tuplet)
+         * - do not stop at measure end
+         * - len and voiceOffset are in local (stretched) time
+         * voiceOffset: invalid fractions (Fraction(1, 0)) for voices without elements
+         */
+        makeGap1(baseTick: Fraction, staffIdx: number, len: Fraction, voiceOffset: readonly Fraction[]): boolean
+    }
+}
+
+Score.prototype.makeGap1 = function (this: Score, baseTick: Fraction, staffIdx: number, len: Fraction,
+    voiceOffset: readonly Fraction[]): boolean {
+    const m = this.tick2measure(baseTick)
+    if (!m) {
+        // C++: LOGD() << "No measure to paste at tick " << baseTick.toString()
+        return false
+    }
+
+    const strack = staffIdx * VOICES
+    for (let track = strack; track < strack + VOICES; track++) {
+        if (!voiceOffset[track - strack].isValid()) {
+            continue
+        }
+        const tick = baseTick.plus(actualTicks(voiceOffset[track - strack], null, this.staff(staffIdx)!.timeStretch(baseTick)))
+        const tm = this.tick2measure(tick)!
+        if ((track % VOICES) && !tm.hasVoices(staffIdx)) {
+            continue
+        }
+
+        const newLen = len.minus(voiceOffset[track - strack])
+
+        if (newLen.gt(new Fraction(0, 1))) {
+            const endTick = tick.plus(actualTicks(newLen, null, this.staff(staffIdx)!.timeStretch(tick)))
+
+            const filter = new SelectionFilter()
+            // chord symbols can exist without chord/rest so they should not be removed
+            filter.setFiltered(ElementsSelectionFilterTypes.CHORD_SYMBOL, false)
+
+            this.deleteAnnotationsFromRange(this.tick2rightSegment(tick), this.tick2rightSegment(endTick), track, track + 1, filter)
+            this.deleteOrShortenOutSpannersFromRange(tick, endTick, track, track + 1, filter)
+        }
+
+        const seg = tm.undoGetSegment(SegmentType.ChordRest, tick)
+        const result = this.makeGapVoice(seg, track, newLen, tick)
+        if (track === strack && !result) { // makeGap failed for first voice
+            return false
+        }
+    }
+    return true
+}
+
+
+// =====================================================================================================================
+//   cmd.cpp functions of the note input methods and of grace notes (realtimeAdvance, setGraceNote, cmdAddGrace)
+// =====================================================================================================================
+
+// (imports of this section; ES imports are hoisted)
+import { NoteType as GraceNoteType } from '../dom/chordrest'
+
+declare module '../dom/score' {
+    interface Score {
+        /**
+         * advances the real-time input by one input duration (the "realtime-advance" action of the real-time note
+         * input methods). TODO(port): MIDI input: activeMidiPitches() is always empty (no MIDI in the browser), so
+         * the new position always gets a rest; allowTransposition is unused.
+         */
+        realtimeAdvance(allowTransposition: boolean): void
+        /**
+         * Create a grace note in front of a normal note.
+         * ch is the chord of the normal note, pitch the pitch of the grace note, type the grace note type,
+         * len the visual duration of the grace note (1/16 or 1/32) in ticks
+         */
+        setGraceNote(ch: Chord, pitch: number, type: GraceNoteType, len: number): Note
+        /** adds grace note of specified type to selected notes */
+        cmdAddGrace(graceType: GraceNoteType, duration: number): void
+    }
+}
+
+Score.prototype.realtimeAdvance = function (this: Score, _allowTransposition: boolean): void {
+    const is = this.inputState()
+    if (!is.noteEntryMode()) {
+        return
+    }
+
+    const ticks2measureEnd = is.segment()!.measure().ticks().minus(is.segment()!.rtick())
+    if (!is.cr() || (!is.cr()!.ticks().eq(is.duration().fraction()) && is.duration().fraction().lt(ticks2measureEnd))) {
+        this.setNoteRest(is.segment()!, is.track(), new NoteVal(), is.duration().fraction(), DirectionV.AUTO)
+    }
+
+    const prevCR = is.cr()!
+    if (is.endOfScore()) {
+        // C++ appendMeasures(1)
+        const options = new InsertMeasureOptions()
+        options.createEmptyMeasures = false
+        this.insertMeasure(ElementType.MEASURE, null, options)
+    }
+
+    is.moveToNextInputPos()
+
+    // C++: the active MIDI pitches are tied to the previous chord (addTiedMidiPitch); there is no MIDI input here
+    this.setNoteRest(is.segment()!, is.track(), new NoteVal(), is.duration().fraction(), DirectionV.AUTO)
+
+    if (prevCR.measure() !== is.segment()!.measure()) {
+        // just advanced across barline. Now simplify tied notes.
+        this.score().regroupNotesAndRests(prevCR.measure().tick(), is.segment()!.measure().tick(), is.track())
+    }
+}
+
+Score.prototype.setGraceNote = function (this: Score, ch: Chord, pitch: number, type: GraceNoteType, len: number): Note {
+    const chord = Factory.createItem(ElementType.CHORD, scoreDummy(this).segment()) as unknown as Chord
+    const note = Factory.createItem(ElementType.NOTE, chord) as unknown as Note
+
+    // allow grace notes to be added to other grace notes
+    // by really adding to parent chord
+    if (ch.noteType() !== GraceNoteType.NORMAL) {
+        ch = ch.explicitParent() as unknown as Chord
+    }
+
+    chord.setTrack(ch.track())
+    chord.setParent(ch)
+    chord.add(note)
+
+    // find corresponding note within chord and use its tpc information
+    // if no note with same pitch found, derive tpc from pitch / key
+    const n = ch.findNote(pitch)
+    if (n) {
+        note.setNval(n.noteVal(), ch.tick())
+    } else {
+        note.setPitch(pitch)
+        note.setTpcFromPitch()
+    }
+
+    const d = new TDuration()
+    d.setVal(len)
+    chord.setDurationType(d)
+    chord.setTicks(d.fraction())
+    chord.setNoteType(type)
+    chord.setShowStemSlashInAdvance()
+    chord.mutldata().setMag(ch.staff()!.staffMag(chord.tick()) * this.style().styleD(Sid.graceNoteMag))
+
+    this.undoAddElement(chord)
+    return note
+}
+
+Score.prototype.cmdAddGrace = function (this: Score, graceType: GraceNoteType, duration: number): void {
+    const copyOfElements = [...this.selection().elements()]
+    for (const e of copyOfElements) {
+        if (e.isNote()) {
+            const n = e as unknown as Note
+            const graceNote = this.setGraceNote(n.chord(), n.pitch(), graceType, duration)
+            this.select(graceNote, SelectType.SINGLE, 0)
+        }
+    }
+}

@@ -10,7 +10,7 @@ import { PointF } from '../../framework/draw/types/geometry'
 import type { PropertyValue } from '../types/propertyvalue'
 import { ElementType, PartialSpannerDirection, type track_idx_t } from '../types/types'
 import { Sid } from '../style/styledef'
-import { Grip } from '../editing/editdata'
+import { Grip, type EditData } from '../editing/editdata'
 import type { EngravingObject } from './engravingobject'
 import { Pid } from './property'
 import { SpannerAnchor } from './spanner'
@@ -33,6 +33,35 @@ export class SlurSegment extends SlurTieSegment {
     setEndPointOff1(v: PointF): void { this.m_endPointOff1 = v.clone() }
     endPointOff2(): PointF { return this.m_endPointOff2 }
     setEndPointOff2(v: PointF): void { this.m_endPointOff2 = v.clone() }
+
+    /**
+     * the grips move the user offsets; the layout computes the bezier from them (C++ renderer()->computeBezier()).
+     * TODO(port): changing the anchor note while dragging the start/end grip (ed.view()->elementNear), the shoulder
+     * grip (computeBezier with a shoulder offset)
+     */
+    override dragGrip(ed: EditData): void {
+        const g = ed.curGrip
+
+        switch (g) {
+        case Grip.START:
+        case Grip.END:
+        case Grip.BEZIER1:
+        case Grip.BEZIER2:
+            this.ups(g).off = this.ups(g).off.plus(ed.delta)
+            break
+        case Grip.SHOULDER:
+            this.ups(g).off = new PointF()
+            break
+        case Grip.DRAG:
+            this.ups(Grip.DRAG).off = new PointF()
+            this.setOffset(this.offset().plus(ed.delta))
+            break
+        default:
+            return
+        }
+
+        this.triggerLayout()
+    }
 
     isEdited(): boolean {
         for (let i = 0; i < Grip.GRIPS; ++i) {

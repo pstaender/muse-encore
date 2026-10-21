@@ -51,6 +51,11 @@ export class EngravingConfiguration {
         return color
     }
 
+    /** selectionColor(voice).lighter(135) (QColor::lighter, computed in HSV with 16 bit components like Qt) */
+    static highlightSelectionColor(voice: voice_idx_t = 0): Color {
+        return qtLighter(EngravingConfiguration.selectionColor(voice), 135)
+    }
+
     static setSelectionColor(voiceIndex: voice_idx_t, color: Color): void {
         if (voiceIndex >= 0 && voiceIndex <= VOICES) {
             s_voiceColors[voiceIndex] = color.clone()
@@ -64,4 +69,80 @@ export class EngravingConfiguration {
         s_unlinkedColor = Color.fromString(UNLINKED_ITEM_COLOR)
         s_frameColor = Color.fromString('#A0A0A4')
     }
+}
+
+/** QColor::lighter(factor) of an RGB color (via HSV with 16 bit components, back to 8 bit RGB) */
+function qtLighter(c: Color, factor: number): Color {
+    const USHRT_MAX = 65535
+    // QColor::toHsv
+    const r = c.r / 255
+    const g = c.g / 255
+    const b = c.b / 255
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const delta = max - min
+    let v = Math.round(max * USHRT_MAX)
+    let s = 0
+    let hue = -1
+    if (delta !== 0) {
+        s = Math.round((delta / max) * USHRT_MAX)
+        let h: number
+        if (r === max) {
+            h = (g - b) / delta
+        } else if (g === max) {
+            h = 2.0 + (b - r) / delta
+        } else {
+            h = 4.0 + (r - g) / delta
+        }
+        h *= 60.0
+        if (h < 0.0) {
+            h += 360.0
+        }
+        hue = Math.round(h * 100)
+    }
+
+    // QColor::lighter
+    v = Math.trunc((factor * v) / 100)
+    if (v > USHRT_MAX) {
+        s -= v - USHRT_MAX
+        if (s < 0) {
+            s = 0
+        }
+        v = USHRT_MAX
+    }
+
+    // QColor::toRgb of the HSV color
+    let rr: number, gg: number, bb: number
+    if (s === 0 || hue === -1) {
+        rr = gg = bb = v
+    } else {
+        const h = hue === 36000 ? 0 : hue / 6000
+        const sf = s / USHRT_MAX
+        const vf = v / USHRT_MAX
+        const i = Math.trunc(h)
+        const f = h - i
+        const p = vf * (1.0 - sf)
+        let rf: number, gf: number, bf: number
+        if (i & 1) {
+            const q = vf * (1.0 - (sf * f))
+            switch (i) {
+            case 1: rf = q; gf = vf; bf = p; break
+            case 3: rf = p; gf = q; bf = vf; break
+            default: rf = vf; gf = p; bf = q; break // 5
+            }
+        } else {
+            const t = vf * (1.0 - (sf * (1.0 - f)))
+            switch (i) {
+            case 0: rf = vf; gf = t; bf = p; break
+            case 2: rf = p; gf = vf; bf = t; break
+            default: rf = t; gf = p; bf = vf; break // 4
+            }
+        }
+        rr = Math.round(rf * USHRT_MAX)
+        gg = Math.round(gf * USHRT_MAX)
+        bb = Math.round(bf * USHRT_MAX)
+    }
+    // qt_div_257
+    const div257 = (x: number): number => Math.trunc((x - (x >> 8) + 0x80) >> 8)
+    return new Color(div257(rr), div257(gg), div257(bb), c.a)
 }
