@@ -59,6 +59,8 @@ import type { Beam } from '../../dom/beam'
 import type { Box, FBox, HBox, TBox } from '../../dom/box'
 import type { Bracket } from '../../dom/bracket'
 import type { Breath } from '../../dom/breath'
+import type { BagpipeEmbellishment } from '../../dom/bagpembell'
+import type { ActionIcon } from '../../dom/actionicon'
 import type { BSymbol } from '../../dom/bsymbol'
 import type { Chord } from '../../dom/chord'
 import type { ChordLine } from '../../dom/chordline'
@@ -143,6 +145,8 @@ export class TWrite {
     static writeItem(item: EngravingItem, xml: XmlWriter, ctx: WriteContext): void {
         switch (item.type()) {
         case ElementType.ACCIDENTAL: TWrite.writeAccidental(item as Accidental, xml, ctx); break
+        case ElementType.ACTION_ICON: TWrite.writeActionIcon(item as ActionIcon, xml, ctx); break
+        case ElementType.BAGPIPE_EMBELLISHMENT: TWrite.writeBagpipeEmbellishment(item as BagpipeEmbellishment, xml, ctx); break
         case ElementType.AMBITUS: TWrite.writeAmbitus(item as Ambitus, xml, ctx); break
         case ElementType.ARPEGGIO: TWrite.writeArpeggio(item as Arpeggio, xml, ctx); break
         case ElementType.ARTICULATION: TWrite.writeArticulation(item as Articulation, xml, ctx); break
@@ -660,6 +664,19 @@ export class TWrite {
 
             xml.endElement()
         }
+    }
+
+    static writeActionIcon(item: ActionIcon, xml: XmlWriter, _ctx: WriteContext): void {
+        xml.startElement(item)
+        xml.tag('subtype', item.actionType())
+        xml.tag('action', item.actionCode())
+        xml.endElement()
+    }
+
+    static writeBagpipeEmbellishment(item: BagpipeEmbellishment, xml: XmlWriter, _ctx: WriteContext): void {
+        xml.startElement(item)
+        xml.tag('subtype', TConv.toXmlEmbellishmentType(item.embelType()))
+        xml.endElement()
     }
 
     static writeBreath(item: Breath, xml: XmlWriter, ctx: WriteContext): void {

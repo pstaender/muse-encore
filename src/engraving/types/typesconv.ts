@@ -20,6 +20,7 @@ import {
     TimeSigStyle, TimeSigVSMargin, TremoloType, TrillType, VoiceAssignment, AutoCustomHide, LyricsDashSystemStart,
     ArpeggioType, JumpType, GlissandoType, VeloType, ArticulationTextType, VibratoType, PartialSpannerDirection, GradualTempoChangeType,
     ParenthesesMode, LHTappingSymbol, RHTappingSymbol, PlayingTechniqueType, CapoTransposeMode, AccidentalRole,
+    type EmbellishmentType,
 } from './types'
 import * as D from './typesconvdata'
 import type { Item } from './typesconvdata'
@@ -201,6 +202,18 @@ export const TConv = {
         isAtonal ? KEY_NAMES[15] : isCustom ? KEY_NAMES[16] : KEY_NAMES[v + 7],
     translatedUserNameKey: (v: number, isAtonal: boolean, isCustom: boolean): string =>
         (isAtonal ? KEY_NAMES[15] : isCustom ? KEY_NAMES[16] : KEY_NAMES[v + 7]).translated(),
+
+    // EmbellishmentType (bagpipe embellishments: the index into EMBELLISHMENT_TYPES)
+    userNameEmbellishmentType: (v: EmbellishmentType): TranslatableString => TranslatableString.from(D.EMBELLISHMENT_TYPES[v].name),
+    translatedUserNameEmbellishmentType: (v: EmbellishmentType): string => TranslatableString.from(D.EMBELLISHMENT_TYPES[v].name).translated(),
+    toXmlEmbellishmentType: (v: EmbellishmentType): string => String(v),
+    fromXmlEmbellishmentType(tag: string, def: EmbellishmentType): EmbellishmentType {
+        // C++ AsciiStringView::toInt
+        const t = tag.trim()
+        return /^[+-]?\d+$/.test(t) ? Number(t) : def
+    },
+    embellishmentNotes: (v: EmbellishmentType): string[] => D.EMBELLISHMENT_TYPES[v].notes.split(' '),
+    embellishmentsCount: (): number => D.EMBELLISHMENT_TYPES.length,
 
     // Align
     fromXmlAlignH: (tag: string, def: AlignH): AlignH => findTypeByXmlTag(D.ALIGN_H, tag, def),

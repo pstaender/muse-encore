@@ -117,5 +117,19 @@ for (const t of tables) {
     }
     out += ']\n\n'
 }
+// EMBELLISHMENT_TYPES (struct EmbelItem: name, notes; the index is the EmbellishmentType)
+{
+    const start = cpp.indexOf('EMBELLISHMENT_TYPES = {')
+    if (start < 0) {
+        throw new Error('EMBELLISHMENT_TYPES not found')
+    }
+    const body = cpp.slice(start, cpp.indexOf('};', start))
+    out += `/** C++ EMBELLISHMENT_TYPES (struct EmbelItem): the name and the bagpipe notes of each EmbellishmentType (the index) */
+export const EMBELLISHMENT_TYPES: readonly { name: TStr; notes: string }[] = [\n`
+    for (const m of body.matchAll(/\{\s*muse::TranslatableString\(\s*"([^"]*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)\s*,\s*"([^"]*)"\s*\}/g)) {
+        out += `    { name: ${JSON.stringify({ context: m[1], str: unescape(m[2]) })}, notes: ${JSON.stringify(m[3])} },\n`
+    }
+    out += ']\n'
+}
 writeFileSync('src/engraving/types/typesconvdata.ts', out)
 console.log(`generated ${tables.length} tables; skipped: ${skipped.join(', ')}`)

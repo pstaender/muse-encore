@@ -5,7 +5,7 @@
  *
  * Port of src/palette/internal/palettecreator.h/.cpp: the default palettes and the master palette ("More").
  *
- * TODO(port): cells of elements not ported yet are left out: bagpipe embellishments, harp pedal diagrams, capo,
+ * TODO(port): cells of elements not ported yet are left out: harp pedal diagrams, capo,
  * string tunings, tapping, chord brackets, text articulations (handbells), the chord diagrams of the fretboard
  * diagram palette (FretDiagram::updateDiagram needs the fret diagram patterns; only "Blank" is created).
  */
@@ -28,6 +28,7 @@ import { Factory } from '../engraving/dom/factory'
 import { scoreDummy } from '../engraving/compat/dummyelement'
 import { gpaletteScore } from '../engraving/dom/palettescore'
 import { ActionIconType } from '../engraving/dom/actionicon'
+import { BagpipeEmbellishment } from '../engraving/dom/bagpembell'
 import { AccidentalType } from '../engraving/dom/accidentaldata'
 import type { Accidental } from '../engraving/dom/accidental'
 import { Ambitus } from '../engraving/dom/ambitus'
@@ -973,7 +974,13 @@ export class PaletteCreator {
         sp.setGridSize(55, 72)
         sp.setDrawGrid(true)
         sp.setVisible(false)
-        // TODO(port): BagpipeEmbellishment (one cell per EmbellishmentType)
+        for (let i = 0; i < TConv.embellishmentsCount(); ++i) {
+            const b = new BagpipeEmbellishment(dummy())
+            b.setEmbelType(i)
+            // TODO: pass TranslatableString
+            sp.appendElement(b, TConv.userNameEmbellishmentType(i).str)
+        }
+
         return sp
     }
 

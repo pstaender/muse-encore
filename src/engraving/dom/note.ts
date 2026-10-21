@@ -31,6 +31,8 @@ import {
 } from './pitchspelling'
 import { absStep, relStep } from './utils'
 import { NoteType, type ChordRest } from './chordrest'
+import { BagpipeEmbellishment } from './bagpembell'
+import { Constants } from '../types/constants'
 import { KeyboardModifier, type EditData } from '../editing/editdata'
 import type { Chord, NoteParenthesisInfo } from './chord'
 import type { NoteDot } from './notedot'
@@ -1468,7 +1470,19 @@ export class Note extends EngravingItem {
         }
 
         // TODO(port): ACTION_ICON (grace notes, parentheses, bends, note anchored lines), GUITAR_BEND,
-        // BAGPIPE_EMBELLISHMENT, NOTE (replace the note), GLISSANDO
+        // NOTE (replace the note), GLISSANDO
+
+        case ElementType.BAGPIPE_EMBELLISHMENT: {
+            const b = e as unknown as BagpipeEmbellishment
+            const nl = b.resolveNoteList()
+            // add grace notes in reverse order, as setGraceNote adds a grace note
+            // before the current note
+            for (let i = nl.length - 1; i >= 0; --i) {
+                const p = BagpipeEmbellishment.BAGPIPE_NOTEINFO_LIST[nl[i]].pitch
+                this.score().setGraceNote(ch, p, NoteType.GRACE32, Constants.DIVISION / 8)
+            }
+            break
+        }
 
         case ElementType.CHORD: {
             const c = e as unknown as Chord

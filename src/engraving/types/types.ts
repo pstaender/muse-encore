@@ -877,6 +877,9 @@ export enum BracketType {
     NO_BRACKET = -1,
 }
 
+/** C++ enum EmbellishmentType : unsigned char {} (an index into TConv's EMBELLISHMENT_TYPES) */
+export type EmbellishmentType = number
+
 export enum GlissandoType {
     STRAIGHT,
     WAVY,

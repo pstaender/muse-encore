@@ -6,7 +6,7 @@
  * Port of src/engraving/rendering/single/singlelayout.h/.cpp: the layout of single elements outside of a score
  * (palette cells, drag previews). The elements belong to the palette score and have no staff/system.
  *
- * TODO(port): elements not ported yet: BagpipeEmbellishment, Bend, Capo, ChordBracket, FSymbol, HarpPedalDiagram,
+ * TODO(port): elements not ported yet: Bend, Capo, ChordBracket, FSymbol, HarpPedalDiagram,
  * Image, Lyrics, NoteLine, PlayCountText, SoundFlag, StaffTypeChange, Sticking, StringTunings, Tapping, TremoloBar,
  * Chord/Stem (drumset), text articulations (ArticulationTextType).
  */
@@ -43,6 +43,7 @@ import type { Score } from '../../dom/score'
 import type { EngravingItem } from '../../dom/engravingitem'
 import type { Accidental } from '../../dom/accidental'
 import type { ActionIcon } from '../../dom/actionicon'
+import { BagpipeEmbellishment } from '../../dom/bagpembell'
 import { UI_ICONS_DEFAULT_FONT_SIZE } from '../../dom/actionicon'
 import type { Ambitus } from '../../dom/ambitus'
 import { Ambitus as AmbitusClass } from '../../dom/ambitus'
@@ -100,6 +101,8 @@ export class SingleLayout {
         case ElementType.ARPEGGIO: SingleLayout.layoutArpeggio(item as Arpeggio, ctx)
             break
         case ElementType.ARTICULATION: SingleLayout.layoutArticulation(item as Articulation, ctx)
+            break
+        case ElementType.BAGPIPE_EMBELLISHMENT: SingleLayout.layoutBagpipeEmbellishment(item as BagpipeEmbellishment, ctx)
             break
         case ElementType.BAR_LINE: SingleLayout.layoutBarLine(item as BarLine, ctx)
             break
@@ -216,6 +219,76 @@ export class SingleLayout {
             ldata.syms = [{ sym: symId, x: 0.0, y: 0.0 }]
             ldata.setBbox(item.symBbox(symId))
         }
+    }
+
+    static layoutBagpipeEmbellishment(item: BagpipeEmbellishment, ctx: Context): void {
+        const ldata = item.mutldata()
+        const mags = item.magS() * 0.75 // grace head magnification
+        const spatium = ctx.style().spatium()
+
+        const nl = item.resolveNoteList()
+
+        ldata.clearBbox()
+        ldata.isDrawBeam = nl.length > 1
+        ldata.isDrawFlag = nl.length === 1
+        ldata.spatium = spatium
+        ldata.headsym = SymId.noteheadBlack
+        ldata.flagsym = SymId.flag32ndUp
+        ldata.stemLineW = ldata.spatium * 0.1
+        ldata.notesData.clear()
+
+        const dataBeam = ldata.beamData
+        dataBeam.y = (-8 * spatium / 2)
+        dataBeam.width = (0.3 * spatium)
+
+        const headBBox = ctx.engravingFont().bbox(ldata.headsym, mags)
+        const flagBBox = ctx.engravingFont().bbox(ldata.flagsym, mags)
+        const xcorr = spatium * 0.1 // correction to align flag with top of stem
+
+        const headW = headBBox.width()
+        const headw = 1.2 * headW // grace head width
+        const headp = 1.6 * headW // horizontal head pitch
+        const xl = (1 - 1.6 * (nl.length - 1)) * headW / 2 // calc x for stem of leftmost note
+
+        // draw the notes including stem, (optional) flag and (optional) ledger line
+        let x = xl
+        for (let i = 0; i < nl.length; ++i) {
+            const line = BagpipeEmbellishment.BAGPIPE_NOTEINFO_LIST[nl[i]].line
+            const y1f = ((line - 6) * spatium / 2) // top of stem for note with flag
+            const y2 = (line * spatium / 2) // bottom of stem
+            const ycorr = (0.8 * spatium) // correction to align flag with top of stem
+
+            const noteData = { headXY: new PointF(), stemLine: new LineF(), flagXY: new PointF(), ledgerLine: new LineF() }
+            ldata.notesData.set(i, noteData)
+
+            // head
+            noteData.headXY = new PointF(x - headw, y2)
+            ldata.addBbox(headBBox.translated(noteData.headXY))
+
+            // stem
+            // top of stems actually used
+            const y1 = ldata.isDrawFlag ? y1f : dataBeam.y
+            noteData.stemLine = new LineF(x - ldata.stemLineW * 0.5, y1, x - ldata.stemLineW * 0.5, y2)
+            ldata.addBbox(new RectF(x - ldata.stemLineW * 0.5 - headw, y1, ldata.stemLineW, y2 - y1))
+
+            // flag
+            if (ldata.isDrawFlag) {
+                noteData.flagXY = new PointF(x - ldata.stemLineW * 0.5 + xcorr, y1 + ycorr)
+                ldata.addBbox(flagBBox.translated(noteData.flagXY))
+            }
+
+            // draw the ledger line for high A
+            if (line === -2) {
+                noteData.ledgerLine = new LineF(x - headw * 1.5 - ldata.stemLineW * 0.5, y2, x + headw * 0.5 - ldata.stemLineW * 0.5, y2)
+                ldata.addBbox(new RectF(x - headw * 1.5 - ldata.stemLineW * 0.5, y2 - ldata.stemLineW * 2, headw * 2, ldata.stemLineW))
+            }
+
+            // move x to next note x position
+            x += headp
+        }
+
+        dataBeam.x1 = xl - ldata.stemLineW * 0.5
+        dataBeam.x2 = x - headp - ldata.stemLineW * 0.5
     }
 
     /** deviation: the glyph is drawn by the UI with the icon font; the bbox is the square of the font size */

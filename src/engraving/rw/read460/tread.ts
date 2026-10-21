@@ -93,6 +93,8 @@ import type { Expression } from '../../dom/expression'
 import type { Dynamic } from '../../dom/dynamic'
 import type { Fermata } from '../../dom/fermata'
 import type { Breath } from '../../dom/breath'
+import type { BagpipeEmbellishment } from '../../dom/bagpembell'
+import { ActionIconType, type ActionIcon } from '../../dom/actionicon'
 import { SystemLock } from '../../dom/systemlock'
 import { EID } from '../../infrastructure/eid'
 import { linkedObjectsMainElement } from '../../dom/linkedobjects'
@@ -166,6 +168,58 @@ function parseIntVec(s: string): number[] {
     return s.split(',').filter(x => x.trim().length).map(x => parseInt(x, 10))
 }
 
+const ACTION_ICON_TYPES: ReadonlyMap<string, ActionIconType> = new Map([
+    ['acciaccatura', ActionIconType.ACCIACCATURA],
+    ['appoggiatura', ActionIconType.APPOGGIATURA],
+    ['grace4', ActionIconType.GRACE4],
+    ['grace16', ActionIconType.GRACE16],
+    ['grace32', ActionIconType.GRACE32],
+    ['grace8after', ActionIconType.GRACE8_AFTER],
+    ['grace16after', ActionIconType.GRACE16_AFTER],
+    ['grace32after', ActionIconType.GRACE32_AFTER],
+
+    ['beam-auto', ActionIconType.BEAM_AUTO],
+    ['beam-none', ActionIconType.BEAM_NONE],
+    ['beam-break-left', ActionIconType.BEAM_BREAK_LEFT],
+    ['beam-break-inner-8th', ActionIconType.BEAM_BREAK_INNER_8TH],
+    ['beam-break-inner-16th', ActionIconType.BEAM_BREAK_INNER_16TH],
+    ['beam-join', ActionIconType.BEAM_JOIN],
+
+    ['beam-feathered-decelerate', ActionIconType.BEAM_FEATHERED_DECELERATE],
+    ['beam-feathered-accelerate', ActionIconType.BEAM_FEATHERED_ACCELERATE],
+
+    ['add-parentheses', ActionIconType.PARENTHESES],
+    ['add-brackets', ActionIconType.BRACKETS],
+
+    ['insert-vbox', ActionIconType.VFRAME],
+    ['insert-hbox', ActionIconType.HFRAME],
+    ['insert-textframe', ActionIconType.TFRAME],
+    ['insert-fretframe', ActionIconType.FFRAME],
+    ['insert-staff-type-change', ActionIconType.STAFF_TYPE_CHANGE],
+    ['insert-measure', ActionIconType.MEASURE],
+
+    ['standard-bend', ActionIconType.STANDARD_BEND],
+    ['pre-bend', ActionIconType.PRE_BEND],
+    ['grace-note-bend', ActionIconType.GRACE_NOTE_BEND],
+    ['slight-bend', ActionIconType.SLIGHT_BEND],
+
+    ['dive', ActionIconType.DIVE],
+    ['pre-dive', ActionIconType.PRE_DIVE],
+    ['dip', ActionIconType.DIP],
+    ['scoop', ActionIconType.SCOOP],
+
+    ['add-noteline', ActionIconType.NOTE_ANCHORED_LINE],
+
+    ['toggle-system-lock', ActionIconType.SYSTEM_LOCK],
+])
+
+function setActionIconTypeFromAction(i: ActionIcon, actionCode: string): void {
+    const type = ACTION_ICON_TYPES.get(actionCode)
+    if (type !== undefined) {
+        i.setActionType(type)
+    }
+}
+
 export class TRead {
     // ---------------------------------------------------------
     //   readItem
@@ -174,6 +228,8 @@ export class TRead {
     static readItem(item: EngravingItem, xml: XmlReader, ctx: ReadContext): void {
         switch (item.type()) {
         case ElementType.ACCIDENTAL: TRead.readAccidental(item as Accidental, xml, ctx); break
+        case ElementType.ACTION_ICON: TRead.readActionIcon(item as ActionIcon, xml, ctx); break
+        case ElementType.BAGPIPE_EMBELLISHMENT: TRead.readBagpipeEmbellishment(item as BagpipeEmbellishment, xml, ctx); break
         case ElementType.ARPEGGIO: TRead.readArpeggio(item as Arpeggio, xml, ctx); break
         case ElementType.AMBITUS: TRead.readAmbitus(item as Ambitus, xml, ctx); break
         case ElementType.INSTRUMENT_CHANGE: TRead.readInstrumentChange(item as InstrumentChange, xml, ctx); break
@@ -738,6 +794,35 @@ export class TRead {
             return false
         }
         return true
+    }
+
+    static readActionIcon(i: ActionIcon, e: XmlReader, _ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'subtype') {
+                // This is fragile, see https://github.com/musescore/MuseScore/issues/24060#issuecomment-2299665318.
+                // Keeping it here for compatbility in case an ActionIcon from some old version doesn't have an <action> tag.
+                // If the <action> tag is present, it will override this value, see below.
+                i.setActionType(e.readInt() as ActionIconType)
+            } else if (tag === 'action') {
+                const actionCode = e.readText()
+                i.setAction(actionCode, 0)
+                setActionIconTypeFromAction(i, actionCode)
+            } else {
+                e.unknown()
+            }
+        }
+    }
+
+    static readBagpipeEmbellishment(b: BagpipeEmbellishment, e: XmlReader, _ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'subtype') {
+                b.setEmbelType(TConv.fromXmlEmbellishmentType(e.readAsciiText(), 0))
+            } else {
+                e.unknown()
+            }
+        }
     }
 
     static readBreath(b: Breath, e: XmlReader, ctx: ReadContext): void {

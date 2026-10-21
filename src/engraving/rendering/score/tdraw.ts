@@ -68,6 +68,7 @@ import { AlignmentFlag } from '../../../framework/draw/types/drawtypes'
 import { EngravingConfiguration } from '../../internal/engravingconfiguration'
 import type { TrillSegment } from '../../dom/trill'
 import type { Ambitus } from '../../dom/ambitus'
+import type { BagpipeEmbellishment } from '../../dom/bagpembell'
 import type { Arpeggio } from '../../dom/arpeggio'
 import type { TremoloSingleChord } from '../../dom/tremolosinglechord'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
@@ -88,6 +89,8 @@ export class TDraw {
         case ElementType.ARTICULATION:
         case ElementType.ORNAMENT:
             TDraw.drawArticulation(item as Articulation, painter, opt)
+            break
+        case ElementType.BAGPIPE_EMBELLISHMENT: TDraw.drawBagpipeEmbellishment(item as BagpipeEmbellishment, painter, opt)
             break
         case ElementType.BAR_LINE: TDraw.drawBarLine(item as BarLine, painter, opt)
             break
@@ -281,6 +284,51 @@ export class TDraw {
             if (item.isBottom()) {
                 item.drawSymbol(SymId.bracketBottom, painter, new PointF(x, data.y2))
             }
+        }
+    }
+
+    static drawBagpipeEmbellishment(item: BagpipeEmbellishment, painter: Painter, opt: PaintOptions): void {
+        const data = item.ldata()
+        const dataBeam = data.beamData
+
+        const pen = new Pen(item.curColor(opt), data.stemLineW, PenStyle.SolidLine, PenCapStyle.FlatCap)
+        painter.setPen(pen)
+
+        // draw the notes including stem, (optional) flag and (optional) ledger line
+        for (const [, noteData] of [...data.notesData].sort((a, b) => a[0] - b[0])) {
+            // Draw Grace Note
+            {
+                // draw head
+                item.drawSymbol(data.headsym, painter, noteData.headXY)
+
+                // draw stem
+                painter.drawLine(noteData.stemLine)
+
+                if (data.isDrawFlag) {
+                    // draw flag
+                    item.drawSymbol(data.flagsym, painter, noteData.flagXY)
+                }
+            }
+
+            // draw the ledger line for high A
+            if (!noteData.ledgerLine.isNull()) {
+                painter.drawLine(noteData.ledgerLine)
+            }
+        }
+
+        if (data.isDrawBeam) {
+            const beamPen = new Pen(item.curColor(opt), dataBeam.width, PenStyle.SolidLine, PenCapStyle.FlatCap)
+            painter.setPen(beamPen)
+            // draw the beams
+            const drawBeams = (spatium: number, x1: number, x2: number, y: number): void => {
+                painter.drawLine(new LineF(x1, y, x2, y))
+                y += spatium / 1.5
+                painter.drawLine(new LineF(x1, y, x2, y))
+                y += spatium / 1.5
+                painter.drawLine(new LineF(x1, y, x2, y))
+            }
+
+            drawBeams(data.spatium, dataBeam.x1, dataBeam.x2, dataBeam.y)
         }
     }
 

@@ -12,6 +12,8 @@ import { TConv } from '../types/typesconv'
 import { itemFactories, type EngravingItem } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
 import { Accidental } from './accidental'
+import { ActionIcon } from './actionicon'
+import { BagpipeEmbellishment } from './bagpembell'
 import { Arpeggio } from './arpeggio'
 import { Articulation } from './articulation'
 import { BarLine } from './barline'
@@ -196,6 +198,8 @@ export class Factory {
         case ElementType.DYNAMIC: return new Dynamic(segmentOrDummy())
         case ElementType.FERMATA: return new Fermata(itemOrDummy())
         case ElementType.BREATH: return new Breath(segmentOrDummy())
+        case ElementType.ACTION_ICON: return new ActionIcon(itemOrDummy())
+        case ElementType.BAGPIPE_EMBELLISHMENT: return new BagpipeEmbellishment(itemOrDummy())
         default:
             // TODO(port): element type not ported yet
             return null
