@@ -43,6 +43,13 @@ import { FontMetrics } from '../../framework/draw/fontmetrics'
 import { ParenthesizeTiedFret, ShowTiedFret, type StaffType } from './stafftype'
 import { arg, mtrc } from '../../framework/global/translation'
 import type { TranslatableString } from '../../framework/global/types/translatablestring'
+// (imports of the drag section)
+import { RectF } from '../../framework/draw/types/geometry'
+import { Spatium } from '../types/dimension'
+import { lrint } from '../../framework/global/realfn'
+import { absStepFromLine, step2pitch } from './utils'
+import { step2tpc } from './pitchspelling'
+import { ElementEditData, EditDataType } from '../editing/elementeditdata'
 
 export const INVALID_LINE = -10000
 
@@ -2158,5 +2165,184 @@ export class Note extends EngravingItem {
 
     override subtypeUserName(): TranslatableString {
         return TConv.userNameNoteHeadGroup(this.m_headGroup)
+    }
+
+    // =================================================================================================================
+    //   drag (note.cpp: startDrag, drag, endDrag, dragInEditMode, verticalDrag, horizontalDrag)
+    // =================================================================================================================
+
+    override startDrag(ed: EditData): void {
+        const ned = new NoteEditData()
+        ned.e = this
+        ned.line = this.m_line
+        ned.string = this.m_string
+        ned.pushProperty(Pid.PITCH)
+        ned.pushProperty(Pid.TPC1)
+        ned.pushProperty(Pid.TPC2)
+        ned.pushProperty(Pid.FRET)
+        ned.pushProperty(Pid.STRING)
+
+        ed.addData(ned)
+    }
+
+    override drag(ed: EditData): RectF {
+        const noteEditData = ed.getData(this) as NoteEditData | null
+        if (!noteEditData) {
+            return new RectF()
+        }
+
+        if (ed.isEditMode) {
+            this.dragInEditMode(ed)
+            return new RectF()
+        }
+
+        const delta = ed.evtDelta
+        noteEditData.delta = delta.clone()
+
+        if (noteEditData.mode === NoteEditMode.Undefined) {
+            noteEditData.mode = NoteEditData.editModeByDragDirection(delta.x(), delta.y())
+        }
+
+        const isSingleNoteSelection = this.score().getSelectedElement() === this
+        if (noteEditData.mode === NoteEditMode.AddSpacing && isSingleNoteSelection && !(ed.modifiers & KeyboardModifier.ControlModifier)) {
+            this.horizontalDrag(ed)
+        } else if (noteEditData.mode === NoteEditMode.ChangePitch) {
+            this.verticalDrag(ed)
+        }
+
+        return new RectF()
+    }
+
+    override endDrag(ed: EditData): void {
+        const ned = ed.getData(this) as NoteEditData | null
+        if (!ned) {
+            return
+        }
+        for (const nn of this.tiedNotes()) {
+            for (const { id, data, f } of ned.propertyData) {
+                this.setPropertyFlags(id, f) // reset initial property flags state
+                this.score().undoPropertyChanged(nn, id, data)
+            }
+        }
+    }
+
+    private dragInEditMode(editData: EditData): void {
+        const ch = this.chord()
+        const seg = ch.segment()
+
+        if (editData.modifiers & KeyboardModifier.ShiftModifier) {
+            const deltaSp = new Spatium(editData.delta.x() / this.spatium())
+            seg.undoChangeProperty(Pid.LEADING_SPACE, new Spatium(seg.extraLeadingSpace().val() + deltaSp.val()))
+        } else if (ch.notes().length === 1) {
+            // if the chord contains only this note, then move the whole chord
+            // including stem, flag etc.
+            ch.undoChangeProperty(Pid.OFFSET, ch.offset().plus(this.offset()).plus(editData.evtDelta))
+            this.setOffset(new PointF())
+        } else {
+            this.setOffset(this.offset().plus(editData.evtDelta))
+        }
+
+        this.triggerLayout()
+    }
+
+    private verticalDrag(ed: EditData): void {
+        const tick = this.chord().tick()
+        if (this.part()!.instrument(tick)!.useDrumset()) {
+            return
+        }
+
+        const ned = ed.getData(this) as NoteEditData
+
+        const tab = this.staffType()!.isTabStaff()
+        const step = this.spatium() * this.staffType()!.lineDistance().val() * (tab ? 1.0 : 0.5)
+        const lineOffset = lrint(ed.moveDelta.y() / step)
+
+        if (tab) {
+            // TODO(port): tablature (string and fret of the dragged note)
+        } else {
+            const idx = this.chord().vStaffIdx()
+            const firstTied = this.firstTiedNote()
+            let [accOffs, error] = firstTied.chord().measure()!.findAccidentalAtLine(firstTied.chord().segment(), idx, ned.line + lineOffset)
+            if (error) {
+                accOffs = AccidentalVal.NATURAL // Accidental::subtype2value(AccidentalType::NONE)
+            }
+            let nStep = absStepFromLine(ned.line + lineOffset, this.score().staff(idx)!.clef(tick))
+            nStep = Math.max(0, nStep)
+            const octave = Math.trunc(nStep / 7)
+            let newPitch = step2pitch(nStep) + octave * 12 + accOffs
+            newPitch = Math.min(Math.max(newPitch, 0), 127)
+
+            let newTpc1 = step2tpc(nStep % 7, accOffs)
+            let newTpc2 = newTpc1
+            if (this.concertPitch()) {
+                newTpc2 = this.transposeTpc(newTpc1)
+            } else {
+                newPitch += this.staff()!.transpose(tick).chromatic
+                newTpc1 = this.transposeTpc(newTpc2)
+            }
+
+            for (const nn of this.tiedNotes()) {
+                nn.setAccidentalType(0 as AccidentalType) // AccidentalType::NONE
+                nn.setPitch(newPitch, newTpc1, newTpc2)
+                nn.triggerLayout()
+            }
+        }
+        this.score().inputState().setAccidentalType(0 as AccidentalType) // AccidentalType::NONE
+    }
+
+    private horizontalDrag(ed: EditData): void {
+        const ch = this.chord()
+        const seg = ch.segment()
+
+        const ned = ed.getData(this) as NoteEditData
+
+        // TODO(port): normalizeLeftDragDelta (HorizontalSpacing::minHorizontalDistance limits the drag to the left)
+
+        const deltaSp = ned.delta.x() / this.spatium()
+
+        if (seg.extraLeadingSpace().val() + deltaSp < 0) {
+            return
+        }
+
+        seg.undoChangeProperty(Pid.LEADING_SPACE, new Spatium(seg.extraLeadingSpace().val() + deltaSp))
+
+        this.triggerLayout()
+    }
+}
+
+enum NoteEditMode {
+    Undefined,
+    ChangePitch,
+    AddSpacing,
+}
+
+/** C++ NoteEditData */
+class NoteEditData extends ElementEditData {
+    line = 0
+    string = 0
+    mode = NoteEditMode.Undefined
+    delta = new PointF()
+
+    override type(): EditDataType { return EditDataType.NoteEditData }
+
+    static readonly MODE_TRANSITION_LIMIT_DEGREES = 15.0
+
+    static editModeByDragDirection(deltaX: number, deltaY: number): NoteEditMode {
+        const x = Math.abs(deltaX)
+        const y = Math.abs(deltaY)
+
+        const len = Math.sqrt(x * x + y * y)
+        const nx = len ? x / len : 0
+
+        // C++ computes the dot product in float
+        const radians = Math.fround(nx)
+
+        const degrees = (Math.acos(radians) * 180.0) / Math.PI
+
+        if (degrees >= NoteEditData.MODE_TRANSITION_LIMIT_DEGREES) {
+            return NoteEditMode.ChangePitch
+        } else {
+            return NoteEditMode.AddSpacing
+        }
     }
 }

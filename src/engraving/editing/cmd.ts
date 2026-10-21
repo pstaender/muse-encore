@@ -174,13 +174,15 @@ Score.prototype.endCmd = function (this: Score, rollback = false, layoutAllParts
         rollback = true
     }
 
+    // a rolled back command that changed something must be laid out too (see below)
+    const changedSomething = !this.undoStack().activeCommand()!.empty()
     if (rollback) {
         this.undoStack().activeCommand()!.unwind()
     }
 
     // TODO(port): not all undo commands of the port trigger the layout of their range yet (C++ setProperty()
     // implementations call triggerLayout()): without a range a command that changed something lays out the whole score
-    if (!this.undoStack().activeCommand()!.empty() && !this.cmdState().layoutRange()) {
+    if (changedSomething && !this.cmdState().layoutRange()) {
         this.setLayoutAll()
     }
 
