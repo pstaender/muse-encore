@@ -49,8 +49,11 @@ export class BracketItem extends EngravingItem {
             this.staff()!.setBracketType(this.column(), v as BracketType) // change bracket type global
             break
         case Pid.BRACKET_COLUMN:
-            // TODO(port): Staff::changeBracketColumn
-            this.m_column = v as number
+            if (this.staff()) {
+                this.staff()!.changeBracketColumn(this.column(), v as number)
+            } else {
+                this.m_column = v as number
+            }
             break
         case Pid.BRACKET_SPAN:
             this.m_bracketSpan = v as number

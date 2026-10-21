@@ -8,13 +8,16 @@
 
 import { Fraction } from '../types/fraction'
 import { SymId, type SymIdList } from '../types/symid'
-import { AccidentalVal, ClefType, ElementType, Key, TimeSigStyle, VOICES, type staff_idx_t, type track_idx_t } from '../types/types'
+import {
+    AccidentalVal, ClefType, ElementType, Key, TimeSigPlacement, TimeSigStyle, VOICES, nidx, type staff_idx_t, type track_idx_t,
+} from '../types/types'
 import { ClefInfo } from './clefinfo'
 import {
     MIN_PITCH, PITCH_DELTA_OCTAVE, Prefer, STEP_DELTA_OCTAVE, clampPitch, pitch2tpc, tpc2pitch, tpc2step,
 } from './pitchspelling'
 import type { Tuplet } from './tuplet'
-import { SegmentType, type Segment } from './segment'
+import { CHORD_REST_OR_TIME_TICK_TYPE, SegmentType, type Segment } from './segment'
+import type { Score } from './score'
 import type { Chord } from './chord'
 import type { ChordRest } from './chordrest'
 import type { Note } from './note'
@@ -791,4 +794,130 @@ export function filterTargetElements(sel: Pick<Selection, 'isRange' | 'startSegm
         }
     }
     return { elements: result, unique }
+}
+
+export function allowRemoveWhenRemovingStaves(item: EngravingItem | null, startStaff: staff_idx_t, endStaff: staff_idx_t = 0): boolean {
+    // Sanity checks
+    if (!item || item.staffIdx() === nidx || startStaff === nidx || endStaff === nidx) {
+        return false
+    }
+
+    const score = item.score()
+    if (score.nstaves() === 1) {
+        return true
+    }
+
+    if (endStaff === 0) { // Default initialized
+        endStaff = startStaff + 1
+    }
+
+    const staffIdx = item.staffIdx()
+    if (staffIdx < startStaff || staffIdx >= endStaff) {
+        return false
+    }
+
+    const nextRemaining = score.staff(endStaff)
+    const nextRemainingIsSystemObjectStaff = !!nextRemaining && nextRemaining.isSystemObjectStaff()
+    if (item.isTopSystemObject() && !nextRemainingIsSystemObjectStaff) {
+        return false
+    }
+
+    return true
+}
+
+export function moveDownWhenAddingStaves(item: EngravingItem | null, startStaff: staff_idx_t, endStaff: staff_idx_t = 0): boolean {
+    // Sanity checks
+    if (!item || item.staffIdx() === nidx || startStaff === nidx || endStaff === nidx) {
+        return false
+    }
+
+    if (item.staffIdx() < startStaff) {
+        return false
+    }
+
+    if (endStaff === 0) { // Default initialized
+        endStaff = startStaff + 1
+    }
+
+    const score = item.score()
+    const nextAfterInserted = score.staff(endStaff)
+    const nextAfterInsertedIsSystemObjectStaff = !!nextAfterInserted && nextAfterInserted.isSystemObjectStaff()
+    if (item.isTopSystemObject() && !nextAfterInsertedIsSystemObjectStaff) {
+        return false
+    }
+
+    return true
+}
+
+/** the system objects of the given staves (no staves: the top system objects) */
+export function collectSystemObjects(score: Score, staves: readonly Staff[] = []): EngravingItem[] {
+    const result: EngravingItem[] = []
+
+    const timeSigPlacement = score.style().styleV(Sid.timeSigPlacement) as TimeSigPlacement
+    const isOnStaffTimeSig = timeSigPlacement !== TimeSigPlacement.NORMAL
+
+    for (let measure = score.firstMeasure(); measure; measure = measure.nextMeasure()) {
+        for (const measureElement of measure.el()) {
+            if (!measureElement || !measureElement.systemFlag() || measureElement.isLayoutBreak()) {
+                continue
+            }
+            if (staves.length) {
+                if (staves.includes(measureElement.staff()!)) {
+                    result.push(measureElement)
+                }
+            } else if (measureElement.isTopSystemObject()) {
+                result.push(measureElement)
+            }
+        }
+
+        for (let seg = measure.first(); seg; seg = seg.next()) {
+            if (seg.segmentType() & (CHORD_REST_OR_TIME_TICK_TYPE | SegmentType.EndBarLine)) {
+                for (const annotation of seg.annotations()) {
+                    if (!annotation || !annotation.systemFlag()) {
+                        continue
+                    }
+
+                    if (staves.length) {
+                        if (staves.includes(annotation.staff()!)) {
+                            result.push(annotation)
+                        }
+                    } else if (annotation.isTopSystemObject()) {
+                        result.push(annotation)
+                    }
+                }
+            }
+
+            if (isOnStaffTimeSig && (seg.segmentType() & SegmentType.TimeSigType)) {
+                for (const item of seg.elist()) {
+                    if (!item || !item.isTimeSig()) {
+                        continue
+                    }
+
+                    if (staves.length) {
+                        if (staves.includes(item.staff()!)) {
+                            result.push(item)
+                        }
+                    } else if (item.staffIdx() === 0) {
+                        result.push(item)
+                    }
+                }
+            }
+        }
+    }
+
+    for (const spanner of score.spanner()) {
+        if (!spanner.systemFlag()) {
+            continue
+        }
+
+        if (staves.length) {
+            if (staves.includes(spanner.staff()!)) {
+                result.push(spanner)
+            }
+        } else if (spanner.isTopSystemObject()) {
+            result.push(spanner)
+        }
+    }
+
+    return result
 }

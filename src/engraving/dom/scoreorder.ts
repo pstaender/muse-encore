@@ -6,6 +6,7 @@
  * Port of src/engraving/dom/scoreorder.h/.cpp
  */
 
+import { RemoveBracket } from '../editing/editbrackets'
 import { BracketType } from '../types/types'
 import type { XmlReader } from '../rw/xmlreader'
 import type { XmlWriter } from '../rw/xmlwriter'
@@ -298,8 +299,7 @@ export class ScoreOrder {
                         braceSpan = Math.max(braceSpan, bi.bracketSpan() - 1)
                     }
                     if (!braceSpan) {
-                        // TODO(port): undo (RemoveBracket)
-                        staff.setBracketType(bi.column(), BracketType.NO_BRACKET)
+                        score.undo(new RemoveBracket(staff, bi.column(), bi.bracketType(), bi.bracketSpan()))
                     }
                 }
                 if (!braceSpan) {

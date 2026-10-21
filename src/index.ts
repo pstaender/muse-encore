@@ -58,6 +58,10 @@ import { SymId } from './engraving/types/symid'
 import { SymNames } from './engraving/types/symnames'
 import { BarLineType, ClefType, DynamicType, NoteHeadGroup, NoteHeadType, nidx } from './engraving/types/types'
 import { KeyboardModifier } from './engraving/editing/editdata'
+// (imports of the parts section)
+import { MasterNotationParts } from './notation/internal/masternotationparts'
+import { InsertMode as PartsInsertMode } from './notation/internal/notationparts'
+import { customOrder, type PartInstrumentList } from './notation/notationtypes'
 
 export { initEngravingFonts, fontsInitialized, type FontFileLoader } from './engraving/engravingmodule'
 export { MscLoadError } from './engraving/rw/mscloader'
@@ -1180,4 +1184,159 @@ export function applyPaletteElement(score: MasterScore, element: PaletteElement,
         m |= KeyboardModifier.ShiftModifier
     }
     return notationState(score).interaction.applyPaletteElement(element, m)
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+//   parts and staves (MuseScore's Layout panel and instruments dialog: MasterNotationParts / NotationParts)
+// ---------------------------------------------------------------------------------------------------------------------
+
+const s_notationParts = new WeakMap<MasterScore, MasterNotationParts>()
+
+function notationParts(score: MasterScore): MasterNotationParts {
+    let p = s_notationParts.get(score)
+    if (!p) {
+        p = new MasterNotationParts(score, notationState(score).interaction)
+        s_notationParts.set(score, p)
+    }
+    return p
+}
+
+/** runs a NotationParts command; true if it recorded an undoable change */
+function runPartsCommand(score: MasterScore, cmd: (parts: MasterNotationParts) => void): boolean {
+    const stack = score.undoStack()
+    const index = stack.currentIndex()
+    const size = stack.size()
+    cmd(notationParts(score))
+    return stack.currentIndex() !== index || stack.size() !== size
+}
+
+/** shows or hides a part (INotationParts::setPartVisible); ids are Part.id() */
+export function setPartVisible(score: MasterScore, partId: string, visible: boolean): boolean {
+    return runPartsCommand(score, p => p.setPartVisible(partId, visible))
+}
+
+/** shows or hides a staff (INotationParts::setStaffVisible); ids are Staff.id() */
+export function setStaffVisible(score: MasterScore, staffId: string, visible: boolean): boolean {
+    return runPartsCommand(score, p => p.setStaffVisible(staffId, visible))
+}
+
+/** removes instruments (INotationParts::removeParts; the part scores of these instruments are deleted too) */
+export function removeParts(score: MasterScore, partIds: readonly string[]): boolean {
+    return runPartsCommand(score, p => p.removeParts(partIds))
+}
+
+/** removes staves (INotationParts::removeStaves) */
+export function removeStaves(score: MasterScore, staffIds: readonly string[]): boolean {
+    return runPartsCommand(score, p => p.removeStaves(staffIds))
+}
+
+/** moves instruments before (or after) the destination instrument (INotationParts::moveParts) */
+export function moveParts(score: MasterScore, partIds: readonly string[], destinationPartId: string, after: boolean): boolean {
+    return runPartsCommand(score, p => p.moveParts(partIds, destinationPartId, after ? PartsInsertMode.After : PartsInsertMode.Before))
+}
+
+/** moves staves of one instrument before (or after) the destination staff (INotationParts::moveStaves) */
+export function moveStaves(score: MasterScore, staffIds: readonly string[], destinationStaffId: string, after: boolean): boolean {
+    return runPartsCommand(score, p => p.moveStaves(staffIds, destinationStaffId, after ? PartsInsertMode.After : PartsInsertMode.Before))
+}
+
+/**
+ * appends a staff to an instrument ("Add staff": StaffControlTreeItem::appendNewItem creates a staff with the
+ * instrument's clef for the new staff index and calls INotationParts::appendStaff)
+ */
+export function appendStaff(score: MasterScore, partId: string): boolean {
+    const part = score.parts().find(p => p.id() === partId)
+    if (!part) {
+        return false
+    }
+    const staff = Factory.createStaff(part)
+    staff.setDefaultClefType(part.instrument().clefType(part.nstaves()))
+    return runPartsCommand(score, p => p.appendStaff(staff, partId))
+}
+
+/** the staves get a copy of the top system markings (INotationParts::addSystemObjects) */
+export function addSystemObjects(score: MasterScore, staffIds: readonly string[]): boolean {
+    return runPartsCommand(score, p => p.addSystemObjects(staffIds))
+}
+
+/** removes the system markings layers of the staves (INotationParts::removeSystemObjects) */
+export function removeSystemObjects(score: MasterScore, staffIds: readonly string[]): boolean {
+    return runPartsCommand(score, p => p.removeSystemObjects(staffIds))
+}
+
+/** moves a system markings layer to another staff (INotationParts::moveSystemObjects) */
+export function moveSystemObjects(score: MasterScore, sourceStaffId: string, destinationStaffId: string): boolean {
+    return runPartsCommand(score, p => p.moveSystemObjects(sourceStaffId, destinationStaffId))
+}
+
+/** INotationParts::moveSystemObjectLayerBelowBottomStaff (below = true) / moveSystemObjectLayerAboveBottomStaff */
+export function moveSystemObjectLayerBottomStaff(score: MasterScore, below: boolean): boolean {
+    return runPartsCommand(score, p => below ? p.moveSystemObjectLayerBelowBottomStaff() : p.moveSystemObjectLayerAboveBottomStaff())
+}
+
+/** sets the instrument order (INotationParts::setScoreOrder; an id of scoreOrders() or 'custom') */
+export function setScoreOrder(score: MasterScore, orderId: string): boolean {
+    const order = orderId === 'custom' ? customOrder() : instrumentOrders().find(o => o.id === orderId)?.clone()
+    if (!order) {
+        return false
+    }
+    return runPartsCommand(score, p => p.setScoreOrder(order))
+}
+
+/** an entry of setInstruments(): an existing part (by id) or a new instrument (template id) */
+export type ScorePartSpec = { partId: string; soloist?: boolean } | { instrumentId: string; soloist?: boolean }
+
+/**
+ * Sets the instruments of the score like MuseScore's instruments dialog (INotationParts::setParts): parts not in the
+ * list are removed, new instruments are added, all are sorted in the order of the list. `orderId`: the score order
+ * (default: the current one). Returns false for unknown ids or if nothing changed.
+ */
+export function setInstruments(score: MasterScore, parts: readonly ScorePartSpec[], orderId?: string): boolean {
+    const list: PartInstrumentList = []
+    for (const spec of parts) {
+        if ('partId' in spec) {
+            const part = score.parts().find(p => p.id() === spec.partId)
+            if (!part) {
+                return false
+            }
+            list.push({ partId: spec.partId, instrumentTemplate: null as never, isExistingPart: true, isSoloist: spec.soloist ?? part.soloist() })
+        } else {
+            const t = searchTemplate(spec.instrumentId)
+            if (!t) {
+                return false
+            }
+            list.push({ partId: '', instrumentTemplate: t, isExistingPart: false, isSoloist: !!spec.soloist })
+        }
+    }
+    let order = score.scoreOrder()
+    if (orderId !== undefined) {
+        order = orderId === 'custom' ? customOrder() : repositoryOrder(orderId)
+    }
+    return runPartsCommand(score, p => p.setParts(list, order))
+}
+
+/**
+ * Adds instruments (template ids) to the score: the existing parts are kept; the new ones are inserted where the
+ * score order sorts them (appended for a custom or customized order), like the instruments dialog does.
+ */
+export function addInstruments(score: MasterScore, instrumentIds: readonly string[]): boolean {
+    const order = score.scoreOrder()
+    const sorted = order.id !== 'custom' && !order.customized && order.groups.length > 0
+    const specs: { spec: ScorePartSpec; index: number }[] = score.parts().map(p => ({
+        spec: { partId: p.id() }, index: order.instrumentSortingIndex(p.instrument().id(), p.soloist()),
+    }))
+    for (const id of instrumentIds) {
+        const spec: ScorePartSpec = { instrumentId: id }
+        if (sorted) {
+            const index = order.instrumentSortingIndex(id, false)
+            let pos = specs.findIndex(s => s.index > index)
+            if (pos === -1) {
+                pos = specs.length
+            }
+            specs.splice(pos, 0, { spec, index })
+        } else {
+            specs.push({ spec, index: 0 })
+        }
+    }
+    return setInstruments(score, specs.map(s => s.spec))
 }
