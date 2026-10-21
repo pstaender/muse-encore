@@ -319,6 +319,37 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('shows the palettes with rendered cells, search and keyboard navigation', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.waitForSelector('.palettes-panel .palette-tree-item[data-palette="Clef"]')
+        // expand the clefs: the cells are drawn
+        await page.click('.palette-tree-item[data-palette="Clef"] .palette-header')
+        await page.waitForSelector('.palette-tree-item[data-palette="Clef"] .palette-header[aria-expanded="true"]')
+        const cell = '.palette-tree-item[data-palette="Clef"] .palette-cell[data-element="Clef"]'
+        expect(await page.getAttribute(cell, 'title')).toBe('Treble clef')
+        const inked = await page.waitForFunction((sel) => {
+            const c = document.querySelector<HTMLCanvasElement>(`${sel} canvas.palette-cell-canvas`)
+            const d = c?.getContext('2d')?.getImageData(0, 0, c.width, c.height).data
+            return !!d && d.some((v, i) => i % 4 === 3 && v > 0)
+        }, cell).then(() => true)
+        expect(inked).toBe(true)
+        // arrows move between the cells
+        await page.focus(`${cell}:first-child`)
+        const label = (): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null)
+        const first = await label()
+        await page.keyboard.press('ArrowRight')
+        expect(await label()).not.toBe(first)
+        await page.keyboard.press('ArrowLeft')
+        expect(await label()).toBe(first)
+        // the search
+        await page.click('.palette-search-button')
+        await page.fill('.palette-search input', 'trill')
+        await page.waitForFunction(() => [...document.querySelectorAll<HTMLElement>('.palette-tree-item')].map(e => e.dataset.palette).join() === 'Ornament,Line')
+        await context.close()
+    }, 120000)
+
     it('lists the parts of the score in the Layout panel, synced with the selection', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)

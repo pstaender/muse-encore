@@ -51,6 +51,10 @@ these tests run for the viewer and the editor. Covers:
 - toolbars: dragging a toolbar to another place, hiding one (View > Toolbars), customizing the note input toolbar,
   the layout kept across reloads, "Restore the default layout"
 - translations: German through Preferences (menus, home screen, instrument search), kept across reloads
+- panels: Palettes/Layout/Properties toggled by the View menu, F7/F9 and the tab menu, tab keyboard navigation,
+  width (splitter) and open panels kept, "Restore the default layout"; palette cells drawn (non-empty canvas),
+  grid arrows, search; Layout panel lists the parts and follows the selection; Properties panel shows the score
+  sections without selection, the Note section of a selected note, Measures for a range
 
 ## Comparison with MuseScore (`npm run compare:all`)
 

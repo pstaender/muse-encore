@@ -31,9 +31,15 @@ src/
                         rw/compat (chord list hook, CompatUtils incl. doCompatibilityConversions = compatconversions.ts)
   engraving/compat      EngravingCompat (pre/post layout conversions of old files), page format, dummy element
   engraving/rendering/score  layout (ScoreLayout, SystemLayout, ChordLayout, ...) and painting (TDraw)
+  engraving/rendering/single  SingleLayout/SingleDraw: standalone items (palette cells) on the palette score
   engraving/editing     score changes (edit.cpp etc.; no undo stack yet: commands are applied directly)
   notation, project     MasterNotation / NotationParts / NotationProject: creating new scores (createScore)
-  index.ts              public library API
+  palette               palette tree/palettes/cells (palettecreator: default + master palettes), cell icons
+                        (PaletteCellIconEngine, EngravingItemPreviewPainter); api.ts
+  instrumentsscene      Layout panel tree model (LayoutPanelTreeModel and its tree items); api.ts
+  inspector             Properties panel models (InspectorListModel, section/notation models, PropertyItem);
+                        api.ts, inspectorselectionproperties.ts
+  index.ts              public library API (re-exports palette/instrumentsscene/inspector api.ts)
 fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore, Gonville/Gootville, Petaluma,
                         Finale Maestro/Broadway, MuseJazz, Edwin, FreeSerif/FreeSans) with their licenses,
                         chord description files (chords/), legacy default styles for old scores (styles/)
@@ -45,7 +51,9 @@ musescoreweb/           Vite score editor app "MuseScore Web": React UI (App.tsx
                         actions (actions/: MuseScore's UiActions + shortcuts, generated uiactiondata.ts; appactions.ts =
                         the handlers), i18n.ts (MuseScore's translations via vite-plugin-locales.ts), score view
                         (scoreview.ts, DOM code from the viewer), session.ts (open/create scores), db.ts (IndexedDB via
-                        Dexie), settings.ts (localStorage)
+                        Dexie), settings.ts (localStorage), panels/ (the left dock: PanelDock.tsx tabs + splitter,
+                        panels.ts state, palettes/, layout/, inspector/ UIs; editbridge.ts = all score changes of the
+                        panels, stubs until the editing port provides them)
 test/                   vitest tests
 ```
 
