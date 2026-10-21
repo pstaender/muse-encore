@@ -8,7 +8,7 @@
  * mouseReleaseEvent of a left click without dragging) and the selection key actions of
  * src/notationscene/internal/notationactioncontroller.cpp.
  *
- * TODO(port): dragging (elements, ranges, canvas, lasso), grips, text editing, note input mode, playback (seek and
+ * TODO(port): dragging (elements, ranges, canvas, lasso), grips, text editing, playback (seek and
  * play), context menu, double/triple click, Alt+click paste.
  */
 
@@ -44,6 +44,12 @@ export class NotationViewInputController {
         const hitElement = interaction.hitElement(logicPos, hitWidth)
         const hitStaff = interaction.hitStaff(logicPos)
         const hitStaffIndex = hitStaff ? hitStaff.idx() : nidx
+
+        // note enter mode
+        if (interaction.noteInput().isNoteInputMode()) {
+            this.handleClickInNoteInputMode(logicPos, modifiers)
+            return
+        }
 
         let shouldSelectOnLeftClickRelease = false
 
@@ -141,6 +147,12 @@ export class NotationViewInputController {
             }
             this.viewInteraction().select([e], SelectType.ADD, hitStaffIndex, true)
         }
+    }
+
+    /** a left click in note input mode puts a note (Shift: replace, Ctrl: insert); TODO(port): right click removes */
+    private handleClickInNoteInputMode(logicPos: PointF, modifiers: { shift: boolean; ctrl: boolean }): void {
+        // C++ dispatches "put-note" (NotationActionController::putNote)
+        this.viewInteraction().noteInput().putNote(logicPos, modifiers.shift, modifiers.ctrl)
     }
 
     /**

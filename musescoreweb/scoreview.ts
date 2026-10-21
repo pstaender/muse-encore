@@ -8,8 +8,9 @@
 /// <reference types="vite/client" />
 import { useSyncExternalStore } from 'react'
 import {
-    clearSelection, drawPage, drawPageSvg, hasSelection, initEngravingFonts, isTwoSided, moveSelection, pageCount, pageSize,
-    scoreTitle, selectAll, selectAt, selectionBounds, selectionInfo, SvgGlyphDefs, type MasterScore, type SelectMode,
+    clearSelection, drawPage, drawPageSvg, hasSelection, initEngravingFonts, isModified, isTwoSided, moveSelection,
+    noteInputCursorBounds, noteInputState, pageCount, pageSize, scoreTitle, selectAll, selectAt, selectionBounds, selectionInfo,
+    SvgGlyphDefs, type MasterScore, type SelectMode,
 } from '../src/index'
 import { settings as appSettings, updateSettings, type ViewSettings } from './settings'
 
@@ -51,12 +52,18 @@ export interface ScoreViewState {
     statusError: boolean
     /** the selection's accessibility info (MuseScore's status bar); '' without a selection */
     selection: string
+    /** the score was changed since it was opened or saved (its undo stack is not clean) */
+    modified: boolean
+    /** note input mode is on */
+    noteInput: boolean
+    /** incremented after every change of the score (command, undo, redo): the toolbars update their states */
+    revision: number
 }
 
 let viewState: ScoreViewState = {
     hasScore: false, title: '', tooltip: '', pageText: '–', canPrev: false, canNext: false, zoom: 100, fitMode: null,
     orientation: 'horizontal', spread: false, spreadAvailable: false, fullscreen: false, status: '', statusError: false,
-    selection: '',
+    selection: '', modified: false, noteInput: false, revision: 0,
 }
 const viewListeners = new Set<() => void>()
 
@@ -168,7 +175,7 @@ fontsReady.then(() => setStatus('Ready'), (e: Error) => setStatus(`Error: ${e.me
 /** shows a laid out score; `name` is the file name (or the title of a new score) */
 export function showScore(s: MasterScore, name: string): void {
     score = s
-    publish({ selection: '' })
+    publish({ selection: '', modified: isModified(s), noteInput: noteInputState(s).active })
     fileName = name
     printPagesDiv.replaceChildren()
     buildPages()
@@ -176,7 +183,7 @@ export function showScore(s: MasterScore, name: string): void {
 
 export function clearScore(): void {
     score = null
-    publish({ selection: '' })
+    publish({ selection: '', modified: false, noteInput: false })
     fileName = ''
     printPagesDiv.replaceChildren()
     buildPages()
@@ -222,7 +229,8 @@ function makePage(idx: number): HTMLDivElement {
     return el
 }
 
-function buildPages(): void {
+function buildPages(keepPosition = false): void {
+    const scroll = { left: viewport.scrollLeft, top: viewport.scrollTop }
     observer.disconnect()
     visible.clear()
     pagesDiv.replaceChildren()
@@ -262,12 +270,34 @@ function buildPages(): void {
     updateControls()
     updatePan()
     applyZoom(computeZoom())
+    if (keepPosition) {
+        viewport.scrollTo(scroll.left, scroll.top)
+        return
+    }
     if (score) {
         centerPage(0)
     } else {
         viewport.scrollTo(0, 0)
     }
     viewport.focus({ preventScroll: true })
+}
+
+/**
+ * After an editing command, undo or redo (the library has laid the score out again): new pages if their number changed,
+ * new page sizes, repaint, the status bar, the modified flag; the selection (in note input: the cursor) is scrolled
+ * into view.
+ */
+export function scoreChanged(): void {
+    if (!score) {
+        return
+    }
+    if (pageCount(score) !== pages.length) {
+        buildPages(true)
+    } else {
+        applyZoom(zoom)
+    }
+    publish({ modified: isModified(score), noteInput: noteInputState(score).active, revision: viewState.revision + 1 })
+    selectionChanged(true)
 }
 
 function pageCssSize(idx: number, z = zoom): { w: number; h: number } {
@@ -729,7 +759,7 @@ export function selectionChanged(scrollIntoView = false): void {
     scheduleRender(0)
     publish({ selection: hasSelection(score) ? selectionInfo(score) : '' })
     if (scrollIntoView) {
-        const b = selectionBounds(score)[0]
+        const b = noteInputCursorBounds(score) ?? selectionBounds(score)[0]
         const el = b ? pages[b.page] : null
         if (el && b) {
             const pr = el.getBoundingClientRect()
@@ -788,8 +818,14 @@ viewport.addEventListener('pointerup', (e) => {
     const r = el.getBoundingClientRect()
     const size = pageSize(score, idx)
     const cssDpi = r.width / size.width
-    if (selectAt(score, idx, (e.clientX - r.left) / cssDpi, (e.clientY - r.top) / cssDpi, mode, { dpi: cssDpi })) {
-        selectionChanged()
+    const noteInput = noteInputState(score).active
+    if (selectAt(score, idx, (e.clientX - r.left) / cssDpi, (e.clientY - r.top) / cssDpi, mode, { dpi: cssDpi }) || noteInput) {
+        // in note input mode a click puts a note (a new layout)
+        if (noteInput) {
+            scoreChanged()
+        } else {
+            selectionChanged()
+        }
     }
 })
 

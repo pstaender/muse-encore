@@ -7,7 +7,7 @@
 import { removeAllScores } from '../db'
 import { ICON_CODES } from './uiactiondata'
 import {
-    centerPage, deselect, goToPage, lastPage, selectAllElements, onScoreViewChanged, print, scoreViewState, setFitMode, setOrientation,
+    centerPage, goToPage, lastPage, onScoreViewChanged, print, scoreViewState, setFitMode, setOrientation,
     showShortcutsHelp, stepPage, toggleFullscreen, toggleSpread, zoomAt, zoomStep,
 } from '../scoreview'
 import {
@@ -15,7 +15,8 @@ import {
 } from '../session'
 import { isToolBarVisible, onToolBarLayoutChanged, restoreDefaultLayout, setStatusBarVisible, setToolBarVisible, toolBarLayout } from '../toolbars/layout'
 import { currentLanguage } from '../i18n'
-import { actionsChanged, registerAction } from './actions'
+import { actionsChanged, isActionEnabled, registerAction, triggerAction } from './actions'
+import { registerNotationActions } from './notationactions'
 
 const scoreShown = (): boolean => scoreViewState().hasScore && session().view === 'score'
 const hasScore = (): boolean => !!session().current
@@ -34,8 +35,13 @@ export function registerAppActions(): void {
 
     // ---- edit ----
     registerAction('preference-dialog', { run: () => showDialog('preferences') })
-    registerAction('notation-select-all', { run: selectAllElements, enabled: scoreShown })
-    registerAction('action://cancel', { run: () => void deselect(), enabled: () => scoreShown() && scoreViewState().selection !== '' })
+    // the editing and note input actions (incl. undo/redo, select all, escape): notationactions.ts
+    registerNotationActions()
+    // ApplicationActionController::doGlobalUndo etc.: the global shortcuts go to the notation when it is shown
+    for (const name of ['undo', 'redo', 'delete', 'cancel']) {
+        const target = `action://notation/${name}`
+        registerAction(`action://${name}`, { run: () => void triggerAction(target), enabled: () => isActionEnabled(target), context: 'notation' })
+    }
 
     // ---- view ----
     registerAction('fullscreen', { run: toggleFullscreen, checked: () => scoreViewState().fullscreen }, { icon: ICON_CODES.SPLIT_OUT_ARROWS })

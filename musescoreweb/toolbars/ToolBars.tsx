@@ -6,7 +6,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
-    actionDefinition, actionDescription, actionTitle, isActionChecked, isActionEnabled, registerAction, shortcutText, triggerAction,
+    actionDefinition, actionDescription, actionTitle, isActionChecked, isActionEnabled, isCheckable, registerAction, shortcutText, triggerAction,
     useActions,
 } from '../actions/actions'
 import { MenuPopup } from '../components/Menu'
@@ -48,7 +48,7 @@ export function ActionButton({ code, showTitle = false, bold = false, menu }: {
         <>
             <button ref={ref} data-action={code} className={`tool-button${showTitle || !icon ? ' with-title' : ''}${bold ? ' bold' : ''}`}
                 title={tooltip(code)} aria-label={actionDescription(code)} disabled={!enabled}
-                aria-pressed={def?.checkable ? checked : undefined}
+                aria-pressed={def?.checkable || isCheckable(code) ? checked : undefined}
                 aria-haspopup={menu ? 'menu' : undefined} aria-expanded={menu ? open : undefined}
                 onClick={() => menu && !isActionEnabled(code) ? setOpen(!open) : triggerAction(code)}>
                 {icon && <span className="tool-icon" aria-hidden="true">{icon}</span>}

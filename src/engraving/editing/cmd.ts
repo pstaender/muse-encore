@@ -91,6 +91,7 @@ declare module '../dom/score' {
         cmdAddPitch(params: NoteInputParams | number, addFlag: boolean, insert: boolean): void
         cmdIncDecDuration(nSteps: number, stepDotted?: boolean): void
         cmdToggleVisible(): void
+        cmdMoveRest(rest: Rest, dir: DirectionV): void
         cmdSetVisible(): void
         cmdUnsetVisible(): void
         cmdPitchUp(): void
@@ -1962,8 +1963,7 @@ Score.prototype.cmdIncDecDuration = function (this: Score, nSteps: number, stepD
     }
 }
 
-/** C++ Score::cmdMoveRest */
-function cmdMoveRest(rest: Rest, dir: DirectionV): void {
+Score.prototype.cmdMoveRest = function (this: Score, rest: Rest, dir: DirectionV): void {
     let pos = rest.offset().clone()
     const d = rest.spatium() * rest.staffType()!.lineDistance().val()
     if (dir === DirectionV.UP) {
@@ -1981,7 +1981,7 @@ Score.prototype.cmdPitchUp = function (this: Score): void {
     } else if (el && (el.isArticulationFamily() || el.isTextBase())) {
         el.undoChangeProperty(Pid.OFFSET, el.offset().plus(new PointF(0.0, -MScore.nudgeStep * el.spatium())), PropertyFlags.UNSTYLED)
     } else if (el && el.isRest()) {
-        cmdMoveRest(el as unknown as Rest, DirectionV.UP)
+        this.cmdMoveRest(el as unknown as Rest, DirectionV.UP)
     } else {
         this.upDown(true, UpDownMode.CHROMATIC)
     }
@@ -1994,7 +1994,7 @@ Score.prototype.cmdPitchDown = function (this: Score): void {
     } else if (el && (el.isArticulationFamily() || el.isTextBase())) {
         el.undoChangeProperty(Pid.OFFSET, el.offset().plus(new PointF(0.0, MScore.nudgeStep * el.spatium())), PropertyFlags.UNSTYLED)
     } else if (el && el.isRest()) {
-        cmdMoveRest(el as unknown as Rest, DirectionV.DOWN)
+        this.cmdMoveRest(el as unknown as Rest, DirectionV.DOWN)
     } else {
         this.upDown(false, UpDownMode.CHROMATIC)
     }

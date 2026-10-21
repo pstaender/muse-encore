@@ -14,6 +14,11 @@ export interface ActionHandler {
     checked?: () => boolean
     /** a title that replaces MuseScore's (e.g. for actions of this app) */
     title?: TrString
+    /**
+     * 'notation': the shortcut only applies in the score view (MuseScore's UiCtxProjectFocused), not while the focus
+     * is in a menu, list or dialog, or on a button for the keys the button handles itself
+     */
+    context?: 'notation'
 }
 
 export const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
@@ -152,12 +157,30 @@ function shortcutIndex(): { code: string; combo: KeyCombo }[] {
     return s_index
 }
 
+/** keys a focused control handles itself (buttons, tabs: activation and arrow key navigation) */
+const CONTROL_KEYS = new Set(['Enter', ' ', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Tab'])
+
+/** a notation shortcut does not apply here (see ActionHandler.context) */
+function outsideNotationContext(t: HTMLElement | null, combo: KeyCombo): boolean {
+    if (!t || !(t instanceof Element)) {
+        return false
+    }
+    if (t.closest('[role="menu"], [role="menubar"], [role="listbox"], dialog')) {
+        return true
+    }
+    const plain = !combo.ctrl && !combo.alt && !combo.meta
+    return plain && CONTROL_KEYS.has(combo.key) && !!t.closest('button, [role="tab"], a, summary')
+}
+
 /** the action whose shortcut the event is, if it has a handler; text fields keep their keys */
 export function actionForEvent(e: KeyboardEvent): string | null {
     const t = e.target as HTMLElement | null
     const inText = !!t && (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || t.isContentEditable)
     for (const { code, combo } of shortcutIndex()) {
         if (!handlers.has(code) || !matches(combo, e)) {
+            continue
+        }
+        if (handlers.get(code)!.context === 'notation' && (inText || outsideNotationContext(t, combo))) {
             continue
         }
         if (inText && !combo.ctrl && !combo.meta && !(combo.alt && combo.key.length > 1) && !/^F\d+$/.test(combo.key)) {
