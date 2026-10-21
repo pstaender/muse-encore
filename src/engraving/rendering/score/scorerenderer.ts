@@ -9,7 +9,7 @@
  */
 
 import type { Fraction } from '../../types/fraction'
-import { LayoutMode, type Score } from '../../dom/score'
+import { LayoutMode, scoreRendererHooks, type Score } from '../../dom/score'
 import type { Beam } from '../../dom/beam'
 import type { Chord } from '../../dom/chord'
 import { chordRestRenderer, type ChordRest } from '../../dom/chordrest'
@@ -24,6 +24,9 @@ import { ScoreLayout, ScorePageViewLayout } from './scorelayout'
 import { TLayout } from './tlayout'
 import { ChordLayout } from './chordlayout'
 import { MeasureLayout } from './measurelayout'
+// the layout uses the undo functions of the editing modules (e.g. Measure.undoGetSegment -> Score.undoAddElement)
+import '../../editing/edit'
+import '../../editing/cmd'
 
 export class ScoreRenderer {
     static layoutScore(score: Score, st: Fraction, et: Fraction): void {
@@ -51,6 +54,7 @@ export class ScoreRenderer {
     }
 }
 
+scoreRendererHooks.layoutScore = (score, st, et) => ScoreRenderer.layoutScore(score, st, et)
 chordRestRenderer.layoutBeam1 = (b) => ScoreRenderer.layoutBeam1(b)
 chordRestRenderer.layoutStem = (c) => ScoreRenderer.layoutStem(c)
 

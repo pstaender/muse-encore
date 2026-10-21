@@ -8,6 +8,7 @@
  * TODO(port): tablature frets, drumsets, guitar bends, playback events, jump points, editing/dragging
  */
 
+import { NoteVal } from './input'
 import { PointF } from '../../framework/draw/types/geometry'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
@@ -1157,6 +1158,51 @@ export class Note extends EngravingItem {
             notes.push(note)
         }
         return notes
+    }
+
+    noteVal(): NoteVal {
+        const nval = new NoteVal()
+        nval.pitch = this.pitch()
+        nval.velocityOverride = this.userVelocity()
+        nval.tpc1 = this.tpc1()
+        nval.tpc2 = this.tpc2()
+        nval.fret = this.fret()
+        nval.string = this.string()
+        nval.headGroup = this.headGroup()
+
+        return nval
+    }
+
+    /** the notes which are changed together with this one (ties, note anchored spanners, beam) */
+    compoundNotes(): Note[] {
+        const elements: Note[] = []
+        const first = this.firstTiedNote()
+        if (first) {
+            elements.push(first)
+        }
+
+        const last = this.lastTiedNote()
+        if (last) {
+            elements.push(last)
+        }
+
+        for (const e of this.m_spannerFor) {
+            elements.push(e.endElement() as unknown as Note)
+        }
+        for (const e of this.m_spannerBack) {
+            elements.push(e.startElement() as unknown as Note)
+        }
+
+        const beam = this.chord().beam()
+        if (beam) {
+            for (const e of beam.elements()) {
+                if (e && e.isNote() && (e as unknown) !== this) {
+                    elements.push(e as unknown as Note)
+                }
+            }
+        }
+
+        return elements
     }
 
     unisonIndex(): number {

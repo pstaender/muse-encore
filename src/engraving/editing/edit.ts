@@ -8,28 +8,29 @@
  * editing functions). The C++ functions are methods of Score/MasterScore/Measure; here they are added to these
  * classes by this module (module augmentation), so it must be imported before they are used.
  *
- * There is no undo stack: where C++ calls undo(new Command(...)), the command's redo() is done directly
- * (marked "TODO(port): undo"). Linked staves/excerpts are not ported, so the "linked" loops only handle the
- * element itself.
+ * The changes go through the undo stack (Score.undo(), editing/undo.ts) like in C++; outside of a command
+ * (createScore) they are applied directly. Linked staves/excerpts are not ported, so the "linked" loops only handle
+ * the element itself.
  */
 
 import { Fraction } from '../types/fraction'
 import {
     BracketType, DurationType, ElementType, KeyMode, Key, TextStyleType, VOICES, nidx,
-    type staff_idx_t, type track_idx_t,
+    type DirectionH, type staff_idx_t, type track_idx_t, type voice_idx_t,
 } from '../types/types'
 import { Sid } from '../style/styledef'
 import { Factory } from '../dom/factory'
 import { Pid } from '../dom/property'
 import { Score } from '../dom/score'
 import { MasterScore } from '../dom/masterscore'
-import { Measure } from '../dom/measure'
-import { SegmentType } from '../dom/segment'
+import { Measure, MeasureNumberMode } from '../dom/measure'
+import { SegmentType, type Segment } from '../dom/segment'
 import { KeySigEvent, type KeyList } from '../dom/key'
 import { TDuration, toRhythmicDurationList } from '../dom/durationtype'
 import { Transpose } from './transpose'
 import { Interval } from '../dom/interval'
 import { ChangeMeasureLen, InsertMeasures, InsertTime } from './editmeasures'
+import { AddElement, RemoveElement } from './addremoveelement'
 import type { EngravingItem } from '../dom/engravingitem'
 import type { MeasureBase } from '../dom/measurebase'
 import type { ChordRest } from '../dom/chordrest'
@@ -41,6 +42,17 @@ import type { KeySig } from '../dom/keysig'
 import { Text } from '../dom/text'
 import type { TextBase } from '../dom/textbase'
 import type { Spanner } from '../dom/spanner'
+import type { Chord } from '../dom/chord'
+import type { Note } from '../dom/note'
+import type { Tuplet } from '../dom/tuplet'
+import type { Tie } from '../dom/tie'
+import type { Selection } from '../dom/select'
+import type { SelectionFilter } from '../dom/selectionfilter'
+import type { InputState, NoteVal } from '../dom/input'
+import type { EngravingObject } from '../dom/engravingobject'
+import type { PropertyValue } from '../types/propertyvalue'
+import type { PropertyFlags } from '../dom/property'
+import type { SymId } from '../types/symid'
 
 /** C++ Score::InsertMeasureOptions */
 export class InsertMeasureOptions {
@@ -55,8 +67,9 @@ export class InsertMeasureOptions {
 declare module '../dom/score' {
     interface Score {
         doUndoAddElement(element: EngravingItem): void
-        undoAddElement(element: EngravingItem): void
+        undoAddElement(element: EngravingItem, addToLinkedStaves?: boolean, ctrlModifier?: boolean, elementToRelink?: EngravingItem | null): void
         doUndoRemoveElement(element: EngravingItem): void
+        undoRemoveElement(element: EngravingItem | null, removeLinked?: boolean): void
         undoInsertPart(part: Part, targetPartIndex: number): void
         undoInsertStaff(staff: Staff, ridx: staff_idx_t, createRests?: boolean): void
         undoAddBracket(staff: Staff, level: number, type: BracketType, span: number): void
@@ -70,6 +83,48 @@ declare module '../dom/score' {
         addText(type: TextStyleType, destinationElement?: EngravingItem | null): TextBase | null
         clearSystemLocks(): void
         adjustKeySigs(sidx: staff_idx_t, eidx: staff_idx_t, km: KeyList): void
+
+        // ---- edit.cpp functions used by the editing commands (being ported) ----
+        getSelectedNote(): Note | null
+        getSelectedChordRest(): ChordRest | null
+        getSelectedChordRests(): Set<ChordRest>
+        /** C++ addRest(const Fraction& tick, ...) and addRest(Segment*, ...) */
+        addRest(tickOrSegment: Fraction | Segment, track: track_idx_t, d: TDuration, tuplet: Tuplet | null): Rest
+        addChord(tick: Fraction, d: TDuration, oc: Chord, genTie: boolean, tuplet: Tuplet | null): Chord | null
+        addClone(cr: ChordRest, tick: Fraction, d: TDuration): ChordRest
+        setRest(tick: Fraction, track: track_idx_t, l: Fraction, useDots: boolean, tuplet: Tuplet | null, useFullMeasureRest?: boolean): Rest | null
+        setRests(tick: Fraction, track: track_idx_t, l: Fraction, useDots: boolean, tuplet: Tuplet | null, useFullMeasureRest?: boolean): Rest[]
+        addNote(chord: Chord, noteVal: NoteVal, forceAccidental?: boolean, articulationIds?: ReadonlySet<SymId>, externalInputState?: InputState | null): Note
+        addNoteToTiedChord(chord: Chord, noteVal: NoteVal, forceAccidental?: boolean, articulationIds?: ReadonlySet<SymId>): Note | null
+        searchNote(tick: Fraction, track: track_idx_t): ChordRest | null
+        regroupNotesAndRests(startTick: Fraction, endTick: Fraction, track: track_idx_t): void
+        cmdTieNoteList(selection: Selection, noteEntryMode: boolean): Note[]
+        cmdAddTie(addToChord?: boolean): void
+        cmdToggleTie(): Tie | null
+        cmdFlip(): void
+        deleteItem(el: EngravingItem): void
+        deleteRange(segStart: Segment, segEnd: Segment | null, trackStart: track_idx_t, trackEnd: track_idx_t, filter: SelectionFilter,
+            deleteTuplets?: boolean): ChordRest[]
+        cmdDeleteSelection(): void
+        cmdEnterRest(d: TDuration): void
+        enterRest(d: TDuration, externalInputState?: InputState | null): void
+        removeChordRest(cr: ChordRest, clearSegment: boolean): void
+        nextInputPos(cr: ChordRest | null, doSelect: boolean): void
+        undoChangeVisible(item: EngravingItem, visible: boolean): void
+        undoChangePitch(note: Note, pitch: number, tpc1: number, tpc2: number): void
+        undoChangeTpc(note: Note, tpc: number): void
+        undoChangeChordRestLen(cr: ChordRest, d: TDuration): void
+        undoChangeElement(oldElement: EngravingItem, newElement: EngravingItem): void
+        undoChangeUserMirror(n: Note, d: DirectionH): void
+        undoChangeSpannerElements(spanner: Spanner, startElement: EngravingItem | null, endElement: EngravingItem | null): void
+        undoChangeStyleVal(idx: Sid, v: PropertyValue): void
+        undoChangeStyleValues(values: Map<Sid, PropertyValue>): void
+        /** C++ undoPropertyChanged(EngravingObject*, Pid, const PropertyValue&, PropertyFlags) */
+        undoPropertyChanged(e: EngravingObject, t: Pid, st: PropertyValue, ps?: PropertyFlags): void
+        cmdExchangeVoice(s: voice_idx_t, d: voice_idx_t): void
+
+        // ---- score.cpp ----
+        changeSelectedElementsVoice(voice: voice_idx_t): void
     }
 }
 
@@ -86,18 +141,198 @@ declare module '../dom/measure' {
     }
 }
 
-// TODO(port): undo, linked elements (C++ undoAddElement adds the element to all linked staves)
 Score.prototype.doUndoAddElement = function (this: Score, element: EngravingItem): void {
-    this.addElement(element)
+    if (element.generated()) {
+        this.addElement(element)
+    } else {
+        this.undo(new AddElement(element))
+    }
 }
 
-Score.prototype.undoAddElement = function (this: Score, element: EngravingItem): void {
-    this.doUndoAddElement(element)
-}
-
-// TODO(port): undo, linked elements
 Score.prototype.doUndoRemoveElement = function (this: Score, element: EngravingItem): void {
-    this.removeElement(element)
+    if (element.generated()) {
+        this.removeElement(element)
+    } else {
+        this.undo(new RemoveElement(element))
+    }
+}
+
+/** C++ isSystemTextLine() of textlinebase.h */
+function isSystemTextLine(element: EngravingItem | null): boolean {
+    return !!element && element.isTextLineBase() && element.systemFlag()
+}
+
+/**
+ * TODO(port): linked staves and excerpts: Staff::staffList() only has the staff itself, so the element is only added
+ * to its own staff (and system objects to the system object staves of this score); the C++ code for the clones in
+ * the other linked staves (articulations, segment annotations, spanners, ties, tremolos, ...) is not ported.
+ */
+Score.prototype.undoAddElement = function (this: Score, element: EngravingItem, addToLinkedStaves = true,
+    ctrlModifier = false, elementToRelink: EngravingItem | null = null): void {
+    const ostaff = element.staff()
+    const et = element.type()
+
+    //
+    // some elements are replicated for all parts regardless of
+    // linking:
+    //
+
+    const isSystemLine = isSystemTextLine(element)
+
+    if ((et === ElementType.REHEARSAL_MARK)
+        || (et === ElementType.SYSTEM_TEXT)
+        || (et === ElementType.TRIPLET_FEEL)
+        || (et === ElementType.JUMP)
+        || (et === ElementType.MARKER)
+        || (et === ElementType.TEMPO_TEXT)
+        || (et === ElementType.PLAY_COUNT_TEXT)
+        || isSystemLine
+    ) {
+        let staffList: (Staff | null)[] = []
+
+        if (!addToLinkedStaves) {
+            staffList.push(element.staff())
+        } else if (ctrlModifier && isSystemLine) {
+            staffList = [...ostaff!.staffList()]
+            element.setSystemFlag(false)
+        } else {
+            for (const s of [this as Score]) { // TODO(port): scoreList() (excerpts)
+                staffList.push(s.staff(0)) // system objects always appear on the top staff
+                for (const staff of s.systemObjectStaves()) {
+                    if (staff.idx() === nidx) {
+                        continue
+                    }
+                    staffList.push(staff)
+                }
+            }
+        }
+
+        if (elementToRelink) {
+            staffList = staffList.filter(st => st !== ostaff)
+        }
+
+        let originalAdded = false
+        for (const staff of staffList) {
+            if (!staff) {
+                continue
+            }
+
+            const score = staff.score()
+            const staffIdx = staff.idx()
+            const ntrack = staffIdx * VOICES
+            let ne: EngravingItem
+
+            if (ostaff && staff.score() === ostaff.score() && staff === staffList[0] && !originalAdded) {
+                // add the element itself to the first system object staff in the score
+                ne = element
+                originalAdded = true
+            } else {
+                // add linked clones to the other staves
+                ne = element.linkedClone()
+                ne.setScore(score)
+                ne.setSelected(false)
+                ne.setTrack(staffIdx * VOICES + element.voice())
+            }
+
+            if (isSystemLine) {
+                const nsp = ne as unknown as Spanner
+                const sp = element as unknown as Spanner
+                const diff = sp.track2() - sp.track()
+                nsp.setTrack2(nsp.track() + diff)
+                nsp.computeStartElement()
+                nsp.computeEndElement()
+                this.doUndoAddElement(nsp)
+            } else if (et === ElementType.MARKER || et === ElementType.JUMP) {
+                const om = element.explicitParent() as unknown as Measure
+                const m = score.tick2measure(om.tick())!
+                ne.setTrack(ntrack)
+                ne.setParent(m)
+                this.doUndoAddElement(ne)
+            } else if (et === ElementType.MEASURE_NUMBER) {
+                (element.explicitParent() as unknown as Measure).undoChangeProperty(Pid.MEASURE_NUMBER_MODE, MeasureNumberMode.SHOW)
+            } else if (et === ElementType.PLAY_COUNT_TEXT) {
+                const segment = element.explicitParent() as unknown as Segment
+                const tick = segment.tick()
+                const m = score.tick2measure(tick.minus(Fraction.eps()))!
+                const seg = m.undoGetSegment(SegmentType.EndBarLine, tick)
+                ne.setTrack(ntrack)
+                ne.setParent(seg)
+                this.doUndoAddElement(ne)
+            } else {
+                const segment = element.explicitParent() as unknown as Segment
+                const tick = segment.tick()
+                const m = score.tick2measure(tick)!
+                const seg = m.undoGetSegment(SegmentType.ChordRest, tick)
+                ne.setTrack(ntrack)
+                ne.setParent(seg)
+                this.doUndoAddElement(ne)
+            }
+        }
+
+        return
+    }
+
+    if (et === ElementType.FINGERING
+        || (et === ElementType.IMAGE && !element.explicitParent()!.isSegment())
+        || (et === ElementType.SYMBOL && !element.explicitParent()!.isSegment())
+        || et === ElementType.NOTE
+        || et === ElementType.TEXT
+        || et === ElementType.GLISSANDO
+        || et === ElementType.GUITAR_BEND
+        || et === ElementType.NOTELINE
+        || et === ElementType.BEND
+        || (et === ElementType.CHORD && (element as unknown as Chord).isGrace())
+        || et === ElementType.LAISSEZ_VIB
+        || et === ElementType.PARTIAL_TIE
+        || et === ElementType.PARENTHESIS
+    ) {
+        // TODO(port): add linked clones to the linked parents (parent->links())
+        this.doUndoAddElement(element)
+        return
+    }
+
+    // TODO(port): section breaks in linked frames/excerpts (LAYOUT_BREAK of type SECTION)
+
+    // the remaining element types are added to the linked staves (C++: ostaff->staffList()); here this is only
+    // the staff itself, so the element is added as it is
+    this.doUndoAddElement(element)
+    element.styleChanged()
+}
+
+/** removeLinked: also remove the linked elements */
+Score.prototype.undoRemoveElement = function (this: Score, element: EngravingItem | null, removeLinked = true): void {
+    if (!element) {
+        return
+    }
+    const segments: Segment[] = []
+    for (const ee of element.linkList()) {
+        const e = ee as EngravingItem
+        if (e === element || removeLinked) {
+            this.doUndoRemoveElement(e)
+
+            if (e.explicitParent() && e.explicitParent()!.isSegment()) {
+                const s = e.explicitParent() as unknown as Segment
+                if (!segments.includes(s)) {
+                    segments.push(s)
+                }
+            }
+            if (e.explicitParent() && e.explicitParent()!.isSystem()) {
+                e.setParent(null) // systems will be regenerated upon redo, so detach
+            }
+        }
+    }
+
+    // TODO(port): measure repeats (undoChangeMeasureRepeatCount)
+
+    for (const s of segments) {
+        if (s.empty()) {
+            if (s.header() || s.trailer()) { // probably more segment types (system header)
+                s.setEnabled(false)
+            } else {
+                this.doUndoRemoveElement(s)
+            }
+        }
+    }
 }
 
 Score.prototype.undoInsertPart = function (this: Score, part: Part, targetPartIndex: number): void {

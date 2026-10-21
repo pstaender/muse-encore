@@ -41,6 +41,17 @@ export function propertyLink(id: Pid): boolean {
     return PROPERTY_LIST[id]?.[3] ?? false
 }
 
+export function propertyLinkSameScore(id: Pid): boolean {
+    switch (id) {
+    case Pid.STAFF_BARLINE_SPAN:
+    case Pid.STAFF_BARLINE_SPAN_FROM:
+    case Pid.STAFF_BARLINE_SPAN_TO:
+        return false
+    default:
+        return true
+    }
+}
+
 export function propertyName(id: Pid): string {
     return PROPERTY_LIST[id]?.[4] ?? ''
 }

@@ -8,7 +8,7 @@
 
 import { Fraction } from '../types/fraction'
 import { SymId, type SymIdList } from '../types/symid'
-import { ClefType, Key, TimeSigStyle, VOICES, type staff_idx_t, type track_idx_t } from '../types/types'
+import { AccidentalVal, ClefType, Key, TimeSigStyle, VOICES, type staff_idx_t, type track_idx_t } from '../types/types'
 import { ClefInfo } from './clefinfo'
 import {
     MIN_PITCH, PITCH_DELTA_OCTAVE, Prefer, STEP_DELTA_OCTAVE, clampPitch, pitch2tpc, tpc2pitch, tpc2step,
@@ -23,6 +23,10 @@ import type { Measure } from './measure'
 import type { System } from './system'
 import type { EngravingItem } from './engravingitem'
 import type { Spanner } from './spanner'
+import type { Staff } from './staff'
+import type { NoteVal } from './input'
+import { Sid } from '../style/styledef'
+import { Tpc, tpc2alter } from './pitchspelling'
 
 const PTAB: number[][] = [
     //   c  d  e  f  g   a  b
@@ -641,4 +645,53 @@ export function noteAnchoredSpannerIsInRange(spanner: Spanner, rangeStart: Fract
     const endNote = endElement as unknown as Note
     const endSeg = endNote.chord().segment()
     return !endSeg || endSeg.tick().le(rangeEnd)
+}
+
+function noteValToEffectivePitchAndTpc(nval: NoteVal, staff: Staff, tick: Fraction): { epitch: number; tpc: number } {
+    const concertPitch = staff.style().styleB(Sid.concertPitch) // C++ staff->concertPitch()
+
+    let epitch: number
+    if (concertPitch) {
+        epitch = nval.pitch
+    } else {
+        const pitchOffset = staff.part().instrument(tick).transpose().chromatic
+        epitch = nval.pitch - pitchOffset
+    }
+
+    let tpc = nval.tpc(concertPitch)
+    if (tpc === Tpc.TPC_INVALID) {
+        tpc = pitch2tpc(epitch, staff.key(tick), Prefer.NEAREST)
+    }
+    return { epitch, tpc }
+}
+
+export function noteValToLine(nval: NoteVal, staff: Staff, tick: Fraction): number {
+    if (staff.isDrumStaff(tick)) {
+        const drumset = staff.part().instrument(tick).drumset()
+        if (drumset) {
+            return drumset.line(nval.pitch)
+        }
+    }
+
+    if (nval.isRest()) {
+        return staff.middleLine(tick)
+    }
+
+    const { epitch, tpc } = noteValToEffectivePitchAndTpc(nval, staff, tick)
+
+    return relStepFromPitch(epitch, tpc, staff.clef(tick))
+}
+
+export function noteValToAccidentalVal(nval: NoteVal, staff: Staff, tick: Fraction): AccidentalVal {
+    if (nval.isRest()) {
+        return AccidentalVal.NATURAL
+    }
+
+    if (staff.isDrumStaff(tick)) {
+        return AccidentalVal.NATURAL
+    }
+
+    const { tpc } = noteValToEffectivePitchAndTpc(nval, staff, tick)
+
+    return tpc2alter(tpc)
 }

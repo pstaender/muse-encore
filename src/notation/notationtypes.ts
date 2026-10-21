@@ -3,7 +3,7 @@
  * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
- * Port of the parts of src/notation/notationtypes.h that creating a new score needs
+ * Port of the parts of src/notation/notationtypes.h that creating a new score and editing need
  */
 
 import { Fraction } from '../engraving/types/fraction'
@@ -50,4 +50,27 @@ export function customOrder(): ScoreOrder {
     order.id = 'custom'
     order.name = 'Custom'
     return order
+}
+
+export enum NoteName {
+    C = 0,
+    D,
+    E,
+    F,
+    G,
+    A,
+    B,
+}
+
+export enum NoteAddingMode {
+    CurrentChord,
+    NextChord,
+    InsertChord,
+}
+
+export enum PastingType {
+    Default,
+    Half,
+    Double,
+    Special,
 }

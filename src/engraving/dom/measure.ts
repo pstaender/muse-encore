@@ -643,12 +643,18 @@ export class Measure extends MeasureBase {
         return s
     }
 
-    /** no undo in the port */
-    undoGetSegmentR(st: SegmentType, t: Fraction): Segment { return this.getSegmentR(st, t) }
+    undoGetSegmentR(st: SegmentType, t: Fraction): Segment {
+        let s = this.findSegmentR(st, t)
+        if (!s) {
+            s = new Segment(this, st, t)
+            this.score().undoAddElement(s)
+        }
+        return s
+    }
 
     findSegment(st: SegmentType, f: Fraction): Segment | null { return this.findSegmentR(st, f.minus(this.tick())) }
     getSegment(st: SegmentType, f: Fraction): Segment { return this.getSegmentR(st, f.minus(this.tick())) }
-    undoGetSegment(st: SegmentType, f: Fraction): Segment { return this.getSegment(st, f) }
+    undoGetSegment(st: SegmentType, f: Fraction): Segment { return this.undoGetSegmentR(st, f.minus(this.tick())) }
 
     getChordRestOrTimeTickSegment(f: Fraction): Segment {
         let seg = this.findSegment(SegmentType.ChordRest, f)

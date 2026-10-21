@@ -19,6 +19,9 @@ import { nextChordRest, prevChordRest, type Chord } from '../../engraving/dom/ch
 import '../../engraving/dom/navigate'
 import '../../engraving/editing/cmd'
 import { ScoreRangeUtilities } from '../utilities/scorerangeutilities'
+import { NotationUndoStack, Notification } from './notationundostack'
+import { NotationNoteInput } from './notationnoteinput'
+import { TranslatableString } from '../../framework/global/types/translatablestring'
 import { EngravingConfiguration } from '../../engraving/internal/engravingconfiguration'
 import { Brush, BrushStyle, Pen, PenStyle } from '../../framework/draw/types/drawtypes'
 import { PainterPath } from '../../framework/draw/types/painterpath'
@@ -57,19 +60,46 @@ function activeCr(score: Score): ChordRest | null {
     let cr = score.selection().activeCR()
     if (!cr) {
         cr = score.selection().lastChordRest()
-        // TODO(port): noteEntryMode() -> inputState().cr()
+        if (!cr && score.noteEntryMode()) {
+            cr = score.inputState().cr()
+        }
     }
     return cr
 }
 
 export class NotationInteraction {
     private m_score: Score
+    private m_notationChanged = new Notification()
+    private m_selectionChanged = new Notification()
+    private m_noteInputStateChanged = new Notification()
+    private m_undoStack: NotationUndoStack
+    private m_noteInput: NotationNoteInput
 
     constructor(score: Score) {
         this.m_score = score
+        this.m_undoStack = new NotationUndoStack(() => this.m_score, this.m_notationChanged)
+        this.m_noteInput = new NotationNoteInput(() => this.m_score, this, this.m_undoStack)
+
+        this.m_noteInput.stateChanged().onNotify(() => {
+            if (!this.m_noteInput.isNoteInputMode()) {
+                this.hideShadowNote()
+            }
+        })
+
+        this.m_undoStack.stackChanged().onNotify(() => {
+            this.notifyAboutSelectionChangedIfNeed()
+            this.notifyAboutNoteInputStateChanged()
+        })
     }
 
     score(): Score { return this.m_score }
+    noteInput(): NotationNoteInput { return this.m_noteInput }
+    undoStack(): NotationUndoStack { return this.m_undoStack }
+
+    /** C++ INotation::notationChanged(): the score changed (relayout done), the view must be repainted */
+    notationChanged(): Notification { return this.m_notationChanged }
+    selectionChanged(): Notification { return this.m_selectionChanged }
+    noteInputStateChanged(): Notification { return this.m_noteInputStateChanged }
 
     /** returns true (C++ sends selectionChanged) if the score's selection changed since the last notification */
     notifyAboutSelectionChangedIfNeed(): boolean {
@@ -78,8 +108,51 @@ export class NotationInteraction {
         }
 
         this.score().setSelectionChanged(false)
+        this.m_selectionChanged.notify()
         return true
     }
+
+    notifyAboutNotationChanged(): void {
+        this.m_notationChanged.notify()
+    }
+
+    notifyAboutNoteInputStateChanged(): void {
+        this.m_noteInputStateChanged.notify()
+    }
+
+    // ---------------------------------------------------------------------------------
+    // editing frame (every command: startEdit(), the Score command, apply())
+    // ---------------------------------------------------------------------------------
+
+    startEdit(actionName: TranslatableString = new TranslatableString()): void {
+        this.m_undoStack.prepareChanges(actionName)
+    }
+
+    apply(): void {
+        this.m_undoStack.commitChanges()
+        this.notifyAboutNotationChanged()
+    }
+
+    rollback(): void {
+        this.m_undoStack.rollbackChanges()
+    }
+
+    undo(): void {
+        this.m_undoStack.undo()
+    }
+
+    redo(): void {
+        this.m_undoStack.redo()
+    }
+
+    /** C++ showItem(): the view scrolls to the item; here the UI scrolls to selectionBounds() after a command */
+    showItem(_el: EngravingItem | null): void {}
+
+    /** TODO(port): the shadow note (note input preview at the mouse position) */
+    hideShadowNote(): void {}
+
+    /** C++ checkAndShowError(): shows MScore's last error (MScoreErrorsController); TODO(port): error messages */
+    checkAndShowError(): void {}
 
     // ---------------------------------------------------------------------------------
     // hit testing (positions in canvas coordinates)

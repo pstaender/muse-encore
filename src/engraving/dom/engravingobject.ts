@@ -5,20 +5,23 @@
  *
  * Port of src/engraving/dom/engravingobject.h/.cpp
  *
- * Not ported: undo stack, linked objects (parts/excerpts), EIDs.
+ * Not ported: linked objects of parts/excerpts, EIDs.
  */
 
 import { PointF } from '../../framework/draw/types/geometry'
-import { DPMM, ElementType } from '../types/types'
+import { DPMM, ElementType, VoiceAssignment, type TextStyleType } from '../types/types'
 import { P_TYPE, propertyValueEquals, type PropertyValue } from '../types/propertyvalue'
 import { TConv } from '../types/typesconv'
 import type { TranslatableString } from '../../framework/global/types/translatablestring'
 import { Sid } from '../style/styledef'
+import { textStyle } from '../style/textstyle'
+import { ChangeBracketProperty, ChangeProperty } from '../editing/editproperty'
 import type { MStyle } from '../style/style'
 import { Pid, PropertyFlags, propertyType } from './property'
 import type { Score } from './score'
 import type { MasterScore } from './masterscore'
 import type { EngravingItem } from './engravingitem'
+import type { BracketItem } from './bracketitem'
 
 export interface StyledProperty {
     sid: Sid
@@ -53,6 +56,59 @@ function cloneFieldValue(v: unknown): unknown {
         return { ...(v as object) }
     }
     return v
+}
+
+/** C++ changeProperty() of engravingobject.cpp */
+function changeProperty(e: EngravingObject, t: Pid, st: PropertyValue, ps: PropertyFlags): void {
+    if (!propertyValueEquals(e.getProperty(t), st) || e.propertyFlags(t) !== ps) {
+        if (e.isBracketItem()) {
+            const bi = e as unknown as BracketItem
+            e.score().undo(new ChangeBracketProperty(bi.staff(), bi.column(), t, st, ps))
+        } else {
+            const score = e.score()
+            if (score) {
+                score.undo(new ChangeProperty(e, t, st, ps))
+            } else {
+                // an object that is not part of a score yet
+                new ChangeProperty(e, t, st, ps).redo(null)
+            }
+        }
+    }
+}
+
+/** C++ changeProperties() of engravingobject.cpp */
+function changeProperties(object: EngravingObject, propertyId: Pid, propertyValue: PropertyValue, propertyFlag: PropertyFlags): void {
+    const linkList = object.linkListForPropertyPropagation()
+    for (const linkedObject of linkList) {
+        if (linkedObject === object) {
+            changeProperty(object, propertyId, propertyValue, propertyFlag)
+            continue
+        }
+
+        if (!object.isEngravingItem() || !linkedObject.isEngravingItem()) {
+            continue
+        }
+
+        const item = object as unknown as EngravingItem
+        const linkedItem = linkedObject as unknown as EngravingItem
+        const propertyPropagate = item.propertyPropagation(linkedItem, propertyId)
+        switch (propertyPropagate) {
+        case PropertyPropagation.NONE:
+            break
+        case PropertyPropagation.PROPAGATE:
+            changeProperty(linkedObject, propertyId, propertyValue, propertyFlag)
+            break
+        case PropertyPropagation.UNLINK:
+            // TODO(port): item->unlinkPropertyFromMaster(propertyId) (excerpts)
+            break
+        default:
+            break
+        }
+    }
+}
+
+export enum PropertyPropagation {
+    NONE, PROPAGATE, UNLINK,
 }
 
 export abstract class EngravingObject {
@@ -281,21 +337,61 @@ export abstract class EngravingObject {
         }
     }
 
-    /**
-     * Undo is not ported: the property is changed directly.
-     * TODO(port): linked elements, Pid::TEXT_STYLE property lists
-     */
+    /** C++ linkListForPropertyPropagation() */
+    linkListForPropertyPropagation(): readonly EngravingObject[] { return this.linkList() }
+
     undoChangeProperty(id: Pid, v: PropertyValue, ps: PropertyFlags = this.propertyFlags(id)): void {
-        if (this.propertyFlags(id) === ps && propertyValueEquals(this.getProperty(id), v)) {
+        if (propertyValueEquals(this.getProperty(id), v) && this.propertyFlags(id) === ps) {
             return
         }
-        this.setProperty(id, v)
-        this.setPropertyFlags(id, ps)
-        if ((id === Pid.PLACEMENT || id === Pid.HAIRPIN_TYPE) && this.isStyled(Pid.OFFSET)) {
-            const sp = this.isEngravingItem() ? (this as unknown as { spatium(): number }).spatium() : this.style().spatium()
-            this.setProperty(Pid.OFFSET, (this.style().styleV(this.getPropertyStyle(Pid.OFFSET)) as PointF).times(sp))
-            ;(this as unknown as { setOffsetChanged(v: boolean): void }).setOffsetChanged(false)
+        if (id === Pid.PLACEMENT || id === Pid.HAIRPIN_TYPE) {
+            // first set property, then set offset for above/below if styled
+            changeProperties(this, id, v, ps)
+
+            if (this.isStyled(Pid.OFFSET)) {
+                // TODO: maybe it just makes more sense to do this in EngravingItem::undoChangeProperty,
+                // but some of the overrides call ScoreElement explicitly
+                const sp = this.isEngravingItem() ? (this as unknown as EngravingItem).spatium() : this.style().spatium()
+                this.setProperty(Pid.OFFSET, (this.style().styleV(this.getPropertyStyle(Pid.OFFSET)) as PointF).times(sp))
+                ;(this as unknown as EngravingItem).setOffsetChanged(false)
+            }
+        } else if (id === Pid.TEXT_STYLE) {
+            //
+            // change a list of properties
+            //
+            const l = textStyle(v as TextStyleType) ?? []
+            // Change to ElementStyle defaults
+            for (const p of l) {
+                if (p.sid === Sid.NOSTYLE) {
+                    break
+                }
+                changeProperties(this, p.pid, this.style().styleV(p.sid), PropertyFlags.STYLED)
+            }
+        } else if (id === Pid.OFFSET) {
+            // TODO: do this in caller?
+            if (this.isEngravingItem()) {
+                const e = this as unknown as EngravingItem
+                if (!e.offset().equals(v as PointF)) {
+                    e.setOffsetChanged(true, false, (v as PointF).minus(e.offset()))
+                }
+            }
+        } else if (id === Pid.EXCLUDE_FROM_OTHER_PARTS) {
+            // TODO(port): manageExclusionFromParts (excerpts)
+        } else if (id === Pid.VOICE_ASSIGNMENT) {
+            if (v !== VoiceAssignment.CURRENT_VOICE_ONLY) {
+                changeProperties(this, Pid.VOICE, 0, ps)
+            }
         }
+        changeProperties(this, id, v, ps)
+        if (id !== Pid.GENERATED) {
+            changeProperties(this, Pid.GENERATED, false, PropertyFlags.NOSTYLE)
+        }
+    }
+
+    /** C++ undoPushProperty(): records the current value on the undo stack without changing it */
+    undoPushProperty(id: Pid): void {
+        const val = this.getProperty(id)
+        this.score().undoStack().pushWithoutPerforming(new ChangeProperty(this, id, val))
     }
 
     undoResetProperty(id: Pid): void {

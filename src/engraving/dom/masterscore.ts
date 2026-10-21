@@ -9,6 +9,8 @@
 import { RepeatList } from './repeatlist'
 import { Score } from './score'
 import { TimeSigMap } from './sig'
+import { UndoStack } from '../editing/undo'
+import { CmdState } from '../editing/cmdstate'
 
 export class MasterScore extends Score {
     private m_sigmap = new TimeSigMap()
@@ -17,10 +19,16 @@ export class MasterScore extends Score {
     private m_expandRepeats = true
     private m_expandedRepeatList = new RepeatList(this)
     private m_nonExpandedRepeatList = new RepeatList(this)
+    private m_undoStack = new UndoStack()
+    private m_cmdState = new CmdState() // modified during cmd processing
 
     override isMaster(): boolean { return true }
     override masterScore(): MasterScore { return this }
     override sigmap(): TimeSigMap { return this.m_sigmap }
+    override undoStack(): UndoStack { return this.m_undoStack }
+    override cmdState(): CmdState { return this.m_cmdState }
+    addLayoutFlags(val: number): void { this.m_cmdState.layoutFlags |= val }
+    setInstrumentsChanged(val: boolean): void { this.m_cmdState.instrumentsChanged = val }
 
     setPlaylistDirty(): void {
         this.m_expandedRepeatList.setScoreChanged()

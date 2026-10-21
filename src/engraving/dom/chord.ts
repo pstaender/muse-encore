@@ -790,6 +790,20 @@ export class Chord extends ChordRest {
         }
     }
 
+    /** the only selected note of the chord, null if none or several are selected */
+    selectedNote(): Note | null {
+        let note: Note | null = null
+        for (const currentNote of this.m_notes) {
+            if (currentNote.selected()) {
+                if (note) {
+                    return null
+                }
+                note = currentNote
+            }
+        }
+        return note
+    }
+
     override upPos(): number { return this.upNote().pos().y() }
     override downPos(): number { return this.downNote().pos().y() }
 

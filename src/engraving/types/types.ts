@@ -1148,3 +1148,17 @@ export enum OffsetType {
 export enum TransposeDirection {
     UP, DOWN, CLOSEST, UNKNOWN,
 }
+
+export enum UpdateMode {
+    DoNothing,
+    Update, // do screen refresh of RectF "refresh"
+    UpdateAll, // do complete screen refresh
+    Layout, // do partial layout for tick range
+}
+
+/** LayoutFlag bits */
+export enum LayoutFlag {
+    NO_FLAGS = 0,
+    PLAY_EVENTS = 2,
+    REBUILD_MIDI_MAPPING = 4,
+}
