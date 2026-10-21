@@ -17,9 +17,11 @@ import {
     type staff_idx_t, type track_idx_t,
 } from '../types/types'
 import { Sid } from '../style/styledef'
-import { EngravingItem, ElementFlag } from './engravingitem'
+import { EngravingItem, ElementFlag, itemFactories } from './engravingitem'
 import { ChordRest, NoteType } from './chordrest'
-import { Pid } from './property'
+import { Pid, PropertyFlags } from './property'
+import { SelectType } from './select'
+import type { EditData } from '../editing/editdata'
 import { SegmentType, type Segment } from './segment'
 import type { EngravingObject } from './engravingobject'
 import type { Measure } from './measure'
@@ -28,13 +30,14 @@ import type { Stem } from './stem'
 import type { StemSlash } from './stemslash'
 import type { Hook } from './hook'
 import type { LedgerLine } from './ledgerline'
-import type { Articulation } from './articulation'
+import { ArticulationAnchor, type Articulation } from './articulation'
 import type { AccidentalState } from './key'
 import type { Spanner } from './spanner'
 import type { Tie } from './tie'
 import type { TablatureMinimStyle } from './stafftype'
 import type { Drumset } from './drumset'
 import { TDuration } from './durationtype'
+import type { SymId } from '../types/symid'
 import type { TremoloTwoChord } from './tremolotwochord'
 import type { Trill } from './trill'
 import type { TremoloSingleChord } from './tremolosinglechord'
@@ -790,6 +793,32 @@ export class Chord extends ChordRest {
         }
     }
 
+    hasArticulation(aa: Articulation): Articulation | null {
+        for (const a of this.m_articulations) {
+            if (a.subtype() === aa.subtype()) {
+                return a
+            }
+        }
+        return null
+    }
+
+    /**
+     * C++ updateArticulations(newArticulationIds, ArticulationsUpdateMode updateMode = Insert)
+     * TODO(port): splitting/joining of combined articulations and the anchors; only adds the missing articulations
+     */
+    updateArticulations(newArticulationIds: ReadonlySet<SymId>): void {
+        for (const id of newArticulationIds) {
+            if (this.m_articulations.some(a => a.symId() === id)) {
+                continue
+            }
+            const na = itemFactories.createItem!(ElementType.ARTICULATION, this) as Articulation
+            na.setSymId(id)
+            na.setParent(this)
+            na.setTrack(this.track())
+            this.score().undoAddElement(na)
+        }
+    }
+
     /** the only selected note of the chord, null if none or several are selected */
     selectedNote(): Note | null {
         let note: Note | null = null
@@ -802,6 +831,106 @@ export class Chord extends ChordRest {
             }
         }
         return note
+    }
+
+    tapping(): Articulation | null {
+        return this.m_articulations.find(a => a.isTapping()) ?? null
+    }
+
+    override drop(data: EditData): EngravingItem | null {
+        const e = data.dropElement!
+        switch (e.type()) {
+        case ElementType.ARTICULATION:
+        case ElementType.ORNAMENT:
+        case ElementType.TAPPING: {
+            let atr: Articulation | null = e as unknown as Articulation
+            const oa = this.hasArticulation(atr)
+            if (oa) {
+                atr = null
+                // if attribute is already there, remove
+                // score()->cmdRemove(oa); // unexpected behaviour?
+                this.score().select(oa, SelectType.SINGLE, 0)
+            } else {
+                // intuit anchor for this accidental based on other accidentals in the chord
+                let aboveBelow = 0
+                let mixed = false
+                for (const a of this.m_articulations) {
+                    const pf = a.propertyFlags(Pid.ARTICULATION_ANCHOR)
+                    if (pf === PropertyFlags.STYLED) {
+                        continue
+                    }
+                    if (a.anchor() === ArticulationAnchor.TOP) {
+                        if (aboveBelow < 0) {
+                            mixed = true
+                            break
+                        }
+                        ++aboveBelow
+                    } else if (a.anchor() === ArticulationAnchor.BOTTOM) {
+                        if (aboveBelow > 0) {
+                            mixed = true
+                            break
+                        }
+                        --aboveBelow
+                    }
+                }
+                if (!mixed && aboveBelow !== 0) {
+                    if (aboveBelow > 0) {
+                        atr.setAnchor(ArticulationAnchor.TOP)
+                    } else {
+                        atr.setAnchor(ArticulationAnchor.BOTTOM)
+                    }
+                    atr.setPropertyFlags(Pid.ARTICULATION_ANCHOR, PropertyFlags.UNSTYLED)
+                }
+                atr.setParent(this)
+                atr.setTrack(this.track())
+
+                // Immediately add if the chord has no existing articulations, toggle otherwise...
+                if (this.m_articulations.length === 0) {
+                    this.score().undoAddElement(atr)
+                } else {
+                    this.score().toggleArticulation(this, atr)
+                }
+            }
+            return atr
+        }
+
+        case ElementType.CHORDLINE:
+            e.setParent(this)
+            e.setTrack(this.track())
+            this.score().undoAddElement(e)
+            break
+
+        case ElementType.TREMOLO_SINGLECHORD:
+            if (this.tremoloSingleChord()) {
+                const sameType = (e.subtype() === this.tremoloSingleChord()!.subtype())
+                this.score().undoRemoveElement(this.tremoloSingleChord())
+                if (sameType) {
+                    return null
+                }
+            }
+            e.setParent(this)
+            e.setTrack(this.track())
+            this.score().undoAddElement(e)
+            break
+
+        // TODO(port): TREMOLO_TWOCHORD (find the second chord, TremoloTwoChord::setChords)
+
+        case ElementType.ARPEGGIO:
+        case ElementType.CHORD_BRACKET: {
+            const a = e
+            if (this.arpeggio() && a.isArpeggio()) {
+                this.score().undoRemoveElement(this.arpeggio())
+            }
+            a.setTrack(this.track())
+            a.setParent(this)
+            this.score().undoAddElement(a)
+            return e
+        }
+
+        default:
+            return super.drop(data)
+        }
+        return null
     }
 
     override upPos(): number { return this.upNote().pos().y() }

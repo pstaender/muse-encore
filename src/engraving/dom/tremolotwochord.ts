@@ -82,6 +82,15 @@ export class TremoloTwoChord extends BeamBase {
 
     tremoloType(): TremoloType { return this.m_tremoloType }
 
+    override triggerLayout(): void {
+        if (this.m_chord1 && this.m_chord2) {
+            this.m_chord1.triggerLayout()
+            this.m_chord2.triggerLayout()
+        } else {
+            super.triggerLayout()
+        }
+    }
+
     chord1(): Chord | null { return this.m_chord1 }
     setChord1(ch: Chord | null): void { this.m_chord1 = ch }
     chord2(): Chord | null { return this.m_chord2 }

@@ -11,7 +11,7 @@ import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import { ElementType, LayoutBreakType, nidx } from '../types/types'
 import { Sid } from '../style/styledef'
-import { EngravingItem, ElementFlag } from './engravingitem'
+import { EngravingItem, ElementFlag, itemFactories } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
 import { Pid } from './property'
 import type { Measure } from './measure'
@@ -118,6 +118,15 @@ export abstract class MeasureBase extends EngravingItem {
             return (this.m_prev as unknown as Measure).coveringMMRestOrThis()
         }
         return this.m_prev
+    }
+
+    override triggerLayout(): void {
+        // for measurebases within other measurebases (e.g., hbox within vbox), use top level
+        const mb = this.top()
+        // avoid triggering layout before getting added to a score
+        if (mb.prev() || mb.next()) {
+            this.score().setLayout(mb.tick(), nidx, mb)
+        }
     }
 
     top(): MeasureBase {
@@ -335,7 +344,7 @@ export abstract class MeasureBase extends EngravingItem {
     irregular(): boolean { return this.flag(ElementFlag.IRREGULAR) }
     setIrregular(v: boolean): void { this.setFlag(ElementFlag.IRREGULAR, v) }
     /** remove unneeded layout breaks */
-    cleanupLayoutBreaks(_undo: boolean): void {
+    cleanupLayoutBreaks(undo: boolean): void {
         const toDelete: EngravingItem[] = []
         for (const e of this.el()) {
             if (e.isLayoutBreak()) {
@@ -364,11 +373,66 @@ export abstract class MeasureBase extends EngravingItem {
             }
         }
         for (const e of toDelete) {
-            const i = this.el().indexOf(e)
-            if (i >= 0) {
-                this.el().splice(i, 1)
+            if (undo) {
+                this.score().undoRemoveElement(e)
+            } else {
+                const i = this.el().indexOf(e)
+                if (i >= 0) {
+                    this.el().splice(i, 1)
+                }
             }
         }
+    }
+
+    undoSetBreak(v: boolean, type: LayoutBreakType): void {
+        switch (type) {
+        case LayoutBreakType.LINE:
+            if (this.lineBreak() === v) {
+                return
+            }
+            this.setLineBreak(v)
+            break
+        case LayoutBreakType.PAGE:
+            if (this.pageBreak() === v) {
+                return
+            }
+            if (v && this.lineBreak()) {
+                this.setLineBreak(false)
+            }
+            this.setPageBreak(v)
+            break
+        case LayoutBreakType.SECTION:
+            if (this.sectionBreak() === v) {
+                return
+            }
+            if (v && this.lineBreak()) {
+                this.setLineBreak(false)
+            }
+            this.setSectionBreak(v)
+            break
+        case LayoutBreakType.NOBREAK:
+            if (this.noBreak() === v) {
+                return
+            }
+            if (v) {
+                this.setLineBreak(false)
+                this.setPageBreak(false)
+                this.setSectionBreak(false)
+            }
+            this.setNoBreak(v)
+            break
+        }
+
+        if (v) {
+            const m = this as unknown as { isMMRest(): boolean; mmRestLast(): MeasureBase | null }
+            const mb: MeasureBase = (this.isMeasure() && m.isMMRest()) ? m.mmRestLast()! : this
+            const lb = itemFactories.createItem!(ElementType.LAYOUT_BREAK, mb) as LayoutBreak
+            lb.setLayoutBreakType(type)
+            lb.setTrack(0)
+            lb.setParent(mb)
+            this.score().undoAddElement(lb)
+        }
+        this.cleanupLayoutBreaks(true)
     }
 
     lineBreak(): boolean { return this.flag(ElementFlag.LINE_BREAK) }

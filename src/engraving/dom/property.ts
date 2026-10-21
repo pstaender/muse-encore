@@ -21,7 +21,7 @@ export function propertyId(name: string): Pid {
     if (!s_nameToPid) {
         s_nameToPid = new Map()
         for (const p of PROPERTY_LIST) {
-            if (p[4]) {
+            if (p[4] && !s_nameToPid.has(p[4])) { // the first property with the name (e.g. "color": COLOR, not STAFF_COLOR)
                 s_nameToPid.set(p[4], p[0])
             }
         }

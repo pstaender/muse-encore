@@ -19,6 +19,10 @@ import { TDuration } from './durationtype'
 import { Pid } from './property'
 import { measureFactories, type Measure } from './measure'
 import type { NoteDot } from './notedot'
+import type { Articulation } from './articulation'
+import type { Chord } from './chord'
+import { NoteVal } from './input'
+import type { EditData } from '../editing/editdata'
 import { tupletFactories } from './tuplet'
 import { arg, mtrc } from '../../framework/global/translation'
 
@@ -78,6 +82,71 @@ export class Rest extends ChordRest {
 
     override measure(): Measure {
         return (this.explicitParent() ? this.explicitParent()!.explicitParent() : null) as unknown as Measure
+    }
+
+    // ---------------------------------------------------------
+    //   drop
+    // ---------------------------------------------------------
+
+    override acceptDrop(data: EditData): boolean {
+        const e = data.dropElement!
+
+        switch (e.type()) {
+        case ElementType.CHORD:
+        case ElementType.NOTE:
+        case ElementType.IMAGE:
+        case ElementType.SYMBOL:
+            return true
+        case ElementType.MEASURE_REPEAT:
+            return this.durationType().type() === DurationType.V_MEASURE
+        default:
+            // prevent 'hanging' slurs, avoid crash on tie
+            if (e.isSpanner()) {
+                return e.type() !== ElementType.SLUR && e.type() !== ElementType.HAMMER_ON_PULL_OFF
+                    && e.type() !== ElementType.TIE && e.type() !== ElementType.GLISSANDO
+            }
+            break
+        }
+        return super.acceptDrop(data)
+    }
+
+    override drop(data: EditData): EngravingItem | null {
+        const e = data.dropElement!
+        switch (e.type()) {
+        case ElementType.ARTICULATION: {
+            const a = e as unknown as Articulation
+            if (!a.isFermata() || !this.score().toggleArticulation(this, a)) {
+                return null
+            }
+            return e
+        }
+
+        case ElementType.CHORD: {
+            const c = e as unknown as Chord
+            const n = c.upNote()
+            const dir = c.stemDirection()
+            const nval = new NoteVal()
+            nval.pitch = n.pitch()
+            nval.headGroup = n.headGroup()
+            const d = this.score().inputState().ticks()
+            if (!d.isZero()) {
+                const seg = this.score().setNoteRest(this.segment(), this.track(), nval, d, dir)
+                if (seg) {
+                    const cr = seg.element(this.track()) as ChordRest | null
+                    if (cr) {
+                        this.score().nextInputPos(cr, false)
+                    }
+                }
+            }
+            break
+        }
+
+        // TODO(port): MEASURE_REPEAT (cmdAddMeasureRepeat)
+
+        default:
+            return super.drop(data)
+        }
+        return null
     }
 
     override mag(): number {

@@ -50,6 +50,11 @@ export enum MsError {
 }
 
 export class MScore {
+    // engravingmodule.cpp: MScore::setNudgeStep(0.1) etc.
+    static nudgeStep = 0.1 // cursor key (default 0.1)
+    static nudgeStep10 = 1.0 // Ctrl + cursor key (default 1.0)
+    static nudgeStep50 = 0.01 // Alt  + cursor key (default 0.01)
+
     private static s_error = MsError.MS_NO_ERROR
     private static s_errorIsWarning = false
 

@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The undo stack (editing/undo.ts): commands recorded between startCmd/endCmd, relayout, undo/redo restore the
 // score (compared via the SVG of all pages), selection restore, rollback.
-import { createHash } from 'node:crypto'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { createScore, defaultNewScoreOptions, drawPageSvg, type MasterScore } from '../src/index'
+import { createScore, defaultNewScoreOptions, type MasterScore } from '../src/index'
 import { Pid } from '../src/engraving/dom/property'
 import { SegmentType } from '../src/engraving/dom/segment'
 import { Sid } from '../src/engraving/style/styledef'
@@ -11,16 +10,7 @@ import { ChangeStyleValues } from '../src/engraving/editing/editstyle'
 import '../src/engraving/editing/cmd'
 import type { Chord } from '../src/engraving/dom/chord'
 import type { EngravingItem } from '../src/engraving/dom/engravingitem'
-import { VTEST, hasSubmodule, initFonts, openScore } from './helpers'
-
-/** a hash of the SVG of all pages (printing: false also covers selection colors and invisible elements) */
-export function scoreHash(score: MasterScore, printing = true): string {
-    const h = createHash('sha256')
-    for (let i = 0; i < score.npages(); ++i) {
-        h.update(drawPageSvg(score, i, { printing }))
-    }
-    return h.digest('hex')
-}
+import { VTEST, hasSubmodule, initFonts, openScore, scoreHash } from './helpers'
 
 function firstChordRest(score: MasterScore, track = 0): EngravingItem {
     const s = score.firstMeasure()!.first(SegmentType.ChordRest)!

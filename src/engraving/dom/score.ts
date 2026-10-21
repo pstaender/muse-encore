@@ -332,20 +332,34 @@ export class Score extends EngravingObject {
         this.doLayoutRange(new Fraction(0, 1), new Fraction(-1, 1))
     }
 
-    /**
-     * TODO(port): partial layout: C++ lays out [st, et] extended by the overlapping spanners; the port always lays out
-     * the whole score
-     */
-    doLayoutRange(_st: Fraction, _et: Fraction): void {
+    doLayoutRange(st: Fraction, et: Fraction): void {
+        let start = st
+        let end = et
+
+        for (const spanner of this.spannerMap().findOverlapping(st.ticks(), et.ticks())) {
+            if (!spanner.staff()?.visible()) {
+                continue
+            }
+            start = st.lt(spanner.tick()) ? st : spanner.tick()
+            end = et.gt(spanner.tick2()) ? et : spanner.tick2()
+        }
+
         this.m_engravingFont = null
         this.m_noteHeadWidth = null
 
         // TODO(port): LayoutFlag::REBUILD_MIDI_MAPPING (playback)
 
-        scoreRendererHooks.layoutScore!(this, new Fraction(0, 1), new Fraction(-1, 1))
+        if (!Score.partialLayout) {
+            start = new Fraction(0, 1)
+            end = new Fraction(-1, 1)
+        }
+        scoreRendererHooks.layoutScore!(this, start, end)
 
         // TODO(port): m_resetAutoplace / m_resetCrossBeams
     }
+
+    /** lay out only the changed range like C++ (false: the whole score, e.g. to compare the results) */
+    static partialLayout = true
 
     // ---------------------------------------------------------------------------------
     // note input
@@ -1596,6 +1610,7 @@ export class Score extends EngravingObject {
 
     addElement(element: EngravingItem): void {
         const parent = element.parentItem()
+        element.triggerLayout()
         const et = element.type()
         if (et === ElementType.MEASURE
             || (et === ElementType.HBOX && !(parent && parent.isVBox()))
@@ -1668,6 +1683,7 @@ export class Score extends EngravingObject {
 
     removeElement(element: EngravingItem): void {
         let parent = element.parentItem()
+        element.triggerLayout()
         const et = element.type()
         const parentIsVBox = !!parent && parent.isVBox()
         if (et === ElementType.MEASURE
@@ -1716,6 +1732,17 @@ export class Score extends EngravingObject {
                     ss.system()!.remove(ss)
                 }
             }
+            break
+        }
+        case ElementType.CHORD:
+        case ElementType.REST:
+        case ElementType.MMREST: {
+            const cr = element as unknown as ChordRest
+            if (cr.beam()) {
+                cr.beam()!.remove(cr)
+            }
+            // TODO(port): lyr->removeFromScore() for the lyrics of the chord/rest
+            // TODO: check for tuplet?
             break
         }
         default:

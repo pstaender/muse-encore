@@ -30,7 +30,8 @@ import {
     pitchIsValid, step2tpcByKey, tpc2alter, tpc2alterByKey, tpc2degree, tpc2pitch, tpc2stepName, tpcIsValid, tpcUserName as tpcUserNameOf,
 } from './pitchspelling'
 import { absStep, relStep } from './utils'
-import type { NoteType } from './chordrest'
+import { NoteType, type ChordRest } from './chordrest'
+import { KeyboardModifier, type EditData } from '../editing/editdata'
 import type { Chord, NoteParenthesisInfo } from './chord'
 import type { NoteDot } from './notedot'
 import type { Accidental, AccidentalType } from './accidental'
@@ -636,6 +637,68 @@ export class Note extends EngravingItem {
         return Transpose.transposeTpc(tpc, v, true)
     }
 
+    tpc1default(p: number): number {
+        let key = Key.C
+        if (this.staff() && this.explicitParent()) {
+            const tick = this.chord().tick()
+            key = this.staff()!.concertKey(tick)
+        }
+        return pitch2tpc(p, key, Prefer.NEAREST)
+    }
+
+    tpc2default(p: number): number {
+        let key = Key.C
+        if (this.staff() && this.explicitParent()) {
+            const tick = this.chord().tick()
+            key = this.staff()!.key(tick)
+            if (this.concertPitch()) {
+                const interval = this.part()!.instrument(tick).transpose().clone()
+                if (!interval.isZero()) {
+                    interval.flip()
+                    key = Transpose.transposeKey(key, interval)
+                }
+            }
+        }
+        return pitch2tpc(p - this.transposition(), key, Prefer.NEAREST)
+    }
+
+    setNval(nval: NoteVal, tick: Fraction = new Fraction(-1, 1)): void {
+        this.setPitch(nval.pitch)
+        this.m_userVelocity = nval.velocityOverride
+        this.m_fret = nval.fret
+        this.m_string = nval.string
+
+        this.m_tpc[0] = nval.tpc1
+        this.m_tpc[1] = nval.tpc2
+
+        if (tick.eq(new Fraction(-1, 1)) && this.explicitParent()) {
+            tick = this.chord().tick()
+        }
+        const v = this.staff()!.transpose(tick)
+        if (nval.tpc1 === Tpc.TPC_INVALID) {
+            if (nval.tpc2 === Tpc.TPC_INVALID) {
+                const key = this.staff()!.concertKey(tick)
+                this.m_tpc[0] = pitch2tpc(nval.pitch, key, Prefer.NEAREST)
+            } else {
+                if (v.isZero()) {
+                    this.m_tpc[0] = this.m_tpc[1]
+                } else {
+                    this.m_tpc[0] = Transpose.transposeTpc(this.m_tpc[1], v, true)
+                }
+            }
+        }
+        if (nval.tpc2 === Tpc.TPC_INVALID) {
+            if (v.isZero()) {
+                this.m_tpc[1] = this.m_tpc[0]
+            } else {
+                v.flip()
+                this.m_tpc[1] = Transpose.transposeTpc(this.m_tpc[0], v, true)
+            }
+        }
+
+        this.m_headGroup = nval.headGroup
+    }
+
     accidental(): Accidental | null { return this.m_accidental }
     setAccidental(a: Accidental | null): void { this.m_accidental = a }
 
@@ -1237,6 +1300,170 @@ export class Note extends EngravingItem {
         if (this.tieFor() && this.tieFor()!.endNote() && !this.tieFor()!.isPartialTie()) {
             this.tieFor()!.endNote()!.setTieBack(this.tieFor())
         }
+    }
+
+    // ---------------------------------------------------------
+    //   drop
+    // ---------------------------------------------------------
+
+    override acceptDrop(data: EditData): boolean {
+        const e = data.dropElement!
+        switch (e.type()) {
+        case ElementType.GLISSANDO:
+        case ElementType.GUITAR_BEND:
+            for (const ee of this.m_spannerFor) {
+                if (ee.isGlissando() || ee.isGuitarBend()) {
+                    return false
+                }
+            }
+            return true
+        case ElementType.FINGERING:
+            return this.staff()!.isTabStaff(this.tick()) ? this.staffType()!.showTabFingering() : true
+        case ElementType.ARTICULATION:
+        case ElementType.ORNAMENT:
+        case ElementType.TAPPING:
+        case ElementType.CHORDLINE:
+        case ElementType.TEXT:
+        case ElementType.ACCIDENTAL:
+        case ElementType.ARPEGGIO:
+        case ElementType.CHORD_BRACKET:
+        case ElementType.NOTEHEAD:
+        case ElementType.NOTE:
+        case ElementType.TREMOLO_SINGLECHORD:
+        case ElementType.TREMOLO_TWOCHORD:
+        case ElementType.IMAGE:
+        case ElementType.CHORD:
+        case ElementType.SYMBOL:
+        case ElementType.BAR_LINE:
+        case ElementType.STICKING:
+        case ElementType.BEND:
+        case ElementType.FIGURED_BASS:
+        case ElementType.LYRICS:
+            return true
+        case ElementType.BAGPIPE_EMBELLISHMENT:
+            return this.noteType() === NoteType.NORMAL
+        // TODO(port): ACTION_ICON (grace notes, parentheses, bends, note anchored lines)
+        default:
+            if (e.isSpanner()) {
+                return e.type() !== ElementType.TIE && e.type() !== ElementType.PARTIAL_TIE
+            }
+            break
+        }
+        return this.chord().acceptDrop(data)
+    }
+
+    override drop(data: EditData): EngravingItem | null {
+        const e = data.dropElement!
+
+        const st = this.staff()!
+        const isTablature = st.isTabStaff(this.tick())
+        const tabFingering = st.staffTypeForElement(this).showTabFingering()
+        const ch = this.chord()
+
+        switch (e.type()) {
+        case ElementType.SYMBOL:
+        case ElementType.IMAGE:
+            e.setParent(this)
+            this.score().undoAddElement(e)
+            return e
+
+        case ElementType.FINGERING:
+            if (!isTablature || tabFingering) {
+                e.setParent(this)
+                this.score().undoAddElement(e)
+                return e
+            }
+            return null
+
+        case ElementType.LYRICS:
+            e.setParent(ch)
+            e.setTrack(this.track())
+            this.score().undoAddElement(e)
+            return e
+
+        case ElementType.ACCIDENTAL:
+            this.score().changeNoteAccidental(this, (e as Accidental).accidentalType())
+            break
+
+        case ElementType.BEND:
+            e.setParent(this)
+            e.setTrack(this.track())
+            this.score().undoAddElement(e)
+            return e
+
+        case ElementType.NOTEHEAD: {
+            let group = (e as unknown as { headGroup(): NoteHeadGroup }).headGroup()
+            if (group === NoteHeadGroup.HEAD_INVALID) {
+                // C++: LOGD("unknown notehead")
+                group = NoteHeadGroup.HEAD_NORMAL
+            }
+
+            if (group !== this.m_headGroup) {
+                if (this.links()) {
+                    for (const se of this.links()!) {
+                        se.undoChangeProperty(Pid.HEAD_GROUP, group)
+                        const note = se as Note
+                        if (note.staff() && !note.staff()!.isDrumStaff(ch.tick())) {
+                            se.undoChangeProperty(Pid.DEAD, group === NoteHeadGroup.HEAD_CROSS)
+                        }
+                    }
+                } else {
+                    this.undoChangeProperty(Pid.HEAD_GROUP, group)
+                    if (!st.isDrumStaff(ch.tick())) {
+                        this.undoChangeProperty(Pid.DEAD, group === NoteHeadGroup.HEAD_CROSS)
+                    }
+                }
+            }
+            break
+        }
+
+        // TODO(port): ACTION_ICON (grace notes, parentheses, bends, note anchored lines), GUITAR_BEND,
+        // BAGPIPE_EMBELLISHMENT, NOTE (replace the note), GLISSANDO
+
+        case ElementType.CHORD: {
+            const c = e as unknown as Chord
+            const n = c.upNote()
+            const dir = c.stemDirection()
+            const t = this.track() // (staff2track(staffIdx()) + n->voice())
+            this.score().select(null, 0 /* SelectType::SINGLE */, 0)
+            const nval = new NoteVal()
+            nval.pitch = n.pitch()
+            nval.headGroup = n.headGroup()
+            let cr: ChordRest | null = null
+            if (data.modifiers & KeyboardModifier.ShiftModifier) {
+                // add note to chord
+                this.score().addNote(ch, nval)
+            } else {
+                // replace current chord
+                const seg = this.score().setNoteRest(ch.segment(), t, nval, this.score().inputState().duration().fraction(), dir)
+                cr = seg ? seg.element(t) as unknown as ChordRest | null : null
+            }
+            if (cr) {
+                this.score().nextInputPos(cr, false)
+            }
+            break
+        }
+
+        case ElementType.CHORDLINE:
+            (e as unknown as { setNote(n: Note): void }).setNote(this)
+            return ch.drop(data)
+
+        default: {
+            if (e.isSpanner() && (e as unknown as Spanner).anchor() === 3 /* Spanner::Anchor::NOTE */) {
+                const spanner = e as unknown as Spanner
+                spanner.setParent(this)
+                spanner.setStartElement(this)
+                spanner.setTick(this.tick())
+                spanner.setTrack(this.track())
+                spanner.setTrack2(this.track())
+                spanner.computeEndElement()
+                this.score().undoAddElement(spanner)
+                return e
+            }
+            return ch.drop(data)
+        }
+        }
+        return null
     }
 
     // ---------------------------------------------------------

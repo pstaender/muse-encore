@@ -9,13 +9,21 @@
 import { PointF } from '../../framework/draw/types/geometry'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
-import { BeamMode, DurationType, DurationTypeWithDots, ElementType, PlacementV, type staff_idx_t, type track_idx_t } from '../types/types'
+import {
+    BarLineType, BeamMode, DurationType, DurationTypeWithDots, ElementType, PlacementV, VOICES, trackZeroVoice,
+    type staff_idx_t, type track_idx_t,
+} from '../types/types'
 import { DurationElement } from './durationelement'
 import { TDuration } from './durationtype'
 import { EngravingItem, LayoutData } from './engravingitem'
 import { Pid } from './property'
 import type { EngravingObject } from './engravingobject'
-import type { Segment, SegmentType } from './segment'
+import { SegmentType as SegmentTypeValue, type Segment, type SegmentType } from './segment'
+import type { BarLine } from './barline'
+import type { Clef } from './clef'
+import type { KeySig } from './keysig'
+import type { Spanner } from './spanner'
+import { KeyboardModifier, type EditData } from '../editing/editdata'
 import type { Beam } from './beam'
 import type { Lyrics } from './lyrics'
 import type { Chord } from './chord'
@@ -224,6 +232,189 @@ export abstract class ChordRest extends DurationElement {
 
     isMelismaEnd(): boolean { return this.m_melismaEnd }
     setMelismaEnd(v: boolean): void { this.m_melismaEnd = v }
+
+    // ---------------------------------------------------------
+    //   drop
+    // ---------------------------------------------------------
+
+    override acceptDrop(data: EditData): boolean {
+        const e = data.dropElement!
+
+        switch (e.type()) {
+        case ElementType.FERMATA:
+        case ElementType.CLEF:
+        case ElementType.KEYSIG:
+        case ElementType.TIMESIG:
+        case ElementType.SYSTEM_TEXT:
+        case ElementType.TRIPLET_FEEL:
+        case ElementType.STAFF_TEXT:
+        case ElementType.PLAYTECH_ANNOTATION:
+        case ElementType.CAPO:
+        case ElementType.BAR_LINE:
+        case ElementType.BREATH:
+        case ElementType.STAFF_STATE:
+        case ElementType.INSTRUMENT_CHANGE:
+        case ElementType.DYNAMIC:
+        case ElementType.EXPRESSION:
+        case ElementType.HARMONY:
+        case ElementType.TEMPO_TEXT:
+        case ElementType.REHEARSAL_MARK:
+        case ElementType.FRET_DIAGRAM:
+        case ElementType.TREMOLOBAR:
+        case ElementType.HARP_DIAGRAM:
+            return true
+        // TODO(port): ACTION_ICON (beam modes)
+        default: break
+        }
+        return this.segment().measure().acceptDrop(data)
+    }
+
+    override drop(data: EditData): EngravingItem | null {
+        const e = data.dropElement!
+        const m = this.segment().measure()
+        switch (e.type()) {
+        case ElementType.BREATH: {
+            const b = e
+            b.setPos(new PointF())
+            // allow breath marks in voice > 1
+            b.setTrack(this.track())
+            b.setPlacement(b.track() & 1 ? PlacementV.BELOW : PlacementV.ABOVE)
+
+            // TODO: insert automatically in all staves?
+
+            const seg = m.undoGetSegment(SegmentTypeValue.Breath, this.endTick())
+            b.setParent(seg)
+            this.score().undoAddElement(b)
+            return e
+        }
+
+        case ElementType.BAR_LINE: {
+            const bl = e as unknown as BarLine
+            const barLineTick = bl.barLineType() === BarLineType.START_REPEAT ? this.tick() : this.endTick()
+
+            // TODO(port): Ctrl: SplitJoinMeasure::splitMeasure (split the measure at the barline)
+
+            if (barLineTick.eq(m.tick()) || barLineTick.eq(m.endTick())) {
+                return m.drop(data)
+            }
+
+            bl.setPos(new PointF())
+            bl.setTrack(this.staffIdx() * VOICES)
+            bl.setGenerated(false)
+
+            let obl: BarLine | null = null
+            for (const st of this.staff()!.staffList()) {
+                const score = st.score()
+                const measure = score.tick2measure(m.tick())!
+                const seg = measure.undoGetSegment(SegmentTypeValue.BarLine, barLineTick)
+                let l: BarLine
+                if (!obl) {
+                    obl = l = bl.clone() as BarLine
+                } else {
+                    l = obl.linkedClone() as BarLine
+                }
+                l.setTrack(st.idx() * VOICES)
+                l.setParent(seg)
+                score.undoAddElement(l)
+            }
+
+            return null
+        }
+
+        case ElementType.CLEF:
+            this.score().cmdInsertClef(e as unknown as Clef, this)
+            return null
+
+        case ElementType.FERMATA:
+            e.setPlacement(this.track() & 1 ? PlacementV.BELOW : PlacementV.ABOVE)
+            for (const el of this.segment().annotations()) {
+                if (el.isFermata() && (el.track() === this.track())) {
+                    if (el.subtype() === e.subtype()) {
+                        return el
+                    } else {
+                        e.setPlacement(el.placement())
+                        e.setTrack(this.track())
+                        e.setParent(this.segment())
+                        this.score().undoChangeElement(el, e)
+                        return e
+                    }
+                }
+            }
+            e.setTrack(this.track())
+            e.setParent(this.segment())
+            this.score().undoAddElement(e)
+            return e
+
+        case ElementType.TEMPO_TEXT:
+        case ElementType.EXPRESSION:
+        case ElementType.FRET_DIAGRAM:
+        case ElementType.TREMOLOBAR:
+        case ElementType.SYMBOL:
+        case ElementType.IMAGE:
+            e.setTrack(this.track())
+            e.setParent(this.segment())
+            this.score().undoAddElement(e)
+            return e
+
+        case ElementType.DYNAMIC:
+            e.setTrack(this.track())
+            // TODO(port): checkVoiceAssignmentCompatibleWithTrack()
+            e.setParent(this.segment())
+            this.score().undoAddElement(e)
+            return e
+
+        // TODO(port): NOTE (replace the rest by a chord with the note: drum palette)
+
+        case ElementType.HARMONY:
+            // TODO(port): transpose the harmony (Transpose::undoTransposeHarmony) for transposing instruments
+        // fallthrough
+        case ElementType.TEXT:
+        case ElementType.STAFF_TEXT:
+        case ElementType.SYSTEM_TEXT:
+        case ElementType.TRIPLET_FEEL:
+        case ElementType.PLAYTECH_ANNOTATION:
+        case ElementType.CAPO:
+        case ElementType.STICKING:
+        case ElementType.STAFF_STATE:
+        case ElementType.HARP_DIAGRAM:
+        case ElementType.REHEARSAL_MARK: {
+            e.setParent(this.segment())
+            e.setTrack(trackZeroVoice(this.track()))
+            // TODO(port): rehearsal mark text and harp pedal states of elements from the palette (track() == nidx)
+            this.score().undoAddElement(e)
+            return e
+        }
+
+        // TODO(port): INSTRUMENT_CHANGE, FIGURED_BASS, ACTION_ICON (beam modes)
+
+        case ElementType.KEYSIG: {
+            if (data.modifiers & KeyboardModifier.ControlModifier) {
+                // apply only to this stave
+                const k = (e as unknown as KeySig).keySigEvent()
+                this.score().undoChangeKeySig(this.staff()!, this.tick(), k)
+                return null
+            }
+            break
+        }
+
+        default:
+            if (e.isSpanner()) {
+                const spanner = e as unknown as Spanner
+                spanner.setTick(this.tick())
+                if (spanner.systemFlag()) {
+                    spanner.setTrack(0)
+                    spanner.setTrack2(0)
+                } else {
+                    spanner.setTrack(this.track())
+                    spanner.setTrack2(this.track())
+                }
+                this.score().undoAddElement(spanner)
+                return e
+            }
+            break
+        }
+        return m.drop(data)
+    }
 
     override add(e: EngravingItem): void {
         e.setParent(this)

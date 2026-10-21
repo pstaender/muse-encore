@@ -9,6 +9,7 @@
  */
 
 import { Fraction } from '../../types/fraction'
+import { nidx } from '../../types/types'
 import { LayoutMode, type Score } from '../../dom/score'
 import type { MeasureBase } from '../../dom/measurebase'
 import type { Measure } from '../../dom/measure'
@@ -107,8 +108,52 @@ export class ScorePageViewLayout {
         }
 
         if (!state.isLayoutAll() && m!.system()) {
-            // TODO(port): partial (range) layout
-            throw new Error('partial layout not ported yet')
+            const system = m!.system()!
+            const systemIndex = score.systems().indexOf(system)
+
+            // set current system
+            state.setStartTick(system.measures()[0].tick())
+            state.setCurSystem(system)
+            state.setSystemList(score.systems().slice(systemIndex))
+
+            // set current page
+            state.setPage(system.page())
+            let pageIdx = score.pageIdx(state.page()!)
+            if (pageIdx === nidx) {
+                pageIdx = 0
+            }
+            state.setPageIdx(pageIdx)
+
+            let nextMeasure: MeasureBase | null
+            if (systemIndex === 0) {
+                nextMeasure = ctx.conf().isShowVBox() ? score.first() : score.firstMeasure()
+            } else {
+                const prevSystem = score.systems()[systemIndex - 1]
+                nextMeasure = prevSystem.measures()[prevSystem.measures().length - 1].next()
+            }
+            state.setNextMeasure(nextMeasure)
+
+            if (!state.nextMeasure()!.prevMeasure()) {
+                state.setMeasureNo(0)
+                state.setTick(new Fraction(0, 1))
+            } else {
+                let mb: MeasureBase | null = state.nextMeasure()!.prev()
+                if (mb) {
+                    mb = mb.mbWithPrecedingSectionBreak()
+                }
+
+                const layoutBreak = mb!.sectionBreakElement()
+                // TODO: also use mb in else clause here?
+                // probably not, only actual measures have meaningful numbers
+                if (layoutBreak && layoutBreak.startWithMeasureOne()) {
+                    state.setMeasureNo(0)
+                } else {
+                    const prevMeasure = state.nextMeasure()!.prevMeasure()!
+                    state.setMeasureNo(prevMeasure.no() // will be adjusted later with respect
+                        + (prevMeasure.irregular() ? 0 : 1)) // to the user-defined offset.
+                }
+                state.setTick(ctx.state().nextMeasure()!.tick())
+            }
         } else {
             state.setNextMeasure(ctx.conf().isShowVBox() ? score.first() : score.firstMeasure())
         }

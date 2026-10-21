@@ -19,6 +19,7 @@ import { Groups, type GroupNodes } from './groups'
 import { Pid } from './property'
 import type { Segment } from './segment'
 import type { Measure } from './measure'
+import type { EditData } from '../editing/editdata'
 import { TranslatableString } from '../../framework/global/types/translatablestring'
 
 export enum TimeSigType {
@@ -108,6 +109,38 @@ export class TimeSig extends EngravingItem {
 
     segment(): Segment { return this.explicitParent() as unknown as Segment }
     measure(): Measure { return this.explicitParent()!.explicitParent() as unknown as Measure }
+
+    override acceptDrop(data: EditData): boolean {
+        return data.dropElement!.isTimeSig()
+    }
+
+    override drop(data: EditData): EngravingItem | null {
+        const e = data.dropElement!
+        if (e.isTimeSig()) {
+            // change timesig applies to all staves, can't simply set subtype
+            // for this one only
+            // ownership of e is transferred to cmdAddTimeSig
+
+            if (!this.tick().eq(this.measure().endTick())) {
+                this.score().cmdAddTimeSig(this.measure(), this.staffIdx(), e as TimeSig, false)
+                return null
+            }
+
+            // This is a timesig at the end of a measure.
+            if ((e as TimeSig).equals(this)) {
+                return null
+            }
+
+            if (!this.measure().nextMeasure()) {
+                return null
+            }
+
+            // Apply change to next measure
+            this.score().cmdAddTimeSig(this.measure().nextMeasure()!, this.staffIdx(), e as TimeSig, false)
+            return null
+        }
+        return null
+    }
 
     showCourtesySig(): boolean { return this.m_showCourtesySig }
     setShowCourtesySig(v: boolean): void { this.m_showCourtesySig = v }

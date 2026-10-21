@@ -18,6 +18,7 @@ import { setSym2accidentalValHook } from './key'
 import { noteFactories, type Note } from './note'
 import { ACC_LIST, AccidentalType } from './accidentaldata'
 import type { TranslatableString } from '../../framework/global/types/translatablestring'
+import type { EditData } from '../editing/editdata'
 
 export { AccidentalType } from './accidentaldata'
 
@@ -72,6 +73,29 @@ export class Accidental extends EngravingItem {
     note(): Note | null {
         const p = this.explicitParent()
         return p && p.isNote() ? p as unknown as Note : null
+    }
+
+    override acceptDrop(data: EditData): boolean {
+        const e = data.dropElement!
+
+        if (e.isAccidental()) {
+            return !!this.note()
+        }
+
+        // TODO(port): ActionIcon PARENTHESES / BRACKETS (ACCIDENTAL_BRACKET)
+        return false
+    }
+
+    override drop(data: EditData): EngravingItem | null {
+        const e = data.dropElement!
+        switch (e.type()) {
+        case ElementType.ACCIDENTAL:
+            this.score().changeNoteAccidental(this.note()!, (e as Accidental).accidentalType())
+            break
+        default:
+            break
+        }
+        return null
     }
 
     override subtype(): number { return this.m_accidentalType }

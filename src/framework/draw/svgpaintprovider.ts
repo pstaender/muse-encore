@@ -18,7 +18,8 @@ import { type FallbackFont, type GlyphRef } from './internal/fontprovider'
 /** number with at most `digits` decimals, without trailing zeros */
 function num(v: number, digits = 2): string {
     const s = v.toFixed(digits)
-    return s.includes('.') ? s.replace(/\.?0+$/, '') || '0' : s
+    const r = s.includes('.') ? s.replace(/\.?0+$/, '') || '0' : s
+    return r === '-0' ? '0' : r // values rounded to zero have no sign
 }
 
 function esc(s: string): string {

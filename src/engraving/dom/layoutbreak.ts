@@ -13,6 +13,7 @@ import { EngravingItem, ElementFlag } from './engravingitem'
 import type { ElementStyle } from './engravingobject'
 import { Pid } from './property'
 import type { MeasureBase } from './measurebase'
+import type { EditData } from '../editing/editdata'
 import type { TranslatableString } from '../../framework/global/types/translatablestring'
 import { TConv } from '../types/typesconv'
 
@@ -42,6 +43,17 @@ export class LayoutBreak extends EngravingItem {
     setLayoutBreakType(val: LayoutBreakType): void { this.m_layoutBreakType = val }
     layoutBreakType(): LayoutBreakType { return this.m_layoutBreakType }
     measure(): MeasureBase { return this.explicitParent() as unknown as MeasureBase }
+
+    override acceptDrop(data: EditData): boolean {
+        return data.dropElement!.isLayoutBreak()
+            && (data.dropElement as LayoutBreak).layoutBreakType() !== this.layoutBreakType()
+    }
+
+    override drop(data: EditData): EngravingItem | null {
+        const e = data.dropElement!
+        this.score().undoChangeElement(this, e)
+        return e
+    }
 
     pause(): number { return this.m_pause }
     setPause(v: number): void { this.m_pause = v }

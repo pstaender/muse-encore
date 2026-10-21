@@ -31,6 +31,7 @@ import type { MeasureBase } from './measurebase'
 import type { Measure } from './measure'
 import type { System } from './system'
 import type { Page } from './page'
+import type { EditData } from '../editing/editdata'
 import type { PaintOptions } from '../rendering/paintoptions'
 import { EngravingConfiguration } from '../internal/engravingconfiguration'
 import { TranslatableString } from '../../framework/global/types/translatablestring'
@@ -318,8 +319,11 @@ export class LayoutData {
     }
 }
 
-/** set by dom/factory.ts (avoids a circular import of parenthesis.ts) */
-export const itemFactories: { createParenthesis?: (parent: EngravingItem) => EngravingItem } = {}
+/** set by dom/parenthesis.ts and dom/factory.ts (avoids circular imports; createItem: C++ Factory::createItem) */
+export const itemFactories: {
+    createParenthesis?: (parent: EngravingItem) => EngravingItem
+    createItem?: (type: ElementType, parent: EngravingObject | null) => EngravingItem | null
+} = {}
 
 export abstract class EngravingItem extends EngravingObject {
     protected m_z = -1
@@ -932,6 +936,27 @@ export abstract class EngravingItem extends EngravingObject {
 
     setbbox(r: RectF): void { this.mutldata().setBbox(r) }
 
+    /** TODO(port): Staff::findLinkedInScore (excerpts): only system objects are found in other scores */
+    findLinkedInScore(score: import('./score').Score | null): EngravingItem | null {
+        const links = this.links()
+        if (!score || !this.staff() || !links || links.length === 0) {
+            return null
+        }
+
+        // If this is a system element it may not be on the same stave, so just check if linked elements are in the score
+        if (this.systemFlag() && this.track() === 0) {
+            for (const linked of links) {
+                if (linked !== this && linked.score() === score) {
+                    return linked as EngravingItem
+                }
+            }
+            return null
+        }
+
+        // C++: staff()->findLinkedInScore(score): the linked staff in the other score (no excerpts in the port)
+        return null
+    }
+
     findLinkedInStaff(staff: Staff): EngravingItem | null {
         const links = this.links()
         if (!links || links.length === 0) {
@@ -1128,6 +1153,12 @@ export abstract class EngravingItem extends EngravingObject {
         this.remove(o)
         this.add(n)
     }
+
+    /** true if data.dropElement can be dropped on this element (palettes, drag & drop) */
+    acceptDrop(_data: EditData): boolean { return false }
+
+    /** handles a dropped element (data.dropElement); returns the element to select, if any */
+    drop(_data: EditData): EngravingItem | null { return null }
 
     // ---------------------------------------------------------
     //   undo / layout triggers

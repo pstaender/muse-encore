@@ -18,6 +18,7 @@ import { KeySigEvent, type CustDef, type KeySym } from './key'
 import { Pid } from './property'
 import { SegmentType, type Segment } from './segment'
 import type { Measure } from './measure'
+import { KeyboardModifier, type EditData } from '../editing/editdata'
 import { TConv } from '../types/typesconv'
 
 export class KeySigLayoutData extends LayoutData {
@@ -60,6 +61,30 @@ export class KeySig extends EngravingItem {
     }
 
     segment(): Segment { return this.explicitParent() as unknown as Segment }
+
+    override acceptDrop(data: EditData): boolean {
+        return data.dropElement!.isKeySig()
+    }
+
+    override drop(data: EditData): EngravingItem | null {
+        const ks = data.dropElement as KeySig
+        if (!ks.isKeySig()) {
+            return null
+        }
+        const k = ks.keySigEvent()
+        if (data.modifiers & KeyboardModifier.ControlModifier) {
+            // apply only to this stave
+            if (!k.equals(this.keySigEvent())) {
+                this.score().undoChangeKeySig(this.staff()!, this.tick(), k)
+            }
+        } else {
+            // apply to all staves:
+            for (const s of this.score().masterScore().staves()) {
+                this.score().undoChangeKeySig(s, this.tick(), k)
+            }
+        }
+        return this
+    }
     measure(): Measure | null {
         return this.explicitParent() ? this.explicitParent()!.explicitParent() as unknown as Measure : null
     }
