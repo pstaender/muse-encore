@@ -14,7 +14,8 @@ import {
 } from './abstractinspectormodel'
 import { inspectorModelFactory } from './abstractinspectorproxymodel'
 import {
-    AccidentalSettingsModel, ArticulationSettingsModel, BarlineSettingsModel, ClefSettingsModel, DynamicsSettingsModel,
+    AccidentalSettingsModel, ArticulationSettingsModel, BarlineSettingsModel, ChordBracketSettingsModel, ClefSettingsModel,
+    DynamicsSettingsModel, ImageSettingsModel,
     FermataSettingsModel, HairpinSettingsModel, KeySignatureSettingsModel, RestSettingsProxyModel, SectionBreakSettingsModel,
     SlurAndTieSettingsModel, SpacerSettingsModel, TempoSettingsModel, TimeSignatureSettingsModel, TupletSettingsModel,
 } from './notation/notationsettingsmodels'
@@ -44,10 +45,8 @@ const UNPORTED_TITLES: Partial<Record<InspectorModelType, [string, string]>> = {
     [InspectorModelType.TYPE_VERTICAL_FRAME]: ['inspector', 'Vertical frame'],
     [InspectorModelType.TYPE_HORIZONTAL_FRAME]: ['inspector', 'Horizontal frame'],
     [InspectorModelType.TYPE_FRET_FRAME]: ['inspector', 'Fretboard diagram legend'],
-    [InspectorModelType.TYPE_TAPPING]: ['inspector', 'Tapping'],
     [InspectorModelType.TYPE_ORNAMENT]: ['inspector', 'Ornament'],
     [InspectorModelType.TYPE_AMBITUS]: ['inspector', 'Ambitus'],
-    [InspectorModelType.TYPE_IMAGE]: ['inspector', 'Image'],
     [InspectorModelType.TYPE_CHORD_SYMBOL]: ['inspector', 'Chord symbol'],
     [InspectorModelType.TYPE_BRACKET]: ['inspector', 'Bracket'],
     [InspectorModelType.TYPE_MMREST]: ['inspector', 'Multimeasure rest'],
@@ -62,7 +61,6 @@ const UNPORTED_TITLES: Partial<Record<InspectorModelType, [string, string]>> = {
     [InspectorModelType.TYPE_EXPRESSION]: ['inspector ', 'Expression'],
     [InspectorModelType.TYPE_STRING_TUNINGS]: ['inspector', 'Fretted instruments'],
     [InspectorModelType.TYPE_SYMBOL]: ['inspector', 'Symbol'],
-    [InspectorModelType.TYPE_CHORD_BRACKET]: ['inspector', 'Chord bracket'],
 }
 
 /** a model whose C++ counterpart is not ported yet: title only */
@@ -107,6 +105,9 @@ export class InspectorModelCreator {
         case InspectorModelType.TYPE_HAMMER_ON_PULL_OFF:
             return new SlurAndTieSettingsModel(repository, modelType)
         case InspectorModelType.TYPE_ARTICULATION: return new ArticulationSettingsModel(repository)
+        case InspectorModelType.TYPE_TAPPING: return new ArticulationSettingsModel(repository, InspectorModelType.TYPE_TAPPING)
+        case InspectorModelType.TYPE_IMAGE: return new ImageSettingsModel(repository)
+        case InspectorModelType.TYPE_CHORD_BRACKET: return new ChordBracketSettingsModel(repository)
         case InspectorModelType.TYPE_TIME_SIGNATURE: return new TimeSignatureSettingsModel(repository)
         case InspectorModelType.TYPE_TUPLET: return new TupletSettingsModel(repository)
         case InspectorModelType.TYPE_REST: return new RestSettingsProxyModel(repository)

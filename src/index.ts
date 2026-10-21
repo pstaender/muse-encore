@@ -1436,6 +1436,13 @@ export function setClipboardContents(data: Record<string, string>): void {
     clipboard().setMimeData(m)
 }
 
+/** puts an image file (PNG, JPEG, GIF, BMP, WebP) on the clipboard: pasting adds it as an Image to the selected elements */
+export function setClipboardImage(data: Uint8Array): void {
+    const m = new MimeData()
+    m.setImageData(data)
+    clipboard().setMimeData(m)
+}
+
 /** the actions whose shortcuts apply while a text is edited and have priority then (MuseScore's CTX_NOTATION_TEXT_EDITING) */
 export function isTextEditingAction(code: string): boolean {
     return TEXT_EDITING_ACTIONS.has(code)

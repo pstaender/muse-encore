@@ -6,6 +6,7 @@
  * Port of src/engraving/rw/read460/read460.h/.cpp
  */
 
+import type { FiguredBass } from '../../dom/figuredbass'
 import { ElementType } from '../../types/types'
 import { Sid } from '../../style/styledef'
 import { engravingFonts } from '../../infrastructure/engravingfont'
@@ -26,7 +27,7 @@ import { Fraction } from '../../types/fraction'
 import { PlacementV, VOICES, track2staff, trackZeroVoice, type staff_idx_t } from '../../types/types'
 import { TDuration } from '../../dom/durationtype'
 import { MScore, MsError } from '../../dom/mscore'
-import { SegmentType, type Segment } from '../../dom/segment'
+import { Segment, SegmentType } from '../../dom/segment'
 import { SelState } from '../../dom/select'
 import { Location } from '../../dom/location'
 import { Pid } from '../../dom/property'
@@ -559,7 +560,7 @@ export class Read460 {
                     } else if (PASTE_STAFF_ANNOTATIONS.has(tag)) {
                         const el = Factory.createItemByName(tag, scoreDummy(score))
                         if (!el) {
-                            // TODO(port): element types not ported yet (e.g. Symbol, Image, FiguredBass, Sticking)
+                            // C++ creates every annotation type
                             e.skipCurrentElement()
                             continue
                         }
@@ -825,7 +826,7 @@ export class Read460 {
 
                     const el = Factory.createItemByName(tag, scoreDummy(score))
                     if (!el) {
-                        // TODO(port): element types not ported yet (Sticking, Capo, HarpPedalDiagram, StringTunings)
+                        // C++ creates every annotation type
                         e.skipCurrentElement()
                         continue
                     }
@@ -925,9 +926,85 @@ export class Read460 {
                         el.setTrack(destTrack)
                         el.setParent(cr)
                         score.undoAddElement(el)
-                    } else {
-                        // TODO(port): FiguredBass (not ported)
-                        e.skipCurrentElement()
+                    } else if (tag === 'FiguredBass') {
+                        // FiguredBass always belongs to first staff voice
+                        destTrack = trackZeroVoice(destTrack)
+                        let ticks: Fraction
+                        const el = Factory.createItem(ElementType.FIGURED_BASS, currSegm) as FiguredBass
+                        el.setTrack(destTrack)
+                        TRead.readFiguredBass(el, e, ctx)
+                        el.setTrack(destTrack)
+                        // if f.b. is off-note, we have to locate a place before currSegm
+                        // where an on-note f.b. element could (potentially) be
+                        // (while having an off-note f.b. without an on-note one before it
+                        // is un-idiomatic, possible mismatch in rhythmic patterns between
+                        // copy source and paste destination does not allow to be too picky)
+                        if (!el.onNote()) {
+                            let onNoteFB: FiguredBass | null = null
+                            let prevSegm: Segment | null = currSegm
+                            let done1 = false
+                            while (prevSegm) {
+                                if (done1) {
+                                    break
+                                }
+                                prevSegm = prevSegm.prev1(SegmentType.ChordRest)
+                                if (!prevSegm) {
+                                    break // C++ dereferences null here
+                                }
+                                // if there is a ChordRest in the dest. track
+                                // this segment is a (potential) f.b. location
+                                if (prevSegm.element(destTrack) !== null) {
+                                    done1 = true
+                                }
+                                // in any case, look for a f.b. in annotations:
+                                // if there is a f.b. element in the right track,
+                                // this is an (actual) f.b. location
+                                for (const a of prevSegm.annotations()) {
+                                    if (a.isFiguredBass() && a.track() === destTrack) {
+                                        onNoteFB = a as unknown as FiguredBass
+                                        done1 = true
+                                    }
+                                }
+                            }
+                            if (!prevSegm) {
+                                // C++: LOGD("PasteSymbols: can't place off-note FiguredBass")
+                                continue
+                            }
+                            // by default, split on-note duration in half: half on-note and half off-note
+                            const totTicks = currSegm.tick().minus(prevSegm.tick())
+                            const destTick1 = prevSegm.tick().plus(totTicks.times(new Fraction(1, 2)))
+                            ticks = totTicks.times(new Fraction(1, 2))
+                            if (onNoteFB) {
+                                onNoteFB.setTicks(totTicks.times(new Fraction(1, 2)))
+                            }
+                            // look for a segment at this tick; if none, create one
+                            let nextSegm: Segment | null = prevSegm
+                            while (nextSegm && nextSegm.tick().lt(destTick1)) {
+                                nextSegm = nextSegm.next1(SegmentType.ChordRest)
+                            }
+                            if (!nextSegm || nextSegm.tick().gt(destTick1)) { // no ChordRest segm at this tick
+                                nextSegm = new Segment(prevSegm.measure(), SegmentType.ChordRest, destTick1)
+                                score.undoAddElement(nextSegm)
+                            }
+                            currSegm = nextSegm
+                        } else {
+                            // by default, assign to FiguredBass element the duration of the chord it refers to
+                            ticks = (currSegm.element(destTrack) as unknown as ChordRest).ticks()
+                        }
+                        // in both cases, look for an existing f.b. element in segment and remove it, if found
+                        let oldFB: FiguredBass | null = null
+                        for (const a of currSegm.annotations()) {
+                            if (a.isFiguredBass() && a.track() === destTrack) {
+                                oldFB = a as unknown as FiguredBass
+                                break
+                            }
+                        }
+                        if (oldFB) {
+                            score.undoRemoveElement(oldFB)
+                        }
+                        el.setParent(currSegm)
+                        el.setTicks(ticks)
+                        score.undoAddElement(el)
                     }
                 } else {
                     // C++: LOGD("PasteSymbols: element %s not handled", tag.ascii())

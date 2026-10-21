@@ -5,8 +5,8 @@
  *
  * Port of src/palette/internal/palettecreator.h/.cpp: the default palettes and the master palette ("More").
  *
- * TODO(port): cells of elements not ported yet are left out: harp pedal diagrams, capo,
- * string tunings, tapping, chord brackets, text articulations (handbells), the chord diagrams of the fretboard
+ * TODO(port): cells of elements not ported yet are left out: text articulations (handbells),
+ * the chord diagrams of the fretboard
  * diagram palette (FretDiagram::updateDiagram needs the fret diagram patterns; only "Blank" is created).
  */
 
@@ -18,7 +18,7 @@ import { ARPEGGIO_TYPES, GLISSANDO_TYPES, PLAY_TECH_TYPES, VIBRATO_TYPES, type I
 import {
     ArpeggioType, BarLineType, BracketType, ChordLineType, ClefType, ElementType, GlissandoType, GradualTempoChangeType, HookType, Key,
     KeyMode, LayoutBreakType, MarkerType, NoteHeadGroup, NoteHeadType, PlacementV, PlayingTechniqueType, TextStyleType, TremoloType,
-    TrillType, VibratoType,
+    TrillType, VibratoType, DirectionV, TappingHand,
 } from '../engraving/types/types'
 import { Spatium } from '../engraving/types/dimension'
 import { Sid } from '../engraving/style/styledef'
@@ -65,6 +65,11 @@ import { PalmMute } from '../engraving/dom/palmmute'
 import { Part } from '../engraving/dom/part'
 import { Pedal } from '../engraving/dom/pedal'
 import { PlayTechAnnotation } from '../engraving/dom/playtechannotation'
+import { ChordBracket } from '../engraving/dom/chordbracket'
+import { Tapping } from '../engraving/dom/tapping'
+import { Capo } from '../engraving/dom/capo'
+import { StringTunings } from '../engraving/dom/stringtunings'
+import { HarpPedalDiagram } from '../engraving/dom/harppedaldiagram'
 import { RehearsalMark } from '../engraving/dom/rehearsalmark'
 import type { Slur } from '../engraving/dom/slur'
 import { SpacerType, type Spacer } from '../engraving/dom/spacer'
@@ -1082,7 +1087,13 @@ export class PaletteCreator {
 
         sp.appendElement(new PalmMute(dummy()), 'Palm mute')
 
-        // TODO(port): ChordBracket ("Chord bracket", "... (play with left hand)", "... (play with right hand)")
+        const chordBracketNames = ['Chord bracket', 'Chord bracket (play with left hand)', 'Chord bracket (play with right hand)']
+        for (let i = 0; i < 3; ++i) {
+            const hookPos = i as DirectionV
+            const c = new ChordBracket(dummy().chord())
+            c.setProperty(Pid.BRACKET_HOOK_POS, hookPos)
+            sp.appendElement(c, chordBracketNames[i])
+        }
         return sp
     }
 
@@ -1423,7 +1434,13 @@ export class PaletteCreator {
 
         PaletteCreator.appendGuitarFingerings(sp, defaultPalette)
 
-        // TODO(port): Tapping ("Left-hand tapping", "Right-hand tapping")
+        const lhTapping = new Tapping(dummy().chord())
+        lhTapping.setHand(TappingHand.LEFT)
+        sp.appendElement(lhTapping, 'Left-hand tapping', 1.0)
+
+        const rhTapping = new Tapping(dummy().chord())
+        rhTapping.setHand(TappingHand.RIGHT)
+        sp.appendElement(rhTapping, 'Right-hand tapping', 1.0)
 
         sp.appendElement(new HammerOnPullOff(dummy()), 'Hammer-on / pull-off', 0.8)
 
@@ -1437,7 +1454,14 @@ export class PaletteCreator {
             sp.appendElement(s, s.subtypeUserName().str)
         }
 
-        // TODO(port): Capo, StringTunings
+        const capo = new Capo(dummy().segment())
+        capo.setXmlText('Capo')
+        sp.appendElement(capo, 'Capo', 0.9).setElementTranslated(true)
+
+        const stringTunings = new StringTunings(dummy().segment())
+        stringTunings.setXmlText('<sym>guitarString6</sym> - D')
+        stringTunings.initTextStyleType(TextStyleType.STRING_TUNINGS)
+        sp.appendElement(stringTunings, 'String tunings', 0.9).setElementTranslated(true)
 
         const playTechAnnotations: [string, PlayingTechniqueType][] = [
             ['distort', PlayingTechniqueType.Distortion],
@@ -1467,7 +1491,13 @@ export class PaletteCreator {
         sp.appendElement(pedal(HookType.HOOK_45, HookType.HOOK_45), 'Pedal (both hooks angled)')
         sp.appendElement(pedal(HookType.HOOK_45, HookType.HOOK_90), 'Pedal (angled start hook)')
 
-        // TODO(port): ChordBracket ("Chord bracket", "... (play with left hand)", "... (play with right hand)")
+        const chordBracketNames = ['Chord bracket', 'Chord bracket (play with left hand)', 'Chord bracket (play with right hand)']
+        for (let i = 0; i < 3; ++i) {
+            const hookPos = i as DirectionV
+            const c = new ChordBracket(dummy().chord())
+            c.setProperty(Pid.BRACKET_HOOK_POS, hookPos)
+            sp.appendElement(c, chordBracketNames[i])
+        }
         return sp
     }
 
@@ -1500,7 +1530,15 @@ export class PaletteCreator {
         sp.setGridSize(90, 30)
         sp.setDrawGrid(true)
         sp.setVisible(false)
-        // TODO(port): HarpPedalDiagram ("Harp pedal diagram", "Harp pedal text diagram")
+
+        const pedalDiagram = new HarpPedalDiagram(dummy().segment())
+        sp.appendElement(pedalDiagram, 'Harp pedal diagram')
+
+        const pedalTextDiagram = new HarpPedalDiagram(dummy().segment())
+        pedalTextDiagram.setIsDiagram(false)
+
+        sp.appendElement(pedalTextDiagram, 'Harp pedal text diagram')
+
         return sp
     }
 

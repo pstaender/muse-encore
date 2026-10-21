@@ -10,7 +10,7 @@
  *
  * The clipboard data are the xml text of MuseScore's mime formats (C++ muse::ByteArray).
  *
- * TODO(port): pasting images (ms->hasImage()), system objects on other staves than the top one (AddSystemObjectStaff),
+ * TODO(port): system objects on other staves than the top one (AddSystemObjectStaff),
  * measure repeats spanning several measures (ChangeMeasureRepeatCount, undoSetNoBreak).
  */
 
@@ -33,6 +33,7 @@ import { MAX_DOTS, TDuration, toDurationList, toRhythmicDurationList } from './d
 import { filterTargetElements } from './utils'
 import { Pid } from './property'
 import { Tie } from './tie'
+import { Image, ImageType } from './image'
 import type { EngravingItem } from './engravingitem'
 import type { ChordRest } from './chordrest'
 import type { Chord } from './chord'
@@ -51,6 +52,8 @@ export interface IMimeData {
     hasFormat(format: string): boolean
     data(format: string): string
     hasImage?(): boolean
+    /** the encoded image (QMimeData::imageData) */
+    imageData?(): Uint8Array | null
 }
 
 declare module './score' {
@@ -495,7 +498,32 @@ Score.prototype.cmdPaste = function (this: Score, ms: IMimeData | null, scale: F
         return this.cmdPasteSymbolList(ms.data(mimeSymbolListFormat))
     }
 
-    // TODO(port): images (ms->hasImage())
+    const ba = ms.hasImage?.() ? ms.imageData?.() : null
+    if (ba) {
+        // C++ converts the image data to PNG (imageProvider()->saveAsPng); here the clipboard has the encoded file
+
+        const image = new Image(scoreDummy(this))
+        image.setImageType(ImageType.RASTER)
+        image.loadFromData('paste', ba)
+
+        const droppedElements: EngravingItem[] = []
+        const targetElements = [...this.selection().elements()]
+        for (const target of targetElements) {
+            const nel = image.clone()
+            const ddata = new EditData()
+            ddata.dropElement = nel
+
+            if (target.acceptDrop(ddata)) {
+                const dropped = target.drop(ddata)
+                if (dropped) {
+                    droppedElements.push(dropped)
+                }
+            }
+        }
+
+        this.select(droppedElements)
+        return true
+    }
 
     // C++: LOGE() << "Unsupported MIME data (formats: " << ms->formats() << ")"
     return false

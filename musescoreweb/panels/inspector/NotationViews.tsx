@@ -5,7 +5,7 @@
  * settings views of the ported models: NoteSettings (HeadSettings, StemSettings, BeamSettings), RestSettings,
  * ClefSettings, KeySignatureSettings, TimeSignatureSettings, BarlineSettings, DynamicsSettings, ArticulationSettings,
  * FermataSettings, TempoSettings, TupletSettings, AccidentalSettings, SpacerSettings, SectionBreakSettings,
- * HairpinSettings (style), SlurAndTieSettings.
+ * HairpinSettings (style), SlurAndTieSettings, ChordBracketSettings, ImageSettings (tapping: ArticulationSettings).
  * TODO(port): the views of the other models (their sections are shown with the title only).
  */
 import { useState } from 'react'
@@ -294,6 +294,36 @@ const VIEWS: Record<string, (props: { m: ModelRef }) => React.JSX.Element | null
             { text: tr('Auto'), value: 2 /* AUTO */ }, { text: tr('Above'), value: 0 /* TOP */ }, { text: tr('Below'), value: 1 /* BOTTOM */ },
         ]} />
     ),
+    TYPE_TAPPING: ({ m }) => (
+        <PlacementSection p={prop(m, 'placement')} title={tr('Placement')} options={[
+            { text: tr('Auto'), value: 2 /* AUTO */ }, { text: tr('Above'), value: 0 /* TOP */ }, { text: tr('Below'), value: 1 /* BOTTOM */ },
+        ]} />
+    ),
+    TYPE_CHORD_BRACKET: ({ m }) => flag(m, 'isBracket', true) ? (
+        <div className="insp-column">
+            <FlatRadioButtonGroupPropertyView p={prop(m, 'bracketRightSide')} title={tr('Placement')} options={[
+                { text: tr('Left'), value: false }, { text: tr('Right'), value: true },
+            ]} />
+            <FlatRadioButtonGroupPropertyView p={prop(m, 'hookPos')} title={tr('Hooks')} options={[
+                { text: tr('Both'), value: 0 }, { text: tr('Above'), value: 1 }, { text: tr('Below'), value: 2 },
+            ]} />
+            <SpinBoxPropertyView p={prop(m, 'hookLen')} title={tr('Hook length')} unit={sp()} step={0.1} min={0} max={10} />
+        </div>
+    ) : null,
+    TYPE_IMAGE: ({ m }) => {
+        const units = prop(m, 'isSizeInSpatiums')?.info.value ? sp() : qtrc('global', 'mm')
+        return (
+            <div className="insp-column">
+                <div className="insp-row">
+                    <SpinBoxPropertyView p={prop(m, 'height')} title={tr('Image height')} unit={units} step={0.5} min={0} max={9999} half />
+                    <SpinBoxPropertyView p={prop(m, 'width')} title={tr('Image width')} unit={units} step={0.5} min={0} max={9999} half />
+                </div>
+                <PropertyCheckBox p={prop(m, 'isAspectRatioLocked')} text={tr('Lock')} />
+                <PropertyCheckBox p={prop(m, 'shouldScaleToFrameSize')} text={tr('Scale to frame size')} />
+                <PropertyCheckBox p={prop(m, 'isSizeInSpatiums')} text={tr('Use staff space units')} />
+            </div>
+        )
+    },
     TYPE_FERMATA: ({ m }) => <PlacementSection p={prop(m, 'placementType')} />,
     TYPE_TEMPO: TempoSettings,
     TYPE_A_TEMPO: TempoSettings,

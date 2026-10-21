@@ -54,6 +54,7 @@ import { AccidentalType } from '../dom/accidentaldata'
 import { Accidental } from '../dom/accidental'
 import { PropertyPropagation } from '../dom/engravingobject'
 import { SelectType } from '../dom/select'
+import { FiguredBass } from '../dom/figuredbass'
 import { nextChordRest } from '../dom/chord'
 import { tpc2alter } from '../dom/pitchspelling'
 import {
@@ -129,6 +130,8 @@ declare module '../dom/score' {
         cmdAddTimeSig(fm: Measure, staffIdx: staff_idx_t, ts: TimeSig, local: boolean): void
         undoChangeKeySig(ostaff: Staff, tick: Fraction, key: KeySigEvent): void
         addText(type: TextStyleType, destinationElement?: EngravingItem | null): TextBase | null
+        /** figuredbass.cpp */
+        addFiguredBass(): FiguredBass | null
         clearSystemLocks(): void
         adjustKeySigs(sidx: staff_idx_t, eidx: staff_idx_t, km: KeyList): void
 
@@ -1106,6 +1109,37 @@ Score.prototype.undoChangeKeySig = function (this: Score, ostaff: Staff, tick: F
         }
         // TODO(port): Transpose::transpositionChanged if the staff transposition changed (transposes existing notes)
     }
+}
+
+// port of Score::addFiguredBass (figuredbass.cpp)
+Score.prototype.addFiguredBass = function (this: Score): FiguredBass | null {
+    const el = this.selection().element()
+    if (!el || (!(el.isNote()) && !(el.isRest()) && !(el.isFiguredBass()))) {
+        MScore.setError(MsError.NO_NOTE_FIGUREDBASS_SELECTED)
+        return null
+    }
+
+    let fb: FiguredBass | null
+    let bNew = true
+    if (el.isNote() || el.isRest()) {
+        const cr = el.isNote() ? (el as unknown as Note).chord() : el as unknown as ChordRest
+        const r = FiguredBass.addFiguredBassToSegment(cr.segment(), cr.staffIdx() * VOICES, new Fraction(0, 1))
+        fb = r.fb
+        bNew = r.isNew
+    } else {
+        fb = el as unknown as FiguredBass
+        bNew = false
+    }
+
+    if (!fb) {
+        return null
+    }
+
+    if (bNew) {
+        this.undoAddElement(fb)
+    }
+    this.select(fb, SelectType.SINGLE, 0)
+    return fb
 }
 
 Score.prototype.addText = function (this: Score, type: TextStyleType, destinationElement: EngravingItem | null = null): TextBase | null {
@@ -5035,9 +5069,15 @@ function addTextToChordRest(score: Score, type: TextStyleType, destinationElemen
         chordRest.undoAddAnnotation(textBox)
         break
     }
-    case TextStyleType.STICKING:
-        // TODO(port): Sticking (element type not ported)
+    case TextStyleType.STICKING: {
+        const chordRest = chordOrRest(destinationElement)
+        if (!chordRest) {
+            break
+        }
+        textBox = Factory.createItem(ElementType.STICKING, scoreDummy(score).segment()) as unknown as TextBase
+        chordRest.undoAddAnnotation(textBox)
         break
+    }
     case TextStyleType.FINGERING:
     case TextStyleType.LH_GUITAR_FINGERING:
     case TextStyleType.RH_GUITAR_FINGERING:

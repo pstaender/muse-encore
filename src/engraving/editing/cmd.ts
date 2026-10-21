@@ -11,6 +11,7 @@
  * empty-trailing-measure.
  */
 
+import { figuredBassHooks } from '../dom/figuredbass'
 import { AccidentalRole, AccidentalVal, ClefType, DirectionV, DurationType, ElementType, Key, NoteHeadGroup, ParenthesesMode, StaffGroup, VOICES, nidx, track2staff, trackZeroVoice, type track_idx_t } from '../types/types'
 import { Fraction } from '../types/fraction'
 import { PointF } from '../../framework/draw/types/geometry'
@@ -2834,3 +2835,7 @@ Score.prototype.cmdAddGrace = function (this: Score, graceType: GraceNoteType, d
         }
     }
 }
+
+// FiguredBass::regenerateText calls score()->startCmd()/endCmd() (dom -> editing)
+figuredBassHooks.startCmd = (score, name) => (score as Score).startCmd(name)
+figuredBassHooks.endCmd = (score) => (score as Score).endCmd()

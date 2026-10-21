@@ -4148,6 +4148,31 @@ export class NotationInteraction {
         this.showItem(lyrics)
     }
 
+    addFiguredBass(): void {
+        const REQUIRED_TYPES = [
+            ElementType.NOTE,
+            ElementType.FIGURED_BASS,
+            ElementType.REST,
+        ]
+
+        if (!this.score().selection().elementsSelected(REQUIRED_TYPES)) {
+            MScore.setError(MsError.NO_NOTE_FIGUREDBASS_SELECTED)
+            this.checkAndShowError()
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add figured bass'))
+        const figuredBass = this.score().addFiguredBass()
+
+        if (figuredBass) {
+            this.apply()
+            this.startEditText(figuredBass, new PointF())
+            this.notifyAboutSelectionChangedIfNeed()
+        } else {
+            this.rollback()
+        }
+    }
+
     /** Copied from ScoreView::lyricsUnderscore; TODO(port): partial melisma lines at repeats */
     addMelisma(): void {
         if (!this.m_editData.element || !this.m_editData.element.isLyrics()) {

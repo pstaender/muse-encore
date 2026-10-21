@@ -97,6 +97,16 @@ export class Selection {
     lockReason(): string { return this.m_lockReason }
 
     elements(): readonly EngravingItem[] { return this.m_el }
+
+    elementsSelected(types: readonly ElementType[]): boolean {
+        for (const element of this.m_el) {
+            if (types.includes(element.type())) {
+                return true
+            }
+        }
+
+        return false
+    }
     /** C++ elements(ElementType) */
     elementsOfType(type: number): EngravingItem[] { return this.m_el.filter(e => e.type() === type) }
 

@@ -12,7 +12,7 @@ import {
     noteInputCursorBounds, noteInputState, onImageDecoded, onNotationChanged, pageCount, pageSize, scoreTitle, selectAll, selectionBounds, selectionInfo,
     SvgGlyphDefs, type MasterScore,
     // copy/paste, text editing, drag
-    CLIPBOARD_FORMATS, clipboardContents, executeAction, isActionEnabled, isDragging, setClipboardContents, textEditingInfo,
+    CLIPBOARD_FORMATS, clipboardContents, executeAction, isActionEnabled, isDragging, setClipboardContents, setClipboardImage, textEditingInfo,
     viewInputText, viewKeyPress, viewMouseDoubleClick, viewMouseMove, viewMousePress, viewMouseRelease, viewResetTripleClick,
     viewShortcutOverride, type ViewKeyEvent, type ViewPointerEvent,
     // drag and drop of palette cells onto the score
@@ -1281,6 +1281,20 @@ document.addEventListener('paste', (e) => {
             }
         }
         const hasMuseScoreData = CLIPBOARD_FORMATS.some(f => f in data)
+        const imageFile = hasMuseScoreData ? null : [...dt.files].find(f => f.type.startsWith('image/') && f.type !== 'image/svg+xml')
+        if (imageFile) {
+            // an image (Score::cmdPaste with QMimeData::hasImage): read the file, then paste
+            imageFile.arrayBuffer().then((buf) => {
+                if (!score) {
+                    return
+                }
+                setClipboardImage(new Uint8Array(buf))
+                if (executeAction(score, 'action://notation/paste')) {
+                    scoreChanged()
+                }
+            }).catch(() => {})
+            return
+        }
         const current = clipboardContents()
         // the system clipboard has something else than what was copied here: paste that
         if (hasMuseScoreData || (data['text/plain'] !== undefined && data['text/plain'] !== current['text/plain'])) {

@@ -794,7 +794,8 @@ export class NotationActionController {
             ['staff-text', TextStyleType.STAFF],
             ['expression-text', TextStyleType.EXPRESSION],
             ['rehearsalmark-text', TextStyleType.REHEARSAL_MARK],
-            // TODO(port): instrument-change-text (the instruments dialog), sticking-text (Sticking)
+            // TODO(port): instrument-change-text (the instruments dialog)
+            ['sticking-text', TextStyleType.STICKING],
             ['fingering-text', TextStyleType.FINGERING],
             ['chord-text', TextStyleType.HARMONY_A],
             ['roman-numeral-text', TextStyleType.HARMONY_ROMAN],
@@ -805,6 +806,8 @@ export class NotationActionController {
         for (const [code, type] of TEXT_ACTIONS) {
             this.registerAction(code, () => this.addText(type))
         }
+
+        this.registerAction('figured-bass', () => this.interaction().addFiguredBass())
 
         this.registerAction('edit-element', () => this.startEditSelectedElement())
         this.registerAction('edit-text', () => this.startEditSelectedText())

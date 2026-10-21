@@ -21,9 +21,12 @@ the desktop app. License: GPL-3.0-only (same as MuseScore).
 ```
 src/
   framework/global      realfn (fuzzy float compare like muse::RealIsEqual), clipboard.ts (MimeData/Clipboard: the
-                        in-memory replacement of QMimeData/QApplication::clipboard(), synced with the browser by the editor)
+                        in-memory replacement of QMimeData/QApplication::clipboard(), synced with the browser by the editor),
+                        cryptographichash.ts (MD4 for image store names)
   framework/draw        geometry, PainterPath, Transform, Pen/Brush/Font, Painter,
-                        FontProvider (opentype.js, replaces Qt font metrics), canvas and SVG paint providers
+                        FontProvider (opentype.js, replaces Qt font metrics), canvas and SVG paint providers,
+                        Pixmap/ImageProvider/SvgRenderer + imagecache.ts (asynchronous image decoding; pages are redrawn
+                        when an image is decoded: onImageDecoded/imagesDecoded in index.ts)
   engraving/types       enums (types.ts), Fraction, Spatium, SymId (generated)
   engraving/style       Sid + default style (generated), MStyle
   engraving/infrastructure  Shape, Skyline, Smufl, MscReader (zip)
@@ -57,8 +60,9 @@ src/
                         api.ts, inspectorselectionproperties.ts
   index.ts              public library API (re-exports palette/instrumentsscene/inspector api.ts)
 fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore, Gonville/Gootville, Petaluma,
-                        Finale Maestro/Broadway, MuseJazz, Edwin, FreeSerif/FreeSans) with their licenses,
-                        chord description files (chords/), legacy default styles for old scores (styles/)
+                        Finale Maestro/Broadway, MuseJazz, Edwin, FreeSerif/FreeSans, MScoreBC for figured bass) with their
+                        licenses, chord description files (chords/), fonts_figuredbass.xml, legacy default styles for old
+                        scores (styles/)
 tools/gen/              generators for tables derived from the C++ sources (re-run on MuseScore updates)
 tools/                  node scripts: render to PNG, compare with MuseScore output
 webviewer/              Vite web viewer app (MuseScore icon font in webviewer/assets)

@@ -6,8 +6,8 @@
  * Port of src/engraving/rendering/single/singlelayout.h/.cpp: the layout of single elements outside of a score
  * (palette cells, drag previews). The elements belong to the palette score and have no staff/system.
  *
- * TODO(port): elements not ported yet: Bend, Capo, ChordBracket, FSymbol, HarpPedalDiagram,
- * Image, Lyrics, NoteLine, PlayCountText, SoundFlag, StaffTypeChange, Sticking, StringTunings, Tapping, TremoloBar,
+ * TODO(port): elements not ported yet: Bend, FSymbol,
+ * Lyrics, NoteLine, PlayCountText, StaffTypeChange, TremoloBar,
  * Chord/Stem (drumset), text articulations (ArticulationTextType).
  */
 
@@ -19,7 +19,7 @@ import { SmuflAnchorId, SymId } from '../../types/symid'
 import { SymNames } from '../../types/symnames'
 import {
     AlignH, AlignV, ArpeggioType, BarLineType, BracketType, ClefType, DirectionH, ElementType, HookType,
-    LineType, PlacementV, SpannerSegmentType, TextPlace, TrillType, VibratoType,
+    LineType, PlacementV, SpannerSegmentType, TextPlace, TrillType, VibratoType, TappingHand,
 } from '../../types/types'
 import { Align } from '../../types/types'
 import { Sid } from '../../style/styledef'
@@ -27,6 +27,12 @@ import type { MStyle } from '../../style/style'
 import { Shape } from '../../infrastructure/shape'
 import type { EngravingFont } from '../../infrastructure/engravingfont'
 import { ClefInfo } from '../../dom/clefinfo'
+import type { HarpPedalDiagram } from '../../dom/harppedaldiagram'
+import type { StringTunings } from '../../dom/stringtunings'
+import type { ChordBracket } from '../../dom/chordbracket'
+import { TappingText, type Tapping } from '../../dom/tapping'
+import type { Image } from '../../dom/image'
+import { FontType } from '../../../framework/draw/types/font'
 import { Pid, PropertyFlags } from '../../dom/property'
 import { scoreDummy, type DummyElement } from '../../compat/dummyelement'
 import { timeSigSymIdsFromString } from '../../dom/utils'
@@ -126,7 +132,23 @@ export class SingleLayout {
         case ElementType.SYSTEM_TEXT:
         case ElementType.TEMPO_TEXT:
         case ElementType.TEXT:
+        case ElementType.CAPO:
+        case ElementType.STICKING:
             SingleLayout.layoutTextBase(item as TextBase, ctx)
+            break
+        case ElementType.HARP_DIAGRAM:
+            (item as HarpPedalDiagram).updateDiagramText()
+            SingleLayout.layoutTextBase(item as TextBase, ctx)
+            break
+        case ElementType.STRING_TUNINGS: SingleLayout.layoutStringTunings(item as StringTunings, ctx)
+            break
+        case ElementType.CHORD_BRACKET: SingleLayout.layoutChordBracket(item as ChordBracket, ctx)
+            break
+        case ElementType.TAPPING: SingleLayout.layoutTapping(item as Tapping, ctx)
+            break
+        case ElementType.IMAGE: SingleLayout.layoutImage(item as Image)
+            break
+        case ElementType.SOUND_FLAG:
             break
         case ElementType.FERMATA: SingleLayout.layoutFermata(item as Fermata)
             break
@@ -1221,6 +1243,66 @@ export class SingleLayout {
     // ---------------------------------------------------------------------------------
     //   text
     // ---------------------------------------------------------------------------------
+
+    static layoutChordBracket(item: ChordBracket, ctx: Context): void {
+        const ldata = item.mutldata()
+
+        ldata.arpeggioHeight = item.spatium() * 2
+        ldata.top = 0.0
+        ldata.bottom = ldata.arpeggioHeight
+        ldata.setMag(1)
+        ldata.magS = 1
+
+        const w = ctx.style().styleS(Sid.chordBracketHookLen).val() * item.spatium()
+        ldata.setBbox(new RectF(0.0, ldata.top, w, ldata.bottom))
+    }
+
+    static layoutImage(item: Image): void {
+        item.init()
+
+        const imageSize = item.size()
+
+        const ldata = item.mutldata()
+        ldata.setPos(new PointF())
+        const px = item.size2pixel(imageSize)
+        ldata.setBbox(new RectF(0, 0, px.width(), px.height()))
+    }
+
+    static layoutStringTunings(item: StringTunings, ctx: Context): void {
+        SingleLayout.layoutTextBase(item, ctx)
+
+        const spatium = item.spatium()
+        for (const block of item.mutldata().blocks) {
+            for (const fragment of block.fragments()) {
+                const font = fragment.font(item)
+                if (font.type() !== FontType.MusicSymbol) {
+                    // HACK: the music symbol doesn't have a good baseline
+                    // to go with text so we correct text here
+                    const baselineAdjustment = 0.35 * spatium * item.symbolScale()
+                    fragment.pos.setY(fragment.pos.y() - baselineAdjustment)
+                }
+            }
+        }
+    }
+
+    static layoutTapping(item: Tapping, ctx: Context): void {
+        let text = item.tappingText()
+
+        if (!text) {
+            text = new TappingText(item)
+        }
+
+        text.setParent(item)
+        item.setTappingText(text)
+        text.setTrack(item.track())
+        // C++ DO_ASSERT(item->hand() != TappingHand::INVALID)
+        text.setXmlText(item.hand() === TappingHand.LEFT ? 'l.h. tap' : 'r.h. tap')
+        text.setAlign(new Align(AlignH.HCENTER, AlignV.BASELINE))
+
+        SingleLayout.layoutTextBase(text, ctx)
+
+        item.setbbox(text.ldata().bbox())
+    }
 
     static layoutTextBase(item: TextBase, ctx: Context, ldata: TextBaseLayoutData = item.mutldata()): void {
         ldata.setPos(new PointF())

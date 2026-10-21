@@ -596,10 +596,8 @@
   10 verified to render differently in MuseScore too after its own re-save, e.g. a lost unterminated volta,
   2.x VBox gap, glissando text of 2.x files; second round trip always exact), `npm run compare:mscx` (740/839 main files
   textually identical to MuseScore's re-save after EID normalization, 834/839 styles).
-- Known gaps: unported element types are not written (ChordBracket, FiguredBass, Sticking, Capo, Bend, StringTunings,
-  HarpPedalDiagram, PlayTechAnnotation (3.x "Normal" texts), Image, SoundFlag, Tapping, SystemDivider...), MIDI mapping
-  (midiPort/midiChannel), note play events (<Events>), audio/thumbnail/images in the .mscz, project files
-  (audiosettings/viewsettings.json), excerpts of pre-4.0 files, clipboard/selection writing, a parts style difference of
+- Known gaps: (element types, MIDI mapping, note play events and images: see "Late element types" below)
+  audio/thumbnail in the .mscz, project files (audiosettings/viewsettings.json), excerpts of pre-4.0 files, clipboard/selection writing, a parts style difference of
   a 4.0 file (mmrest-15), generated parentheses of tab bend notes, pedal ROSETTE end hook of 4.2 files.
 
 ## 2026-10-21 — Integration: panels edit, saving
@@ -948,3 +946,36 @@
   Alt+click paste) and of images, time tick anchors while dragging (EditTimeTickAnchors), STAFF_TYPE_CHANGE /
   SYSTEM_LOCK action icons on measures, instrument change drops (instrument dialog), fretboard diagram drops with the
   chord symbol, multi-selection of cells in the main palettes (the header's delete button).
+
+## 2026-10-21 — Late element types, images, MIDI mapping
+
+- Ported (DOM, read incl. 2.x/3.x where C++ reads them, write, layout, drawing): Sticking, Capo (Staff capo map,
+  Score::updateCapo, editing/editcapo.ts, capo-aware StringData), StringTunings (Part string tunings,
+  editpart ChangeStringData), HarpPedalDiagram (Part harp diagrams, editing/editharppedaldiagram.ts),
+  PlayTechAnnotation compat (< 4.0 staff texts -> play technique, < 4.10 capo texts -> Capo), FiguredBass (MScoreBC
+  font fonts/mscorebc, fonts/fonts_figuredbass.xml, item parsing/normalized text, regenerateText through
+  figuredBassHooks -> startCmd/endCmd), ChordBracket, Tapping (+ half slurs, tapping text; rendering/score/
+  tappinglayout.ts), SoundFlag (written and read, never drawn: the MuseScore icon font is not in the library),
+  SystemDivider (score-level <SystemDividers> and per measure, PageLayout.layoutSystemDividers), old Bend (pre-4.2,
+  PitchValue), Image (dom/image.ts + imagestore.ts with MD4 names in framework/global/cryptographichash.ts;
+  Pictures/ of the .mscz read and written by MscLoader/MscSaver; Pixmap/ImageProvider/SvgRenderer/imagecache.ts decode
+  asynchronously: drawPage redraws through onImageDecoded/imagesDecoded/setImageDecoder (node: @napi-rs/canvas)).
+- MasterScore MIDI mapping (port of midimapping.cpp): rebuildMidiMapping after loading/part changes, checkMidiMapping
+  before writing, midiPort/midiChannel like C++. NoteEvent: note play events read (also 2.x) and written (<Events>).
+- Palettes: capo, string tunings, left/right-hand tapping, chord brackets (Keyboard and Lines), harp pedal (text)
+  diagrams; SingleLayout/SingleDraw for these types. ChordRest::drop of palette harp diagrams takes the previous
+  diagram's pedal state; rehearsal marks from the palette get the next mark text.
+- Editing: `figured-bass` action (Score::addFiguredBass, NotationInteraction::addFiguredBass), `sticking-text`
+  (Score::addText STICKING), paste of FiguredBass in pasteSymbols, paste of images (MimeData.imageData /
+  `setClipboardImage`; the editor reads image files of the browser's paste event; C++ re-encodes as PNG, here the
+  file is stored as is, named "<md4>." like C++'s "paste" name without suffix).
+- Properties panel: ChordBracketSettingsModel, ImageSettingsModel, ArticulationSettingsModel for tapping.
+- Tests: test/elements.test.ts (MD4 vectors; write/read back of every type; images from Pictures/ and pasted;
+  figured bass and sticking actions with undo/redo; chord bracket inspector section).
+- Metrics: compare:mscx 737 -> 774 of 839 main files identical to MuseScore's re-save; roundtrip 656 identical,
+  172 within rounding, 11 differing (new: harp-diagrams, a 4.0 file that MuseScore also renders differently after its
+  own re-save).
+- TODO(port) / known differences: SoundFlag icon, the scaled image buffer (images are drawn directly; SVG images keep
+  the document's preserveAspectRatio), ChordBracket/SystemDivider reset(), cmdFlipHorizontally, figured bass
+  keyboard navigation while editing (ScoreView figured bass tab/space), StringTuningsSettingsModel and the harp pedal
+  popup, part audio settings compat (mute/solo), PartChannelSettingsLink.

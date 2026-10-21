@@ -10,16 +10,19 @@
  * accidentals/accidentalsettingsmodel, spacers/spacersettingsmodel, sectionbreaks/sectionbreaksettingsmodel,
  * rests/restsettingsproxymodel (+ rests/restsettingsmodel, rests/beams/restbeamsettingsmodel),
  * lines/hairpinsettingsmodel (the hairpin's own and the line style properties of textlinesettingsmodel),
- * lines/slurandtiesettingsmodel.
+ * lines/slurandtiesettingsmodel, lines/chordbracketsettingsmodel, images/imagesettingsmodel.
  * TODO(port): the other notation models (ornaments, lines other than hairpins, frames, fret diagrams, bends, lyrics,
+ * string tunings,
  * chord symbols, ...): their sections show the type's title only. Voices and position section (voice assignment).
  */
 
 import type { EngravingItem } from '../../engraving/dom/engravingitem'
 import type { Hairpin } from '../../engraving/dom/hairpin'
+import type { Arpeggio } from '../../engraving/dom/arpeggio'
+import type { Tapping, TappingHalfSlur, TappingHalfSlurSegment } from '../../engraving/dom/tapping'
 import { Pid } from '../../engraving/dom/property'
 import { Sid } from '../../engraving/style/styledef'
-import { ElementType, SlurStyleType } from '../../engraving/types/types'
+import { ArpeggioType, ElementType, SlurStyleType } from '../../engraving/types/types'
 import { qtrc } from '../../framework/global/translation'
 import {
     AbstractInspectorModel, formatDoubleFunc, InspectorModelType, roundDouble, type ConvertPropertyValueFunc,
@@ -137,10 +140,70 @@ export class DynamicsSettingsModel extends SimpleSettingsModel {
 }
 
 export class ArticulationSettingsModel extends SimpleSettingsModel {
+    constructor(repository: IElementRepositoryService, type: InspectorModelType = InspectorModelType.TYPE_ARTICULATION) {
+        super(repository, type, type === InspectorModelType.TYPE_ARTICULATION ? tr('Articulation') : tr('Tapping'), 'ARTICULATION',
+            ElementType.ARTICULATION, {
+                placement: [Pid.ARTICULATION_ANCHOR],
+            })
+    }
+
+    override requestElements(): void {
+        this.m_elementList = this.m_repository.findElementsByType(ElementType.ARTICULATION)
+
+        for (const tapping of this.m_repository.findElementsByType(ElementType.TAPPING)) {
+            this.m_elementList.push(tapping)
+        }
+
+        for (const halfSlurSeg of this.m_repository.findElementsByType(ElementType.TAPPING_HALF_SLUR_SEGMENT)) {
+            const halfSlur = (halfSlurSeg as unknown as TappingHalfSlurSegment).spanner() as TappingHalfSlur
+            const tapping = halfSlur.parentItem() as unknown as Tapping
+            this.m_elementList.push(tapping)
+        }
+    }
+}
+
+/** lines/chordbracketsettingsmodel */
+export class ChordBracketSettingsModel extends SimpleSettingsModel {
     constructor(repository: IElementRepositoryService) {
-        super(repository, InspectorModelType.TYPE_ARTICULATION, tr('Articulation'), 'ARTICULATION', ElementType.ARTICULATION, {
-            placement: [Pid.ARTICULATION_ANCHOR],
+        super(repository, InspectorModelType.TYPE_CHORD_BRACKET, qtrc('inspector', 'Chord bracket'), '', ElementType.CHORD_BRACKET, {
+            bracketRightSide: [Pid.BRACKET_RIGHT_SIDE], hookPos: [Pid.BRACKET_HOOK_POS], hookLen: [Pid.BRACKET_HOOK_LEN, formatDoubleFunc],
         })
+    }
+
+    override flags(): Record<string, unknown> {
+        // updateIsBracket
+        let isBracket = true
+        for (const item of this.m_elementList) {
+            if (item.isArpeggio() && (item as unknown as Arpeggio).arpeggioType() !== ArpeggioType.BRACKET) {
+                isBracket = false
+                break
+            }
+        }
+        return { ...super.flags(), isBracket }
+    }
+}
+
+/** images/imagesettingsmodel */
+export class ImageSettingsModel extends SimpleSettingsModel {
+    constructor(repository: IElementRepositoryService) {
+        super(repository, InspectorModelType.TYPE_IMAGE, tr('Image'), 'IMAGE_MOUNTAINS', ElementType.IMAGE, {
+            isAspectRatioLocked: [Pid.LOCK_ASPECT_RATIO],
+            shouldScaleToFrameSize: [Pid.AUTOSCALE],
+            height: [Pid.IMAGE_HEIGHT, formatDoubleFunc],
+            width: [Pid.IMAGE_WIDTH, formatDoubleFunc],
+            isSizeInSpatiums: [Pid.SIZE_IS_SPATIUM],
+            isImageFramed: [Pid.IMAGE_FRAMED],
+        })
+    }
+
+    override loadProperties(): void {
+        super.loadProperties()
+        this.updateFrameScalingAvailability()
+    }
+
+    private updateFrameScalingAvailability(): void {
+        const isAvailable = !!this.m_items.isImageFramed.value()
+        this.m_items.shouldScaleToFrameSize.setIsEnabled(isAvailable)
     }
 }
 

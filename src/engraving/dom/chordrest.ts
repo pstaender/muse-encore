@@ -6,12 +6,15 @@
  * Port of src/engraving/dom/chordrest.h/.cpp
  */
 
+import type { HarpPedalDiagram } from './harppedaldiagram'
+import type { RehearsalMark } from './rehearsalmark'
 import { PointF } from '../../framework/draw/types/geometry'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import {
     BarLineType, BeamMode, DurationType, DurationTypeWithDots, ElementType, PlacementV, VOICES, trackZeroVoice,
     type staff_idx_t, type track_idx_t,
+    nidx,
 } from '../types/types'
 import { DurationElement } from './durationelement'
 import { TDuration } from './durationtype'
@@ -272,6 +275,7 @@ export abstract class ChordRest extends DurationElement {
     override drop(data: EditData): EngravingItem | null {
         const e = data.dropElement!
         const m = this.segment().measure()
+        const fromPalette = e.track() === nidx
         switch (e.type()) {
         case ElementType.BREATH: {
             const b = e
@@ -380,7 +384,16 @@ export abstract class ChordRest extends DurationElement {
         case ElementType.REHEARSAL_MARK: {
             e.setParent(this.segment())
             e.setTrack(trackZeroVoice(this.track()))
-            // TODO(port): rehearsal mark text and harp pedal states of elements from the palette (track() == nidx)
+            if (e.isRehearsalMark() && fromPalette) {
+                const r = e as unknown as RehearsalMark
+                r.setXmlText(this.score().createRehearsalMarkText(r))
+            } else if (e.isHarpPedalDiagram() && fromPalette && this.part()) {
+                // Match pedal config with previous diagram's
+                const prevDiagram = this.part()!.prevHarpDiagram(this.segment().tick())
+                if (prevDiagram) {
+                    (e as unknown as HarpPedalDiagram).setPedalState(prevDiagram.getPedalState())
+                }
+            }
             this.score().undoAddElement(e)
             return e
         }

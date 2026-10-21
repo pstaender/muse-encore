@@ -11,6 +11,8 @@
 /** the formats and their data (text) like QMimeData; "text/plain" is the plain text */
 export class MimeData {
     private m_data = new Map<string, string>()
+    /** QMimeData::imageData(): here the encoded image (PNG, JPEG, ...: the browser's clipboard file) */
+    private m_image: Uint8Array | null = null
 
     static readonly TEXT_FORMAT = 'text/plain'
 
@@ -24,13 +26,16 @@ export class MimeData {
     text(): string { return this.data(MimeData.TEXT_FORMAT) }
     setText(text: string): void { this.setData(MimeData.TEXT_FORMAT, text) }
 
-    hasImage(): boolean { return false }
+    hasImage(): boolean { return this.m_image !== null }
+    imageData(): Uint8Array | null { return this.m_image }
+    setImageData(image: Uint8Array | null): void { this.m_image = image }
 
     clone(): MimeData {
         const m = new MimeData()
         for (const [f, d] of this.m_data) {
             m.m_data.set(f, d)
         }
+        m.m_image = this.m_image
         return m
     }
 }
