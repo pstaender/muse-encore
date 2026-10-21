@@ -48,6 +48,14 @@ export class LyricsLine extends SLine {
         const p = this.explicitParent()
         return p ? p as unknown as Lyrics : null
     }
+    /** same as Spanner::removeUnmanaged(), but in addition, remove from hosting Lyrics */
+    override removeUnmanaged(): void {
+        super.removeUnmanaged()
+        if (this.lyrics()) {
+            this.lyrics()!.remove(this)
+        }
+    }
+
     nextLyrics(): Lyrics | null { return this.m_nextLyrics }
     setNextLyrics(l: Lyrics | null): void { this.m_nextLyrics = l }
     isEndMelisma(): boolean { return !!this.lyrics() && this.lyrics()!.ticks().isNotZero() }

@@ -9,7 +9,7 @@
 
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
-import { DPI, ElementType, INCH, Key, TextStyleType, VOICES, type staff_idx_t, type track_idx_t } from '../types/types'
+import { DPI, ElementType, INCH, Key, TextStyleType, VOICES, staff2track, type staff_idx_t, type track_idx_t } from '../types/types'
 import { Sid } from '../style/styledef'
 import { SymId } from '../types/symid'
 import { MStyle } from '../style/style'
@@ -24,7 +24,7 @@ import { Pid } from './property'
 import type { Measure } from './measure'
 import type { ChordRest } from './chordrest'
 import type { Chord } from './chord'
-import { searchTieNote } from './utils'
+import { moveDownWhenAddingStaves, searchTieNote } from './utils'
 import type { Staff } from './staff'
 import type { Part } from './part'
 import type { System } from './system'
@@ -100,14 +100,31 @@ export interface NoteInputParams {
 /**
  * Simplified replacement of the C++ SpannerMap (an interval tree):
  * spanners are kept in a list ordered by start tick.
+ * Spanners with the same start tick are kept in the order they were first added (C++ std::multimap: the order of
+ * insertion): a spanner added again (undo of a removal) gets its former place back, so undo restores the layout
+ * exactly (in C++ it goes to the end of the spanners with that tick).
  */
 export class SpannerMap {
     private m_spanners: Spanner[] = []
+    private static s_nextSeq = 0
+    private static s_seq = new WeakMap<Spanner, number>()
 
     addSpanner(s: Spanner): void {
+        let seq = SpannerMap.s_seq.get(s)
+        if (seq === undefined) {
+            seq = SpannerMap.s_nextSeq++
+            SpannerMap.s_seq.set(s, seq)
+        }
+        const t = s.tick().ticks()
         let i = this.m_spanners.length
-        while (i > 0 && this.m_spanners[i - 1].tick().ticks() > s.tick().ticks()) {
-            --i
+        while (i > 0) {
+            const p = this.m_spanners[i - 1]
+            const pt = p.tick().ticks()
+            if (pt > t || (pt === t && (SpannerMap.s_seq.get(p) ?? 0) > seq)) {
+                --i
+            } else {
+                break
+            }
         }
         this.m_spanners.splice(i, 0, s)
     }
@@ -949,7 +966,30 @@ export class Score extends EngravingObject {
             this.m_parts.push(part)
         }
 
-        // TODO(port): masterScore()->rebuildMidiMapping(), setInstrumentsChanged(true), markInstrumentsAsPrimary(m_parts)
+        // TODO(port): masterScore()->rebuildMidiMapping(), markInstrumentsAsPrimary(m_parts) (playback)
+        this.masterScore().setInstrumentsChanged(true)
+    }
+
+    removePart(part: Part): void {
+        let index = this.m_parts.indexOf(part)
+
+        if (index === -1) {
+            index = this.m_parts.findIndex(p => p.id() === part.id())
+        }
+
+        this.m_parts.splice(index, 1)
+        // TODO(port): markInstrumentsAsPrimary(m_parts) (playback)
+
+        if (this.m_excerpt) {
+            const excerptParts = this.m_excerpt.parts()
+            const i = excerptParts.findIndex(p => p.id() === part.id())
+            if (i >= 0) {
+                excerptParts.splice(i, 1)
+            }
+        }
+
+        // TODO(port): masterScore()->rebuildMidiMapping() (playback)
+        this.masterScore().setInstrumentsChanged(true)
     }
 
     /** C++ Score::assignIdIfNeed(Part&/Staff&); TODO(port): ids are numbered here, not muse::ID random-ish values */
@@ -994,7 +1034,176 @@ export class Score extends EngravingObject {
         const idx = this.staffIdxOfPart(staff.part()) + ridx
         this.m_staves.splice(idx, 0, staff)
 
-        // TODO(port): move spanners down (moveDownWhenAddingStaves), updateStavesNumberForSystems()
+        for (const s of staff.score().spanner()) {
+            if (!moveDownWhenAddingStaves(s, idx)) {
+                continue
+            }
+            if (s.staffIdx() >= idx) {
+                let t = s.track() + VOICES
+                if (t >= this.ntracks()) {
+                    t = this.ntracks() - 1
+                }
+                s.setTrack(t)
+                for (const ss of s.spannerSegments()) {
+                    ss.setTrack(t)
+                }
+                if (s.track2() !== nidx) {
+                    t = s.track2() + VOICES
+                    s.setTrack2(t < this.ntracks() ? t : s.track())
+                }
+            }
+        }
+
+        this.updateStavesNumberForSystems()
+    }
+
+    updateStavesNumberForSystems(): void {
+        for (const system of this.m_systems) {
+            if (!system.firstMeasure()) {
+                continue
+            }
+
+            system.adjustStavesNumber(this.nstaves())
+        }
+    }
+
+    removeStaff(staff: Staff): void {
+        const idx = staff.idx()
+        for (const s of staff.score().spanner()) {
+            if (s.staffIdx() > idx) {
+                let t = s.track() >= VOICES ? s.track() - VOICES : 0
+                s.setTrack(t)
+                for (const ss of s.spannerSegments()) {
+                    ss.setTrack(t)
+                }
+                if (s.track2() !== nidx) {
+                    t = s.track2() - VOICES
+                    s.setTrack2(t >= 0 ? t : s.track()) // C++: unsigned underflow -> nidx
+                }
+            }
+        }
+
+        const isSystemObjectStaff = staff.isSystemObjectStaff()
+        this.m_staves.splice(this.m_staves.indexOf(staff), 1)
+        staff.part().removeStaff(staff)
+
+        if (isSystemObjectStaff) {
+            this.removeSystemObjectStaff(staff)
+        }
+
+        this.updateStavesNumberForSystems()
+    }
+
+    sortSystemObjects(dst: readonly staff_idx_t[]): void {
+        const moveTo: staff_idx_t[] = []
+        for (const staff of this.m_systemObjectStaves) {
+            const oldStaffIdx = staff.idx()
+            let newStaffIfx = oldStaffIdx < dst.length ? dst[oldStaffIdx] : nidx
+
+            if (moveTo.includes(newStaffIfx)) {
+                newStaffIfx = nidx
+            }
+
+            moveTo.push(newStaffIfx)
+        }
+
+        const isSystemTextLine = (e: EngravingItem): boolean => e.isTextLineBase() && e.systemFlag()
+
+        for (let i = 0; i < this.m_systemObjectStaves.length; i++) {
+            if (moveTo[i] === this.m_systemObjectStaves[i].idx()) {
+                // this sysobj staff doesn't move
+                continue
+            } else {
+                // move all system objects from systemObjectStaves[i] to _staves[moveTo[i]]
+                const track = staff2track(this.m_systemObjectStaves[i].idx())
+                for (let mb = this.measures().first(); mb; mb = mb.next()) {
+                    if (!mb.isMeasure()) {
+                        continue
+                    }
+
+                    const m = mb as unknown as Measure
+                    for (const e of [...m.el()]) {
+                        if ((e.isJump() || e.isMarker()) && e.isLinked() && e.track() === track) {
+                            if (moveTo[i] === nidx) {
+                                // delete this clone
+                                m.remove(e)
+                                e.unlink()
+                            } else {
+                                e.setTrack(staff2track(this.m_staves[moveTo[i]].idx()))
+                            }
+                        }
+                    }
+
+                    for (let s = m.first(); s; s = s.next()) {
+                        if (s.isChordRestType() || s.annotations().length) {
+                            const annotations = [...s.annotations()] // make a copy since we alter the list
+                            for (const e of annotations) {
+                                if (e.isRehearsalMark() || e.isSystemText() || e.isTripletFeel() || e.isTempoText() || isSystemTextLine(e)) {
+                                    if (e.track() === track && e.isLinked()) {
+                                        if (moveTo[i] === nidx) {
+                                            s.removeAnnotation(e)
+                                            e.unlink()
+                                        } else {
+                                            e.setTrack(staff2track(this.m_staves[moveTo[i]].idx()))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // update systemObjectStaves with the correct staff
+                if (moveTo[i] === nidx) {
+                    this.m_systemObjectStaves.splice(i, 1)
+                    moveTo.splice(i, 1)
+                } else {
+                    this.m_systemObjectStaves[i] = this.m_staves[moveTo[i]]
+                }
+            }
+        }
+    }
+
+    sortStaves(dst: readonly staff_idx_t[]): void {
+        this.sortSystemObjects(dst)
+        for (const s of this.m_systems) {
+            s.destroy() // C++ muse::DeleteAll(systems())
+        }
+        this.m_systems.length = 0 //??
+        this.m_parts.length = 0
+        let curPart: Part | null = null
+        const dl: Staff[] = []
+        for (const idx of dst) {
+            const staff = this.m_staves[idx]
+            if (staff.part() !== curPart) {
+                curPart = staff.part()
+                curPart.clearStaves()
+                this.m_parts.push(curPart)
+            }
+            curPart.appendStaff(staff)
+            dl.push(staff)
+        }
+        this.m_staves = dl
+
+        for (let m = this.firstMeasure(); m; m = m.nextMeasure()) {
+            m.sortStaves(dst)
+            if (m.hasMMRest()) {
+                m.mmRest()!.sortStaves(dst)
+            }
+        }
+        for (const sp of this.m_spanner.all()) {
+            const voice = sp.voice()
+            const staffIdx = sp.staffIdx()
+            const idx = dst.indexOf(staffIdx)
+            if (idx !== -1 && !sp.isTopSystemObject()) {
+                sp.setTrack(idx * VOICES + voice)
+                if (sp.track2() !== nidx) {
+                    sp.setTrack2(idx * VOICES + (sp.track2() % VOICES)) // at least keep the voice...
+                }
+            }
+        }
+        this.setLayoutAll()
+        // TODO(port): markInstrumentsAsPrimary(m_parts) (playback)
     }
 
     /** staves which are not linked to another staff; TODO(port): linked staves */
@@ -1212,6 +1421,12 @@ export class Score extends EngravingObject {
     addSystemObjectStaff(staff: Staff): void {
         if (!this.m_systemObjectStaves.includes(staff)) {
             this.m_systemObjectStaves.push(staff)
+        }
+    }
+    removeSystemObjectStaff(staff: Staff): void {
+        const i = this.m_systemObjectStaves.indexOf(staff)
+        if (i >= 0) {
+            this.m_systemObjectStaves.splice(i, 1)
         }
     }
 
@@ -1686,7 +1901,9 @@ export class Score extends EngravingObject {
                     ss.system()!.add(ss)
                 }
             }
-            // TODO(port): Ottava -> staff()->updateOttava()
+            if (et === ElementType.OTTAVA) {
+                spanner.staff()?.updateOttava()
+            }
             break
         }
         case ElementType.CHORD: {
@@ -1758,7 +1975,14 @@ export class Score extends EngravingObject {
             for (const ss of s.spannerSegments()) {
                 if (ss.system()) {
                     ss.system()!.remove(ss)
+                    // the segment is not in the system's list any more, so ~System (System.destroy()) would not
+                    // detach it: a system replaced by the layout must not stay its parent (the spanner may be
+                    // added again by undo, the layout then reuses the segment)
+                    ss.resetExplicitParent()
                 }
+            }
+            if (et === ElementType.OTTAVA) {
+                s.staff()?.updateOttava()
             }
             break
         }
@@ -1769,7 +1993,9 @@ export class Score extends EngravingObject {
             if (cr.beam()) {
                 cr.beam()!.remove(cr)
             }
-            // TODO(port): lyr->removeFromScore() for the lyrics of the chord/rest
+            for (const lyr of cr.lyrics()) {
+                lyr.removeFromScore()
+            }
             // TODO: check for tuplet?
             break
         }

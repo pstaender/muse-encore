@@ -228,6 +228,7 @@ export abstract class EngravingObject {
         this.m_links = null
     }
 
+    /** undoable in C++: replaced by editing/addremoveelement.ts (Unlink command) */
     undoUnlink(): void { this.unlink() }
 
     /**

@@ -37,7 +37,8 @@ src/
   engraving/editing     score changes (edit.cpp, cmd.cpp, ... as Score module augmentations) through the undo stack
                         (undo.ts: UndoStack/UndoMacro/UndoCommand; startCmd/endCmd/undoRedo in cmd.ts, CmdState in
                         cmdstate.ts); dom/noteentry.ts and dom/input.ts (InputState) for note input
-  notation, project     MasterNotation / NotationParts / NotationProject: creating new scores (createScore);
+  notation, project     MasterNotation / NotationParts / MasterNotationParts / NotationProject: creating new scores
+                        (createScore), the part and staff commands of the Layout panel (editing/editpart.ts, editstaff.ts);
                         NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input;
                         NotationMidiInput: the real-time advance (no MIDI)
   notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands)
@@ -60,7 +61,7 @@ musescoreweb/           Vite score editor app "MuseScore Web": React UI (App.tsx
                         (scoreview.ts, DOM code from the viewer), session.ts (open/create/save scores), db.ts (IndexedDB via
                         Dexie), settings.ts (localStorage), panels/ (the left dock: PanelDock.tsx tabs + splitter,
                         panels.ts state, palettes/, layout/, inspector/ UIs; editbridge.ts = all score changes of the
-                        panels; the Layout panel's NotationParts commands are still stubs)
+                        panels; the Layout panel's commands go through the library's NotationParts port)
 test/                   vitest tests
 ```
 

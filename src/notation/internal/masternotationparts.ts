@@ -1,0 +1,202 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-only
+ * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
+ * Copyright (C) 2021-2026 MuseScore Limited and others
+ *
+ * Port of src/notation/internal/masternotationparts.h/.cpp: the part commands of the main score, which also change
+ * the part scores (excerpts). There are no excerpt notations in the port: the excerpts' parts are changed through
+ * NotationParts of the excerpt scores (without interaction; the master score's undo stack is locked meanwhile, so the
+ * changes are recorded in the master command, like in C++).
+ * TODO(port): appendStaff/appendLinkedStaff in the excerpts (appendStaffLinkedToMaster: Excerpt::cloneStaff2),
+ * replaceInstrument, replaceDrumset; the part scores are not laid out after a change (Score::update: scoreList())
+ */
+
+import { TranslatableString } from '../../framework/global/types/translatablestring'
+import { NotationParts } from './notationparts'
+import type { MasterScore } from '../../engraving/dom/masterscore'
+import type { Part } from '../../engraving/dom/part'
+import type { ScoreOrder } from '../../engraving/dom/scoreorder'
+import type { Staff } from '../../engraving/dom/staff'
+import type { PartInstrument, PartInstrumentList } from '../notationtypes'
+import type { NotationInteraction } from './notationinteraction'
+import '../../engraving/editing/editexcerpt'
+
+export class MasterNotationParts extends NotationParts {
+    constructor(score: MasterScore, private m_masterInteraction: NotationInteraction | null = null) {
+        super(score, m_masterInteraction)
+    }
+
+    private masterScore(): MasterScore { return this.score() as MasterScore }
+
+    private startGlobalEdit(actionName: TranslatableString): void {
+        super.startEdit(actionName)
+        if (this.m_masterInteraction) {
+            this.m_masterInteraction.undoStack().lock()
+        }
+    }
+
+    private endGlobalEdit(): void {
+        if (this.m_masterInteraction) {
+            this.m_masterInteraction.undoStack().unlock()
+        }
+        super.apply()
+    }
+
+    override setParts(partList: PartInstrumentList, order: ScoreOrder): void {
+        const keyList = this.score().keyList()
+
+        this.endInteractionWithScore()
+        this.startGlobalEdit(new TranslatableString('undoableAction', 'Add/remove instruments'))
+
+        this.doSetScoreOrder(order)
+        this.removeMissingParts(partList)
+        this.insertNewParts(partList, keyList)
+        this.updateSoloist(partList)
+        this.sortParts(partList)
+        this.setBracketsAndBarlines()
+
+        for (const impl of this.excerptsParts()) {
+            impl.removeMissingParts(partList)
+
+            const excerptPartList: PartInstrumentList = []
+            for (const part of impl.score().parts()) {
+                excerptPartList.push({ isExistingPart: true, partId: part.id() } as PartInstrument)
+            }
+
+            impl.sortParts(excerptPartList)
+
+            impl.setBracketsAndBarlines()
+        }
+
+        // updatePartsAndSystemObjectStaves(): notifications only
+        this.endGlobalEdit()
+    }
+
+    override removeParts(partsIds: readonly string[]): void {
+        this.startGlobalEdit(new TranslatableString('undoableAction', 'Remove instruments'))
+
+        super.removeParts(partsIds)
+
+        for (const parts of this.excerptsParts()) {
+            parts.removeParts(partsIds)
+        }
+
+        this.endGlobalEdit()
+    }
+
+    override removeStaves(stavesIds: readonly string[]): void {
+        this.startGlobalEdit(new TranslatableString('undoableAction', 'Remove staves'))
+
+        super.removeStaves(stavesIds)
+
+        for (const parts of this.excerptsParts()) {
+            parts.removeStaves(stavesIds)
+        }
+
+        this.endGlobalEdit()
+    }
+
+    override appendStaff(staff: Staff, destinationPartId: string): boolean {
+        this.startGlobalEdit(new TranslatableString('undoableAction', 'Add staff'))
+
+        //! NOTE: will be generated later after adding to the score
+        staff.setId('')
+
+        super.appendStaff(staff, destinationPartId)
+
+        // TODO(port): excerpts (parts->appendStaffLinkedToMaster(staff->clone(), staff, destinationPartId))
+
+        this.endGlobalEdit()
+        return true
+    }
+
+    protected override onPartsRemoved(parts: readonly Part[]): void {
+        const master = this.masterScore()
+        const excerpts = [...master.excerpts()]
+
+        for (const excerpt of excerpts) {
+            const initialPartId = excerpt.initialPartId()
+            if (!initialPartId) {
+                continue
+            }
+
+            const deleteExcerpt = parts.some(part => part.id() === initialPartId)
+
+            if (deleteExcerpt) {
+                master.deleteExcerpt(excerpt)
+            }
+        }
+    }
+
+    override addSystemObjects(stavesIds: readonly string[]): void {
+        if (!stavesIds.length) {
+            return
+        }
+
+        this.startGlobalEdit(new TranslatableString('undoableAction', 'Add system markings'))
+
+        super.addSystemObjects(stavesIds)
+
+        this.endGlobalEdit()
+    }
+
+    override removeSystemObjects(stavesIds: readonly string[]): void {
+        if (!stavesIds.length) {
+            return
+        }
+
+        this.startGlobalEdit(new TranslatableString('undoableAction', 'Remove system markings'))
+
+        super.removeSystemObjects(stavesIds)
+
+        this.endGlobalEdit()
+    }
+
+    override moveSystemObjects(sourceStaffId: string, destinationStaffId: string): void {
+        this.startGlobalEdit(new TranslatableString('undoableAction', 'Move system markings'))
+
+        super.moveSystemObjects(sourceStaffId, destinationStaffId)
+
+        for (const parts of this.excerptsParts()) {
+            parts.moveSystemObjects(sourceStaffId, destinationStaffId)
+        }
+
+        this.endGlobalEdit()
+    }
+
+    override moveSystemObjectLayerBelowBottomStaff(): void {
+        if (this.score().nstaves() <= 1) {
+            return
+        }
+
+        this.startGlobalEdit(new TranslatableString('undoableAction', 'Add system object layer below the bottom staff'))
+
+        super.moveSystemObjectLayerBelowBottomStaff()
+
+        this.endGlobalEdit()
+    }
+
+    override moveSystemObjectLayerAboveBottomStaff(): void {
+        if (this.score().nstaves() <= 1) {
+            return
+        }
+
+        this.startGlobalEdit(new TranslatableString('undoableAction', 'Remove system object layer below the bottom staff'))
+
+        super.moveSystemObjectLayerAboveBottomStaff()
+
+        this.endGlobalEdit()
+    }
+
+    /** the NotationParts of the part scores (C++: the excerpt notations' parts) */
+    private excerptsParts(): NotationParts[] {
+        const result: NotationParts[] = []
+        for (const excerpt of this.masterScore().excerpts()) {
+            const score = excerpt.excerptScore()
+            if (score) {
+                result.push(new NotationParts(score))
+            }
+        }
+        return result
+    }
+}

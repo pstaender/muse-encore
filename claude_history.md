@@ -636,6 +636,56 @@
 - Tests: test/parentheses.test.ts (undo/redo restore the SVG of all pages; hashed without selection, because selected
   items are painted last).
 
+## 2026-10-21 — Layout panel editing (NotationParts)
+
+- `src/notation/internal/notationparts.ts` (NotationParts) and `masternotationparts.ts` (MasterNotationParts): setParts,
+  setScoreOrder, setPartVisible, setStaffVisible (doSetStaffConfig: ChangeStaff + ChangeStaffType), appendStaff,
+  removeParts/doRemoveParts/removeMissingParts, removeStaves, moveParts, moveStaves, add/remove/moveSystemObjects,
+  moveSystemObjectLayerBelow/AboveBottomStaff, updateSoloist (SetSoloist), sortParts (SortStaves), going through the
+  notation's undo stack (startEdit/apply of the NotationInteraction; without interaction, e.g. createScore, the changes
+  are applied directly). MasterNotationParts locks the undo stack for the global edit and applies removeParts,
+  removeStaves, setParts and moveSystemObjects to the part scores too (NotationParts of the excerpt scores, recorded in
+  the master command); removing the initial part of an excerpt deletes the excerpt (MasterScore::deleteExcerpt,
+  RemoveExcerpt; editing/editexcerpt.ts with AddExcerpt). MasterNotation.parts() returns MasterNotationParts.
+- editing: `editpart.ts` (InsertPart, RemovePart, SetSoloist, EditPart: setPartVisible, setStaffVisible, removeParts,
+  removeStaves, moveParts, moveStaves, add/remove/moveSystemObjects, doAppendStaff/appendStaff, setScoreOrder),
+  `editstaff.ts` (InsertStaff, RemoveStaff, Add/RemoveSystemObjectStaff, Insert/RemoveMStaff, Insert/RemoveStaves,
+  SortStaves, ChangeStaff, ChangeStaffType, Measure::cmdAddStaves/cmdRemoveStaves), `editbrackets.ts` (AddBracket,
+  RemoveBracket: brackets are undoable now, also in ScoreOrder::setBracketsAndBarlines), `editscoreproperties.ts`
+  (ChangeScoreOrder). edit.ts: undoInsertPart/undoRemovePart, undoInsertStaff (with measures now)/undoRemoveStaff,
+  undoAddBracket/undoRemoveBracket, cmdRemovePart, cmdRemoveStaff, adjustBracketsDel/Ins, updateBracesAndBarlines.
+  EngravingObject.undoUnlink is undoable (Unlink command, replaced by addremoveelement.ts).
+- dom: Score.removePart, insertStaff (spanner tracks moved down), removeStaff, updateStavesNumberForSystems,
+  removeSystemObjectStaff, sortStaves/sortSystemObjects; Measure.insertStaves/removeStaves/insertMStaff/removeMStaff/
+  sortStaves; Segment.insertStaff (annotations)/removeStaff/sortStaves; Part.removeStaff; utils
+  allowRemoveWhenRemovingStaves, moveDownWhenAddingStaves, collectSystemObjects; BracketItem BRACKET_COLUMN uses
+  Staff::changeBracketColumn (so a new score's thin bracket under a thick one is at column 2 like C++);
+  Lyrics::remove/removeFromScore and LyricsLine::removeUnmanaged (separators are removed with their lyrics); Ottava
+  add/remove update the staff's pitch offsets.
+- API (src/index.ts, section "parts and staves"): setPartVisible, setStaffVisible, removeParts, removeStaves,
+  moveParts, moveStaves, appendStaff, addSystemObjects, removeSystemObjects, moveSystemObjects,
+  moveSystemObjectLayerBottomStaff, setScoreOrder(orderId | 'custom'), setInstruments(score, [{partId} |
+  {instrumentId}], orderId?) (INotationParts::setParts), addInstruments(score, templateIds) (inserted where the score
+  order sorts them). All return true if an undoable command was recorded.
+- Editor: editbridge.ts calls these, canEditParts is true; the Layout panel's model is reloaded after every change of
+  the score (scoreVersion) and keeps the expanded rows and, after a change made by the panel, the selected rows.
+- Deviations (for exact undo): the SpannerMap keeps spanners of the same tick in the order they were first added (a
+  spanner added again by undo gets its old place; C++ appends it); AddBracket::undo restores the replaced bracket
+  (C++ sets NO_BRACKET; removing a piano moved its brace to the next staff and undo lost that staff's bracket);
+  removing a staff removes its TimeTickAnchors undoably; a spanner segment removed from its system is detached from it
+  (C++ keeps it in the system's list, ~System detaches it).
+- Like MuseScore, hiding a part also hides its staves (two undo commands, the Layout panel items' isVisibleChanged).
+  Some layout results depend on the previous layout pass (cross-staff beams), so after undo a real score can differ
+  until the next layout; the tests compare real scores after one more layout.
+- Tests: test/notationparts.test.ts (every command with undo/redo on created and real scores, part scores);
+  e2e: the Layout panel hides a part, undo, removes and adds instruments.
+- Missing (TODO(port)): appendLinkedStaff / "Add linked staff" (Excerpt::cloneStaff), adding staves to part scores
+  (appendStaffLinkedToMaster, cloneStaff2), AddPartToExcerpt, insertPart/replacePart/replaceInstrument/replaceDrumset,
+  setPartSharpFlat, instrument names, setVoiceVisible, staff type/config other than visibility, reflectTransposition-
+  InLinkedTab, EditSystemLocks::removeSystemLocksContainingMMRests, remapBracketsAndBarlines for part scores, the
+  notifications (partsChanged etc.), the instruments dialog listing the existing instruments (it only adds), part
+  scores are not laid out after a change, rebuildMidiMapping/markInstrumentsAsPrimary (playback).
+
 ## 2026-10-21 — Note input methods, tuplets, slurs, lines, shadow note
 
 - Note input methods (all of NoteInputBarModel's NOTE_INPUT_METHOD_ACTIONS are registered: note-input-rhythm,
