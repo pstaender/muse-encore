@@ -260,6 +260,65 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('shows the panels Palettes, Layout and Properties, toggled by the View menu and shortcuts', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const tabs = (): Promise<string[]> => page.$$eval('.panel-tabs [role="tab"]', t => t.map(x => x.textContent ?? ''))
+        const currentTab = (): Promise<string | null> => page.textContent('.panel-tabs [role="tab"][aria-selected="true"]')
+        expect(await tabs()).toEqual(['Palettes', 'Layout', 'Properties'])
+        expect(await currentTab()).toBe('Palettes')
+
+        // View > Properties hides it (checked menu item), F9 hides the palettes, F7 the layout panel
+        await page.click('.menubar > button:has-text("View")')
+        expect(await page.getAttribute('.menu-item:has-text("Properties")', 'aria-checked')).toBe('true')
+        await page.click('.menu-item:has-text("Properties")')
+        await page.waitForFunction(() => document.querySelectorAll('.panel-tabs [role="tab"]').length === 2)
+        await page.keyboard.press('F9')
+        await page.waitForFunction(() => document.querySelectorAll('.panel-tabs [role="tab"]').length === 1)
+        expect(await currentTab()).toBe('Layout')
+        await page.keyboard.press('F7')
+        await page.waitForFunction(() => !document.querySelector('.panel-dock'))
+        // showing a panel makes it the current tab
+        await page.keyboard.press('F9')
+        await page.waitForSelector('.panel-dock')
+        expect(await tabs()).toEqual(['Palettes'])
+
+        // the tab's menu closes it; keyboard navigation between tabs
+        await page.keyboard.press('F7')
+        await page.waitForFunction(() => document.querySelectorAll('.panel-tabs [role="tab"]').length === 2)
+        expect(await currentTab()).toBe('Layout')
+        await page.focus('.panel-tabs [role="tab"][aria-selected="true"]')
+        await page.keyboard.press('ArrowLeft')
+        expect(await currentTab()).toBe('Palettes')
+        await page.click('.panel-tab.current .panel-tab-menu')
+        await page.click('.menu-item:has-text("Close")')
+        await page.waitForFunction(() => document.querySelectorAll('.panel-tabs [role="tab"]').length === 1)
+        expect(await tabs()).toEqual(['Layout'])
+
+        // the width: dragging the splitter; kept with the open panels across reloads
+        const dockWidth = (): Promise<number> => page.$eval('.panel-dock', d => d.getBoundingClientRect().width)
+        expect(await dockWidth()).toBe(300)
+        const s = (await page.locator('.panel-splitter').boundingBox())!
+        await page.mouse.move(s.x + 2, s.y + 200)
+        await page.mouse.down()
+        await page.mouse.move(s.x + 82, s.y + 200, { steps: 5 })
+        await page.mouse.up()
+        expect(await dockWidth()).toBe(380)
+        await page.reload()
+        await scoreShown(page)
+        expect(await tabs()).toEqual(['Layout'])
+        expect(await dockWidth()).toBe(380)
+
+        // "Restore the default layout"
+        await page.click('.menubar > button:has-text("View")')
+        await page.click('.menu-item:has-text("Restore the default layout")')
+        await page.waitForFunction(() => document.querySelectorAll('.panel-tabs [role="tab"]').length === 3)
+        expect(await currentTab()).toBe('Palettes')
+        expect(await dockWidth()).toBe(300)
+        await context.close()
+    }, 120000)
+
     it('keeps the settings of the home screen', async () => {
         const { page, context } = await newPage()
         await page.goto(base)
