@@ -11,7 +11,7 @@ import {
     showShortcutsHelp, stepPage, toggleFullscreen, toggleSpread, zoomAt, zoomStep,
 } from '../scoreview'
 import {
-    canSave, chooseFile, closeScore, downloadScore, forgetScore, onSessionChanged, saveScore, session, showDialog,
+    canSave, chooseFile, closeScore, forgetScore, onSessionChanged, saveCopy, saveScore, saveScoreAs, session, showDialog,
     showNewScoreDialog,
 } from '../session'
 import { isToolBarVisible, onToolBarLayoutChanged, restoreDefaultLayout, setStatusBarVisible, setToolBarVisible, toolBarLayout } from '../toolbars/layout'
@@ -31,11 +31,13 @@ function openUrl(url: string): void {
 export function registerAppActions(): void {
     // ---- file ----
     registerAction('file-new', { run: () => showNewScoreDialog(true) })
-    registerAction('file-open', { run: chooseFile })
+    registerAction('file-open', { run: () => void chooseFile() })
     registerAction('file-close', { run: closeScore, enabled: hasScore })
-    // saving: in this browser (IndexedDB); a copy is downloaded as .mscz
+    // saving: in this browser (IndexedDB), and to the file on the computer the score was opened from or saved to;
+    // a copy is saved on the computer (.mscz)
     registerAction('file-save', { run: () => void saveScore(), enabled: canSave })
-    registerAction('file-save-a-copy', { run: downloadScore, enabled: canSave })
+    registerAction('file-save-as', { run: () => void saveScoreAs(), enabled: canSave })
+    registerAction('file-save-a-copy', { run: () => void saveCopy(), enabled: canSave })
     registerAction('clear-recent', { run: () => showDialog('clearRecent') })
     registerAction('print', { run: () => void print(), enabled: scoreShown })
 

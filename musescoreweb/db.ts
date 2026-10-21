@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * The scores of the app in IndexedDB (via Dexie): every opened or created score is kept with its content, so the
  * home screen can list and reopen it (like MuseScore's recent scores). The score that is open is remembered in
- * localStorage and reopened on the next start.
+ * localStorage and reopened on the next start. Autosaves (ProjectAutoSaver) are kept in a separate table, one per score.
  * Storage can be unavailable (private windows, blocked site data): then nothing is remembered and all calls fail
  * silently.
  */
@@ -28,6 +28,8 @@ export interface ScoreEntry {
     modified: number
     opened: number
     thumbnail?: Blob
+    /** the file on the computer (File System Access API): "Save" writes it back too */
+    handle?: FileSystemFileHandle
 }
 
 /**
@@ -38,15 +40,27 @@ export type ScoreContent =
     | { id: string; data: ArrayBuffer }
     | { id: string; options: NewScoreOptions }
 
+/** the autosave of a stored score (MuseScore: the file "<name>.mscz.autosave" next to the score) */
+export interface Autosave {
+    /** the id of the score */
+    id: string
+    data: ArrayBuffer
+    time: number
+}
+
 class ScoreDb extends Dexie {
     scores!: EntityTable<ScoreEntry, 'id'>
     contents!: EntityTable<ScoreContent, 'id'>
+    autosaves!: EntityTable<Autosave, 'id'>
 
     constructor() {
         super('musescoreweb-scores')
         this.version(1).stores({
             scores: 'id, opened, hash',
             contents: 'id',
+        })
+        this.version(2).stores({
+            autosaves: 'id',
         })
     }
 }
@@ -69,12 +83,15 @@ export async function contentHash(data: ArrayBuffer): Promise<string | undefined
     }
 }
 
-/** adds a score (or, for a file that is already stored, updates its entry); returns its id */
-export async function addScore(entry: Omit<ScoreEntry, 'id' | 'created' | 'modified' | 'opened'>, content: Omit<ScoreContent, 'id'>): Promise<string | null> {
+/**
+ * adds a score (or, for a file that is already stored, updates its entry unless `asNew`: "Save as" always makes a new
+ * entry); returns its id
+ */
+export async function addScore(entry: Omit<ScoreEntry, 'id' | 'created' | 'modified' | 'opened'>, content: Omit<ScoreContent, 'id'>, asNew = false): Promise<string | null> {
     const now = Date.now()
     try {
-        return await db.transaction('rw', db.scores, db.contents, async () => {
-            const existing = entry.hash ? await db.scores.where('hash').equals(entry.hash).first() : undefined
+        return await db.transaction('rw', db.scores, db.contents, db.autosaves, async () => {
+            const existing = entry.hash && !asNew ? await db.scores.where('hash').equals(entry.hash).first() : undefined
             if (existing) {
                 await db.scores.update(existing.id, { ...entry, opened: now })
                 return existing.id
@@ -85,6 +102,7 @@ export async function addScore(entry: Omit<ScoreEntry, 'id' | 'created' | 'modif
             const old = await db.scores.orderBy('opened').reverse().offset(MAX_SCORES).primaryKeys()
             await db.scores.bulkDelete(old)
             await db.contents.bulkDelete(old)
+            await db.autosaves.bulkDelete(old)
             return id
         })
     } catch (e) {
@@ -101,7 +119,7 @@ export async function updateScore(id: string, changes: Partial<Omit<ScoreEntry, 
     }
 }
 
-/** replaces the content of a stored score (saving); false if it is not stored */
+/** replaces the content of a stored score (saving; changes may rename it); false if it is not stored */
 export async function saveScoreContent(id: string, data: ArrayBuffer, changes: Partial<Omit<ScoreEntry, 'id'>>): Promise<boolean> {
     try {
         return await db.transaction('rw', db.scores, db.contents, async () => {
@@ -129,9 +147,10 @@ export async function loadScoreContent(id: string): Promise<{ entry: ScoreEntry;
 
 export async function removeScore(id: string): Promise<void> {
     try {
-        await db.transaction('rw', db.scores, db.contents, async () => {
+        await db.transaction('rw', db.scores, db.contents, db.autosaves, async () => {
             await db.scores.delete(id)
             await db.contents.delete(id)
+            await db.autosaves.delete(id)
         })
     } catch {
         // ignore
@@ -140,9 +159,10 @@ export async function removeScore(id: string): Promise<void> {
 
 export async function removeAllScores(): Promise<void> {
     try {
-        await db.transaction('rw', db.scores, db.contents, async () => {
+        await db.transaction('rw', db.scores, db.contents, db.autosaves, async () => {
             await db.scores.clear()
             await db.contents.clear()
+            await db.autosaves.clear()
         })
     } catch {
         // ignore
@@ -158,6 +178,59 @@ export function useScores(): ScoreEntry[] | undefined {
             return []
         }
     })
+}
+
+// ---------------------------------------------------------------------------------
+//   autosaves (ProjectAutoSaver)
+// ---------------------------------------------------------------------------------
+
+/** stores the autosave of a stored score; false if it failed (or the score is not stored) */
+export async function putAutosave(id: string, data: ArrayBuffer): Promise<boolean> {
+    try {
+        return await db.transaction('rw', db.scores, db.autosaves, async () => {
+            if (!(await db.scores.get(id))) {
+                return false
+            }
+            await db.autosaves.put({ id, data, time: Date.now() })
+            return true
+        })
+    } catch (e) {
+        console.warn('could not store the autosave', e)
+        return false
+    }
+}
+
+export async function loadAutosave(id: string): Promise<Autosave | null> {
+    try {
+        return (await db.autosaves.get(id)) ?? null
+    } catch {
+        return null
+    }
+}
+
+/** the ids of the scores with an autosave (ProjectAutoSaver::projectHasUnsavedChanges) */
+export async function autosaveIds(): Promise<string[]> {
+    try {
+        return (await db.autosaves.toCollection().primaryKeys()) as string[]
+    } catch {
+        return []
+    }
+}
+
+export async function removeAutosave(id: string): Promise<void> {
+    try {
+        await db.autosaves.delete(id)
+    } catch {
+        // ignore
+    }
+}
+
+export async function removeAllAutosaves(): Promise<void> {
+    try {
+        await db.autosaves.clear()
+    } catch {
+        // ignore
+    }
 }
 
 // ---------------------------------------------------------------------------------

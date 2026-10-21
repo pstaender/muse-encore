@@ -255,6 +255,19 @@ function makePage(idx: number): HTMLDivElement {
     return el
 }
 
+/** like MuseScore's tab: the file name without extension; the score title as tooltip */
+function publishName(): void {
+    const title = score ? fileName.replace(/\.mscx?z?$/i, '') : ''
+    publish({ hasScore: !!score, title, tooltip: score ? [scoreTitle(score), fileName].filter(Boolean).join(' – ') : '' })
+    document.title = score ? `${title} – MuseScore Web` : 'MuseScore Web'
+}
+
+/** the score got another file name (Save as) */
+export function setScoreName(name: string): void {
+    fileName = name
+    publishName()
+}
+
 function buildPages(keepPosition = false): void {
     const scroll = { left: viewport.scrollLeft, top: viewport.scrollTop }
     observer.disconnect()
@@ -262,10 +275,7 @@ function buildPages(keepPosition = false): void {
     pagesDiv.replaceChildren()
     pages = []
 
-    // like MuseScore's tab: the file name without extension; the score title as tooltip
-    const title = score ? fileName.replace(/\.mscx?z?$/i, '') : ''
-    publish({ hasScore: !!score, title, tooltip: score ? [scoreTitle(score), fileName].filter(Boolean).join(' – ') : '' })
-    document.title = score ? `${title} – MuseScore Web` : 'MuseScore Web'
+    publishName()
 
     if (score) {
         const n = pageCount(score)

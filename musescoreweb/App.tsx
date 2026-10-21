@@ -10,6 +10,7 @@ import { ConfirmDialog } from './components/ConfirmDialog'
 import { MenuBar } from './components/Menu'
 import { AboutDialog } from './dialogs/AboutDialog'
 import { PreferencesDialog } from './dialogs/PreferencesDialog'
+import { SaveScoreDialog } from './dialogs/SaveScoreDialog'
 import { useScores } from './db'
 import { ScoresPage } from './home/ScoresPage'
 import { qtrc, useLanguage } from './i18n'
@@ -18,7 +19,7 @@ import { NewScoreDialog } from './newscore/NewScoreDialog'
 import { PanelDock } from './panels/PanelDock'
 import { resetPalettesState } from './panels/palettes/palettestate'
 import { setChrome, useScoreView, viewport, viewShown } from './scoreview'
-import { answerSaveChanges, closeScore, openStored, saveChangesTitle, setView, showDialog, useSession } from './session'
+import { answerDialog, closeScore, openStored, saveChangesTitle, setView, showDialog, useSession } from './session'
 import { resetSettings } from './settings'
 import { ToolBarDock, toolbarMenuItems } from './toolbars/ToolBars'
 import { restoreDefaultLayout, useToolBarLayout } from './toolbars/layout'
@@ -38,13 +39,32 @@ function SaveChangesDialog(): React.JSX.Element {
     }, [])
     return (
         <dialog ref={ref} className="confirm" aria-labelledby="save-changes-title"
-            onClose={() => void answerSaveChanges((ref.current?.returnValue || 'cancel') as 'save' | 'dontSave' | 'cancel')}>
+            onClose={() => answerDialog(ref.current?.returnValue || 'cancel')}>
             <h2 id="save-changes-title">{saveChangesTitle()}</h2>
             <p>{qtrc('project', 'Your changes will be lost if you don’t save them.')}</p>
             <form method="dialog" className="dialog-buttons">
                 <button className="secondary" value="dontSave">{qtrc('global', 'Don’t save')}</button>
                 <button className="secondary" value="cancel">{qtrc('global', 'Cancel')}</button>
                 <button className="primary" value="save" autoFocus>{qtrc('global', 'Save')}</button>
+            </form>
+        </dialog>
+    )
+}
+
+/** StartupScenario::restoreLastSession: a question with the buttons No and Yes */
+function RestoreSessionDialog(): React.JSX.Element {
+    const ref = useRef<HTMLDialogElement>(null)
+    useEffect(() => {
+        ref.current?.showModal()
+    }, [])
+    return (
+        <dialog ref={ref} className="confirm restore-session" aria-labelledby="restore-session-title"
+            onClose={() => answerDialog(ref.current?.returnValue === 'yes')}>
+            <h2 id="restore-session-title">{qtrc('appshell', 'The previous session quit unexpectedly.')}</h2>
+            <p>{qtrc('appshell', 'Do you want to restore the session?')}</p>
+            <form method="dialog" className="dialog-buttons">
+                <button className="secondary" value="no">{qtrc('global', 'No')}</button>
+                <button className="primary" value="yes" autoFocus>{qtrc('global', 'Yes')}</button>
             </form>
         </dialog>
     )
@@ -148,6 +168,8 @@ export function App(): React.JSX.Element {
             {session.dialog === 'preferences' && <PreferencesDialog onClose={() => showDialog(null)} />}
             {session.dialog === 'about' && <AboutDialog onClose={() => showDialog(null)} />}
             {session.dialog === 'saveChanges' && <SaveChangesDialog />}
+            {session.dialog === 'saveAs' && <SaveScoreDialog name={session.saveAsName} onClose={answerDialog} />}
+            {session.dialog === 'restoreSession' && <RestoreSessionDialog />}
             {session.dialog === 'clearRecent' && (
                 <ConfirmDialog
                     title={qtrc('appshell/menu/file', 'Clear recent')}

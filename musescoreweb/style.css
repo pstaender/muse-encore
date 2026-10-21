@@ -1046,6 +1046,14 @@ dialog.preferences .dialog-buttons { margin: 0; padding: 12px 24px; border-top: 
 .preferences-page { flex: 1; padding: 16px 24px; overflow: auto; }
 .preferences-section h3 { margin: 0 0 8px; font-size: 13px; }
 .preferences-section select { min-width: 240px; }
+.autosave-row { display: flex; align-items: center; gap: 12px; }
+.autosave-row .number-with-unit { display: inline-flex; align-items: center; gap: 4px; }
+.autosave-row input[type="number"] { width: 64px; }
+
+dialog.save-score { width: min(480px, calc(100vw - 32px)); }
+dialog.save-score form { display: flex; flex-direction: column; gap: 12px; }
+dialog.save-score .hint { max-width: none; }
+dialog.save-score .dialog-buttons .spacer { flex: 1; }
 
 dialog.about { width: min(460px, calc(100vw - 32px)); }
 dialog.about h2 { font-size: 20px; }

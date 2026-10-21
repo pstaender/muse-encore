@@ -756,6 +756,14 @@ export function markSaved(score: MasterScore): void {
     score.undoStack().setClean()
 }
 
+/**
+ * marks the score as modified although nothing was changed since it was loaded (NotationProject::markAsUnsaved: a new
+ * score, a score restored from an autosave); undo does not make it unmodified, only markSaved does
+ */
+export function markUnsaved(score: MasterScore): void {
+    score.undoStack().setUnclean()
+}
+
 const NOTE_INPUT_METHOD_NAMES: Partial<Record<NoteEntryMethod, string>> = {
     [NoteEntryMethod.BY_NOTE_NAME]: 'by-note-name',
     [NoteEntryMethod.BY_DURATION]: 'by-duration',
@@ -1562,6 +1570,16 @@ export interface TextEditingInfo {
     cursor: { page: number; x: number; y: number; width: number; height: number } | null
     /** the plain text */
     text: string
+}
+
+/** ends the editing of a text (before saving: ProjectActionsController::saveProjectAt); false if no text was edited */
+export function endTextEditing(score: MasterScore): boolean {
+    const interaction = notationState(score).interaction
+    if (!interaction.isTextEditingStarted()) {
+        return false
+    }
+    interaction.endEditText()
+    return true
 }
 
 export function textEditingInfo(score: MasterScore): TextEditingInfo {

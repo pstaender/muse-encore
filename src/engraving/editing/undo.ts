@@ -573,6 +573,11 @@ export class UndoStack {
     isClean(): boolean { return this.m_cleanState === this.m_stateList[this.m_currentIndex] }
     /** C++ sets the clean state through the project (EngravingProject::setSaved -> MasterScore::setSaved) */
     setClean(): void { this.m_cleanState = this.m_stateList[this.m_currentIndex] }
+    /**
+     * No state is clean until the next setClean(): C++ keeps this in the project (NotationProject::markAsUnsaved,
+     * m_hasNonUndoStackChanges), e.g. for a new score or a restored autosave.
+     */
+    setUnclean(): void { this.m_cleanState = -1 }
 
     size(): number { return this.m_macroList.length }
     currentIndex(): number { return this.m_currentIndex }

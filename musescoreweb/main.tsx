@@ -6,10 +6,12 @@
 import { createRoot } from 'react-dom/client'
 import { registerAppActions } from './actions/appactions'
 import { App } from './App'
+import { initAutoSaver } from './autosave'
 import { applyLanguageSetting } from './i18n'
 import { startup } from './session'
 
 registerAppActions()
 void applyLanguageSetting()
 createRoot(document.getElementById('app-root')!).render(<App />)
+initAutoSaver()
 void startup()

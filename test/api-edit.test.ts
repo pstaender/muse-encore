@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto'
 import { beforeAll, describe, expect, it } from 'vitest'
 import {
     canRedo, canUndo, changeSelectionProperty, clearSelection, createScore, defaultNewScoreOptions, drawPageSvg, executeAction,
-    isActionAvailable, isActionChecked, isActionEnabled, isModified, markSaved, noteInputCursorBounds, noteInputState, redo,
+    isActionAvailable, isActionChecked, isActionEnabled, isModified, markSaved, markUnsaved, noteInputCursorBounds, noteInputState, redo,
     resetSelectionProperty, selectionInfo, selectionProperties, undo, undoStackInfo, type MasterScore,
 } from '../src/index'
 import { SegmentType } from '../src/engraving/dom/segment'
@@ -92,6 +92,16 @@ describe('editing API', () => {
         redo(score)
         undo(score)
         expect(hash(score)).toBe(before)
+
+        // a new score / a restored autosave (NotationProject::markAsUnsaved): modified until saved, also after undo
+        markSaved(score)
+        markUnsaved(score)
+        expect(isModified(score)).toBe(true)
+        redo(score)
+        undo(score)
+        expect(isModified(score)).toBe(true)
+        markSaved(score)
+        expect(isModified(score)).toBe(false)
     })
 
     it('converts points, colors and styled values', () => {

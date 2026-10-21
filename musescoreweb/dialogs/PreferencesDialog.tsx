@@ -1,13 +1,15 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * Preferences (MuseScore's PreferencesDialog.qml): pages in a side bar; for now "General" with the language.
+ * Preferences (MuseScore's PreferencesDialog.qml): pages in a side bar; for now "General" with the language and
+ * "Save & publish" with the auto save (SaveAndPublishPreferencesPage.qml: AutoSaveSection).
  */
 import { useEffect, useRef, useState } from 'react'
 import { currentLanguage, languageList, qtrc, setLanguage, useLanguage } from '../i18n'
-import { useSettings } from '../settings'
+import { updateSettings, useSettings } from '../settings'
 
 const PAGES = [
-    { id: 'general', title: 'General', icon: '' },
+    { id: 'general', title: 'General', icon: '' }, // SETTINGS_COG
+    { id: 'cloud', title: 'Save & publish', icon: '' }, // CLOUD_FILE
 ] as const
 
 function GeneralPage(): React.JSX.Element {
@@ -40,6 +42,36 @@ function GeneralPage(): React.JSX.Element {
     )
 }
 
+/** AutoSaveSection.qml: "Auto save every [n] min" */
+function SaveAndPublishPage(): React.JSX.Element {
+    useLanguage()
+    const { project } = useSettings()
+    return (
+        <section className="preferences-section" aria-labelledby="pref-autosave">
+            <h3 id="pref-autosave">{qtrc('preferences', 'Auto save')}</h3>
+            <div className="autosave-row">
+                <label className="check">
+                    <input type="checkbox" checked={project.autoSaveEnabled}
+                        onChange={e => updateSettings('project', { autoSaveEnabled: e.target.checked })} />
+                    {qtrc('preferences', 'Auto save every')}
+                </label>
+                <span className="number-with-unit">
+                    <input type="number" min={1} max={100} step={1} disabled={!project.autoSaveEnabled}
+                        aria-label={qtrc('preferences', 'Auto save every')}
+                        value={Math.max(1, Math.round(project.autoSaveInterval))}
+                        onChange={(e) => {
+                            const v = Math.round(Number(e.target.value))
+                            if (v >= 1 && v <= 100) {
+                                updateSettings('project', { autoSaveInterval: v })
+                            }
+                        }} />
+                    {' ' + qtrc('global', 'min', 'abbreviation of minutes')}
+                </span>
+            </div>
+        </section>
+    )
+}
+
 export function PreferencesDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
     useLanguage()
     const ref = useRef<HTMLDialogElement>(null)
@@ -65,6 +97,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }): React.J
                 </ul>
                 <div className="preferences-page" role="tabpanel">
                     {page === 'general' && <GeneralPage />}
+                    {page === 'cloud' && <SaveAndPublishPage />}
                 </div>
             </div>
             <form method="dialog" className="dialog-buttons">

@@ -189,7 +189,7 @@ export function ScoresPage(): React.JSX.Element {
                     <button className="secondary" onClick={() => setConfirm({ kind: 'all' })}>Clear list…</button>
                 )}
                 <span className="spacer" />
-                <button className="secondary" onClick={chooseFile}>{qtrc('project', 'Open other…')}</button>
+                <button className="secondary" onClick={() => void chooseFile()}>{qtrc('project', 'Open other…')}</button>
                 <button className="primary" onClick={() => showNewScoreDialog(true)}>{qtrc('project', 'New')}</button>
             </div>
 

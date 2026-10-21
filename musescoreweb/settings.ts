@@ -20,6 +20,13 @@ export interface AppSettings {
         /** the page the New Score dialog starts with (IProjectConfiguration::preferredScoreCreationMode) */
         mode: 'instruments' | 'template'
     }
+    /** IProjectConfiguration */
+    project: {
+        /** isAutoSaveEnabled (preference "project/autoSaveEnabled") */
+        autoSaveEnabled: boolean
+        /** autoSaveIntervalMinutes (preference "project/autoSaveInterval"; the dialog offers 1..100) */
+        autoSaveInterval: number
+    }
     ui: {
         /** 'system' or a language code of MuseScore's translations (e.g. "de", "pt_BR") */
         language: string
@@ -46,6 +53,7 @@ const DEFAULTS: AppSettings = {
     view: { zoom: 'whole-page', orientation: 'horizontal', spread: false },
     home: { layout: 'grid' },
     newScore: { mode: 'instruments' },
+    project: { autoSaveEnabled: true, autoSaveInterval: 5 }, // ProjectConfiguration::init
     ui: { language: 'system' },
     layout: { docks: {}, hidden: [], statusBar: true },
     noteInputBar: null,
@@ -72,6 +80,12 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
         },
         home: { layout: oneOf(s.home?.layout, ['grid', 'list'], DEFAULTS.home.layout) },
         newScore: { mode: oneOf(s.newScore?.mode, ['instruments', 'template'], DEFAULTS.newScore.mode) },
+        project: {
+            autoSaveEnabled: typeof s.project?.autoSaveEnabled === 'boolean' ? s.project.autoSaveEnabled : DEFAULTS.project.autoSaveEnabled,
+            // fractions of a minute are accepted (tests)
+            autoSaveInterval: typeof s.project?.autoSaveInterval === 'number' && s.project.autoSaveInterval > 0
+                && s.project.autoSaveInterval <= 1000 ? s.project.autoSaveInterval : DEFAULTS.project.autoSaveInterval,
+        },
         ui: { language: typeof s.ui?.language === 'string' ? s.ui.language : DEFAULTS.ui.language },
         layout: {
             docks: s.layout?.docks && typeof s.layout.docks === 'object'
@@ -139,10 +153,12 @@ export function resetSettings(): void {
     }
 }
 
-function subscribe(listener: () => void): () => void {
+export function onSettingsChanged(listener: () => void): () => void {
     listeners.add(listener)
     return () => listeners.delete(listener)
 }
+
+const subscribe = onSettingsChanged
 
 export function useSettings(): AppSettings {
     return useSyncExternalStore(subscribe, settings)

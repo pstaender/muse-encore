@@ -851,3 +851,40 @@
   and compares the sorted SVG lines; ~150 vtest scores x 3 edits by default (PL_COUNT, PL_ALL_EDITS, PL_SLICE env);
   the remaining C++-equivalent differences are listed with their reasons in KNOWN_EXCEPTIONS (the "rangeDone" restore
   of the next system's first measure, page fill with stale heights, unused slur segments, ...).
+
+## 2026-10-21 — Editor: Save as, saving to the computer, autosave
+
+- File > Save as (`file-save-as`, Ctrl+Shift+S) shows "Save score" (dialogs/SaveScoreDialog.tsx, after
+  SaveToCloudDialog.qml: "Name", "Save to computer", "Cancel", "Save"); the name defaults to the title of a new score or
+  the file name (ProjectConfiguration::defaultSavingFilePath). "Save" stores the score as a new entry in IndexedDB
+  (`addScore(..., asNew)`, no reuse by hash) and the open score refers to it (the old entry keeps its last saved
+  version); for a new score the entry of the new score becomes the saved score (MuseScore drops the temporary file).
+  "Save to computer" also writes the .mscz: `showSaveFilePicker` when available (the handle is kept in the entry, so
+  File > Save writes the file back after `requestPermission`), otherwise a download (`files.ts`).
+- New scores are unsaved (NotationProject::markAsNewlyCreated: "*" in the tab, the close/leave questions) and File >
+  Save on a score never saved goes through Save as (`CurrentScore.newlyCreated`: the entry's content is still the
+  NewScoreOptions). Library: `markUnsaved(score)` (UndoStack.setUnclean, C++ m_hasNonUndoStackChanges) keeps the score
+  modified until markSaved, also after undo.
+- File > Open uses `showOpenFilePicker` when available (handle -> Save writes the file back; .mscz only), otherwise the
+  file input. File > Save a copy saves "<name> - copy.mscz" (picker or download).
+- Opening another score (file, URL, home screen, new score) first closes the open one like
+  ProjectActionsController::closeOpenedProject (asks to save a modified score; Cancel keeps it).
+  The questions (save changes, save as, restore session) are promises (`ask` / `answerDialog` in session.ts).
+- Autosave (autosave.ts = ProjectAutoSaver): a single-shot timer (settings `project.autoSaveEnabled` /
+  `autoSaveInterval`, defaults true / 5 min as in ProjectConfiguration::init of 4.7.5) saves the modified open score
+  (needAutoSave: changed since the last autosave) to the `autosaves` table (Dexie version 2); `update()` removes the
+  autosave when the score is saved, closed without saving, undone to the saved state or another score is opened.
+  Web addition: also saved when the page becomes hidden. Preferences > "Save & publish" > "Auto save every … min".
+- Recovery: at startup (without ?url) left-over autosaves ask "The previous session quit unexpectedly." / "Do you want
+  to restore the session?" (StartupScenario::restoreLastSession): Yes opens the score with its autosave, No removes the
+  autosaves. Opening a stored score with an autosave loads the autosave (ProjectActionsController::loadProject) and
+  marks it unsaved; an autosave older than the saved score is dropped. Opening a file from the computer that is the same
+  stored score drops its autosave.
+- Tests: test/savefiles.test.ts (file names), api-edit (markUnsaved); e2e: Save as of a new score, reload, a second
+  Save as, Save to computer (download fallback), Save a copy; autosave with a 1.2 s interval, restore Yes/No, removal on
+  close/save/undo, the preference.
+- Missing: saving a selection (`file-save-selection`), the cloud, Export, "Revert to last saved", backups, saving older
+  file versions asks nothing (C++ warns for imported files); a Save to computer download cannot be written back later.
+  Saving ends an edited text first (library `endTextEditing`, ProjectActionsController::saveProjectAt).
+- In an agent worktree with a symlinked MuseScore submodule Vite's fs.allow blocks the templates (the template e2e test
+  fails there); not an issue in the main checkout.

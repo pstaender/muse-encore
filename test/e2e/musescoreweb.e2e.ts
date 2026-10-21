@@ -29,6 +29,8 @@ async function newPage(): Promise<{ page: Page; context: BrowserContext }> {
     }))
     const page = await context.newPage()
     page.on('pageerror', e => { throw e })
+    // leaving the page with unsaved changes: the browser asks (beforeunload)
+    page.on('dialog', d => void d.accept())
     return { page, context }
 }
 
@@ -105,12 +107,13 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.fill('input[placeholder="Composer / arranger"]', 'Someone')
         await page.click('dialog.new-score .dialog-buttons button:has-text("Done")')
         await scoreShown(page)
-        expect(await page.textContent('#title')).toBe('Test score')
+        // a new score is unsaved (NotationProject::markAsNewlyCreated)
+        expect(await page.textContent('#title')).toBe('*Test score')
 
         // the open score is created again after a reload
         await page.reload()
         await scoreShown(page)
-        expect(await page.textContent('#title')).toBe('Test score')
+        expect(await page.textContent('#title')).toBe('*Test score')
 
         // removing a created score asks first
         await page.click('.app-tabs [role="tab"]:has-text("Home")')
@@ -133,7 +136,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.waitForSelector('.template-preview canvas', { timeout: 60000 })
         await page.click('dialog.new-score .dialog-buttons button:has-text("Done")')
         await scoreShown(page)
-        expect(await page.textContent('#title')).toBe('Untitled score')
+        expect(await page.textContent('#title')).toBe('*Untitled score')
         await context.close()
     }, 180000)
 
@@ -435,10 +438,12 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
             await page.waitForFunction(() => /^Note/.test(document.getElementById('status')!.textContent!))
         }
 
-        // File > Save stores it; after a reload the notes are there
+        // File > Save stores it (a new score: through "Save as"); after a reload the notes are there
         // the tab shows "*" before the title while there are unsaved changes (NotationSwitchButton)
         expect(await page.textContent('#title')).toMatch(/^\*/)
         await page.keyboard.press('ControlOrMeta+s')
+        await page.waitForSelector('dialog.save-score[open]')
+        await page.click('dialog.save-score button[type="submit"]')
         await page.waitForFunction(() => !document.getElementById('title')!.textContent!.startsWith('*'))
         await page.reload()
         await scoreShown(page)
@@ -914,6 +919,175 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.keyboard.up('Shift')
         await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Range selection'))
         expect(await statusText(page)).toContain('Start measure: 1')
+        await context.close()
+    }, 180000)
+
+    it('saves a new score with Save as, keeps it after a reload, saves to the computer and a copy', async () => {
+        const { page, context } = await newPage()
+        // without the File System Access API "Save to computer" downloads the file
+        await context.addInitScript(() => { delete (window as { showSaveFilePicker?: unknown }).showSaveFilePicker })
+        await page.goto(base)
+        await page.click('.home-footer button:has-text("New")')
+        await page.waitForSelector('dialog.new-score[open]')
+        await page.fill('.instruments input[type="search"]', 'flute')
+        await page.dblclick('.instruments [role="option"] >> text=Flute')
+        await page.click('dialog.new-score .dialog-buttons button:has-text("Done")')
+        await scoreShown(page)
+        expect(await page.textContent('#title')).toBe('*Untitled score')
+
+        // Save on a new score asks for the name (title of the score by default); Escape cancels
+        await page.keyboard.press('ControlOrMeta+s')
+        await page.waitForSelector('dialog.save-score[open]')
+        expect(await page.inputValue('dialog.save-score input')).toBe('Untitled score')
+        await page.keyboard.press('Escape')
+        await page.waitForFunction(() => !document.querySelector('dialog[open]'))
+        expect(await page.textContent('#title')).toBe('*Untitled score')
+
+        await page.keyboard.press('ControlOrMeta+s')
+        await page.fill('dialog.save-score input', 'My song')
+        await page.keyboard.press('Enter')
+        await page.waitForFunction(() => document.getElementById('title')!.textContent === 'My song')
+
+        // the open score is the saved one after a reload; the new score's entry became the saved score
+        await page.reload()
+        await scoreShown(page)
+        expect(await page.textContent('#title')).toBe('My song')
+        await page.click('.app-tabs [role="tab"]:has-text("Home")')
+        expect(await cardNames(page)).toEqual(['My song'])
+        await page.click('.app-tabs [role="tab"]:has-text("Score")')
+
+        // Save as (Ctrl+Shift+S): a new score in the list, the open score refers to it
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+Shift+s')
+        await page.waitForSelector('dialog.save-score[open]')
+        expect(await page.inputValue('dialog.save-score input')).toBe('My song')
+        await page.fill('dialog.save-score input', 'Other version')
+        await page.click('dialog.save-score button[type="submit"]')
+        await page.waitForFunction(() => document.getElementById('title')!.textContent === 'Other version')
+        await page.reload()
+        await scoreShown(page)
+        expect(await page.textContent('#title')).toBe('Other version')
+        await page.click('.app-tabs [role="tab"]:has-text("Home")')
+        expect((await cardNames(page)).sort()).toEqual(['My song', 'Other version'])
+        await page.click('.app-tabs [role="tab"]:has-text("Score")')
+
+        // "Save to computer": also downloads the .mscz
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+Shift+s')
+        await page.fill('dialog.save-score input', 'On disk')
+        const [download] = await Promise.all([page.waitForEvent('download'), page.click('dialog.save-score .save-to-computer')])
+        expect(download.suggestedFilename()).toBe('On disk.mscz')
+        await page.waitForFunction(() => document.getElementById('title')!.textContent === 'On disk')
+
+        // File > Save other > Save a copy downloads "<name> - copy.mscz"
+        await page.click('.menubar > button:has-text("File")')
+        await page.hover('.menu-item:has-text("Save other")')
+        const [copy] = await Promise.all([page.waitForEvent('download'), page.click('.menu-item:has-text("Save a copy")')])
+        expect(copy.suggestedFilename()).toBe('On disk - copy.mscz')
+        expect(await page.textContent('#title')).toBe('On disk')
+        await context.close()
+    }, 180000)
+
+    it('autosaves a modified score and restores it after the page was left', async () => {
+        const { page, context } = await newPage()
+        // auto save every 1.2 s
+        await context.addInitScript(() => {
+            if (!localStorage.getItem('musescoreweb:settings')) {
+                localStorage.setItem('musescoreweb:settings', JSON.stringify({ project: { autoSaveEnabled: true, autoSaveInterval: 0.02 } }))
+            }
+        })
+        const autosaves = (): Promise<number> => page.evaluate(() => new Promise<number>((resolve) => {
+            const req = indexedDB.open('musescoreweb-scores')
+            req.onsuccess = () => {
+                const db = req.result
+                const count = db.transaction('autosaves', 'readonly').objectStore('autosaves').count()
+                count.onsuccess = () => {
+                    db.close()
+                    resolve(count.result)
+                }
+            }
+        }))
+        const waitAutosaves = async (n: number): Promise<void> => {
+            for (let i = 0; i < 100 && (await autosaves()) !== n; i++) {
+                await page.waitForTimeout(100)
+            }
+            expect(await autosaves()).toBe(n)
+        }
+        const status = (): Promise<string> => page.textContent('#status').then(t => t ?? '')
+        const firstNote = async (): Promise<string> => {
+            await page.focus('#viewport')
+            await page.keyboard.press('ControlOrMeta+Home')
+            for (let i = 0; i < 8 && !(await status()).startsWith('Note'); i++) {
+                await page.keyboard.press('ArrowRight')
+            }
+            return status()
+        }
+        const raise = async (): Promise<string> => {
+            const before = await firstNote()
+            await page.keyboard.press('ArrowUp')
+            await page.waitForFunction((b) => document.getElementById('status')!.textContent !== b, before)
+            return status()
+        }
+
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const original = await firstNote()
+        expect(original).toMatch(/^Note/)
+        const raised = await raise()
+        expect(raised).not.toBe(original)
+        expect(await page.textContent('#title')).toBe('*amazing')
+        await waitAutosaves(1)
+
+        // the page is left with unsaved changes: the next start asks to restore the session
+        await page.goto(base)
+        await page.waitForSelector('dialog.restore-session[open]')
+        expect(await page.textContent('#restore-session-title')).toBe('The previous session quit unexpectedly.')
+        await page.click('dialog.restore-session button[value="yes"]')
+        await scoreShown(page)
+        expect(await page.textContent('#title')).toBe('*amazing')
+        expect(await firstNote()).toBe(raised)
+
+        // closing without saving removes the autosave; the saved version is opened again
+        await page.click('.notation-tab #clear')
+        await page.click('dialog.confirm button[value="dontSave"]')
+        await page.waitForSelector('.home')
+        await waitAutosaves(0)
+        await page.click('.score-card:not(.new)')
+        await scoreShown(page)
+        expect(await page.textContent('#title')).toBe('amazing')
+        expect(await firstNote()).toBe(original)
+
+        // "No" removes the autosave and opens the saved version
+        await raise()
+        await waitAutosaves(1)
+        await page.reload()
+        await page.waitForSelector('dialog.restore-session[open]')
+        await page.click('dialog.restore-session button[value="no"]')
+        await scoreShown(page)
+        expect(await page.textContent('#title')).toBe('amazing')
+        expect(await firstNote()).toBe(original)
+        await waitAutosaves(0)
+
+        // saving removes the autosave; undoing to the saved state, too
+        await raise()
+        await waitAutosaves(1)
+        await page.keyboard.press('ControlOrMeta+s')
+        await page.waitForFunction(() => document.getElementById('title')!.textContent === 'amazing')
+        await waitAutosaves(0)
+        await raise()
+        await waitAutosaves(1)
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => document.getElementById('title')!.textContent === 'amazing')
+        await waitAutosaves(0)
+
+        // the preference (Preferences > Save & publish > Auto save every … min)
+        await page.click('.menubar > button:has-text("Edit")')
+        await page.click('.menu-item:has-text("Preferences")')
+        await page.waitForSelector('dialog.preferences[open]')
+        await page.click('.preferences-pages li:has-text("Save & publish")')
+        await page.uncheck('.autosave-row input[type="checkbox"]')
+        expect(await page.isDisabled('.autosave-row input[type="number"]')).toBe(true)
+        expect(await page.evaluate(() => JSON.parse(localStorage.getItem('musescoreweb:settings')!).project.autoSaveEnabled)).toBe(false)
         await context.close()
     }, 180000)
 })
