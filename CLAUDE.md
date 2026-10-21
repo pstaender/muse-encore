@@ -48,8 +48,10 @@ src/
                         NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input;
                         NotationMidiInput: the real-time advance (no MIDI)
   notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands)
-  palette               palette tree/palettes/cells (palettecreator: default + master palettes), cell icons
-                        (PaletteCellIconEngine, EngravingItemPreviewPainter); api.ts
+  palette               palette tree/palettes/cells with XML read/write and .mpal files (palettecreator: default +
+                        master palettes), the user palette tree (paletteprovider.ts: PaletteProvider, UserPaletteController;
+                        palettemodel.ts: PaletteTreeModel addressed by PaletteIndex), cell icons (PaletteCellIconEngine,
+                        EngravingItemPreviewPainter); api.ts
   instrumentsscene      Layout panel tree model (LayoutPanelTreeModel and its tree items); api.ts
   inspector             Properties panel models (InspectorListModel, section/notation models, PropertyItem);
                         api.ts, inspectorselectionproperties.ts
@@ -64,9 +66,11 @@ musescoreweb/           Vite score editor app "MuseScore Web": React UI (App.tsx
                         QML pages), menu bar (menus/appmenu.ts = AppMenuModel), toolbars (toolbars/: docks, note input bar),
                         actions (actions/: MuseScore's UiActions + shortcuts, generated uiactiondata.ts; appactions.ts =
                         the handlers), i18n.ts (MuseScore's translations via vite-plugin-locales.ts), score view
-                        (scoreview.ts, DOM code from the viewer), session.ts (open/create/save scores), db.ts (IndexedDB via
+                        (scoreview.ts, DOM code from the viewer; drops of palette cells), dragcontroller.ts (the data of
+                        the current drag), session.ts (open/create/save scores), db.ts (IndexedDB via
                         Dexie), settings.ts (localStorage), panels/ (the left dock: PanelDock.tsx tabs + splitter,
-                        panels.ts state, palettes/, layout/, inspector/ UIs; editbridge.ts = all score changes of the
+                        panels.ts state, palettes/ (palette tree stored as PaletteTree XML in localStorage, dialogs),
+                        layout/, inspector/ UIs; editbridge.ts = all score changes of the
                         panels; the Layout panel's commands go through the library's NotationParts port)
 test/                   vitest tests
 ```
