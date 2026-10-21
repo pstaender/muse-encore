@@ -16,6 +16,7 @@ import { qtrc, useLanguage } from './i18n'
 import { appMenu, setRecentScoresProvider, type MenuItem } from './menus/appmenu'
 import { NewScoreDialog } from './newscore/NewScoreDialog'
 import { PanelDock } from './panels/PanelDock'
+import { resetPalettesState } from './panels/palettes/palettestate'
 import { setChrome, useScoreView, viewport, viewShown } from './scoreview'
 import { closeScore, openStored, setView, showDialog, useSession } from './session'
 import { resetSettings } from './settings'
@@ -148,6 +149,7 @@ export function App(): React.JSX.Element {
                         if (ok) {
                             resetSettings()
                             restoreDefaultLayout()
+                            resetPalettesState()
                         }
                     }} />
             )}

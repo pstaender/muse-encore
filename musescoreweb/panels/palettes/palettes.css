@@ -1,0 +1,191 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* the palettes panel (PalettesPanel.qml: 12px side margins; TreePaletteHeader: bold name with the expand arrow;
+   PaletteGridView: cells with grid lines in a 1px stroke frame) */
+
+.palettes-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.palettes-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    padding: 12px 12px 8px;
+}
+
+.palettes-header .add-palettes {
+    flex: 1;
+    height: 30px;
+    border-radius: 3px;
+}
+
+.palettes-header .palette-search { flex: 1; }
+.palettes-header .palette-search input { height: 30px; padding-right: 32px; }
+.palettes-header .palette-search button.icon { position: absolute; right: 0; width: 30px; height: 30px; font-size: 14px; }
+
+.palettes-hint {
+    padding: 4px 20px;
+    color: var(--muted);
+}
+
+.palettes-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 12px;
+}
+
+.palette-tree-item { padding: 0 12px; }
+.palette-tree-item.expanded { padding-bottom: 4px; }
+
+.palette-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 36px;
+    border-radius: 3px;
+    cursor: default;
+    outline: none;
+}
+
+.palette-header:hover { background: var(--hover); }
+.palette-header:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.palette-expand, .palette-menu-button {
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 3px;
+    font-family: "MusescoreIcon";
+    font-size: 16px;
+}
+
+.palette-menu-button { width: 20px; height: 20px; font-size: 14px; visibility: hidden; }
+.palette-header:hover .palette-menu-button, .palette-tree-item.expanded .palette-menu-button,
+.palette-menu-button[aria-expanded="true"] { visibility: visible; }
+.palette-expand:hover, .palette-menu-button:hover { background: var(--active); }
+
+.palette-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-weight: 600;
+}
+
+.palette-container { position: relative; }
+
+.palette-grid {
+    display: grid;
+    border: 1px solid var(--border);
+    overflow: hidden;
+    background: var(--panel);
+}
+
+.palette-cell {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-width: 0;
+    overflow: hidden;
+    color: var(--fg);
+    outline: none;
+    cursor: pointer;
+}
+
+/* the grid lines (PaletteGridLinesCanvas): right and bottom of each cell, cut off by the frame */
+.palette-grid.draw-grid .palette-cell { box-shadow: 1px 0 0 var(--border), 0 1px 0 var(--border); }
+
+.palette-cell:hover { background: var(--hover); }
+.palette-cell.current { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.palette-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; z-index: 1; }
+.palette-cell[aria-disabled="true"] { cursor: default; }
+
+.palette-cell-canvas { display: block; }
+
+.palette-cell-glyph {
+    display: grid;
+    place-items: center;
+    font-family: "MusescoreIcon";
+    line-height: 1;
+}
+
+.palette-empty {
+    grid-column: 1 / -1;
+    padding: 8px;
+    color: var(--muted);
+}
+
+.palette-more {
+    grid-column: span 2;
+    margin: 4px;
+    border-radius: 3px;
+    background: var(--hover);
+    border: 1px solid var(--border);
+    font-size: 12px;
+}
+
+.palette-more:hover { background: var(--active); }
+
+.palette-more-popup {
+    position: relative;
+    z-index: 5;
+    margin-top: 4px;
+    padding: 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.add-palettes-popup {
+    position: absolute;
+    top: 46px;
+    left: 12px;
+    right: 12px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .2);
+}
+
+.add-palettes-title { font-weight: 600; }
+.add-palettes-popup > button.secondary { height: 30px; border-radius: 3px; }
+.add-palettes-empty { color: var(--muted); }
+
+.add-palettes-popup ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.add-palettes-popup li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 30px;
+}
+
+.add-palettes-name { flex: 1; }
+.add-palettes-added { font-weight: 600; }
+.add-palettes-popup li button.icon { width: 30px; height: 30px; background: var(--hover); }
