@@ -12,7 +12,7 @@
 
 import { Brush, BrushStyle, Pen, PenCapStyle, PenJoinStyle, PenStyle } from '../../../framework/draw/types/drawtypes'
 import { Color } from '../../../framework/draw/types/color'
-import { LineF, PointF, RectF, SizeF } from '../../../framework/draw/types/geometry'
+import { LineF, PointF, PolygonF, RectF, SizeF } from '../../../framework/draw/types/geometry'
 import { Font, FontType } from '../../../framework/draw/types/font'
 import { FontMetrics } from '../../../framework/draw/fontmetrics'
 import { FillRule, PainterPath } from '../../../framework/draw/types/painterpath'
@@ -31,6 +31,7 @@ import { ImageType, type Image } from '../../dom/image'
 import type { ChordBracket } from '../../dom/chordbracket'
 import type { Tapping } from '../../dom/tapping'
 import type { SoundFlag } from '../../dom/soundflag'
+import { Bend } from '../../dom/bend'
 import { FiguredBass, FiguredBassContLine, FiguredBassParenthesis, type FiguredBassItem } from '../../dom/figuredbass'
 import { Rest as DrawRest } from '../../dom/rest'
 import type { MMRest } from '../../dom/mmrest'
@@ -245,6 +246,8 @@ export class TDraw {
         case ElementType.CHORD_BRACKET: TDraw.drawChordBracket(item as ChordBracket, painter, opt)
             break
         case ElementType.TAPPING: TDraw.drawTapping(item as Tapping, painter, opt)
+            break
+        case ElementType.BEND: TDraw.drawBend(item as Bend, painter, opt)
             break
         case ElementType.SOUND_FLAG: TDraw.drawSoundFlag(item as SoundFlag, painter, opt)
             break
@@ -1736,6 +1739,95 @@ export class TDraw {
         painter.setFont(item.iconFont())
         painter.setPen(!item.selected() ? item.curColor(opt) : Color.WHITE)
         painter.drawTextInRect(item.ldata().bbox(), AlignmentFlag.AlignCenter, String.fromCharCode(item.iconCode()))
+    }
+
+    static drawBend(item: Bend, painter: Painter, opt: PaintOptions): void {
+        const data = item.ldata()
+
+        const spatium = item.spatium()
+        const lw = item.absoluteFromSpatium(item.lineWidth())
+
+        const pen = new Pen(item.curColor(opt), lw, PenStyle.SolidLine, PenCapStyle.RoundCap, PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(new Brush(item.curColor(opt)))
+
+        const f = item.font(spatium)
+
+        let x = data.noteWidth + spatium * 0.2
+        let y = -spatium * 0.8
+        let x2: number
+        let y2: number
+
+        const aw = item.style().styleMM(Sid.bendArrowWidth)
+        const arrowUp = PolygonF.fromPoints([new PointF(0, 0), new PointF(aw * 0.5, aw), new PointF(-aw * 0.5, aw)])
+        const arrowDown = PolygonF.fromPoints([new PointF(0, 0), new PointF(aw * 0.5, -aw), new PointF(-aw * 0.5, -aw)])
+
+        const A = AlignmentFlag
+        const n = item.points().length
+        for (let pt = 0; pt < n - 1; ++pt) {
+            const pitch = item.points()[pt].pitch
+            if (pt === 0 && pitch) {
+                y2 = -data.notePos.y() - spatium * 2
+                x2 = x
+                painter.drawLine(new LineF(x, y, x2, y2))
+
+                painter.setBrush(item.curColor(opt))
+                painter.drawPolygon(arrowUp.translated(new PointF(x2, y2)))
+
+                const idx = Math.trunc((pitch + 12) / 25)
+                const l = Bend.label[idx]
+                painter.setFont(f)
+                painter.drawTextInRect(new RectF(x2, y2, 0.0, 0.0), A.AlignHCenter | A.AlignBottom | A.TextDontClip, l)
+
+                y = y2
+            }
+            if (pitch === item.points()[pt + 1].pitch) {
+                if (pt === (n - 2)) {
+                    break
+                }
+                x2 = x + spatium
+                y2 = y
+                painter.drawLine(new LineF(x, y, x2, y2))
+            } else if (pitch < item.points()[pt + 1].pitch) {
+                // up
+                x2 = x + spatium * 0.5
+                y2 = -data.notePos.y() - spatium * 2
+                const dx = x2 - x
+                const dy = y2 - y
+
+                const path = new PainterPath()
+                path.moveTo(x, y)
+                path.cubicTo(x + dx / 2, y, x2, y + dy / 4, x2, y2)
+                painter.setBrush(BrushStyle.NoBrush)
+                painter.drawPath(path)
+
+                painter.setBrush(item.curColor(opt))
+                painter.drawPolygon(arrowUp.translated(new PointF(x2, y2)))
+
+                const idx = Math.trunc((item.points()[pt + 1].pitch + 12) / 25)
+                const l = Bend.label[idx]
+                const ty = y2 // - _spatium;
+                painter.setFont(f)
+                painter.drawTextInRect(new RectF(x2, ty, 0.0, 0.0), A.AlignHCenter | A.AlignBottom | A.TextDontClip, l)
+            } else {
+                // down
+                x2 = x + spatium * 0.5
+                y2 = y + spatium * 3
+                const dx = x2 - x
+                const dy = y2 - y
+
+                const path = new PainterPath()
+                path.moveTo(x, y)
+                path.cubicTo(x + dx / 2, y, x2, y + dy / 4, x2, y2)
+                painter.setBrush(BrushStyle.NoBrush)
+                painter.drawPath(path)
+
+                painter.setBrush(item.curColor(opt))
+                painter.drawPolygon(arrowDown.translated(new PointF(x2, y2)))
+            }
+            x = x2
+            y = y2
+        }
     }
 
     static drawTapping(item: Tapping, painter: Painter, opt: PaintOptions): void {

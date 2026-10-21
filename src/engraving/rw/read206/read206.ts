@@ -7,11 +7,12 @@
  *
  * Like C++, the elements that did not change are read with the read400 readers (here: the shared read460
  * readers, which contain the read400/read410 compat code).
- * TODO(port): excerpts (<Score> recursion), Audio, old Bend, note events,
+ * TODO(port): excerpts (<Score> recursion), Audio, note events,
  * MIDI data of instrument channels,
  * tempo map, MIDI mapping, <ticklen> (< 1.12, needs the compat time sig map)
  */
 
+import { Bend } from '../../dom/bend'
 import { SystemDivider } from '../../dom/systemdivider'
 import { Image } from '../../dom/image'
 import { Fraction } from '../../types/fraction'
@@ -720,7 +721,10 @@ export class Read206 {
             TRead.readImage(image, e, ctx)
             note.add(image)
         } else if (tag === 'Bend') {
-            e.skipCurrentElement() // TODO(port): old Bend element
+            const b = new Bend(note)
+            b.setTrack(note.track())
+            TRead.readBend(b, e, ctx)
+            note.add(b)
         } else if (tag === 'NoteDot') {
             const dot = Factory.createItem(ElementType.NOTEDOT, note) as NoteDot
             TRead.readItemPropertiesOnly(dot, e, ctx)

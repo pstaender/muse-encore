@@ -103,6 +103,7 @@ import { ChordBracket } from './chordbracket'
 import { Tapping } from './tapping'
 import { SoundFlag } from './soundflag'
 import { SystemDivider } from './systemdivider'
+import { Bend } from './bend'
 
 type Parent = EngravingObject | null
 
@@ -220,6 +221,7 @@ export class Factory {
         case ElementType.IMAGE: return new Image(itemOrDummy())
         case ElementType.CHORD_BRACKET: return new ChordBracket(chordOrDummy())
         case ElementType.SOUND_FLAG: return new SoundFlag(itemOrDummy())
+        case ElementType.BEND: return new Bend(parent && parent.isNote() ? parent : dummy().note())
         case ElementType.SYSTEM_DIVIDER: return new SystemDivider(parent && parent.isSystem() ? parent : dummy().system())
         case ElementType.TAPPING: return new Tapping(parent && parent.isChordRest() ? parent : dummy().chord())
         default:

@@ -92,6 +92,7 @@ import type { ChordBracket } from '../../dom/chordbracket'
 import type { Tapping } from '../../dom/tapping'
 import type { SoundFlag } from '../../dom/soundflag'
 import type { SystemDivider } from '../../dom/systemdivider'
+import { Bend } from '../../dom/bend'
 import { TappingLayout } from './tappinglayout'
 import {
     FBIDigitNone, FiguredBass, FiguredBassContLine, FiguredBassModifier, FiguredBassParenthesis, type FiguredBassItem,
@@ -349,6 +350,7 @@ export class TLayout {
         case ElementType.TAPPING_HALF_SLUR: break // C++ layoutTappingHalfSlur: nothing to do
         case ElementType.SOUND_FLAG: TLayout.layoutSoundFlag(item as SoundFlag, ctx); break
         case ElementType.SYSTEM_DIVIDER: TLayout.layoutSystemDivider(item as SystemDivider, ctx); break
+        case ElementType.BEND: TLayout.layoutBend(item as Bend, ctx); break
         default:
             if (item.isTextBase()) {
                 // TODO(port): specific text types (staff text, tempo text, rehearsal marks, ...)
@@ -4777,6 +4779,99 @@ export class TLayout {
         let bbox = RectF.fromPoints(ldata.line.p1(), ldata.line.p2()).normalized()
         bbox = bbox.adjusted(-ldata.stemWidth / 2, -ldata.stemWidth / 2, ldata.stemWidth, ldata.stemWidth)
         ldata.setBbox(bbox)
+    }
+
+    static layoutBend(item: Bend, _ctx?: LayoutContext): void {
+        const ldata = item.mutldata()
+        if (!item.explicitParent()) {
+            return // C++ IF_ASSERT_FAILED
+        }
+
+        const spatium = item.spatium()
+        const lw = item.absoluteFromSpatium(item.lineWidth())
+
+        const noteLD = item.note().ldata()
+        const notePos = noteLD.pos()
+        notePos.setY(Math.max(notePos.y(), 0.0))
+
+        ldata.noteWidth = noteLD.bbox().width()
+        ldata.notePos = notePos
+
+        let bb = new RectF()
+
+        const fm = new FontMetrics(item.font(spatium))
+
+        const n = item.points().length
+        let x = ldata.noteWidth
+        let y = -spatium * 0.8
+        let x2 = 0.0
+        let y2 = 0.0
+
+        const aw = spatium * 0.5
+        const arrowUp = PolygonF.fromPoints([new PointF(0, 0), new PointF(aw * 0.5, aw), new PointF(-aw * 0.5, aw)])
+        const arrowDown = PolygonF.fromPoints([new PointF(0, 0), new PointF(aw * 0.5, -aw), new PointF(-aw * 0.5, -aw)])
+
+        for (let pt = 0; pt < n; ++pt) {
+            if (pt === (n - 1)) {
+                break
+            }
+            const pitch = item.points()[pt].pitch
+            if (pt === 0 && pitch) {
+                y2 = -ldata.notePos.y() - spatium * 2
+                x2 = x
+                bb = bb.united(new RectF(x, y, x2 - x, y2 - y))
+
+                bb = bb.united(arrowUp.translated(new PointF(x2, y2 + spatium * 0.2)).boundingRect())
+
+                const idx = Math.trunc((pitch + 12) / 25)
+                const l = Bend.label[idx]
+                bb = bb.united(fm.boundingRect(l))
+                y = y2
+            }
+            if (pitch === item.points()[pt + 1].pitch) {
+                if (pt === (n - 2)) {
+                    break
+                }
+                x2 = x + spatium
+                y2 = y
+                bb = bb.united(new RectF(x, y, x2 - x, y2 - y))
+            } else if (pitch < item.points()[pt + 1].pitch) {
+                // up
+                x2 = x + spatium * 0.5
+                y2 = -ldata.notePos.y() - spatium * 2
+                const dx = x2 - x
+                const dy = y2 - y
+
+                const path = new PainterPath()
+                path.moveTo(x, y)
+                path.cubicTo(x + dx / 2, y, x2, y + dy / 4, x2, y2)
+                bb = bb.united(path.boundingRect())
+                bb = bb.united(arrowUp.translated(new PointF(x2, y2 + spatium * 0.2)).boundingRect())
+
+                const idx = Math.trunc((item.points()[pt + 1].pitch + 12) / 25)
+                const l = Bend.label[idx]
+                bb = bb.united(fm.boundingRect(l))
+            } else {
+                // down
+                x2 = x + spatium * 0.5
+                y2 = y + spatium * 3
+                const dx = x2 - x
+                const dy = y2 - y
+
+                const path = new PainterPath()
+                path.moveTo(x, y)
+                path.cubicTo(x + dx / 2, y, x2, y + dy / 4, x2, y2)
+                bb = bb.united(path.boundingRect())
+
+                bb = bb.united(arrowDown.translated(new PointF(x2, y2 - spatium * 0.2)).boundingRect())
+            }
+            x = x2
+            y = y2
+        }
+        bb.adjust(-lw, -lw, lw, lw)
+
+        ldata.setBbox(bb)
+        ldata.setPos(new PointF())
     }
 
     static layoutSystemDivider(item: SystemDivider, ctx: LayoutContext): void {

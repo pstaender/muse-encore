@@ -74,6 +74,7 @@ import type { Image } from '../../dom/image'
 import type { ChordBracket } from '../../dom/chordbracket'
 import type { Tapping, TappingHalfSlur } from '../../dom/tapping'
 import type { SoundFlag } from '../../dom/soundflag'
+import type { Bend } from '../../dom/bend'
 import { SystemDividerType, type SystemDivider } from '../../dom/systemdivider'
 import type { System } from '../../dom/system'
 import { FBIDigitNone, FiguredBassContLine, FiguredBassModifier, type FiguredBass, type FiguredBassItem } from '../../dom/figuredbass'
@@ -243,6 +244,7 @@ export class TWrite {
         case ElementType.TAPPING: TWrite.writeTapping(item as Tapping, xml, ctx); break
         case ElementType.SOUND_FLAG: TWrite.writeSoundFlag(item as SoundFlag, xml, ctx); break
         case ElementType.SYSTEM_DIVIDER: TWrite.writeSystemDivider(item as SystemDivider, xml, ctx); break
+        case ElementType.BEND: TWrite.writeBend(item as Bend, xml, ctx); break
         default:
             // TODO(port): element type not ported yet (C++: UNREACHABLE)
             break
@@ -509,6 +511,17 @@ export class TWrite {
         xml.startElement(item)
         TWrite.writeProperty(item, xml, Pid.ARPEGGIO_TYPE)
         TWrite.writeArpeggioProperties(item, xml, ctx)
+        xml.endElement()
+    }
+
+    static writeBend(item: Bend, xml: XmlWriter, ctx: WriteContext): void {
+        xml.startElement(item)
+        for (const v of item.points()) {
+            xml.tag('point', [['time', v.time], ['pitch', v.pitch], ['vibrato', v.vibrato ? 1 : 0]])
+        }
+        TWrite.writeStyledProperties(item, xml)
+        TWrite.writeProperty(item, xml, Pid.PLAY)
+        TWrite.writeItemProperties(item, xml, ctx)
         xml.endElement()
     }
 

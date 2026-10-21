@@ -98,6 +98,8 @@ import { ChordBracket } from '../../dom/chordbracket'
 import { Tapping, TappingHalfSlur } from '../../dom/tapping'
 import { SoundFlag } from '../../dom/soundflag'
 import { SystemDivider, SystemDividerType } from '../../dom/systemdivider'
+import { Bend } from '../../dom/bend'
+import { PitchValue } from '../../types/pitchvalue'
 import type { Capo } from '../../dom/capo'
 import type { StringTunings } from '../../dom/stringtunings'
 import type { HarpPedalDiagram, HarpStringType, PedalPosition } from '../../dom/harppedaldiagram'
@@ -330,6 +332,7 @@ export class TRead {
         case ElementType.TAPPING: TRead.readTapping(item as Tapping, xml, ctx); break
         case ElementType.SOUND_FLAG: TRead.readSoundFlag(item as SoundFlag, xml, ctx); break
         case ElementType.SYSTEM_DIVIDER: TRead.readSystemDivider(item as SystemDivider, xml, ctx); break
+        case ElementType.BEND: TRead.readBend(item as Bend, xml, ctx); break
         default:
             // TODO(port): element type not ported yet
             xml.skipCurrentElement()
@@ -3047,6 +3050,26 @@ export class TRead {
         CompatUtils.convertPre470ImageSize(img)
     }
 
+    static readBend(b: Bend, e: XmlReader, ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+
+            if (TRead.readStyledProperty(b, tag, e, ctx)) {
+            } else if (tag === 'point') {
+                const pv = new PitchValue()
+                pv.time = e.intAttribute('time')
+                pv.pitch = e.intAttribute('pitch')
+                pv.vibrato = e.intAttribute('vibrato') !== 0
+                b.addPoint(pv)
+                e.skipCurrentElement()
+            } else if (tag === 'play') {
+                b.setPlayBend(e.readBool())
+            } else if (!TRead.readItemProperties(b, e, ctx)) {
+                e.unknown()
+            }
+        }
+    }
+
     static readSystemDivider(d: SystemDivider, e: XmlReader, ctx: ReadContext): void {
         const type = e.attribute('type') === 'left' ? SystemDividerType.LEFT : SystemDividerType.RIGHT
         d.setDividerType(type)
@@ -3480,8 +3503,13 @@ export class TRead {
             image.setTrack(n.track())
             TRead.readImage(image, e, ctx)
             n.add(image)
-        } else if (tag === 'Bend' || tag === 'Events' || tag === 'ChordLine') {
-            // TODO(port): bends, play events
+        } else if (tag === 'Bend') {
+            const b = new Bend(n)
+            b.setTrack(n.track())
+            TRead.readBend(b, e, ctx)
+            n.add(b)
+        } else if (tag === 'Events' || tag === 'ChordLine') {
+            // TODO(port): play events
             e.skipCurrentElement()
         } else if (tag === 'offset') {
             TRead.readItemProperties(n, e, ctx)
