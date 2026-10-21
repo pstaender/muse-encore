@@ -30,6 +30,7 @@ import type { KeySig } from './keysig'
 import type { InstrumentChange } from './instrchange'
 import type { TimeSig } from './timesig'
 import type { Spanner } from './spanner'
+import { moveDownWhenAddingStaves } from './utils'
 
 export enum SegmentType {
     Invalid = 0x0,
@@ -520,6 +521,52 @@ export class Segment extends EngravingItem {
             this.m_preAppendedItems.splice(track, 0, null)
         }
         this.m_shapes.splice(staff, 0, new Shape())
+
+        for (const e of this.m_annotations) {
+            if (moveDownWhenAddingStaves(e, staff)) {
+                e.setTrack(e.track() + VOICES)
+            }
+        }
+        this.fixStaffIdx()
+    }
+
+    removeStaff(staff: staff_idx_t): void {
+        const track = staff * VOICES
+        this.m_elist.splice(track, VOICES)
+        this.m_preAppendedItems.splice(track, VOICES)
+        this.m_shapes.splice(staff, 1)
+
+        for (const e of this.m_annotations) {
+            const staffIdx = e.staffIdx()
+            if (staffIdx > staff) {
+                e.setTrack(e.track() - VOICES)
+            }
+        }
+
+        this.fixStaffIdx()
+    }
+
+    sortStaves(dst: readonly staff_idx_t[]): void {
+        const dl: (EngravingItem | null)[] = []
+
+        for (let i = 0; i < dst.length; ++i) {
+            const startTrack = dst[i] * VOICES
+            const endTrack = startTrack + VOICES
+            for (let k = startTrack; k < endTrack; ++k) {
+                dl.push(this.m_elist[k])
+            }
+        }
+        this.m_elist = dl
+        const map = new Map<staff_idx_t, staff_idx_t>()
+        for (let k = 0; k < dst.length; ++k) {
+            map.set(dst[k], k)
+        }
+        for (const e of this.m_annotations) {
+            if (e.isTopSystemObject()) {
+                continue
+            }
+            e.setTrack((map.get(e.staffIdx()) ?? 0) * VOICES + e.voice())
+        }
         this.fixStaffIdx()
     }
 
