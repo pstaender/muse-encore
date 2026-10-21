@@ -1,0 +1,276 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* the Properties panel (MuseScore's InspectorForm: 12px margins and spacing, 30px controls, bold section titles) */
+
+.inspector {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px 0;
+    background: var(--panel);
+    font-size: 12px;
+}
+
+.insp-section {
+    padding: 0 12px;
+}
+
+.insp-section + .insp-section {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+
+.insp-section-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    margin-inline-start: -5px;
+    padding: 2px 0;
+    border-radius: 3px;
+    text-align: start;
+}
+
+.insp-section-header:focus-visible, .insp-expand:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.insp-section-title { flex: 1; font-weight: 600; font-size: 13px; }
+
+.insp-arrow {
+    display: inline-grid;
+    place-items: center;
+    width: 16px;
+    font-family: "MusescoreIcon";
+    font-size: 16px;
+    transition: transform 50ms ease-out;
+}
+
+.insp-arrow.collapsed { transform: rotate(-90deg); }
+[dir="rtl"] .insp-arrow.collapsed { transform: rotate(90deg); }
+
+.insp-section-content { margin-top: 12px; }
+
+.insp-column {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.insp-column.disabled, .insp-property.disabled, .insp-checkbox.disabled { opacity: .5; }
+
+.insp-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+    min-width: 0;
+}
+
+.insp-row > * { flex: 1; min-width: 0; }
+
+.insp-grid2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px 4px;
+    align-items: center;
+}
+
+.insp-separator {
+    height: 1px;
+    margin: 0 -12px;
+    background: var(--border);
+}
+
+/* InspectorPropertyView: title with the reset button, the control below */
+.insp-property {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.insp-property-title {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-height: 20px;
+}
+
+.insp-property-title > :first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+
+.insp-row.insp-untitled { align-items: center; }
+.insp-row.insp-untitled > .insp-reset { flex: 0 0 20px; }
+
+.insp-reset {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    font-family: "MusescoreIcon";
+    font-size: 14px;
+}
+
+.insp-reset:disabled { opacity: .35; cursor: default; }
+.insp-reset:not(:disabled):hover { background: var(--hover); }
+
+/* CheckBox */
+.insp-checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 20px;
+    min-width: 0;
+}
+
+.insp-checkbox input { width: 16px; height: 16px; margin: 0; flex-shrink: 0; }
+.insp-checkbox span { overflow-wrap: anywhere; }
+
+/* the controls: spin boxes, dropdowns, text fields, flat buttons */
+.insp-spinbox, .insp-dropdown, .insp-text, .insp-flat-button, .insp-radio-group {
+    height: 30px;
+    border-radius: 3px;
+    background: var(--hover);
+}
+
+.insp-spinbox {
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    min-width: 0;
+}
+
+.insp-spinbox:focus-within { border-color: var(--accent); }
+
+.insp-spinbox input {
+    flex: 1;
+    min-width: 0;
+    width: 100%;
+    padding: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    outline: none;
+}
+
+.insp-unit { color: var(--muted); margin-inline-start: 4px; }
+
+.insp-dropdown, .insp-text {
+    width: 100%;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    color: inherit;
+    font: inherit;
+}
+
+.insp-dropdown:focus-visible, .insp-text:focus { border-color: var(--accent); outline: none; }
+
+.insp-flat-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 0 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.insp-flat-button:not(:disabled):hover { background: var(--active); }
+.insp-flat-button.accent, .insp-flat-button[aria-expanded="true"] { background: var(--selected); }
+.insp-flat-button:disabled { opacity: .5; cursor: default; }
+.insp-flat-button:focus-visible, .insp-radio:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.insp-button-icon { font-family: "MusescoreIcon"; font-size: 16px; }
+
+/* FlatRadioButtonGroupPropertyView */
+.insp-radio-group {
+    display: flex;
+    min-width: 0;
+}
+
+.insp-radio {
+    flex: 1;
+    min-width: 0;
+    padding: 0 4px;
+    border-radius: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.insp-radio.insp-icon { font-family: "MusescoreIcon"; font-size: 16px; }
+.insp-radio:not(:disabled):hover { background: var(--active); }
+.insp-radio[aria-checked="true"], .insp-radio[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+.insp-color {
+    width: 100%;
+    height: 30px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--hover);
+}
+
+/* without editing the controls only show the values: disabled, but not faded */
+.inspector.readonly .insp-spinbox, .inspector.readonly .insp-radio:disabled, .inspector.readonly .insp-dropdown:disabled,
+.inspector.readonly .insp-text:disabled, .inspector.readonly .insp-color:disabled, .inspector.readonly .insp-checkbox input:disabled {
+    opacity: 1;
+    color: inherit;
+    cursor: default;
+}
+
+.inspector.readonly .insp-spinbox input:disabled { color: inherit; -webkit-text-fill-color: currentColor; }
+
+/* InspectorTabBar */
+.insp-tabbar {
+    display: flex;
+    gap: 16px;
+    border-bottom: 1px solid var(--border);
+}
+
+.insp-tabbar [role="tab"] {
+    padding: 4px 0 6px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    color: var(--muted);
+}
+
+.insp-tabbar [role="tab"][aria-selected="true"] { color: var(--fg); font-weight: 600; border-bottom-color: var(--accent); }
+.insp-tabbar [role="tab"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* "Show more" */
+.insp-showmore { display: flex; flex-direction: column; gap: 12px; }
+
+.insp-expand {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-inline-start: -5px;
+    font-weight: 600;
+    border-radius: 3px;
+}
+
+.insp-expand[aria-expanded="false"] .insp-arrow { transform: rotate(-90deg); }
+
+/* PopupViewButton: the popup below the button, as wide as the section */
+.insp-popup-button { min-width: 0; }
+.insp-section-content { position: relative; }
+
+/* below its button (static position), as wide as the section; over the following content like a popup */
+.insp-popup {
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    margin-top: 8px;
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--panel);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, .15);
+}
+
+.insp-hint { margin: 0; color: var(--muted); }

@@ -905,6 +905,7 @@ export class Score extends EngravingObject {
     parts(): Part[] { return this.m_parts }
     appendPart(part: Part): void {
         part.setScore(this)
+        this.assignIdIfNeed(part)
         this.m_parts.push(part)
     }
 
@@ -1159,6 +1160,7 @@ export class Score extends EngravingObject {
     }
 
     appendStaff(staff: Staff): void {
+        this.assignIdIfNeed(staff)
         staff.part().appendStaff(staff)
         this.m_staves.push(staff)
     }

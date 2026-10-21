@@ -155,6 +155,7 @@ export class HammerOnPullOffSegment extends SlurSegment {
     }
 
     hopoText(): readonly HammerOnPullOffText[] { return this.m_hopoText }
+    addHopoText(t: HammerOnPullOffText): void { this.m_hopoText.push(t) }
 
     isValid(): boolean {
         for (const hopoText of this.m_hopoText) {

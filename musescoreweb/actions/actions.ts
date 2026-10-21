@@ -175,7 +175,9 @@ function outsideNotationContext(t: HTMLElement | null, combo: KeyCombo): boolean
 /** the action whose shortcut the event is, if it has a handler; text fields keep their keys */
 export function actionForEvent(e: KeyboardEvent): string | null {
     const t = e.target as HTMLElement | null
-    const inText = !!t && (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || t.isContentEditable)
+    // the panels (palette grid, layout tree, properties) handle their own keys like text fields
+    const inText = !!t && (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || t.isContentEditable
+        || !!t.closest?.('.panel-dock'))
     for (const { code, combo } of shortcutIndex()) {
         if (!handlers.has(code) || !matches(combo, e)) {
             continue

@@ -1,238 +1,111 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Palette elements (NotationInteraction::applyPaletteElement and the EngravingItem::drop functions): clefs, key and
-// time signatures, barlines, layout breaks, dynamics, articulations, accidentals, noteheads; every change is undone
-// and the rendering must then be the same as before.
-import { createHash } from 'node:crypto'
+// The palettes (src/palette): MuseScore's default and master palette trees, and the cell icons drawn with the
+// single renderer (every cell of an element draws pixels).
+import { createCanvas } from '@napi-rs/canvas'
 import { beforeAll, describe, expect, it } from 'vitest'
-import {
-    applyPaletteElement, createPaletteElement, createScore, defaultNewScoreOptions, drawPageSvg, paletteElementName,
-    type MasterScore, type PaletteElementSpec,
-} from '../src/index'
-import { BarLineType, ClefType, NoteHeadGroup } from '../src/engraving/types/types'
-import { SegmentType } from '../src/engraving/dom/segment'
-import { SelectType } from '../src/engraving/dom/select'
-import { SymId } from '../src/engraving/types/symid'
-import { AccidentalType } from '../src/engraving/dom/accidentaldata'
-import { DynamicType } from '../src/engraving/types/types'
-import type { Chord } from '../src/engraving/dom/chord'
-import type { Clef } from '../src/engraving/dom/clef'
-import type { Dynamic } from '../src/engraving/dom/dynamic'
-import type { EngravingItem } from '../src/engraving/dom/engravingitem'
-import type { KeySig } from '../src/engraving/dom/keysig'
-import type { Measure } from '../src/engraving/dom/measure'
-import type { Note } from '../src/engraving/dom/note'
-import type { TimeSig } from '../src/engraving/dom/timesig'
-import { VTEST, hasSubmodule, initFonts, openScore } from './helpers'
+import { defaultPalettes, drawPaletteCell, masterPalettes, morePaletteCells, paletteCellElement, type PaletteCellInfo } from '../src/index'
+import { initFonts } from './helpers'
 
-function scoreHash(score: MasterScore): string {
-    const h = createHash('sha256')
-    for (let i = 0; i < score.npages(); ++i) {
-        h.update(drawPageSvg(score, i))
-    }
-    return h.digest('hex')
-}
-
-function measure(score: MasterScore, idx: number): Measure {
-    let m = score.firstMeasure()!
-    for (let i = 0; i < idx; ++i) {
-        m = m.nextMeasure()!
-    }
-    return m
-}
-
-function firstCR(m: Measure, track = 0): EngravingItem {
-    return m.first(SegmentType.ChordRest)!.element(track)!
-}
-
-/** applies the element to the current selection, checks the result, undoes and compares with the original */
-function applyAndUndo(score: MasterScore, spec: PaletteElementSpec, check: () => void, modifiers = {}): void {
-    const before = scoreHash(score)
-    const element = createPaletteElement(score, spec)
-    expect(element).not.toBeNull()
-    expect(applyPaletteElement(score, element!, modifiers)).toBe(true)
-    check()
-    expect(score.undoStack().canUndo()).toBe(true)
-    score.undoRedo(true)
-    expect(scoreHash(score)).toBe(before)
-}
-
-describe('palette elements in a new score', () => {
-    let score: MasterScore
-
-    beforeAll(async () => {
-        await initFonts()
-        score = createScore({ ...defaultNewScoreOptions(), instruments: [{ id: 'piano' }], measures: 8 })
-    })
-
-    it('creates palette elements with names', () => {
-        const clef = createPaletteElement(score, { type: 'Clef', clefType: 'F' })
-        expect((clef as unknown as Clef).clefType()).toBe(ClefType.F)
-        expect(paletteElementName(clef!)).toBeTruthy()
-        expect(createPaletteElement(score, { type: 'Articulation', symbol: 'noSuchSymbol' })).toBeNull()
-    })
-
-    it('does nothing without a selection', () => {
-        score.deselectAll()
-        expect(applyPaletteElement(score, createPaletteElement(score, { type: 'Clef', clefType: 'F' })!)).toBe(false)
-    })
-
-    it('drops a clef on a measure (range selection) and on a rest', () => {
-        const m = measure(score, 2)
-        score.select(m, SelectType.SINGLE, 0)
-        applyAndUndo(score, { type: 'Clef', clefType: 'F' }, () => {
-            // a clef change at the start of a measure is placed at the end of the previous measure
-            const staff = score.staff(0)!
-            expect(staff.clef(m.tick())).toBe(ClefType.F)
-            // restored after the measure (range selection of one measure: not restored)
-        })
-        const rest = firstCR(measure(score, 1))
-        score.select(rest)
-        applyAndUndo(score, { type: 'Clef', clefType: 'C3' }, () => {
-            expect(score.staff(0)!.clef(rest.tick())).toBe(ClefType.C3)
-        })
-    })
-
-    it('drops a key signature on a measure: all staves, ctrl: only one staff', () => {
-        const m = measure(score, 3)
-        score.select(m, SelectType.SINGLE, 0)
-        applyAndUndo(score, { type: 'KeySig', key: 2 }, () => {
-            expect(score.staff(0)!.key(m.tick())).toBe(2)
-            expect(score.staff(1)!.key(m.tick())).toBe(2)
-            const ks = m.findSegment(SegmentType.KeySig, m.tick())!.element(0) as KeySig
-            expect(ks.isKeySig()).toBe(true)
-        })
-        score.select(m, SelectType.SINGLE, 0)
-        applyAndUndo(score, { type: 'KeySig', key: -3 }, () => {
-            expect(score.staff(0)!.key(m.tick())).toBe(-3)
-            expect(score.staff(1)!.key(m.tick())).toBe(0)
-        }, { ctrl: true })
-    })
-
-    it('replaces a time signature by one of the same duration (common time)', () => {
-        const m = measure(score, 0)
-        score.select(m, SelectType.SINGLE, 0)
-        applyAndUndo(score, { type: 'TimeSig', numerator: 4, denominator: 4, timeSigType: 'common' }, () => {
-            const ts = m.findSegment(SegmentType.TimeSig, m.tick())!.element(0) as TimeSig
-            expect(ts.timeSigType()).toBe(1 /* TimeSigType::FOUR_FOUR */)
-        })
-    })
-
-    it('drops barlines on a measure', () => {
-        const m = measure(score, 1)
-        score.select(m, SelectType.SINGLE, 0)
-        applyAndUndo(score, { type: 'BarLine', barLineType: 'double' }, () => {
-            expect(m.endBarLineType()).toBe(BarLineType.DOUBLE)
-        })
-        score.select(m, SelectType.SINGLE, 0)
-        applyAndUndo(score, { type: 'BarLine', barLineType: 'end-repeat' }, () => {
-            expect(m.repeatEnd()).toBe(true)
-        })
-        score.select(measure(score, 2), SelectType.SINGLE, 0)
-        applyAndUndo(score, { type: 'BarLine', barLineType: 'start-repeat' }, () => {
-            expect(measure(score, 2).repeatStart()).toBe(true)
-        })
-    })
-
-    it('toggles layout breaks', () => {
-        const m = measure(score, 1)
-        score.select(firstCR(m))
-        applyAndUndo(score, { type: 'LayoutBreak', breakType: 'line' }, () => {
-            expect(m.lineBreak()).toBe(true)
-            expect(m.el().some(e => e.isLayoutBreak())).toBe(true)
-            // the second system starts with measure 3
-            expect(measure(score, 2).system()).not.toBe(m.system())
-        })
-        score.select(m, SelectType.SINGLE, 0)
-        applyAndUndo(score, { type: 'LayoutBreak', breakType: 'page' }, () => {
-            expect(m.pageBreak()).toBe(true)
-            expect(score.npages()).toBe(2)
-        })
-    })
-
-    it('adds a dynamic to a rest and changes an existing dynamic', () => {
-        const rest = firstCR(measure(score, 4))
-        score.select(rest)
-        const before = scoreHash(score)
-        applyPaletteElement(score, createPaletteElement(score, { type: 'Dynamic', dynamic: 'mf' })!)
-        const seg = measure(score, 4).first(SegmentType.ChordRest)!
-        const dyn = seg.annotations().find(e => e.isDynamic()) as Dynamic
-        expect(dyn.dynamicType()).toBe(DynamicType.MF)
-        // the new dynamic is selected: drop another one on it
-        expect(score.selection().element()).toBe(dyn)
-        applyPaletteElement(score, createPaletteElement(score, { type: 'Dynamic', dynamic: 'pp' })!)
-        expect(dyn.dynamicType()).toBe(DynamicType.PP)
-        score.undoRedo(true)
-        expect(dyn.dynamicType()).toBe(DynamicType.MF)
-        score.undoRedo(true)
-        expect(seg.annotations().some(e => e.isDynamic())).toBe(false)
-        expect(scoreHash(score)).toBe(before)
-    })
-
-    it('adds dynamics, staff text and fermatas to every chord/rest of a range', () => {
-        const m = measure(score, 5)
-        score.select(m, SelectType.SINGLE, 0)
-        applyAndUndo(score, { type: 'StaffText', text: 'dolce' }, () => {
-            // texts only at the start of the range
-            const texts = m.first(SegmentType.ChordRest)!.annotations().filter(e => e.isStaffText())
-            expect(texts.length).toBe(1)
-        })
-        score.select(m, SelectType.SINGLE, 0)
-        applyAndUndo(score, { type: 'Fermata', symbol: 'fermataAbove' }, () => {
-            expect(m.first(SegmentType.ChordRest)!.annotations().some(e => e.isFermata())).toBe(true)
-        })
-        score.select(m, SelectType.SINGLE, 0)
-        applyAndUndo(score, { type: 'Hairpin', hairpinType: 'crescendo' }, () => {
-            expect(score.spanner().some(s => s.isHairpin())).toBe(true)
-        })
-    })
+beforeAll(async () => {
+    await initFonts()
 })
 
-describe.runIf(hasSubmodule)('palette elements on notes', () => {
-    let score: MasterScore
-    let chord: Chord
+function inkPixels(cell: PaletteCellInfo, width: number, height: number, mag: number): number {
+    const dpr = 2
+    const c = createCanvas(width * dpr, height * dpr)
+    drawPaletteCell(cell.id, c.getContext('2d') as never, { width, height, dpr, extraMag: mag })
+    const data = c.getContext('2d').getImageData(0, 0, width * dpr, height * dpr).data
+    let n = 0
+    for (let i = 3; i < data.length; i += 4) {
+        if (data[i] > 64) {
+            n++
+        }
+    }
+    return n
+}
 
-    beforeAll(async () => {
-        score = await openScore(`${VTEST}/beams-1.mscz`)
-        for (let s = score.firstMeasure()!.first(SegmentType.ChordRest); s && !chord; s = s.next1(SegmentType.ChordRest)) {
-            const e = s.element(0)
-            if (e?.isChord()) {
-                chord = e as unknown as Chord
+describe('palettes', () => {
+    it('builds the default palette tree like MuseScore', () => {
+        const palettes = defaultPalettes()
+        expect(palettes.map(p => p.id)).toEqual([
+            'Clef', 'KeySig', 'TimeSig', 'Tempo', 'Pitch', 'Accidental', 'Dynamic', 'Articulation', 'Text', 'Keyboard', 'Repeat',
+            'BarLine', 'Layout', 'Bracket', 'Ornament', 'Breath', 'GraceNote', 'NoteHead', 'Arpeggio', 'Tremolo', 'Harp', 'Guitar',
+            'Fingering', 'FretboardDiagram', 'Accordion', 'BagpipeEmbellishment', 'Handbells', 'Beam', 'Line',
+        ])
+        const clefs = palettes[0]
+        expect(clefs.name).toBe('Clefs')
+        expect(clefs.visible).toBe(true)
+        expect([clefs.gridWidth, clefs.gridHeight, clefs.mag]).toEqual([36, 55, 0.8])
+        expect(clefs.cells.map(c => c.name)).toEqual([
+            'Treble clef', 'Treble clef 8va alta', 'Treble clef 15ma alta', 'Treble clef 8va bassa', 'Alto clef', 'Tenor clef',
+            'Bass clef', 'Bass clef 8va alta', 'Bass clef 8va bassa', 'Percussion', 'Tablature', 'Tablature 4 lines',
+        ])
+        expect(clefs.cells.every(c => c.drawStaff)).toBe(true)
+        // hidden by default ("Add palettes")
+        expect(palettes.filter(p => !p.visible).map(p => p.id)).toContain('GraceNote')
+
+        const keySigs = palettes[1].cells.map(c => c.name)
+        expect(keySigs[0]).toBe('G major / E minor')
+        expect(keySigs.at(-1)).toBe('Open / Atonal')
+
+        const fingerings = palettes.find(p => p.id === 'Fingering')!.cells
+        expect(fingerings[0].name).toBe('Fingering 0')
+
+        const grace = palettes.find(p => p.id === 'GraceNote')!.cells
+        expect(grace.map(c => c.action)).toEqual(['acciaccatura', 'appoggiatura', 'grace4', 'grace16', 'grace32', 'grace8after',
+            'grace16after', 'grace32after'])
+        expect(palettes.find(p => p.id === 'Layout')!.cells[0].icon).toBe(0xF483)
+    })
+
+    it('draws every cell of an element', () => {
+        const empty: string[] = []
+        for (const tree of [defaultPalettes(), masterPalettes()]) {
+            for (const p of tree) {
+                for (const cell of p.cells) {
+                    if (cell.action || cell.icon) {
+                        continue
+                    }
+                    if (inkPixels(cell, p.gridWidth, p.gridHeight, p.mag) < 4) {
+                        empty.push(`${p.id}: ${cell.name}`)
+                    }
+                }
             }
         }
+        expect(empty).toEqual([])
     })
 
-    it('adds and toggles an articulation', () => {
-        score.select(chord.upNote())
-        applyAndUndo(score, { type: 'Articulation', symbol: 'articStaccatoAbove' }, () => {
-            // the layout flips the symbol to the side of the stem
-            expect(chord.articulations().some(a => a.symId() === SymId.articStaccatoAbove || a.symId() === SymId.articStaccatoBelow)).toBe(true)
-        })
+    it('centers elements in the cell', () => {
+        const dyn = defaultPalettes().find(p => p.id === 'Dynamic')!
+        const cell = dyn.cells.find(c => c.name.startsWith('mf '))!
+        const dpr = 1
+        const w = dyn.gridWidth
+        const h = dyn.gridHeight
+        const c = createCanvas(w, h)
+        drawPaletteCell(cell.id, c.getContext('2d') as never, { width: w, height: h, dpr, extraMag: dyn.mag })
+        const data = c.getContext('2d').getImageData(0, 0, w, h).data
+        let minX = w
+        let maxX = 0
+        let minY = h
+        let maxY = 0
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                if (data[(y * w + x) * 4 + 3] > 64) {
+                    minX = Math.min(minX, x)
+                    maxX = Math.max(maxX, x)
+                    minY = Math.min(minY, y)
+                    maxY = Math.max(maxY, y)
+                }
+            }
+        }
+        expect(Math.abs((minX + maxX) / 2 - w / 2)).toBeLessThan(3)
+        expect(Math.abs((minY + maxY) / 2 - h / 2)).toBeLessThan(4)
     })
 
-    it('changes the accidental of a note', () => {
-        const note: Note = chord.upNote()
-        const pitch = note.pitch()
-        score.select(note)
-        applyAndUndo(score, { type: 'Accidental', accidental: 'accidentalSharp' }, () => {
-            expect(note.accidentalType()).toBe(AccidentalType.SHARP)
-            expect(note.pitch()).not.toBe(pitch)
-        })
-        expect(note.pitch()).toBe(pitch)
-    })
-
-    it('changes the notehead of a note', () => {
-        const note: Note = chord.upNote()
-        score.select(note)
-        applyAndUndo(score, { type: 'NoteHead', group: 'cross' }, () => {
-            expect(note.headGroup()).toBe(NoteHeadGroup.HEAD_CROSS)
-        })
-        expect(note.headGroup()).toBe(NoteHeadGroup.HEAD_NORMAL)
-    })
-
-    it('adds a dynamic below a note', () => {
-        score.select(chord.upNote())
-        applyAndUndo(score, { type: 'Dynamic', dynamic: 'f' }, () => {
-            expect(chord.segment().annotations().some(e => e.isDynamic())).toBe(true)
-        })
+    it('offers the master palette elements under "More"', () => {
+        const more = morePaletteCells('Clef').map(c => c.name)
+        expect(more).toContain('Treble clef optional 8va bassa')
+        expect(more).not.toContain('Treble clef')
+        const cell = defaultPalettes()[0].cells[0]
+        expect(paletteCellElement(cell.id)?.typeName()).toBe('Clef')
     })
 })

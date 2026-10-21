@@ -32,6 +32,14 @@ export interface AppSettings {
     }
     /** the items of the note input toolbar (MuseScore's ToolConfig "noteInput"); null = the default */
     noteInputBar: { action: string; show: boolean }[] | null
+    /** the panels left of the score (panels/panels.ts checks the ids): the open ones, the current tab, the width */
+    panels: {
+        open: string[]
+        current: string
+        width: number
+    }
+    /** the state of the palettes panel (palettes/ checks it); null = MuseScore's default palettes */
+    palettes: Record<string, unknown> | null
 }
 
 const DEFAULTS: AppSettings = {
@@ -41,6 +49,8 @@ const DEFAULTS: AppSettings = {
     ui: { language: 'system' },
     layout: { docks: {}, hidden: [], statusBar: true },
     noteInputBar: null,
+    panels: { open: ['palettesPanel', 'instrumentsPanel', 'inspectorPanel'], current: 'palettesPanel', width: 300 },
+    palettes: null,
 }
 
 const SETTINGS_KEY = 'musescoreweb:settings'
@@ -73,6 +83,12 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
         noteInputBar: Array.isArray(s.noteInputBar)
             && s.noteInputBar.every(i => typeof i?.action === 'string' && typeof i?.show === 'boolean')
             ? s.noteInputBar as AppSettings['noteInputBar'] : null,
+        panels: {
+            open: isStringArray(s.panels?.open) ? s.panels.open : DEFAULTS.panels.open,
+            current: typeof s.panels?.current === 'string' ? s.panels.current : DEFAULTS.panels.current,
+            width: typeof s.panels?.width === 'number' && Number.isFinite(s.panels.width) ? s.panels.width : DEFAULTS.panels.width,
+        },
+        palettes: s.palettes && typeof s.palettes === 'object' && !Array.isArray(s.palettes) ? s.palettes as Record<string, unknown> : null,
     }
 }
 

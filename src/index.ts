@@ -34,6 +34,8 @@ import { NotationViewInputController } from './notationscene/notationviewinputco
 import { NotationActionController } from './notationscene/notationactioncontroller'
 import { EngravingConfiguration } from './engraving/internal/engravingconfiguration'
 import { Pid, PropertyFlags, propertyId, propertyName, propertyType, propertyUserName } from './engraving/dom/property'
+import { TranslatableString } from './framework/global/types/translatablestring'
+import type { InspectorChange } from './inspector/abstractinspectormodel'
 import { P_TYPE, propertyValueEquals, type PropertyValue } from './engraving/types/propertyvalue'
 import { Spatium } from './engraving/types/dimension'
 import { Color } from './framework/draw/types/color'
@@ -61,6 +63,10 @@ export type { MasterScore } from './engraving/dom/masterscore'
 export type { Score } from './engraving/dom/score'
 export type { Canvas2D } from './framework/draw/canvaspaintprovider'
 export { SvgGlyphDefs } from './framework/draw/svgpaintprovider'
+// the editor's panels: palettes, layout panel, properties (inspector)
+export * from './palette/api'
+export * from './instrumentsscene/api'
+export * from './inspector/api'
 export {
     setFallbackFontEngine, createCanvasFallbackFontEngine, type FallbackFontEngine, type FallbackFont,
 } from './framework/draw/internal/fontprovider'
@@ -974,6 +980,32 @@ export function resetSelectionProperty(score: MasterScore, name: string): boolea
         return false
     }
     notationState(score).interaction.resetProperty(items, pid)
+    return true
+}
+
+/**
+ * Applies the changes the Properties panel computed (inspectorPropertyChanges, inspectorPropertyResets,
+ * inspectorArrangeChanges) as one undoable command, like AbstractInspectorModel::setPropertyValue /
+ * onPropertyValueReset ("Edit %1" / "Reset %1" with the first change's property). Returns false if nothing was applied.
+ */
+export function applyInspectorChanges(score: MasterScore, changes: readonly InspectorChange[]): boolean {
+    const supported = changes.filter(c => !c.command || c.command === 'changeVisible')
+    if (!supported.length) {
+        return false // TODO(port): 'addParentheses' / 'removeParentheses' (Score::cmdAddParenthesesToNotes etc.)
+    }
+    const interaction = notationState(score).interaction
+    const reset = supported.every(c => c.reset)
+    interaction.startEdit(new TranslatableString('undoableAction', reset ? 'Reset %1' : 'Edit %1').arg(propertyUserName(supported[0].pid)))
+    for (const c of supported) {
+        if (c.command === 'changeVisible') {
+            score.undoChangeVisible(c.item, !!c.value)
+        } else if (c.reset) {
+            c.item.undoResetProperty(c.pid)
+        } else {
+            c.item.undoChangeProperty(c.pid, c.value, c.flags ?? PropertyFlags.NOSTYLE)
+        }
+    }
+    interaction.apply()
     return true
 }
 

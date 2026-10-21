@@ -309,6 +309,145 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 180000)
 
+    it('shows the panels Palettes, Layout and Properties, toggled by the View menu and shortcuts', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const tabs = (): Promise<string[]> => page.$$eval('.panel-tabs [role="tab"]', t => t.map(x => x.textContent ?? ''))
+        const currentTab = (): Promise<string | null> => page.textContent('.panel-tabs [role="tab"][aria-selected="true"]')
+        expect(await tabs()).toEqual(['Palettes', 'Layout', 'Properties'])
+        expect(await currentTab()).toBe('Palettes')
+
+        // View > Properties hides it (checked menu item), F9 hides the palettes, F7 the layout panel
+        await page.click('.menubar > button:has-text("View")')
+        expect(await page.getAttribute('.menu-item:has-text("Properties")', 'aria-checked')).toBe('true')
+        await page.click('.menu-item:has-text("Properties")')
+        await page.waitForFunction(() => document.querySelectorAll('.panel-tabs [role="tab"]').length === 2)
+        await page.keyboard.press('F9')
+        await page.waitForFunction(() => document.querySelectorAll('.panel-tabs [role="tab"]').length === 1)
+        expect(await currentTab()).toBe('Layout')
+        await page.keyboard.press('F7')
+        await page.waitForFunction(() => !document.querySelector('.panel-dock'))
+        // showing a panel makes it the current tab
+        await page.keyboard.press('F9')
+        await page.waitForSelector('.panel-dock')
+        expect(await tabs()).toEqual(['Palettes'])
+
+        // the tab's menu closes it; keyboard navigation between tabs
+        await page.keyboard.press('F7')
+        await page.waitForFunction(() => document.querySelectorAll('.panel-tabs [role="tab"]').length === 2)
+        expect(await currentTab()).toBe('Layout')
+        await page.focus('.panel-tabs [role="tab"][aria-selected="true"]')
+        await page.keyboard.press('ArrowLeft')
+        expect(await currentTab()).toBe('Palettes')
+        await page.click('.panel-tab.current .panel-tab-menu')
+        await page.click('.menu-item:has-text("Close")')
+        await page.waitForFunction(() => document.querySelectorAll('.panel-tabs [role="tab"]').length === 1)
+        expect(await tabs()).toEqual(['Layout'])
+
+        // the width: dragging the splitter; kept with the open panels across reloads
+        const dockWidth = (): Promise<number> => page.$eval('.panel-dock', d => d.getBoundingClientRect().width)
+        expect(await dockWidth()).toBe(300)
+        const s = (await page.locator('.panel-splitter').boundingBox())!
+        await page.mouse.move(s.x + 2, s.y + 200)
+        await page.mouse.down()
+        await page.mouse.move(s.x + 82, s.y + 200, { steps: 5 })
+        await page.mouse.up()
+        expect(await dockWidth()).toBe(380)
+        await page.reload()
+        await scoreShown(page)
+        expect(await tabs()).toEqual(['Layout'])
+        expect(await dockWidth()).toBe(380)
+
+        // "Restore the default layout"
+        await page.click('.menubar > button:has-text("View")')
+        await page.click('.menu-item:has-text("Restore the default layout")')
+        await page.waitForFunction(() => document.querySelectorAll('.panel-tabs [role="tab"]').length === 3)
+        expect(await currentTab()).toBe('Palettes')
+        expect(await dockWidth()).toBe(300)
+        await context.close()
+    }, 120000)
+
+    it('shows the palettes with rendered cells, search and keyboard navigation', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.waitForSelector('.palettes-panel .palette-tree-item[data-palette="Clef"]')
+        // expand the clefs: the cells are drawn
+        await page.click('.palette-tree-item[data-palette="Clef"] .palette-header')
+        await page.waitForSelector('.palette-tree-item[data-palette="Clef"] .palette-header[aria-expanded="true"]')
+        const cell = '.palette-tree-item[data-palette="Clef"] .palette-cell[data-element="Clef"]'
+        expect(await page.getAttribute(cell, 'title')).toBe('Treble clef')
+        const inked = await page.waitForFunction((sel) => {
+            const c = document.querySelector<HTMLCanvasElement>(`${sel} canvas.palette-cell-canvas`)
+            const d = c?.getContext('2d')?.getImageData(0, 0, c.width, c.height).data
+            return !!d && d.some((v, i) => i % 4 === 3 && v > 0)
+        }, cell).then(() => true)
+        expect(inked).toBe(true)
+        // arrows move between the cells
+        await page.focus(`${cell}:first-child`)
+        const label = (): Promise<string | null> => page.evaluate(() => document.activeElement?.getAttribute('aria-label') ?? null)
+        const first = await label()
+        await page.keyboard.press('ArrowRight')
+        expect(await label()).not.toBe(first)
+        await page.keyboard.press('ArrowLeft')
+        expect(await label()).toBe(first)
+        // the search
+        await page.click('.palette-search-button')
+        await page.fill('.palette-search input', 'trill')
+        await page.waitForFunction(() => [...document.querySelectorAll<HTMLElement>('.palette-tree-item')].map(e => e.dataset.palette).join() === 'Ornament,Line')
+        await context.close()
+    }, 120000)
+
+    it('lists the parts of the score in the Layout panel, synced with the selection', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.click('#panel-tab-instrumentsPanel')
+        const parts = await page.$$eval('.layout-tree [role="treeitem"][data-type="part"]', r => r.map(x => x.getAttribute('aria-label')))
+        expect(parts).toEqual(['Soprano', 'Alto', 'Tenor', 'Bass'])
+        expect(await page.locator('.layout-tree [data-type="system-objects"]').count()).toBeGreaterThan(0)
+        // expanding a part shows its staff and the "Add staff" row
+        await page.click('.layout-tree [data-type="part"] .expand')
+        await page.waitForSelector('.layout-tree [data-type="part"][aria-expanded="true"]')
+        expect(await page.locator('.layout-tree [data-type="staff"]').count()).toBe(1)
+        expect(await page.locator('.layout-tree [data-type="control"]').count()).toBe(1)
+        // the score selection selects the rows of its parts
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+a')
+        await page.waitForFunction(() => document.querySelectorAll('.layout-tree [data-type="part"][aria-selected="true"]').length === 4)
+        await page.keyboard.press('Escape')
+        await page.waitForFunction(() => document.querySelectorAll('.layout-tree [aria-selected="true"]').length === 0)
+        await context.close()
+    }, 120000)
+
+    it('shows the values of the selection in the Properties panel', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.keyboard.press('F9') // hide the palettes: the properties are the first tab
+        await page.click('#panel-tab-inspectorPanel')
+        // without a selection: the score sections
+        await page.waitForSelector('.inspector [data-section="SECTION_SCORE_DISPLAY"]')
+        expect(await page.textContent('.inspector [data-section="SECTION_SCORE_APPEARANCE"] .insp-section-title')).toBe('Score appearance')
+        // a note
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+Home')
+        for (let i = 0; i < 8 && !(await page.textContent('#status'))!.startsWith('Note'); i++) {
+            await page.keyboard.press('ArrowRight')
+        }
+        expect(await page.textContent('#status')).toMatch(/^Note/)
+        await page.waitForSelector('.inspector [data-section="SECTION_NOTATION"]')
+        expect(await page.isChecked('.inspector [data-section="SECTION_GENERAL"] [data-property="isVisible"] input')).toBe(true)
+        expect(await page.textContent('.inspector [data-section="SECTION_NOTATION"] .insp-section-title')).toBe('Note')
+        expect(await page.textContent('[data-view="NoteSettings"] .insp-tabbar [role="tab"][aria-selected="true"]')).toBe('Head')
+        expect(await page.isChecked('[data-view="NoteSettings"] [data-property="isHeadHidden"] input')).toBe(false)
+        // the whole score: measures
+        await page.keyboard.press('ControlOrMeta+a')
+        await page.waitForSelector('.inspector [data-section="SECTION_MEASURES"]')
+        await context.close()
+    }, 120000)
+
     it('keeps the settings of the home screen', async () => {
         const { page, context } = await newPage()
         await page.goto(base)

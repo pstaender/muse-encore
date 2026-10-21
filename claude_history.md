@@ -528,3 +528,44 @@
   real-time note input, tuplets, slurs (doAddSlur), copy/paste (mime data), range duration changes, rewriteMeasures
   (time signatures with another length), regroupNotesAndRests, tie jump points, lyrics editing, text editing,
   playback (setPlayNote), error messages (checkAndShowError), shadow note.
+
+## 2026-10-21 — Editor panels
+
+- Panel area left of the score (musescoreweb/panels): tabs Palettes / Layout / Properties like NotationPage's
+  DockPanels (dock names palettesPanel, instrumentsPanel, inspectorPanel), the current tab bold with its context menu
+  ("…": the panel's items + "Close"), actions toggle-palettes (F9), toggle-instruments (F7), inspector (checkable,
+  View menu), keyboard navigation of the tabs, resizable splitter (MuseScore: fixed 300 px). Open panels, current tab
+  and width in the settings; "Restore the default layout" resets them. Panels keep their unmodified keys
+  (actions.ts, scoreview.ts ignore them).
+- editbridge.ts: every score change of the panels; stubs (return false, controls disabled) until the editing port:
+  applyPaletteElement(score, element, {shift, ctrl}), applyInspectorChanges(score, changes),
+  changeSelectionProperty/resetSelectionProperty(score, pid[, value]) (unused by the inspector), setPartVisible,
+  setStaffVisible(staffId), removeParts, removeStaves(staffIds), moveParts, moveStaves, addStaff, addInstruments,
+  addSystemObjects, removeSystemObjects, moveSystemObjects, moveSystemObjectLayerBottomStaff, setScoreOrder.
+  scoreview: selectionVersion/scoreVersion in ScoreViewState, scoreContentChanged().
+- Palettes (src/palette): PaletteTree/Palette/PaletteCell, palettecreator (all 29 default palettes + master palettes
+  with "More" cells), PaletteCellIconEngine/EngravingItemPreviewPainter; rendering/single (SingleLayout, SingleDraw)
+  for standalone items on gpaletteScore (dom/palettescore.ts); new dom classes ActionIcon, NoteHead,
+  PlayTechAnnotation. API: defaultPalettes, masterPalettes, morePaletteCells, paletteCellElement, drawPaletteCell.
+  UI: header with search and "Add palettes" popup, expandable palettes, cell grids (canvas per cell, grid lines,
+  translated tooltips), More popup, keyboard (arrows in the grid, Enter applies, Escape back to the header), panel
+  menu (single click to open, one palette at a time, collapse/expand all), state in settings.palettes.
+  Deviation: ActionIcon cells and layout breaks are drawn by the UI as icon font glyphs.
+  Missing: bagpipe embellishments, harp pedal diagrams, capo, string tunings, tapping, chord brackets, handbells
+  text articulations, fretboard chord diagrams (only "Blank"), custom palettes, palette files, drag and drop,
+  cell/palette properties dialogs.
+- Layout panel (src/instrumentsscene): LayoutPanelTreeModel with RootTreeItem/PartTreeItem/StaffTreeItem/
+  StaffControlTreeItem/SystemObjectsLayerTreeItem, move/remove availability, selection model; the score selection
+  selects the rows of its parts (one way, like 4.7). UI: Add menu (instruments dialog reusing ChooseInstrumentsPage,
+  system markings), up/down/remove, eye buttons, expand, settings popup (read-only), WAI-ARIA tree keyboard,
+  tab menu (instrument ordering, collapse/expand all). Score::appendPart/appendStaff assign ids like C++.
+  Missing: drag and drop, excerpts, staff/system markings settings popups, replace instrument.
+- Properties panel (src/inspector): InspectorListModel with General (+ Playback/Appearance popups), Measures,
+  Notation (Note with Head/Chord/Stem/Beam tabs, Clef, Key/Time signature, Barline, Dynamics, Articulation,
+  Fermata, Tempo, Tuplet, Accidental, Spacer, Section break, Rest, Hairpin, Slur/Tie...), Text, Score display/
+  appearance sections; PropertyItem values with undefined (mixed) / styled / modified state. The library computes
+  the changes (inspectorPropertyChanges/Resets, inspectorArrangeChanges) which the bridge applies.
+  inspectorSelectionProperties(score, pids) reads properties of the selection. Missing: empty staves and parts
+  sections, other notation models (ornaments, other lines, frames, frets, bends, lyrics, chord symbols), font list,
+  notehead grid, the show-* / page-settings / measure actions the sections link to (no handlers yet).
+- Tests: test/palette.test.ts, layoutpanel.test.ts, inspector.test.ts; e2e for the panels (musescoreweb.e2e.ts).
