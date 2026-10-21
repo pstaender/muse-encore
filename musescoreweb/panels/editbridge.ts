@@ -8,7 +8,7 @@
  * Score::cmdAddPaletteElement / applyPaletteElement, EngravingItem::undoChangeProperty, the NotationParts commands).
  * A stub returns false (nothing changed) and the UI disables the controls for which `canEdit*()` is false.
  */
-import type { MasterScore } from '../../src/index'
+import type { InspectorChange, MasterScore } from '../../src/index'
 import { scoreContentChanged } from '../scoreview'
 
 /** true once the library can change scores (then the stubs below are replaced by the real calls) */
@@ -45,6 +45,19 @@ export function applyPaletteElement(_score: MasterScore, _element: unknown, _mod
 
 export function canChangeProperties(score: MasterScore | null): boolean {
     return EDITING_AVAILABLE && !!score
+}
+
+/**
+ * Applies the changes the Properties panel computed with the library (inspectorPropertyChanges,
+ * inspectorPropertyResets, inspectorArrangeChanges) in one undo command: for each change
+ * `item.undoChangeProperty(pid, value, flags)`, or `item.undoResetProperty(pid)` if `reset`; the changes with a
+ * `command` are score commands ('changeVisible': Score::undoChangeVisible(item, value); 'addParentheses' /
+ * 'removeParentheses': Score::cmdAddParenthesesToNotes / cmdRemoveParenthesesFromNotes on the selection, once).
+ * Returns true if the score changed.
+ */
+export function applyInspectorChanges(_score: MasterScore, _changes: readonly InspectorChange[]): boolean {
+    // TODO(port): undo stack (beginCommand "Edit %1" / endCommand) and the score commands
+    return false
 }
 
 /**
