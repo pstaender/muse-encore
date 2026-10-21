@@ -26,6 +26,11 @@ import type { NotationNoteInput } from '../notation/internal/notationnoteinput'
 import type { Score } from '../engraving/dom/score'
 import type { EngravingItem } from '../engraving/dom/engravingitem'
 import type { ChordRest } from '../engraving/dom/chordrest'
+// (imports of the editing section)
+import { Fraction } from '../engraving/types/fraction'
+import { ElementType, TextStyleType } from '../engraving/types/types'
+import { PointF } from '../framework/draw/types/geometry'
+import { isVerticalBoxTextStyle } from '../notation/notationtypes'
 
 interface ActionEntry {
     run: () => void
@@ -182,6 +187,8 @@ export class NotationActionController {
         this.registerAction('add-brackets', () => this.interaction().addBracketsToSelection(BracketsType.Brackets))
         this.registerAction('add-parentheses', () => this.interaction().addBracketsToSelection(BracketsType.Parentheses))
         this.registerAction('add-braces', () => this.interaction().addBracketsToSelection(BracketsType.Braces))
+
+        this.initEditingActions()
     }
 
     /** the action codes of the controller (independent of a score: the handlers are only registered) */
@@ -248,7 +255,20 @@ export class NotationActionController {
             return
         }
 
-        // TODO(port): grip and text editing (endEditElement)
+        const interaction = this.interaction()
+        if (interaction.isGripEditStarted()) {
+            // Exit grip edit but leave element selected
+            interaction.endEditElement()
+            return
+        }
+
+        if (interaction.isTextEditingStarted()) {
+            interaction.endEditElement()
+            return
+        } else if (interaction.isEditingElement()) {
+            interaction.endEditElement()
+        }
+
         if (!this.score().selection().isNone()) {
             this.interaction().clearSelection()
         }
@@ -370,11 +390,18 @@ export class NotationActionController {
 
         const noteInput = this.noteInput()
 
+        const selectedElement = this.score().selection().element()
+
         switch (direction) {
         case MoveDirection.Up:
         case MoveDirection.Down:
-            // TODO(port): lyrics (moveLyrics), nudge text and articulations, grips
-            if (noteInput.isNoteInputMode() && noteInput.usingNoteInputMethod(NoteEntryMethod.BY_DURATION)) {
+            if (!quickly && selectedElement && selectedElement.isLyrics()) {
+                interaction.moveLyrics(direction)
+            } else if (selectedElement && (selectedElement.isTextBase() || selectedElement.isArticulationFamily())) {
+                interaction.nudge(direction, quickly)
+            } else if (selectedElement && selectedElement.hasGrips() && interaction.isGripEditStarted()) {
+                interaction.nudgeAnchors(direction)
+            } else if (noteInput.isNoteInputMode() && noteInput.usingNoteInputMethod(NoteEntryMethod.BY_DURATION)) {
                 this.moveInputNotes(direction === MoveDirection.Up, quickly ? UpDownMode.OCTAVE : UpDownMode.DIATONIC)
                 return
             } else if (noteInput.isNoteInputMode() && noteInput.state().staffGroup() === StaffGroup.TAB) {
@@ -391,11 +418,22 @@ export class NotationActionController {
             break
         case MoveDirection.Right:
         case MoveDirection.Left:
-            // TODO(port): playback (seek beat), text navigation, nudge text, grips
-            if (this.score().selection().isNone()) {
-                interaction.selectFirstElement(false)
+            // TODO(port): playback (seek beat)
+            if (interaction.isTextEditingStarted() && this.textNavigationAvailable()) {
+                this.navigateToTextElementInNearMeasure(direction)
+                return
             }
-            interaction.moveSelection(direction, quickly ? MoveSelectionType.Measure : MoveSelectionType.Chord)
+
+            if (selectedElement && selectedElement.isTextBase()) {
+                interaction.nudge(direction, quickly)
+            } else if (selectedElement && selectedElement.hasGrips() && interaction.isGripEditStarted()) {
+                interaction.nudgeAnchors(direction)
+            } else {
+                if (this.score().selection().isNone()) {
+                    interaction.selectFirstElement(false)
+                }
+                interaction.moveSelection(direction, quickly ? MoveSelectionType.Measure : MoveSelectionType.Chord)
+            }
             break
         case MoveDirection.Undefined:
             break
@@ -476,15 +514,14 @@ export class NotationActionController {
     canUndo(): boolean { return this.interaction().undoStack().canUndo() }
     canRedo(): boolean { return this.interaction().undoStack().canRedo() }
 
-    /** TODO(port): element, grip and text editing; drag */
-    private isEditingElement(): boolean { return false }
+    private isEditingElement(): boolean { return this.interaction().isEditingElement() }
 
     private isToggleVisibleAllowed(): boolean {
-        return true // TODO(port): !isTextEditingStarted()
+        return !this.interaction().isTextEditingStarted()
     }
 
     private measureNavigationAvailable(): boolean {
-        return true // TODO(port): isNotEditingElement() || textNavigationAvailable()
+        return !this.isEditingElement() || this.textNavigationAvailable()
     }
 
     private noteInputActionAllowed(): boolean {
@@ -650,7 +687,242 @@ export class NotationActionController {
     private registerNoteAction(code: string, noteName: NoteName, addingMode: NoteAddingMode): void {
         this.registerAction(code, () => this.handleNoteAction(noteName, addingMode), () => this.noteInputActionAllowed())
     }
+
+    // =================================================================================================================
+    //   copy/paste, text editing and element editing actions
+    // =================================================================================================================
+
+    private initEditingActions(): void {
+        this.registerAction('action://notation/copy', () => this.interaction().copySelection(), () => this.hasSelection())
+        this.registerAction('action://notation/cut', () => this.cutSelection(), () => this.hasSelection())
+        this.registerAction('action://notation/paste', () => this.pasteSelection(PastingType.Default))
+        this.registerAction('notation-paste-half', () => this.pasteSelection(PastingType.Half))
+        this.registerAction('notation-paste-double', () => this.pasteSelection(PastingType.Double))
+        this.registerAction('notation-paste-special', () => this.pasteSelection(PastingType.Special))
+        this.registerAction('notation-swap', () => this.interaction().swapSelection(), () => this.hasSelection())
+        this.registerAction('repeat-sel', () => this.interaction().repeatSelection())
+
+        this.registerAction('next-text-element', () => this.navigateToTextElement(MoveDirection.Right, NEAR_NOTE_OR_REST),
+            () => this.textNavigationAvailable())
+        this.registerAction('prev-text-element', () => this.navigateToTextElement(MoveDirection.Left, NEAR_NOTE_OR_REST),
+            () => this.textNavigationAvailable())
+        this.registerAction('next-word', () => this.navigateToTextElement(MoveDirection.Right, NEAR_NOTE_OR_REST, false),
+            () => this.textNavigationAvailable())
+        this.registerAction('next-beat-TEXT', () => this.navigateToTextElement(MoveDirection.Right),
+            () => this.textNavigationByBeatsAvailable())
+        this.registerAction('prev-beat-TEXT', () => this.navigateToTextElement(MoveDirection.Left),
+            () => this.textNavigationByBeatsAvailable())
+
+        this.registerAction('next-lyric-verse', () => this.interaction().navigateToLyricsVerse(MoveDirection.Down), () => this.isEditingLyrics())
+        this.registerAction('prev-lyric-verse', () => this.interaction().navigateToLyricsVerse(MoveDirection.Up), () => this.isEditingLyrics())
+        this.registerAction('next-syllable', () => this.interaction().navigateToNextSyllable(), () => this.isEditingLyrics())
+        this.registerAction('add-melisma', () => this.interaction().addMelisma(), () => this.isEditingLyrics())
+        this.registerAction('add-lyric-verse', () => this.interaction().addLyricsVerse(), () => this.isEditingLyrics())
+
+        const TEXT_ACTIONS: [string, TextStyleType][] = [
+            ['title-text', TextStyleType.TITLE],
+            ['subtitle-text', TextStyleType.SUBTITLE],
+            ['composer-text', TextStyleType.COMPOSER],
+            ['poet-text', TextStyleType.LYRICIST],
+            ['part-text', TextStyleType.INSTRUMENT_EXCERPT],
+            ['frame-text', TextStyleType.FRAME],
+            ['system-text', TextStyleType.SYSTEM],
+            ['staff-text', TextStyleType.STAFF],
+            ['expression-text', TextStyleType.EXPRESSION],
+            ['rehearsalmark-text', TextStyleType.REHEARSAL_MARK],
+            // TODO(port): instrument-change-text (the instruments dialog), sticking-text (Sticking)
+            ['fingering-text', TextStyleType.FINGERING],
+            ['chord-text', TextStyleType.HARMONY_A],
+            ['roman-numeral-text', TextStyleType.HARMONY_ROMAN],
+            ['nashville-number-text', TextStyleType.HARMONY_NASHVILLE],
+            ['lyrics', TextStyleType.LYRICS_ODD],
+            ['tempo', TextStyleType.TEMPO],
+        ]
+        for (const [code, type] of TEXT_ACTIONS) {
+            this.registerAction(code, () => this.addText(type))
+        }
+
+        this.registerAction('edit-element', () => this.startEditSelectedElement())
+        this.registerAction('edit-text', () => this.startEditSelectedText())
+
+        this.registerAction('text-b', () => this.interaction().toggleBold(), () => this.isEditingText())
+        this.registerAction('text-i', () => this.interaction().toggleItalic(), () => this.isEditingText())
+        this.registerAction('text-u', () => this.interaction().toggleUnderline(), () => this.isEditingText())
+        this.registerAction('text-s', () => this.interaction().toggleStrike(), () => this.isEditingText())
+        this.registerAction('text-sub', () => this.interaction().toggleSubScript(), () => this.isEditingText())
+        this.registerAction('text-sup', () => this.interaction().toggleSuperScript(), () => this.isEditingText())
+    }
+
+    private cutSelection(): void {
+        const interaction = this.interaction()
+        interaction.copySelection()
+        interaction.deleteSelection()
+    }
+
+    private pasteSelection(type: PastingType): void {
+        const scale = this.resolvePastingScale(type)
+        this.interaction().pasteSelection(scale)
+        // TODO(port): seekAndPlaySelectedElement
+    }
+
+    private resolvePastingScale(type: PastingType): Fraction {
+        const DEFAULT_SCALE = new Fraction(1, 1)
+
+        switch (type) {
+        case PastingType.Default: return DEFAULT_SCALE
+        case PastingType.Half: return new Fraction(1, 2)
+        case PastingType.Double: return new Fraction(2, 1)
+        case PastingType.Special: {
+            let scale = DEFAULT_SCALE
+            const duration = this.noteInput().state().duration().fraction()
+
+            if (duration.isValid() && !duration.isZero()) {
+                scale = duration.times(4).reduced()
+            }
+
+            return scale
+        }
+        }
+
+        return DEFAULT_SCALE
+    }
+
+    private addText(type: TextStyleType): void {
+        const interaction = this.interaction()
+
+        let item: EngravingItem | null = null
+
+        const sel = this.score().selection()
+        if (sel.isRange()) {
+            const startSegment = sel.startSegment()
+            item = startSegment ? startSegment.firstElementForNavigation(sel.staffStart()) : null
+        } else {
+            item = interaction.contextItem()
+        }
+
+        if (isVerticalBoxTextStyle(type)) {
+            if (!item || !item.isVBox()) {
+                interaction.addTextToTopFrame(type)
+                return
+            }
+        }
+
+        interaction.addTextToItem(type, item)
+    }
+
+    private startEditSelectedElement(cursorPos: PointF = new PointF()): void {
+        const interaction = this.interaction()
+        const element = this.score().selection().element()
+        if (!element) {
+            return
+        }
+
+        // TODO(port): instrument names (staff properties dialog), element popups, header/footer texts (style dialog)
+
+        if (interaction.textEditingAllowed(element)) {
+            interaction.startEditText(element, cursorPos)
+        } else {
+            interaction.startEditElement(element)
+        }
+    }
+
+    private startEditSelectedText(cursorPos: PointF = new PointF()): void {
+        const interaction = this.interaction()
+        const element = this.score().selection().element()
+
+        if (interaction.textEditingAllowed(element)) {
+            interaction.startEditText(element, cursorPos)
+        }
+    }
+
+    private navigateToTextElement(direction: MoveDirection, nearNoteOrRest = false, moveOnly = true): void {
+        const element = this.score().selection().element()
+        if (!element) {
+            return
+        }
+
+        if (element.isLyrics()) {
+            this.interaction().navigateToLyricsDirection(direction, moveOnly)
+        } else if (element.isHarmony()) {
+            // TODO(port): play the chord symbol
+            this.interaction().navigateToNearHarmony(direction, nearNoteOrRest)
+        } else {
+            // TODO(port): figured bass, navigateToNearText (fingering, sticking)
+        }
+    }
+
+    private navigateToTextElementInNearMeasure(direction: MoveDirection): void {
+        const element = this.score().selection().element()
+        if (!element) {
+            return
+        }
+
+        if (element.isHarmony()) {
+            this.interaction().navigateToHarmonyInNearMeasure(direction)
+        }
+        // TODO(port): figured bass
+    }
+
+    isEditingText(): boolean {
+        return this.interaction().isTextEditingStarted()
+    }
+
+    isEditingLyrics(): boolean {
+        const interaction = this.interaction()
+        const e = this.score().selection().element()
+        return interaction.isTextEditingStarted() && !!e && e.isLyrics()
+    }
+
+    textNavigationAvailable(): boolean {
+        return this.resolveTextNavigationAvailable(TextNavigationType.NearNoteOrRest)
+    }
+
+    private textNavigationByBeatsAvailable(): boolean {
+        return this.resolveTextNavigationAvailable(TextNavigationType.NearBeat)
+    }
+
+    private resolveTextNavigationAvailable(type: TextNavigationType): boolean {
+        if (!this.isEditingText()) {
+            return false
+        }
+
+        const allowedElementsForTextNavigation = [
+            ElementType.LYRICS, ElementType.HARMONY, ElementType.FIGURED_BASS, ElementType.STICKING, ElementType.FINGERING,
+        ]
+        const allowedElementsForBeatsNavigation = [ElementType.HARMONY]
+        const allowedElementsForFractionNavigation = [ElementType.HARMONY, ElementType.FIGURED_BASS]
+
+        const element = this.score().selection().element()
+        const elementType = element ? element.type() : ElementType.INVALID
+
+        switch (type) {
+        case TextNavigationType.NearNoteOrRest:
+            return allowedElementsForTextNavigation.includes(elementType)
+        case TextNavigationType.NearBeat:
+            return allowedElementsForBeatsNavigation.includes(elementType)
+        case TextNavigationType.Fraction:
+            return allowedElementsForFractionNavigation.includes(elementType)
+        }
+
+        return false
+    }
 }
+
+enum PastingType {
+    Default,
+    Half,
+    Double,
+    Special,
+}
+
+enum TextNavigationType {
+    NearNoteOrRest,
+    NearBeat,
+    Fraction,
+}
+
+const NEAR_NOTE_OR_REST = true
+
 
 /** NoteInputBarModel::elementToChordRest */
 function elementToChordRest(element: EngravingItem | null): ChordRest | null {

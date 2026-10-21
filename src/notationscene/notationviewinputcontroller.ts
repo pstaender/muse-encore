@@ -8,8 +8,11 @@
  * mouseReleaseEvent of a left click without dragging) and the selection key actions of
  * src/notationscene/internal/notationactioncontroller.cpp.
  *
- * TODO(port): dragging (elements, ranges, canvas, lasso), grips, text editing, playback (seek and
- * play), context menu, double/triple click, Alt+click paste.
+ * The mouse and key events of the editing (drag of elements and grips, lasso, text editing, double/triple click)
+ * are in the section at the end of the class.
+ *
+ * TODO(port): playback (seek and play), context menu, Alt+click paste, drag of ranges/elements to other
+ * applications.
  */
 
 import { nidx, type staff_idx_t } from '../engraving/types/types'
@@ -17,6 +20,14 @@ import { SelectType } from '../engraving/dom/select'
 import { ExpandSelectionMode, MoveDirection, MoveSelectionType, NotationInteraction } from '../notation/internal/notationinteraction'
 import type { PointF } from '../framework/draw/types/geometry'
 import type { EngravingItem } from '../engraving/dom/engravingitem'
+// (imports of the editing section)
+import { PointF as PointFValue } from '../framework/draw/types/geometry'
+import { ElementType } from '../engraving/types/types'
+import { SelectTextType } from '../engraving/dom/textbase'
+import { NoteEntryMethod } from '../engraving/dom/input'
+import { KeyboardKey, MouseButton } from '../engraving/editing/editdata'
+import { DragMode, type HitElementContext, type NotationKeyEvent } from '../notation/internal/notationinteraction'
+import type { Note } from '../engraving/dom/note'
 
 export interface KeyboardModifiers {
     shift: boolean
@@ -281,4 +292,544 @@ export class NotationViewInputController {
             return false
         }
     }
+
+    // =================================================================================================================
+    //   mouse and keyboard events (mousePressEvent, mouseMoveEvent, mouseReleaseEvent, mouseDoubleClickEvent,
+    //   keyPressEvent, shortcutOverrideEvent, inputMethodEvent): selection, element and text editing, drag, lasso
+    // =================================================================================================================
+
+    private m_mouseDownInfo: MouseDownInfo = { dragAction: DragAction.Nothing, physicalBeginPoint: { x: 0, y: 0 }, logicalBeginPoint: new PointFValue() }
+    private m_shouldSelectOnLeftClickRelease = false
+    private m_shouldStartEditOnLeftClickRelease = false
+    private m_hitElementWasAlreadySingleSelected = false
+    private m_isCanvasDragged = false
+    private m_tripleClickPending = false
+    private m_hitWidth = 1
+
+    /** hitWidth: C++ hitWidth() = configuration()->selectionProximity() * 0.5 / currentScaling() */
+    mousePressEvent(event: ViewMouseEvent, hitWidth: number): void {
+        const logicPos = event.logicPos
+        const button = event.button
+        this.m_hitWidth = hitWidth
+
+        this.m_mouseDownInfo = {
+            dragAction: DragAction.Other,
+            physicalBeginPoint: { ...event.physicalPos },
+            logicalBeginPoint: logicPos.clone(),
+        }
+
+        this.m_shouldStartEditOnLeftClickRelease = false
+
+        // When using MiddleButton, just start moving the canvas
+        if (button === MouseButton.MiddleButton) {
+            return
+        }
+
+        const interaction = this.viewInteraction()
+
+        const context: HitElementContext = {
+            element: interaction.hitElement(logicPos, hitWidth),
+            staff: interaction.hitStaff(logicPos),
+        }
+        interaction.setHitElementContext(context)
+
+        const hitElement = context.element
+        const hitStaffIndex = context.staff ? context.staff.idx() : nidx
+
+        // note enter mode
+        if (interaction.noteInput().isNoteInputMode()) {
+            this.handleClickInNoteInputMode(logicPos, { shift: event.shift, ctrl: event.ctrl })
+            return
+        }
+
+        // triple click
+        if (this.m_tripleClickPending) {
+            if (interaction.isTextEditingStarted()) {
+                interaction.selectText(SelectTextType.All)
+                return
+            }
+        }
+
+        const ctx: ClickContext = {
+            logicClickPos: logicPos,
+            hitElement,
+            hitStaff: hitStaffIndex,
+            isHitGrip: interaction.isHitGrip(logicPos),
+            event,
+        }
+
+        // Grip
+        let consumed = this.mousePressConsiderGrip(ctx)
+        if (consumed) {
+            return
+        }
+
+        // End editing
+        if (!ctx.hitElement) {
+            interaction.endEditElement()
+        }
+
+        // TODO(port): Drag outgoing: element (Shift+Ctrl+drag of an element to other applications)
+
+        // Drag outgoing: range
+        consumed = this.mousePressConsiderDragOutgoingRange(ctx)
+        if (consumed) {
+            return
+        }
+
+        // TODO(port): Alt+click to paste range (startDropRange)
+
+        // Select
+        this.mousePressConsiderSelectCtx(ctx)
+
+        // Misc
+        if (button === MouseButton.LeftButton) {
+            this.handleLeftClick(ctx)
+        } else if (button === MouseButton.RightButton) {
+            this.m_mouseDownInfo.dragAction = DragAction.Nothing // C++ handleRightClick (context menu)
+        }
+    }
+
+    private mousePressConsiderGrip(ctx: ClickContext): boolean {
+        const interaction = this.viewInteraction()
+        if (ctx.isHitGrip && ctx.event.button === MouseButton.LeftButton) {
+            interaction.startEditGrip(ctx.logicClickPos)
+            return true
+        } else if (interaction.isGripEditStarted()) {
+            interaction.endEditGrip()
+        }
+
+        return false
+    }
+
+    private mousePressConsiderSelectCtx(ctx: ClickContext): void {
+        if (!ctx.hitElement) {
+            return
+        }
+
+        const interaction = this.viewInteraction()
+
+        this.m_hitElementWasAlreadySingleSelected = ctx.hitElement === interaction.score().selection().element()
+
+        if (ctx.event.button === MouseButton.LeftButton) {
+            if (ctx.event.ctrl) {
+                const overlappingHitElements = interaction.hitElements(ctx.logicClickPos, this.m_hitWidth)
+                if (overlappingHitElements.length > 1) {
+                    this.cycleOverlappingHitElements(overlappingHitElements, ctx.hitStaff)
+                    return
+                }
+            }
+        } else if (ctx.event.button === MouseButton.RightButton) {
+            if (ctx.hitElement.selected()) {
+                return
+            }
+        }
+
+        let selectType = SelectType.SINGLE
+        if (ctx.event.shift) {
+            selectType = SelectType.RANGE
+        } else if (ctx.event.ctrl) {
+            selectType = SelectType.ADD
+        } else {
+            const selection = interaction.score().selection()
+
+            if (selection.isRange()
+                && (interaction.rangeContainsItem(ctx.hitElement, ctx.hitStaff) || interaction.rangeContainsPoint(ctx.logicClickPos))) {
+                this.m_shouldSelectOnLeftClickRelease = true
+                return
+            } else if (ctx.hitElement.selected()) {
+                if (selection.elements().length > 1) {
+                    this.m_shouldSelectOnLeftClickRelease = true
+                }
+                return
+            }
+        }
+
+        interaction.select([ctx.hitElement], selectType, ctx.hitStaff, ctx.event.ctrl && !ctx.event.shift)
+    }
+
+    private mousePressConsiderDragOutgoingRange(ctx: ClickContext): boolean {
+        if (ctx.event.button !== MouseButton.LeftButton) {
+            return false
+        }
+
+        if (!ctx.hitElement || ctx.hitElement.isMeasure()) {
+            const selection = this.viewInteraction().score().selection()
+
+            if (selection.isRange() && this.viewInteraction().rangeContainsPoint(ctx.logicClickPos)) {
+                // TODO(port): the drag of the range to other applications (startOutgoingDragRange)
+                this.m_mouseDownInfo.dragAction = DragAction.DragOutgoingRange
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private handleLeftClick(ctx: ClickContext): void {
+        const interaction = this.viewInteraction()
+        if (!ctx.hitElement || !ctx.hitElement.selected()) {
+            return
+        }
+
+        // If it is the only selected element, start editing if needed
+        if (ctx.hitElement === interaction.score().selection().element()
+            && ctx.hitElement.needStartEditingAfterSelecting()) {
+            interaction.startEditElement(ctx.hitElement)
+        }
+
+        // TODO(port): playback (playElements)
+
+        if (interaction.isTextSelected()) {
+            this.updateTextCursorPosition()
+        }
+    }
+
+    startTextEditingAllowed(): boolean {
+        const interaction = this.viewInteraction()
+        return interaction.isTextSelected() && !interaction.isTextEditingStarted()
+    }
+
+    private updateTextCursorPosition(): void {
+        if (this.viewInteraction().isTextEditingStarted()) {
+            this.viewInteraction().changeTextCursorPosition(this.m_mouseDownInfo.logicalBeginPoint)
+            // TODO(port): text style popup
+        }
+    }
+
+    /** returns what the view has to do: move the canvas by the logical delta, or nothing */
+    mouseMoveEvent(event: ViewMouseEvent): { moveCanvas: PointF | null } {
+        const none = { moveCanvas: null }
+        if (this.m_mouseDownInfo.dragAction === DragAction.Nothing) {
+            return none
+        }
+
+        const interaction = this.viewInteraction()
+        const dx = event.physicalPos.x - this.m_mouseDownInfo.physicalBeginPoint.x
+        const dy = event.physicalPos.y - this.m_mouseDownInfo.physicalBeginPoint.y
+
+        const isDragStarted = this.m_isCanvasDragged || interaction.isDragStarted()
+        if (!isDragStarted) {
+            // only start drag operations after a minimum of movement:
+            const canStartDrag = Math.abs(dx) + Math.abs(dy) > 4
+            if (!canStartDrag) {
+                return none
+            }
+        }
+
+        switch (this.m_mouseDownInfo.dragAction) {
+        case DragAction.DragOutgoingRange:
+            return none // TODO(port): startOutgoingDragRange
+        case DragAction.Other:
+            break
+        default:
+            return none
+        }
+
+        const logicPos = event.logicPos
+
+        const isNoteEnterMode = interaction.noteInput().isNoteInputMode()
+        const isMiddleButton = (event.buttons & MouseButton.MiddleButton) !== 0
+        const isDragObjectsAllowed = !(isNoteEnterMode || isMiddleButton)
+        if (isDragObjectsAllowed) {
+            const hitElement = interaction.hitElementContext().element
+
+            // drag element
+            if ((hitElement && (hitElement.isMovable() || interaction.isEditingElement())) || interaction.isGripEditStarted()) {
+                if (hitElement && !interaction.isDragStarted()) {
+                    this.startDragElements(hitElement.type(), hitElement.offset(), event.modifiers)
+                }
+
+                if (interaction.isGripEditStarted() && !interaction.isDragStarted()) {
+                    const selectedElement = interaction.score().selection().element()
+                    const type = selectedElement ? selectedElement.type() : ElementType.INVALID
+                    this.startDragElements(type, selectedElement ? selectedElement.offset() : new PointFValue(), event.modifiers)
+                }
+
+                let mode = DragMode.BothXY
+                if (event.shift) {
+                    mode = DragMode.OnlyY
+                } else if (event.ctrl) {
+                    mode = DragMode.OnlyX
+                }
+
+                interaction.drag(this.m_mouseDownInfo.logicalBeginPoint, logicPos, mode, event.modifiers)
+
+                // TODO(port): play the dragged notes when their pitches change
+
+                return none
+            } else if (hitElement === null && event.shift) {
+                if (!interaction.isDragStarted()) {
+                    interaction.startDrag([], new PointFValue(), () => false, event.modifiers)
+                }
+                interaction.drag(this.m_mouseDownInfo.logicalBeginPoint, logicPos, DragMode.BothXY, event.modifiers)
+
+                return none
+            }
+        }
+
+        // move canvas
+        if (!isNoteEnterMode || isMiddleButton) {
+            const logicalDragDelta = logicPos.minus(this.m_mouseDownInfo.logicalBeginPoint)
+            this.m_isCanvasDragged = true
+            return { moveCanvas: logicalDragDelta }
+        }
+        return none
+    }
+
+    private startDragElements(elementsType: ElementType, elementsOffset: PointF, modifiers: number): void {
+        if (elementsType === ElementType.INVALID) {
+            return
+        }
+
+        const interaction = this.viewInteraction()
+        const elements = interaction.score().selection().elements()
+        if (elements.length === 0) {
+            return
+        }
+
+        const isFilterType = interaction.score().selection().isRange()
+        const isDraggable = (element: EngravingItem | null): boolean => {
+            return !!element && element.selected() && (!isFilterType || elementsType === element.type())
+        }
+
+        interaction.startDrag(elements, elementsOffset, isDraggable, modifiers)
+    }
+
+    mouseReleaseEvent(event: ViewMouseEvent): void {
+        if (this.m_mouseDownInfo.dragAction === DragAction.Nothing) {
+            return
+        }
+
+        const interaction = this.viewInteraction()
+        const noteInput = interaction.noteInput()
+        const hitElement = interaction.hitElementContext().element
+
+        const onlyCtrl = event.ctrl && !event.shift && !event.alt
+        const onlyShift = event.shift && !event.ctrl && !event.alt
+        if (!onlyCtrl && !onlyShift) {
+            if (!hitElement && !this.m_isCanvasDragged && !interaction.isGripEditStarted()
+                && !interaction.isDragStarted() && !noteInput.isNoteInputMode()) {
+                interaction.clearSelection()
+            }
+        }
+
+        if (event.button === MouseButton.LeftButton && !event.shift && !event.ctrl && !event.alt) {
+            this.handleLeftClickRelease(event)
+        }
+
+        this.m_isCanvasDragged = false
+
+        if (interaction.isDragStarted()) {
+            interaction.endDrag()
+            // TODO(port): dynamic popup after dragging the grip of a hairpin
+        }
+
+        this.m_mouseDownInfo.dragAction = DragAction.Nothing
+    }
+
+    private handleLeftClickRelease(event: ViewMouseEvent): void {
+        const interaction = this.viewInteraction()
+        if (interaction.noteInput().isNoteInputMode()) {
+            return
+        }
+
+        if (this.m_shouldStartEditOnLeftClickRelease) {
+            // C++ dispatches "edit-element" with the position
+            const element = interaction.score().selection().element()
+            if (element) {
+                if (interaction.textEditingAllowed(element)) {
+                    interaction.startEditText(element, this.m_mouseDownInfo.logicalBeginPoint)
+                } else {
+                    interaction.startEditElement(element)
+                }
+            }
+            this.m_shouldStartEditOnLeftClickRelease = false
+            return
+        }
+
+        const ctx = interaction.hitElementContext()
+        if (!ctx.element) {
+            return
+        }
+
+        if (event.physicalPos.x !== this.m_mouseDownInfo.physicalBeginPoint.x
+            || event.physicalPos.y !== this.m_mouseDownInfo.physicalBeginPoint.y) {
+            return
+        }
+
+        if (this.m_shouldSelectOnLeftClickRelease) {
+            this.m_shouldSelectOnLeftClickRelease = false
+            const staffIndex = ctx.staff ? ctx.staff.idx() : nidx
+
+            interaction.select([ctx.element], SelectType.SINGLE, staffIndex)
+
+            if (ctx.element.needStartEditingAfterSelecting()) {
+                interaction.startEditElement(ctx.element)
+                return
+            }
+        }
+
+        if (!this.m_hitElementWasAlreadySingleSelected) {
+            return
+        }
+
+        // Same element clicked again while it was already selected.
+        // Either toggle popup or start text editing.
+
+        if (interaction.textEditingAllowed(ctx.element)) {
+            if (!interaction.isTextEditingStarted()) {
+                interaction.startEditText(ctx.element, this.m_mouseDownInfo.logicalBeginPoint)
+            }
+        }
+        // TODO(port): else togglePopupForItemIfSupports
+    }
+
+    /** the UI resets the triple click state after the double click interval (C++ QTimer) */
+    mouseDoubleClickEvent(event: ViewMouseEvent): void {
+        const interaction = this.viewInteraction()
+        if (interaction.noteInput().isNoteInputMode()) {
+            return
+        }
+
+        this.m_tripleClickPending = true
+
+        if (interaction.isTextEditingStarted()) {
+            interaction.selectText(SelectTextType.Word)
+            return
+        }
+
+        const hitElement = interaction.hitElementContext().element
+        if (!hitElement) {
+            return
+        }
+
+        if (interaction.textEditingAllowed(hitElement)) {
+            interaction.startEditText(hitElement, this.m_mouseDownInfo.logicalBeginPoint)
+            return
+        }
+
+        const noModifier = !event.shift && !event.ctrl && !event.alt
+        let selectType: SelectType | null = null
+        if (noModifier) {
+            selectType = SelectType.REPLACE
+        } else if (event.ctrl && !event.shift && !event.alt) {
+            selectType = SelectType.ADD
+        }
+
+        switch (hitElement.type()) {
+        case ElementType.INSTRUMENT_NAME:
+            if (noModifier) {
+                this.m_shouldStartEditOnLeftClickRelease = true
+            }
+            break
+        case ElementType.MEASURE:
+            if (noModifier) {
+                // C++ dispatches "note-input" at the position
+                interaction.noteInput().startNoteInput(NoteEntryMethod.BY_NOTE_NAME)
+            }
+            break
+        case ElementType.NOTE: {
+            if (selectType === null) {
+                break // Unsupported modifier(s)...
+            }
+            const chord = (hitElement as unknown as Note).chord()
+            const notes = chord.notes()
+            if (selectType === SelectType.ADD && notes.every(n => n.selected())) {
+                for (const n of notes) {
+                    n.score().deselect(n)
+                }
+            } else {
+                interaction.select(notes, selectType)
+            }
+            break
+        }
+        default: break
+        }
+    }
+
+    resetTripleClick(): void {
+        this.m_tripleClickPending = false
+    }
+
+    /**
+     * C++ shortcutOverrideEvent: true if the key goes to the view (editing of the selected element, Enter to start
+     * text editing) instead of being a shortcut
+     */
+    shortcutOverrideEvent(event: NotationKeyEvent): boolean {
+        const key = event.key
+
+        const editTextKeysFound = key === KeyboardKey.Key_Return || key === KeyboardKey.Key_Enter
+        if (editTextKeysFound && this.startTextEditingAllowed()) {
+            return true
+        }
+
+        const interaction = this.viewInteraction()
+        if (interaction.isEditingElement()) {
+            return interaction.isEditAllowed(event)
+        }
+
+        // TODO(port): anchor editing (Shift+Left/Right), percussion shortcuts
+        return false
+    }
+
+    /** C++ keyPressEvent; returns true if the key was handled */
+    keyPressEvent(event: NotationKeyEvent): boolean {
+        const interaction = this.viewInteraction()
+        if (this.startTextEditingAllowed() && (event.key === KeyboardKey.Key_Return || event.key === KeyboardKey.Key_Enter)) {
+            // C++ dispatches "edit-text"
+            const element = interaction.score().selection().element()
+            if (interaction.textEditingAllowed(element)) {
+                interaction.startEditText(element, new PointFValue())
+            }
+            return true
+        } else if (interaction.isEditingElement()) {
+            return interaction.editElement(event)
+        }
+        return false
+    }
+
+    /** C++ inputMethodEvent: committed text or the preedit string of a composition */
+    inputMethodEvent(commitString: string, preeditString: string): void {
+        if (this.viewInteraction().isTextEditingStarted()) {
+            this.viewInteraction().editText(commitString, preeditString)
+        }
+    }
+}
+
+/** a mouse event of the view: position in canvas coordinates, view pixels (for the drag threshold), buttons, modifiers */
+export interface ViewMouseEvent {
+    logicPos: PointF
+    physicalPos: { x: number; y: number }
+    /** the button of a press/release (editing/editdata.ts MouseButton) */
+    button: MouseButton
+    /** the pressed buttons (MouseButton flags) */
+    buttons: number
+    shift: boolean
+    ctrl: boolean
+    alt: boolean
+    /** KeyboardModifier flags */
+    modifiers: number
+}
+
+enum DragAction {
+    Nothing,
+    Other,
+    DragOutgoingElement,
+    DragOutgoingRange,
+    PasteRangeOnRelease,
+}
+
+interface MouseDownInfo {
+    dragAction: DragAction
+    physicalBeginPoint: { x: number; y: number }
+    logicalBeginPoint: PointF
+}
+
+interface ClickContext {
+    logicClickPos: PointF
+    hitElement: EngravingItem | null
+    hitStaff: staff_idx_t
+    isHitGrip: boolean
+    event: ViewMouseEvent
 }
