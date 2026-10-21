@@ -30,12 +30,14 @@ import { KeySigEvent, type KeyList } from '../dom/key'
 import { TDuration, toDurationList, toRhythmicDurationList } from '../dom/durationtype'
 import { Transpose } from './transpose'
 import { Interval } from '../dom/interval'
-import { ChangeMeasureLen, InsertMeasures, InsertTime } from './editmeasures'
+import { ChangeMeasureLen, InsertMeasures, InsertTime, InsertTimeUnmanagedSpanner, RemoveMeasures } from './editmeasures'
 import { AddElement, ChangeElement, ChangeParent, RemoveElement } from './addremoveelement'
 import { ChangeProperty } from './editproperty'
 import { ChangeStyleValues } from './editstyle'
 import { ChangeFretting, ChangePitch } from './editnote'
-import { ChangeSpannerElements } from './editspanner'
+import { ChangeSpannerElements, ChangeStartEndSpanner } from './editspanner'
+import { MoveTremolo } from './edittremolo'
+import { ScoreRange } from '../dom/range'
 import { ChangeChordStaffMove } from './editchord'
 import { ExchangeVoice } from './editvoicing'
 import { scoreDummy } from '../compat/dummyelement'
@@ -444,42 +446,123 @@ Score.prototype.undoInsertTime = function (this: Score, tick: Fraction, len: Fra
                 append = true
             }
         } else {
-            // TODO(port): removing time
-            throw new Error('TODO(port): Score::undoInsertTime with negative length')
+            const tick2 = tick.minus(len)
+            if (s.tick().ge(tick2)) {
+                append = true
+            } else if (s.tick().ge(tick) && s.tick2().le(tick2)) {
+                append = true
+            } else if (s.tick().le(tick) && s.tick2().ge(tick2)) {
+                const t2 = s.tick2().plus(len)
+                if (t2.gt(s.tick())) {
+                    append = true
+                }
+            } else if (s.tick().gt(tick) && s.tick2().gt(tick2)) {
+                append = true
+            } else if (s.tick().lt(tick) && s.tick2().lt(tick2)) {
+                append = true
+            }
+        }
+        for (const ss of spannersToAdjust) {
+            if (ss.linkList().includes(s)) {
+                append = false
+                break
+            }
         }
         if (append) {
             spannersToAdjust.push(s)
         }
     }
     for (const s of spannersToAdjust) {
-        if (tick.eq(s.tick()) && s.isVolta()) {
-            s.undoChangeProperty(Pid.SPANNER_TICKS, s.ticks().plus(len))
-        } else if (tick.gt(s.tick()) && tick.lt(s.tick2())) {
-            //
-            //  case a:
-            //  +----spanner--------+
-            //    +---add---
-            //
-            s.undoChangeProperty(Pid.SPANNER_TICKS, s.ticks().plus(len))
-        } else if (tick.le(s.tick())) {
-            //
-            //  case b:
-            //       +----spanner--------
-            //  +---add---
-            // and
-            //            +----spanner--------
-            //  +---add---+
-            const startElement = s.startElement()
-            const endElement = s.endElement()
-            s.setStartElement(null) // undoChangeSpannerElements
-            s.setEndElement(null)
-            s.undoChangeProperty(Pid.SPANNER_TICK, s.tick().plus(len))
-            s.setStartElement(startElement)
-            s.setEndElement(endElement)
+        if (len.gt(new Fraction(0, 1))) {
+            if (tick.eq(s.tick()) && s.isVolta()) {
+                s.undoChangeProperty(Pid.SPANNER_TICKS, s.ticks().plus(len))
+            } else if (tick.gt(s.tick()) && tick.lt(s.tick2())) {
+                //
+                //  case a:
+                //  +----spanner--------+
+                //    +---add---
+                //
+                s.undoChangeProperty(Pid.SPANNER_TICKS, s.ticks().plus(len))
+            } else if (tick.le(s.tick())) {
+                //
+                //  case b:
+                //       +----spanner--------
+                //  +---add---
+                // and
+                //            +----spanner--------
+                //  +---add---+
+                const startElement = s.startElement()
+                const endElement = s.endElement()
+                this.undoChangeSpannerElements(s, null, null)
+                s.undoChangeProperty(Pid.SPANNER_TICK, s.tick().plus(len))
+                this.undoChangeSpannerElements(s, startElement, endElement)
+            }
+        } else {
+            const tick2 = tick.minus(len)
+            if (s.tick().ge(tick2)) {
+                //
+                //  case A:
+                //  +----remove---+ +---spanner---+
+                //
+                let t = s.tick().plus(len)
+                if (t.lt(new Fraction(0, 1))) {
+                    t = new Fraction(0, 1)
+                }
+                const startElement = s.startElement()
+                const endElement = s.endElement()
+                this.undoChangeSpannerElements(s, null, null)
+                s.undoChangeProperty(Pid.SPANNER_TICK, t)
+                this.undoChangeSpannerElements(s, startElement, endElement)
+            } else if (s.tick().ge(tick) && s.tick2().le(tick2)) {
+                //
+                //  case B:
+                //    +---spanner---+
+                //  +----remove--------+
+                //
+                this.undoRemoveElement(s)
+            } else if (s.tick().le(tick) && s.tick2().ge(tick2)) {
+                //
+                //  case C:
+                //  +----spanner--------+
+                //    +---remove---+
+                //
+                const t2 = s.tick2().plus(len)
+                if (t2.gt(s.tick())) {
+                    s.undoChangeProperty(Pid.SPANNER_TICKS, s.ticks().plus(len))
+                }
+            } else if (s.tick().gt(tick) && s.tick2().gt(tick2)) {
+                //
+                //  case D:
+                //       +----spanner--------+
+                //  +---remove---+
+                //
+                const d1 = s.tick().minus(tick)
+                const d2 = tick2.minus(s.tick())
+                const le = s.ticks().minus(d2)
+                if (le.isZero()) {
+                    this.undoRemoveElement(s)
+                } else {
+                    s.undoChangeProperty(Pid.SPANNER_TICK, s.tick().minus(d1))
+                    s.undoChangeProperty(Pid.SPANNER_TICKS, le)
+                }
+            } else if (s.tick().lt(tick) && s.tick2().lt(tick2)) {
+                //
+                //  case E:
+                //       +----spanner--------+
+                //                     +---remove---+
+                //
+                const d = s.tick2().minus(tick)
+                const le = s.ticks().minus(d)
+                if (le.isZero()) {
+                    this.undoRemoveElement(s)
+                } else {
+                    s.undoChangeProperty(Pid.SPANNER_TICKS, le)
+                }
+            }
         }
     }
 
-    // TODO(port): insert time in linked scores (undo(new InsertTime(...)) is done by the callers here)
+    this.undo(new InsertTimeUnmanagedSpanner(this, tick, len))
 }
 
 Score.prototype.undoAddCR = function (this: Score, cr: ChordRest, measure: Measure, tick: Fraction): void {
@@ -571,7 +654,7 @@ Score.prototype.insertBox = function (this: Score, type: ElementType, beforeMeas
 
     // TODO(port): FBox::init()
 
-    new InsertMeasures(newMeasureBase, newMeasureBase).redo() // TODO(port): undo
+    this.undo(new InsertMeasures(newMeasureBase, newMeasureBase))
 
     if (options.cloneBoxToAllParts) {
         // TODO(port): newMeasureBase->manageExclusionFromParts(false) (excerpts)
@@ -627,7 +710,7 @@ Score.prototype.restoreInitialKeySigAndTimeSig = function (this: Score): void {
 }
 
 Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: staff_idx_t, ts: TimeSig, local: boolean): void {
-    // TODO(port): deselectAll()
+    this.deselectAll()
 
     if (fm.isMMRest()) {
         fm = fm.mmRestFirst()!
@@ -699,7 +782,8 @@ Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: st
                 nsig.undoChangeProperty(Pid.DENOMINATOR_STRING, ts.denominatorString())
                 nsig.undoChangeProperty(Pid.TIMESIG_STRETCH, ts.stretch())
                 nsig.undoChangeProperty(Pid.GROUP_NODES, ts.groups().nodes())
-                // TODO(port): nsig->setSelected(false); nsig->setDropTarget(false)
+                nsig.setSelected(false)
+                // TODO(port): nsig->setDropTarget(false)
             }
         }
     } else {
@@ -722,8 +806,10 @@ Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: st
                 for (let i = 0; i < this.nstaves(); ++i) {
                     const its = this.staff(i)!.timeSig(tick)
                     if (its && its.isLocal()) {
-                        // TODO(port): MasterScore::rewriteMeasures
-                        throw new Error('TODO(port): Score::rewriteMeasures (local time signatures)')
+                        if (!mScore.rewriteMeasures(mf!, ns, i)) {
+                            this.undoStack().activeCommand()!.unwind()
+                            return
+                        }
                     }
                 }
                 mf = null
@@ -735,9 +821,9 @@ Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: st
         // this means, however, that the rewrite cannot depend on the time signatures being in place
         if (mf) {
             const [first, end] = getStaffIdxRange(mScore)
-            if (end !== first) {
-                // TODO(port): MasterScore::rewriteMeasures (copy/paste of the measure contents)
-                throw new Error('TODO(port): Score::rewriteMeasures')
+            if (end !== first && !mScore.rewriteMeasures(mf, ns, local ? first : nidx)) {
+                this.undoStack().activeCommand()!.unwind()
+                return
             }
         }
         // add the time signatures
@@ -746,7 +832,9 @@ Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: st
             seg = nfm.undoGetSegment(SegmentType.TimeSig, nfm.tick())
             const [first, end] = getStaffIdxRange(score)
             for (let si = first; si < end; ++si) {
-                // TODO(port): if (fm->isMeasureRepeatGroup(si)) deleteItem(fm->measureRepeatElement(si))
+                if (fm.isMeasureRepeatGroup(si)) {
+                    this.deleteItem(fm.measureRepeatElement(si))
+                }
                 let nsig = seg.element(si * VOICES) as TimeSig | null
                 if (!nsig) {
                     nsig = ts.clone() as TimeSig // Factory::copyTimeSig
@@ -766,6 +854,8 @@ Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: st
                     nsig.undoChangeProperty(Pid.TIMESIG_TYPE, ts.timeSigType())
                     nsig.undoChangeProperty(Pid.TIMESIG_STRETCH, ts.stretch())
                     nsig.undoChangeProperty(Pid.GROUP_NODES, ts.groups().nodes())
+                    nsig.setSelected(false)
+                    // TODO(port): nsig->setDropTarget(false)
                 }
             }
         }
@@ -933,7 +1023,7 @@ MasterScore.prototype.insertMeasureInMaster = function (this: MasterScore, befor
         newMeasure.setTimesig(currentTimeSig)
         newMeasure.setTicks(currentTimeSig)
 
-        new InsertMeasures(newMeasure, newMeasure, options.moveStaffTypeChanges).redo() // TODO(port): undo
+        score.undo(new InsertMeasures(newMeasure, newMeasure, options.moveStaffTypeChanges))
 
         ticks = newMeasure.ticks()
         const measureInsert: Measure | null = null // insert before
@@ -977,7 +1067,7 @@ MasterScore.prototype.insertMeasureInMaster = function (this: MasterScore, befor
     return masterMeasure
 }
 
-Measure.prototype.adjustToLen = function (this: Measure, nf: Fraction, _appendRestsIfNecessary = true): void {
+Measure.prototype.adjustToLen = function (this: Measure, nf: Fraction, appendRestsIfNecessary = true): void {
     const ol = this.ticks()
     const nl = nf
     const diff = nl.minus(ol)
@@ -990,9 +1080,9 @@ Measure.prototype.adjustToLen = function (this: Measure, nf: Fraction, _appendRe
     this.score().undoInsertTime(startTick, diff)
 
     for (const s of [this.score()]) { // TODO(port): scoreList()
-        new InsertTime(s, startTick, diff).redo() // TODO(port): undo
+        s.undo(new InsertTime(s, startTick, diff))
         const m = s.tick2measure(this.tick())!
-        new ChangeMeasureLen(m, nf).redo() // TODO(port): undo
+        s.undo(new ChangeMeasureLen(m, nf))
         if (nl.gt(ol)) {
             // move EndBarLine, TimeSigAnnounce, KeySigAnnounce
             for (let seg = m.first(); seg; seg = seg.next()) {
@@ -1059,10 +1149,83 @@ Measure.prototype.adjustToLen = function (this: Measure, nf: Fraction, _appendRe
             continue
         }
 
-        // TODO(port): measures with notes or several rests (removing/appending chords and rests)
-        throw new Error('TODO(port): Measure::adjustToLen of a measure with notes')
+        const strack = staffIdx * VOICES
+        const etrack = strack + VOICES
+
+        for (let trk = strack; trk < etrack; ++trk) {
+            let n = diff
+            let rFlag = false
+            if (n.lt(new Fraction(0, 1))) {
+                for (let segment = m.last(); segment;) {
+                    const pseg = segment.prev()
+                    if (segment.segmentType() === SegmentType.ChordRest) {
+                        const annotations = [...segment.annotations()] // make a copy since we alter the list
+                        for (const a of annotations) {
+                            if (a.track() === trk) {
+                                s.undoRemoveElement(a)
+                            }
+                        }
+                        const e = segment.element(trk)
+                        if (e && e.isChordRest()) {
+                            const cr = e as ChordRest
+                            if (cr.durationType().type() === DurationType.V_MEASURE) {
+                                const actualTicks = cr.actualTicks()
+                                n = n.plus(actualTicks)
+                                cr.setDurationType(new TDuration(actualTicks))
+                            } else {
+                                n = n.plus(cr.actualTicks())
+                            }
+                            s.undoRemoveElement(e)
+                            if (n.ge(new Fraction(0, 1))) {
+                                break
+                            }
+                        }
+                    } else if (segment.segmentType() === SegmentType.Breath) {
+                        const e = segment.element(trk)
+                        if (e) {
+                            s.undoRemoveElement(e)
+                        }
+                    }
+                    segment = pseg
+                }
+                rFlag = true
+            }
+            const voice = trk % VOICES
+            if (appendRestsIfNecessary && n.gt(new Fraction(0, 1)) && (rFlag || voice === 0)) {
+                // add rest to measure
+                const rtick = this.tick().plus(nl).minus(n)
+                const track = staffIdx * VOICES + voice
+                s.setRest(rtick, track, n.times(stretch), false, null, false)
+            }
+        }
     }
-    // TODO(port): remove slurs when shortening, update the selection
+    if (diff.lt(new Fraction(0, 1))) {
+        //
+        //  CHECK: do not remove all slurs
+        //
+        for (const e of [...m.el()]) {
+            if (e.isSlur()) {
+                s.undoRemoveElement(e)
+            }
+        }
+    }
+
+    const sel = this.score().selection()
+    if (!sel.isRange()) {
+        return
+    }
+    // If the selection started and/or ended inside this measure, we should pass it
+    // updated start/end segments...
+    const oldStart = sel.startSegment()
+    if (oldStart && sel.startMeasureBase() === this) {
+        const newStart = this.tick2segment(oldStart.tick())
+        sel.setStartSegment(newStart ? newStart : this.first())
+    }
+    const oldEnd = sel.endSegment()
+    if (oldEnd && sel.endMeasureBase() === this) {
+        const newEnd = this.tick2segment(oldEnd.tick())
+        sel.setEndSegment(newEnd ? newEnd : this.last()!.next1())
+    }
 }
 
 // =====================================================================================================================
@@ -4129,4 +4292,478 @@ Score.prototype.addHairpin = function (this: Score, hairpin: Hairpin, cr1: Chord
     hairpin.setTick2(endTick)
 
     this.undoAddElement(hairpin)
+}
+
+// =====================================================================================================================
+//   Time signature changes that rewrite measures: Score::rewriteMeasures (both overloads) and
+//   Score::undoRemoveMeasures of edit.cpp (cmdAddTimeSig is above)
+// =====================================================================================================================
+
+declare module '../dom/score' {
+    interface Score {
+        /**
+         * C++ rewriteMeasures(Measure* fm, const Fraction& ns, staff_idx_t staffIdx): rewrite all measures up to the next
+         * time signature or section break; and rewriteMeasures(Measure* startMeasure, Measure* endMeasure,
+         * const Fraction& newTimeSig, staff_idx_t staffIdx): rewrite all measures from startMeasure to endMeasure
+         * (including). If staffIdx is valid, a local time signature change is rewritten.
+         */
+        rewriteMeasures(fm: Measure, ns: Fraction, staffIdx: staff_idx_t): boolean
+        rewriteMeasures(startMeasure: Measure, endMeasure: Measure, newTimeSig: Fraction, staffIdx: staff_idx_t): boolean
+        undoRemoveMeasures(m1: Measure, m2: Measure, preserveTies?: boolean, moveStaffTypeChanges?: boolean): void
+    }
+}
+
+Score.prototype.rewriteMeasures = function (this: Score, a: Measure, b: Measure | Fraction, c: Fraction | staff_idx_t,
+    d?: staff_idx_t): boolean {
+    if (b instanceof Fraction) {
+        return rewriteMeasuresUpToNextTimeSig(this, a, b, c as staff_idx_t)
+    }
+    return rewriteMeasuresRange(this, a, b, c as Fraction, d!)
+}
+
+/** C++ bool Score::rewriteMeasures(Measure* startMeasure, Measure* endMeasure, const Fraction& newTimeSig, staff_idx_t staffIdx) */
+function rewriteMeasuresRange(score: Score, startMeasure: Measure, endMeasure: Measure, newTimeSig: Fraction, staffIdx: staff_idx_t): boolean {
+    if (staffIdx !== nidx) {
+        // local timesig
+        // don't actually rewrite, just update measure rest durations
+        // abort if there is anything other than measure rests in range
+        const strack = staffIdx * VOICES
+        const etrack = strack + VOICES
+        for (let m: Measure | null = startMeasure; m; m = m.nextMeasure()) {
+            for (let s = m.first(SegmentType.ChordRest); s; s = s.next(SegmentType.ChordRest)) {
+                for (let track = strack; track < etrack; ++track) {
+                    const cr = s.element(track) as ChordRest | null
+                    if (!cr) {
+                        continue
+                    }
+                    if (cr.isRest() && cr.durationType().type() === DurationType.V_MEASURE) {
+                        cr.undoChangeProperty(Pid.DURATION, newTimeSig)
+                    } else {
+                        return false
+                    }
+                }
+            }
+            if (m === endMeasure) {
+                break
+            }
+        }
+        return true
+    }
+
+    let fmr = true
+
+    // Format: chord 1 tick, chord 2 tick, tremolo, track
+    const tremoloChordTicks: [Fraction, Fraction, TremoloTwoChord, track_idx_t][] = []
+
+    const strack = 0
+    const etrack = score.ntracks()
+
+    const endOfMeasureTimeSigsToRemove: Segment[] = []
+
+    for (let m: Measure | null = startMeasure; m; m = m.nextMeasure()) {
+        if (!m.isFullMeasureRest()) {
+            fmr = false
+        }
+
+        for (let s = m.first(); s; s = s.next()) {
+            if (!s.isChordRestType() && !(s.isTimeSigType() && s.endOfMeasureChange())) {
+                continue
+            }
+
+            if (s.isTimeSigType()) {
+                endOfMeasureTimeSigsToRemove.push(s)
+                continue
+            }
+
+            for (let track = strack; track < etrack; ++track) {
+                const cr = s.element(track) as ChordRest | null
+                if (cr && cr.isChord()) {
+                    const chord = cr as unknown as Chord
+                    if (chord.tremoloTwoChord()) {
+                        const trem = chord.tremoloTwoChord()!
+
+                        // Don't add same chord twice
+                        if (trem.chord2() === chord) {
+                            continue
+                        }
+
+                        tremoloChordTicks.push([cr.tick(), trem.chord2()!.segment().tick(), trem, track])
+                    }
+                }
+            }
+        }
+
+        if (m === endMeasure) {
+            break
+        }
+    }
+
+    if (!fmr) {
+        // check for local time signatures
+        for (let m: Measure | null = startMeasure; m; m = m.nextMeasure()) {
+            for (let si = 0; si < score.nstaves(); ++si) {
+                if (!score.staff(si)!.timeStretch(m.tick()).eq(new Fraction(1, 1))) {
+                    // we cannot change a staff with a local time signature
+                    return false
+                }
+                if (m === endMeasure) {
+                    break // (like C++: only leaves the staff loop)
+                }
+            }
+        }
+    }
+
+    for (const seg of endOfMeasureTimeSigsToRemove) {
+        score.doUndoRemoveElement(seg)
+    }
+
+    const range = new ScoreRange()
+    const nextMeasure = endMeasure.nextMeasure()
+    let finalSeg = endMeasure.last()!
+    if (nextMeasure) {
+        finalSeg = nextMeasure.first()!
+    }
+    range.read(startMeasure.first()!, finalSeg)
+
+    //
+    // calculate number of required measures = newMeasures
+    //
+    const ticks = range.ticks().isNotZero() ? range.ticks() : score.endTick().minus(startMeasure.first()!.tick())
+    const k = ticks.div(newTimeSig)
+    const newMeasures = Math.trunc((k.numerator() + k.denominator() - 1) / k.denominator())
+
+    const newDuration = newTimeSig.times(new Fraction(newMeasures, 1))
+
+    // evtl. we have to fill the last measure
+    const fill = newDuration.minus(ticks)
+    range.fill(fill)
+
+    for (const s of [score]) { // TODO(port): scoreList() (excerpts)
+        const m1 = s.tick2measure(startMeasure.tick())!
+        const m2 = s.tick2measure(endMeasure.tick())!
+
+        const tick1 = m1.tick()
+        const tick2 = m2.endTick()
+        const spanners = s.spannerMap().findOverlapping(tick1.ticks(), tick2.ticks())
+        for (const sp of spanners) {
+            if (sp.tick().ge(tick1) && sp.tick().lt(tick2)) {
+                score.doUndoRemoveElement(sp)
+            }
+        }
+        s.undoRemoveMeasures(m1, m2, true)
+
+        let newFirstMeasure: Measure | null = null
+        let newLastMeasure: Measure | null = null
+        let tick = startMeasure.tick()
+        for (let i = 0; i < newMeasures; ++i) {
+            const m = Factory.createItem(ElementType.MEASURE, s.dummySystem()) as Measure
+            m.setPrev(newLastMeasure)
+            if (newLastMeasure) {
+                newLastMeasure.setNext(m)
+            }
+            m.setTimesig(newTimeSig)
+            m.setTicks(newTimeSig)
+            m.setTick(tick)
+            tick = tick.plus(m.ticks())
+            newLastMeasure = m
+            if (!newFirstMeasure) {
+                newFirstMeasure = m
+            }
+        }
+        //
+        // insert new calculated measures
+        //
+        newFirstMeasure!.setPrev(m1.prev())
+        newLastMeasure!.setNext(m2.next())
+        s.undo(new InsertMeasures(newFirstMeasure!, newLastMeasure!))
+    }
+    if (!fill.isZero()) {
+        score.undoInsertTime(endMeasure.endTick(), fill)
+    }
+
+    if (!range.write(score.masterScore(), startMeasure.tick())) {
+        return false
+    }
+
+    for (const s of [score]) { // TODO(port): scoreList()
+        s.connectTies(true)
+    }
+
+    // reset start and end elements for slurs that overlap the rewritten measures
+    for (const spanner of score.spannerMap().findOverlapping(startMeasure.tick().ticks(), endMeasure.tick().ticks())) {
+        const slur = spanner.isSlur() ? spanner : null
+        if (slur) {
+            const startEl = slur.startElement()
+            const endEl = slur.endElement()
+            if (!startEl || !endEl) {
+                continue
+            }
+            score.undo(new ChangeStartEndSpanner(spanner, slur.findStartCR(), slur.findEndCR()))
+        }
+    }
+    // Attempt to move tremolos to correct chords
+    for (const [chord1Tick, chord2Tick, trem, track] of tremoloChordTicks) {
+        score.undo(new MoveTremolo(trem.score(), chord1Tick, chord2Tick, trem, track))
+    }
+
+    if (score.noteEntryMode()) {
+        // set input cursor to possibly re-written segment
+        const icTick = score.inputState().tick()
+        let icSegment = score.tick2segment(icTick, false, SegmentType.ChordRest)
+        if (!icSegment) {
+            // this can happen if cursor was on a rest
+            // and in the rewriting it got subsumed into a full measure rest
+            let icMeasure = score.tick2measure(icTick)
+            if (!icMeasure) { // shouldn't happen, but just in case
+                icMeasure = score.firstMeasure()
+            }
+            icSegment = icMeasure!.first(SegmentType.ChordRest)
+        }
+        score.inputState().setSegment(icSegment)
+    }
+
+    return true
+}
+
+/** C++ bool Score::rewriteMeasures(Measure* fm, const Fraction& ns, staff_idx_t staffIdx) */
+function rewriteMeasuresUpToNextTimeSig(score: Score, fm: Measure, ns: Fraction, staffIdx: staff_idx_t): boolean {
+    let lm: Measure | null = fm
+    let fm1: Measure | null = fm
+    let nm: Measure | null = null
+    let sectionBreak: LayoutBreak | null = null
+    let endOfMeasureTimeSigSeg: Segment | null = null
+
+    //
+    // split into Measure segments fm-lm
+    //
+    const foundLM = (curMeas: MeasureBase | null, curLM: Measure): boolean => {
+        if (!curMeas || !curMeas.isMeasure() || curLM.sectionBreak()) {
+            return true
+        }
+        let timeSigSeg = (curMeas as Measure).findSegmentR(SegmentType.TimeSig, new Fraction(0, 1))
+        if (!timeSigSeg && curMeas.prevMeasure()) {
+            // find time sig at end of previous measure
+            const prevMeasure = curMeas.prevMeasure()!
+            timeSigSeg = prevMeasure.findSegmentR(SegmentType.TimeSig, prevMeasure.ticks())
+            if (timeSigSeg) {
+                endOfMeasureTimeSigSeg = timeSigSeg
+            }
+        }
+        if (timeSigSeg && curMeas !== fm) {
+            return staffIdx === nidx || !!timeSigSeg.element(staff2track(staffIdx))
+        }
+        return false
+    }
+    for (let measure: MeasureBase | null = fm; ; measure = measure!.next()) {
+        if (foundLM(measure, lm!)) {
+            // save section break to reinstate after rewrite
+            const layoutBreak = lm!.sectionBreakElement()
+
+            if (lm && layoutBreak) {
+                sectionBreak = layoutBreak.clone() as LayoutBreak // Factory::copyLayoutBreak
+            }
+
+            if (!score.rewriteMeasures(fm1!, lm!, ns, staffIdx)) {
+                if (staffIdx !== nidx) {
+                    MScore.setError(MsError.CANNOT_CHANGE_LOCAL_TIMESIG_MEASURE_NOT_EMPTY)
+                    // restore measure rests that were prematurely modified
+                    const fr = score.staff(staffIdx)!.timeSig(fm.tick())!.sig()
+                    for (let m: Measure | null = fm1; m; m = m.nextMeasure()) {
+                        const cr = m.findChordRest(m.tick(), staffIdx * VOICES)
+                        if (cr && cr.isRest() && cr.durationType().type() === DurationType.V_MEASURE) {
+                            cr.undoChangeProperty(Pid.DURATION, fr)
+                        } else {
+                            break
+                        }
+                    }
+                }
+                for (let m: Measure | null = fm1; m; m = m.nextMeasure()) {
+                    if (m.first(SegmentType.TimeSig)) {
+                        break
+                    }
+                    const fr = ns
+                    m.undoChangeProperty(Pid.TIMESIG_NOMINAL, fr)
+                }
+                return false
+            }
+
+            // after rewrite, lm is not necessarily valid
+            // m is first MeasureBase after rewritten range
+            // m->prevMeasure () is new last measure of range
+            // set nm to first true Measure after rewritten range
+            // we may use this to reinstate time signatures
+            if (measure && measure.prevMeasure()) {
+                nm = measure.prevMeasure()!.nextMeasure()
+            } else {
+                nm = null
+            }
+
+            if (sectionBreak) {
+                // reinstate section break, then stop rewriting
+                if (measure && measure.prevMeasure()) {
+                    sectionBreak.setParent(measure.prevMeasure())
+                    score.undoAddElement(sectionBreak)
+                } else if (!measure) {
+                    sectionBreak.setParent(score.lastMeasure())
+                    score.undoAddElement(sectionBreak)
+                } else {
+                    // C++: LOGD("unable to restore section break")
+                    nm = null
+                    sectionBreak = null
+                }
+                break
+            }
+
+            // stop rewriting at end of score
+            // or at a measure (which means we found a time signature segment)
+            if (!measure || measure.isMeasure()) {
+                break
+            }
+
+            // skip frames
+            while (!measure.isMeasure()) {
+                const layoutBreak2 = measure.sectionBreakElement()
+
+                if (layoutBreak2) {
+                    // frame has a section break; we can stop skipping ahead
+                    sectionBreak = layoutBreak2
+                    break
+                }
+                measure = measure.next()
+                if (!measure) {
+                    break
+                }
+            }
+            // stop rewriting if we encountered a section break on a frame
+            // or if there is a time signature on first measure after the frame
+            if (sectionBreak || (measure && (measure as Measure).first(SegmentType.TimeSig))) {
+                break
+            }
+
+            // set up for next range to rewrite
+            fm1 = measure as Measure | null
+            if (!fm1) {
+                break
+            }
+        }
+
+        // if we didn't break the loop already,
+        // we must have an ordinary measure
+        // add measure to range to rewrite
+        lm = measure as Measure | null
+    }
+
+    // if any staves don't have time signatures at the point where we stopped,
+    // we need to reinstate their previous time signatures
+    if (!nm) {
+        return true
+    }
+    const nmm = nm as Measure
+    const timeSigSeg = nmm.undoGetSegment(SegmentType.TimeSig, nmm.tick())
+
+    for (let i = 0; i < score.nstaves(); ++i) {
+        if (staffIdx !== nidx && i !== staffIdx) {
+            continue
+        }
+        if (!timeSigSeg.element(staff2track(i))) {
+            const eomSeg = endOfMeasureTimeSigSeg as Segment | null
+            const ots = eomSeg ? eomSeg.element(staff2track(i)) as TimeSig | null : score.staff(i)!.timeSig(nmm.tick())
+            if (ots) {
+                const nts = ots.clone() as TimeSig // Factory::copyTimeSig
+                nts.setParent(timeSigSeg)
+                if (sectionBreak) {
+                    nts.setGenerated(false)
+                    nts.setShowCourtesySig(false)
+                }
+                score.undoAddElement(nts)
+            }
+        }
+    }
+
+    return true
+}
+
+Score.prototype.undoRemoveMeasures = function (this: Score, m1: Measure, m2: Measure, preserveTies = false,
+    moveStaffTypeChanges = true): void {
+    const startTick = m1.tick()
+    const endTick = m2.endTick()
+    const spannersToRemove = new Set<Spanner>()
+
+    //
+    //  handle ties which start before m1 and end in (m1-m2)
+    //
+    for (let s = m1.first(); s !== m2.last(); s = s!.next1()) {
+        if (!s) {
+            // This score is corrupted; handle it without crashing,
+            // to help the user to fix corruptions by deleting the affected measures
+            break
+        }
+
+        if (!s.isChordRestType()) {
+            continue
+        }
+
+        // Make sure annotations are removed once, even if this segment contains linked copies of the same annotation
+        // (the linked copy would be removed by undoRemoveElement)
+        while (s.annotations().length) {
+            const annotation = s.annotations()[0]
+            this.undoRemoveElement(annotation)
+        }
+
+        for (let track = 0; track < this.ntracks(); ++track) {
+            const e = s.element(track)
+            if (!e || !e.isChord()) {
+                continue
+            }
+            const c = e as Chord
+            for (const n of c.notes()) {
+                // Remove ties crossing measure range boundaries
+                let t = n.tieBackNonPartial()
+                if (t && t.startNote() && t.startNote()!.chord().tick().lt(startTick)) {
+                    if (preserveTies) {
+                        t.setEndNote(null)
+                    } else {
+                        this.undoRemoveElement(t)
+                    }
+                }
+                t = n.tieForNonPartial()
+                if (t && t.endNote() && t.endNote()!.chord().tick().ge(endTick)) {
+                    this.undoRemoveElement(t)
+                }
+
+                // Do the same for other note-anchored spanners (e.g. glissandi).
+                // Delay actual removing to avoid modifying lists inside loops over them.
+                for (const sb of n.spannerBack()) {
+                    if (sb.tick().lt(startTick)) {
+                        spannersToRemove.add(sb)
+                    }
+                }
+                for (const sf of n.spannerFor()) {
+                    if (sf.tick2().ge(endTick)) {
+                        spannersToRemove.add(sf)
+                    }
+                }
+            }
+        }
+    }
+
+    for (const s of spannersToRemove) {
+        this.undoRemoveElement(s)
+    }
+
+    // delete staffTypeChanges in removed measures
+    if (moveStaffTypeChanges) {
+        for (let m: Measure | null = m1; m && m !== m2.nextMeasure(); m = m.nextMeasure()) {
+            for (let i = m.el().length; i > 0; --i) {
+                const el = m.el()[i - 1]
+                if (el && el.isStaffTypeChange()) {
+                    this.deleteItem(el)
+                }
+            }
+        }
+    }
+
+    // TODO(port): EditSystemLocks::removeSystemLocksOnRemoveMeasures(this, m1, m2)
+
+    this.undo(new RemoveMeasures(m1, m2, moveStaffTypeChanges))
 }

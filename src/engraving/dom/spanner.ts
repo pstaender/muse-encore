@@ -357,6 +357,57 @@ export abstract class Spanner extends EngravingItem {
     nsegments(): number { return this.m_segments.length }
     segmentsEmpty(): boolean { return this.m_segments.length === 0 }
 
+    insertTimeUnmanaged(fromTick: Fraction, len: Fraction): void {
+        let newTick1 = this.tick()
+        let newTick2 = this.tick2()
+
+        // check spanner start and end point
+        if (len.gt(new Fraction(0, 1))) { // adding time
+            if (this.tick().ge(fromTick)) { // start after insertion point: shift start to right
+                newTick1 = newTick1.plus(len)
+            }
+            if (this.tick2().gt(fromTick)) { // end after insertion point: shift end to right
+                newTick2 = newTick2.plus(len)
+            }
+        }
+        if (len.lt(new Fraction(0, 1))) { // removing time
+            const toTick = fromTick.minus(len)
+            if (this.tick().gt(fromTick)) { // start after beginning of removed time
+                if (this.tick().lt(toTick)) { // start within removed time: bring start at removing point
+                    if (this.explicitParent()) {
+                        this.parentItem()!.remove(this)
+                        return
+                    } else {
+                        newTick1 = fromTick
+                    }
+                } else { // start after removed time: shift start to left
+                    newTick1 = newTick1.plus(len)
+                }
+            }
+            if (this.tick2().gt(fromTick)) { // end after start of removed time
+                if (this.tick2().lt(toTick)) { // end within removed time: bring end at removing point
+                    newTick2 = fromTick
+                } else { // end after removed time: shift end to left
+                    newTick2 = newTick2.plus(len)
+                }
+            }
+        }
+
+        // update properties as required
+        if (newTick2.le(newTick1)) { // if no longer any span: remove it
+            if (this.explicitParent()) {
+                this.parentItem()!.remove(this)
+            }
+        } else { // if either TICKS or TICK did change, update property
+            if (!newTick2.minus(newTick1).eq(this.tick2().minus(this.tick()))) {
+                this.setProperty(Pid.SPANNER_TICKS, newTick2.minus(newTick1))
+            }
+            if (!newTick1.eq(this.tick())) {
+                this.setProperty(Pid.SPANNER_TICK, newTick1)
+            }
+        }
+    }
+
     removeUnmanaged(): void {
         for (const ss of this.spannerSegments()) {
             if (ss.system()) {

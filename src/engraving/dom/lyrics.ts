@@ -39,6 +39,14 @@ export class Lyrics extends TextBase {
         this.initElementStyle(lyricsElementStyle)
     }
 
+    /** C++ copy constructor: the separator (melisma/dash line) is not copied, the other members not copied keep their defaults */
+    protected override onCloned(original: this): void {
+        super.onCloned(original)
+        this.m_separator = null
+        this.m_needRemoveInvalidSegments = false
+        this.m_avoidBarlines = true
+    }
+
     segment(): Segment { return this.explicitParent()!.explicitParent() as unknown as Segment }
     measure(): Measure { return this.explicitParent()!.explicitParent()!.explicitParent() as unknown as Measure }
     chordRest(): ChordRest { return this.explicitParent() as unknown as ChordRest }

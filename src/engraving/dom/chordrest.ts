@@ -104,7 +104,7 @@ export abstract class ChordRest extends DurationElement {
             const b = this.m_beam
             this.m_beam.remove(this)
             if (b.empty()) {
-                this.score().removeElement(b)
+                this.score().doUndoRemoveElement(b)
             } else {
                 chordRestRenderer.layoutBeam1!(b)
             }
@@ -116,7 +116,7 @@ export abstract class ChordRest extends DurationElement {
                     c.createHook()
                 }
             } else if (c.hook()) {
-                this.score().removeElement(c.hook()!)
+                this.score().doUndoRemoveElement(c.hook()!)
             }
             chordRestRenderer.layoutStem!(c)
         }
@@ -579,7 +579,25 @@ export abstract class ChordRest extends DurationElement {
 
     protected override onCloned(original: this): void {
         super.onCloned(original)
+        this.m_beam = null
+        this.m_beamlet = null
         this.m_tabDur = null // tab dur. symb. depends upon context: can't be simply copied from another CR
+        this.m_el = [] // not copied by the C++ copy constructor
+        this.m_storedStaffMove = 0
+
+        this.m_lyrics = []
+        for (const l of original.m_lyrics) { // make deep copy
+            const nl = l.clone() as Lyrics // TODO(port): link (Factory::copyLyrics with link)
+            nl.setParent(this)
+            nl.setTrack(this.track())
+            this.m_lyrics.push(nl)
+        }
+    }
+
+    /** C++ ChordRest::removeMarkings */
+    removeMarkings(_keepTremolo = false): void {
+        this.m_el = []
+        this.m_lyrics = []
     }
 
     tabDur(): TabDurationSymbol | null { return this.m_tabDur }

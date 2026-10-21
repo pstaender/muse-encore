@@ -74,6 +74,25 @@ export class Rest extends ChordRest {
         }
     }
 
+    /** C++ copy constructor (link: TODO(port), see linkedClone()) */
+    protected override onCloned(original: this): void {
+        super.onCloned(original)
+        this.m_verticalClearance = new RestVerticalClearance()
+        this.m_alignWithOtherRests = true
+        this.m_dots = []
+        this.m_deadSlapped = null
+        for (const dot of original.m_dots) {
+            this.add(dot.clone())
+        }
+        if (original.m_deadSlapped) {
+            this.add(original.m_deadSlapped.clone())
+        }
+    }
+
+    hack_toRestType(): void {
+        this.hack_setType(ElementType.REST)
+    }
+
     protected override createLayoutData(): RestLayoutData { return new RestLayoutData(this) }
 
     numberRect(): RectF { return new RectF() } // TODO: add style to show number over 1-measure rests

@@ -24,6 +24,12 @@ export abstract class DurationElement extends EngravingItem {
         super(type, parent, f)
     }
 
+    /** C++ copy constructor: the tuplet is not copied */
+    protected override onCloned(original: this): void {
+        super.onCloned(original)
+        this.m_tuplet = null
+    }
+
     measure(): Measure { return this.explicitParent() as unknown as Measure }
 
     readAddTuplet(t: Tuplet): void {

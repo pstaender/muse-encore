@@ -619,6 +619,26 @@ export class MeasureBaseList {
         }
     }
 
+    /** C++ remove(MeasureBase*, MeasureBase*): remove the range fm..lm */
+    removeRange(fm: MeasureBase, lm: MeasureBase): void {
+        for (let m: MeasureBase | null = fm; m !== lm; m = m!.next()) {
+            --this.m_size
+        }
+        --this.m_size
+        const pm = fm.prev()
+        const nm = lm.next()
+        if (pm) {
+            pm.setNext(nm)
+        } else {
+            this.m_first = nm
+        }
+        if (nm) {
+            nm.setPrev(pm)
+        } else {
+            this.m_last = pm
+        }
+    }
+
     remove(m: MeasureBase): void {
         --this.m_size
         if (m.prev()) {

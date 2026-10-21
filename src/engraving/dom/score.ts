@@ -995,6 +995,18 @@ export class Score extends EngravingObject {
         return this.m_staves.map((_s, i) => i)
     }
 
+    isSpannerStartEnd(tick: Fraction, track: track_idx_t): boolean {
+        for (const s of this.m_spanner.all()) {
+            if (s.track() !== track) {
+                continue
+            }
+            if (s.tick().eq(tick) || s.tick2().eq(tick)) {
+                return true
+            }
+        }
+        return false
+    }
+
     insertTime(tick: Fraction, len: Fraction): void {
         for (const staff of this.staves()) {
             staff.insertTime(tick, len)
@@ -1748,9 +1760,12 @@ export class Score extends EngravingObject {
         case ElementType.OTTAVA: {
             const s = element as unknown as Spanner
             this.removeSpanner(s)
+            // (the port removes the segments from their systems; C++ leaves them there until the system is cleared
+            // by the next layout) the segments are unused then: getNextLayoutSystemSegment reuses segments without
+            // a system when the spanner is added again (undo)
             for (const ss of s.spannerSegments()) {
                 if (ss.system()) {
-                    ss.system()!.remove(ss)
+                    ss.setSystem(null)
                 }
             }
             break

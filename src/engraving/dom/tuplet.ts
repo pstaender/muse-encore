@@ -81,6 +81,14 @@ export class Tuplet extends DurationElement {
         this.initElementStyle(tupletStyle)
     }
 
+    /** C++ copy constructor: the elements are not copied, the number is recreated on layout */
+    protected override onCloned(original: this): void {
+        super.onCloned(original)
+        this.m_allElements = new Set()
+        this.m_currentElements = []
+        this.m_number = null
+    }
+
     override setVisible(f: boolean): void {
         super.setVisible(f)
         if (this.m_number) {

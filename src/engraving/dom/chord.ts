@@ -18,7 +18,7 @@ import {
 } from '../types/types'
 import { Sid } from '../style/styledef'
 import { EngravingItem, ElementFlag, itemFactories } from './engravingitem'
-import { ChordRest, NoteType } from './chordrest'
+import { ChordRest, CrossMeasure, NoteType } from './chordrest'
 import { Pid, PropertyFlags } from './property'
 import { SelectType } from './select'
 import type { EditData } from '../editing/editdata'
@@ -209,6 +209,139 @@ export class Chord extends ChordRest {
 
     constructor(parent: EngravingObject | null) {
         super(ElementType.CHORD, parent)
+    }
+
+    // -----------------------------------------------------------------------------------------------------------------
+    //   copy constructor (C++ Chord(const Chord&, bool link = false); link: TODO(port), use linkedClone())
+    // -----------------------------------------------------------------------------------------------------------------
+
+    protected override onCloned(original: this): void {
+        super.onCloned(original)
+        // members the C++ copy constructor does not copy keep their default values
+        this.m_noteParens = []
+        this.m_notes = []
+        this.m_ledgerLines = []
+        this.m_graceNotes = []
+        this.m_graceNotesBefore = new GraceNotesGroup(this)
+        this.m_graceNotesAfter = new GraceNotesGroup(this)
+        this.m_articulations = []
+        this.m_tremoloTwoChord = null
+        this.m_tremoloSingleChord = null
+        this.m_isTrillCueNote = false
+        this.m_spaceLw = 0.0
+        this.m_spaceRw = 0.0
+        this.m_defaultStemLength = 0.0
+        this.m_dotPosX = 0.0
+        this.m_startEndSlurs = { startUp: false, startDown: false, endUp: false, endDown: false }
+        this.m_startingSpanners = new Set()
+        this.m_endingSpanners = new Set()
+        this.m_allowKerningAbove = true
+        this.m_allowKerningBelow = true
+        this.m_isChordPlayable = true
+
+        for (const onote of original.m_notes) {
+            this.add(onote.clone())
+        }
+        for (const gn of original.m_graceNotes) {
+            this.add(gn.clone())
+        }
+        for (const a of original.m_articulations) { // make deep copy
+            const na = a.clone() as Articulation
+            na.setParent(this)
+            na.setTrack(this.track())
+            this.m_articulations.push(na)
+        }
+        this.m_stem = null
+        this.m_hook = null
+        this.m_endsNoteAnchoredLine = false
+        this.m_arpeggio = null
+        this.m_stemSlash = null
+
+        // m_spanArpeggio, m_graceIndex, m_noStem, m_showStemSlash, m_playEventType, m_stemDirection, m_noteType and
+        // m_combineVoice are copied
+        this.m_crossMeasure = CrossMeasure.UNKNOWN
+
+        if (original.m_stem) {
+            this.add(original.m_stem.clone())
+        }
+        if (original.m_hook) {
+            this.add(original.m_hook.clone())
+        }
+        if (original.m_stemSlash) {
+            this.add(original.m_stemSlash.clone())
+        }
+        if (original.m_arpeggio) {
+            this.add(original.m_arpeggio.clone())
+        }
+
+        if (original.m_tremoloSingleChord) {
+            this.add(original.m_tremoloSingleChord.clone())
+        } else if (original.m_tremoloTwoChord) {
+            if (original.m_tremoloTwoChord.chord1() === original) {
+                const t = original.m_tremoloTwoChord.clone() as TremoloTwoChord
+                t.setChords(this, null)
+                this.add(t)
+            }
+        }
+
+        for (const e of original.el()) {
+            if (e.isChordLine()) {
+                const cl = e as unknown as { note(): Note | null }
+                const ncl = e.clone()
+                this.add(ncl)
+                if (cl.note()) {
+                    (ncl as unknown as { setNote(n: Note | null): void }).setNote(this.findNote(cl.note()!.pitch()))
+                }
+            }
+        }
+
+        for (const e of original.el()) {
+            if (e.isChordBracket()) {
+                this.add(e.linkedClone())
+            }
+        }
+
+        for (const info of original.noteParentheses()) {
+            const newLeftParen = info.leftParen().clone() as Parenthesis
+            newLeftParen.setParent(this)
+            const newRightParen = info.rightParen().clone() as Parenthesis
+            newRightParen.setParent(this)
+
+            const newNotes: Note[] = []
+            for (const note of info.notes()) {
+                newNotes.push(this.findNote(note.pitch())!)
+            }
+
+            this.m_noteParens.push(new NoteParenthesisInfo(newLeftParen, newRightParen, newNotes))
+        }
+    }
+
+    /** C++ Chord::removeMarkings */
+    override removeMarkings(keepTremolo = false): void {
+        if (this.m_tremoloSingleChord && !keepTremolo) {
+            this.remove(this.m_tremoloSingleChord)
+        }
+
+        if (this.m_tremoloTwoChord && !keepTremolo) {
+            this.remove(this.m_tremoloTwoChord)
+        }
+
+        if (this.arpeggio()) {
+            this.remove(this.arpeggio()!)
+        }
+
+        if (this.m_spanArpeggio) {
+            this.m_spanArpeggio = null
+        }
+
+        this.m_graceNotes.length = 0
+        this.m_articulations.length = 0
+        for (const n of this.notes()) {
+            for (const e of [...n.el()]) {
+                n.remove(e)
+            }
+        }
+        super.removeMarkings(keepTremolo)
     }
 
     override intrinsicMag(): number {
