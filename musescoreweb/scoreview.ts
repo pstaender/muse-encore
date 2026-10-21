@@ -15,9 +15,12 @@ import {
     CLIPBOARD_FORMATS, clipboardContents, executeAction, isActionEnabled, isDragging, setClipboardContents, textEditingInfo,
     viewInputText, viewKeyPress, viewMouseDoubleClick, viewMouseMove, viewMousePress, viewMouseRelease, viewResetTripleClick,
     viewShortcutOverride, type ViewKeyEvent, type ViewPointerEvent,
+    // drag and drop of palette cells onto the score
+    viewDragEnter, viewDragLeave, viewDragMove, viewDrop, type OutgoingElementDrag, type ViewDragEvent,
 } from '../src/index'
 import { drawShadowNote, hideShadowNote, rightClickAt, showShadowNote } from '../src/index'
 import { setShortcutOverride } from './actions/actions'
+import { ELEMENT_DROP_EVENT, dragData, setDragData, type ElementDropDetail } from './dragcontroller'
 import { settings as appSettings, updateSettings, type ViewSettings } from './settings'
 
 /** commands of the score view that the app handles */
@@ -914,7 +917,12 @@ viewport.addEventListener('pointermove', (e) => {
         return
     }
     const r = viewMouseMove(score, ev)
-    if (r.moveCanvas) {
+    if (r.outgoingDrag) {
+        startOutgoingDrag(r.outgoingDrag)
+    }
+    if (outgoing) {
+        moveOutgoingDrag(e.clientX, e.clientY)
+    } else if (r.moveCanvas) {
         // move the canvas with the pointer (like the hand tool)
         viewport.scrollLeft -= e.clientX - mouse.lastX
         viewport.scrollTop -= e.clientY - mouse.lastY
@@ -930,6 +938,7 @@ const releasePointer = (e: PointerEvent): void => {
         return
     }
     mouse = null
+    endOutgoingDrag(e.type === 'pointerup' ? e : null)
     const ev = pointerEvent(e)
     if (ev) {
         viewMouseRelease(score, { ...ev, buttons: e.buttons })
@@ -969,6 +978,143 @@ function afterViewInput(layoutChanged: boolean, scroll = false): void {
     // a click in note input mode puts a note, drags change the layout inside an open command: always a new paint
     void layoutChanged
     scoreChanged(scroll)
+}
+
+// ---------------------------------------------------------------------------------
+//   drag and drop of palette cells onto the score (NotationViewInputController dragEnterEvent, dragMoveEvent,
+//   dragLeaveEvent, dropEvent): the drop target is highlighted by the library's paint (drawPage)
+// ---------------------------------------------------------------------------------
+
+/** repaints the pages without a new layout (drag feedback) */
+let repaintFrame = 0
+function repaintPages(): void {
+    if (repaintFrame) {
+        return
+    }
+    repaintFrame = requestAnimationFrame(() => {
+        repaintFrame = 0
+        for (const el of pages) {
+            delete el.querySelector('canvas')!.dataset.dpi
+        }
+        renderVisible()
+    })
+}
+
+let dropActive = false
+
+function dragEvent(e: DragEvent): ViewDragEvent | null {
+    const pt = pagePointAt(e.clientX, e.clientY)
+    return pt ? { page: pt.page, x: pt.x, y: pt.y, shift: e.shiftKey, ctrl: isMacPlatform ? e.metaKey : e.ctrlKey, alt: e.altKey } : null
+}
+
+function startDrop(): boolean {
+    if (!score || dropActive || isBusy()) {
+        return dropActive
+    }
+    const d = dragData()
+    if (!d?.symbol) {
+        return false
+    }
+    dropActive = viewDragEnter(score, d.symbol)
+    return dropActive
+}
+
+function stopDrop(): void {
+    if (dropActive && score) {
+        viewDragLeave(score)
+        repaintPages()
+    }
+    dropActive = false
+}
+
+viewport.addEventListener('dragenter', () => {
+    startDrop()
+})
+
+viewport.addEventListener('dragover', (e) => {
+    if (!score || !startDrop()) {
+        return
+    }
+    const ev = dragEvent(e)
+    const accepted = !!ev && viewDragMove(score, ev)
+    e.preventDefault()
+    if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = accepted ? 'copy' : 'none'
+    }
+    repaintPages()
+})
+
+viewport.addEventListener('dragleave', (e) => {
+    if (dropActive && !viewport.contains(e.relatedTarget as Node | null)) {
+        stopDrop()
+    }
+})
+
+viewport.addEventListener('drop', (e) => {
+    if (!score || !dropActive) {
+        return
+    }
+    e.preventDefault()
+    e.stopPropagation()
+    const ev = dragEvent(e)
+    dropActive = false
+    setDragData(null)
+    if (ev && viewDrop(score, ev)) {
+        scoreChanged(false)
+    } else {
+        repaintPages()
+    }
+    viewport.focus({ preventScroll: true })
+})
+
+// a drag that ends elsewhere (Escape, a drop outside of the view)
+document.addEventListener('dragend', () => {
+    stopDrop()
+    setDragData(null)
+})
+
+// ---------------------------------------------------------------------------------
+//   an element dragged out of the score (Shift+Ctrl+drag: NotationInteraction::startOutgoingDragElement) onto a palette:
+//   the pointer stays captured by the view, the element under it gets ELEMENT_DROP_EVENT at the end
+// ---------------------------------------------------------------------------------
+
+let outgoing: { drag: OutgoingElementDrag; ghost: HTMLElement; over: Element | null } | null = null
+
+function startOutgoingDrag(drag: OutgoingElementDrag): void {
+    const ghost = document.createElement('div')
+    ghost.className = 'outgoing-drag-ghost'
+    ghost.textContent = drag.name
+    document.body.appendChild(ghost)
+    outgoing = { drag, ghost, over: null }
+}
+
+function moveOutgoingDrag(clientX: number, clientY: number): void {
+    if (!outgoing) {
+        return
+    }
+    outgoing.ghost.style.left = `${clientX + 12}px`
+    outgoing.ghost.style.top = `${clientY + 12}px`
+    const grid = document.elementFromPoint(clientX, clientY)?.closest('[data-palette-grid]') ?? null
+    if (grid !== outgoing.over) {
+        outgoing.over?.classList.remove('drop-active')
+        grid?.classList.add('drop-active')
+        outgoing.over = grid
+    }
+}
+
+function endOutgoingDrag(e: PointerEvent | null): void {
+    if (!outgoing) {
+        return
+    }
+    const { drag, ghost, over } = outgoing
+    outgoing = null
+    ghost.remove()
+    over?.classList.remove('drop-active')
+    const target = e ? document.elementFromPoint(e.clientX, e.clientY) : null
+    if (e && target && !viewport.contains(target)) {
+        const detail: ElementDropDetail = { mimeData: drag.mimeData, clientX: e.clientX, clientY: e.clientY }
+        target.dispatchEvent(new CustomEvent(ELEMENT_DROP_EVENT, { bubbles: true, detail }))
+    }
 }
 
 // ---------------------------------------------------------------------------------

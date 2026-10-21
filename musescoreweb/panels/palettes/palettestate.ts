@@ -1,34 +1,32 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * The state of the palettes panel (MuseScore's PaletteProvider / user palette tree and PaletteConfiguration):
- * which palettes are shown (the default palette tree with palettes added by "Add palettes" or hidden), which are
- * expanded, the palette settings of the panel's menu. Kept in the settings ("palettes"); the search and the
- * current cell only for the session.
+ * The state of the palettes panel (MuseScore's PaletteProvider with the user palette tree and PaletteConfiguration):
+ * the user palette tree is the library's (src/palette: shown/hidden, expanded, custom palettes and cells); it is stored
+ * as PaletteTree XML in localStorage like MuseScore keeps it in the workspace (PaletteWorkspaceSetup). The palette
+ * settings of the panel's menu are in the settings ("palettes"); the search and the current cell only for the session.
  */
 import { useSyncExternalStore } from 'react'
-import { defaultPalettes, masterPalettes, type PaletteCellInfo, type PaletteInfo } from '../../../src/index'
+import {
+    addExtraPalette, loadUserPalettes, masterPalettes, onUserPalettesChanged, setAllPalettesExpanded,
+    setPaletteExpanded as libSetPaletteExpanded, userPalettes, userPalettesXml, type PaletteCellInfo, type PaletteInfo,
+} from '../../../src/index'
 import { settings, updateSettings } from '../../settings'
 
 export interface PalettesSettings {
-    /** palettes whose visibility differs from the default tree (palette id -> shown) */
-    visible: Record<string, boolean>
-    /** the expanded palettes */
-    expanded: string[]
     /** PaletteConfiguration::isSinglePalette ("Open only one palette at a time") */
     singlePalette: boolean
     /** PaletteConfiguration::isSingleClickToOpenPalette */
     singleClickToOpen: boolean
 }
 
-const DEFAULTS: PalettesSettings = { visible: {}, expanded: [], singlePalette: false, singleClickToOpen: true }
+const DEFAULTS: PalettesSettings = { singlePalette: false, singleClickToOpen: true }
+
+/** the key of the user palette tree (PaletteTree XML) in localStorage */
+const TREE_KEY = 'musescoreweb:palettes'
 
 function load(): PalettesSettings {
     const s = settings().palettes ?? {}
-    const visible = s.visible && typeof s.visible === 'object' && !Array.isArray(s.visible)
-        ? Object.fromEntries(Object.entries(s.visible).filter(([, v]) => typeof v === 'boolean')) as Record<string, boolean> : {}
     return {
-        visible,
-        expanded: Array.isArray(s.expanded) ? s.expanded.filter((x): x is string => typeof x === 'string') : DEFAULTS.expanded,
         singlePalette: typeof s.singlePalette === 'boolean' ? s.singlePalette : DEFAULTS.singlePalette,
         singleClickToOpen: typeof s.singleClickToOpen === 'boolean' ? s.singleClickToOpen : DEFAULTS.singleClickToOpen,
     }
@@ -40,16 +38,18 @@ export interface PalettesState extends PalettesSettings {
     searchText: string
     /** the cell last clicked or focused ("apply-current-palette-element") */
     currentCell: string | null
+    /** counts the changes of the user palette tree (the panel re-renders) */
+    treeVersion: number
 }
 
-let current: PalettesState = { ...load(), searchOpened: false, searchText: '', currentCell: null }
+let current: PalettesState = { ...load(), searchOpened: false, searchText: '', currentCell: null, treeVersion: 0 }
 const listeners = new Set<() => void>()
 
 function set(patch: Partial<PalettesState>, persist = false): void {
     current = { ...current, ...patch }
     if (persist) {
-        const { visible, expanded, singlePalette, singleClickToOpen } = current
-        updateSettings('palettes', { visible, expanded, singlePalette, singleClickToOpen })
+        const { singlePalette, singleClickToOpen } = current
+        updateSettings('palettes', { singlePalette, singleClickToOpen })
     }
     for (const l of listeners) {
         l()
@@ -70,38 +70,104 @@ export function usePalettesState(): PalettesState {
     )
 }
 
-/** the palettes of the user tree that are shown (PaletteProvider's visibility filter model) */
-export function shownPalettes(all: readonly PaletteInfo[]): PaletteInfo[] {
-    return all.filter(p => current.visible[p.id] ?? p.visible)
+// ---------------------------------------------------------------------------------
+//   the user palette tree: loaded once the engraving fonts are ready, saved after every change
+// ---------------------------------------------------------------------------------
+
+let s_loaded = false
+let s_saveTimer = 0
+
+function storedTree(): string | null {
+    try {
+        return localStorage.getItem(TREE_KEY)
+    } catch {
+        return null
+    }
 }
 
-/** PaletteProvider::availableExtraPalettesModel: the hidden palettes of the user tree */
-export function hiddenPalettes(all: readonly PaletteInfo[]): PaletteInfo[] {
-    return all.filter(p => !(current.visible[p.id] ?? p.visible))
+function saveTree(): void {
+    clearTimeout(s_saveTimer)
+    s_saveTimer = window.setTimeout(() => {
+        try {
+            localStorage.setItem(TREE_KEY, userPalettesXml())
+        } catch {
+            // not persisted (storage unavailable or full)
+        }
+    }, 200)
 }
 
-export function setPaletteVisible(id: string, visible: boolean): void {
-    set({ visible: { ...current.visible, [id]: visible } }, true)
+/**
+ * The palettes of the first version of the panel only stored which palettes were shown and expanded (by palette type):
+ * applied to the default tree once.
+ */
+function migrateOldSettings(): void {
+    const s = settings().palettes ?? {}
+    const visible = s.visible && typeof s.visible === 'object' ? s.visible as Record<string, unknown> : {}
+    const expanded = Array.isArray(s.expanded) ? s.expanded.filter((x): x is string => typeof x === 'string') : []
+    if (!Object.keys(visible).length && !expanded.length) {
+        return
+    }
+    for (const p of userPalettes()) {
+        if (visible[p.type] === true && !p.visible) {
+            const extra = `user:${p.id}`
+            addExtraPalette(extra)
+        }
+    }
+    for (const p of userPalettes()) {
+        if (expanded.includes(p.type)) {
+            libSetPaletteExpanded(p.id, true)
+        }
+    }
+    const { singlePalette, singleClickToOpen } = current
+    updateSettings('palettes', null)
+    updateSettings('palettes', { singlePalette, singleClickToOpen })
 }
 
-export function isPaletteExpanded(id: string): boolean {
-    return current.expanded.includes(id)
+/** PaletteWorkspaceSetup::setup (the engraving fonts must be initialized) */
+export function ensureUserPalettesLoaded(): void {
+    if (s_loaded) {
+        return
+    }
+    s_loaded = true
+    const xml = storedTree()
+    loadUserPalettes(xml)
+    if (!xml) {
+        migrateOldSettings()
+    }
+    onUserPalettesChanged(() => {
+        set({ treeVersion: current.treeVersion + 1 })
+        saveTree()
+    })
+}
+
+/** the palettes of the user palette tree (all, also the hidden ones) */
+export function allUserPalettes(): PaletteInfo[] {
+    ensureUserPalettesLoaded()
+    return userPalettes()
+}
+
+/** the palettes that are shown (PaletteProvider's visibility filter model) */
+export function shownPalettes(): PaletteInfo[] {
+    return allUserPalettes().filter(p => p.visible)
 }
 
 export function setPaletteExpanded(id: string, expanded: boolean): void {
-    let list = current.expanded.filter(x => x !== id)
-    if (expanded) {
-        list = current.singlePalette ? [id] : [...list, id]
-    }
-    set({ expanded: list }, true)
+    libSetPaletteExpanded(id, expanded, current.singlePalette)
 }
 
-export function expandCollapseAll(expand: boolean, ids: readonly string[]): void {
-    set({ expanded: expand ? [...ids] : [] }, true)
+export function expandCollapseAll(expand: boolean): void {
+    setAllPalettesExpanded(expand)
 }
 
 export function setSinglePalette(v: boolean): void {
-    set({ singlePalette: v, expanded: v ? current.expanded.slice(-1) : current.expanded }, true)
+    set({ singlePalette: v }, true)
+    if (v) {
+        // keep the last expanded palette
+        const expanded = shownPalettes().filter(p => p.expanded)
+        if (expanded.length > 1) {
+            libSetPaletteExpanded(expanded[expanded.length - 1].id, true, true)
+        }
+    }
 }
 
 export function setSingleClickToOpen(v: boolean): void {
@@ -128,19 +194,24 @@ export function setCurrentCell(id: string | null): void {
 
 /** "Restore the default layout" does not reset the palettes in MuseScore; "Revert to factory settings" does */
 export function resetPalettesState(): void {
-    current = { ...DEFAULTS, searchOpened: false, searchText: '', currentCell: null }
+    try {
+        localStorage.removeItem(TREE_KEY)
+    } catch {
+        // storage unavailable
+    }
+    current = { ...DEFAULTS, searchOpened: false, searchText: '', currentCell: null, treeVersion: current.treeVersion + 1 }
+    if (s_loaded) {
+        loadUserPalettes(null)
+        clearTimeout(s_saveTimer)
+        try {
+            localStorage.removeItem(TREE_KEY)
+        } catch {
+            // storage unavailable
+        }
+    }
     for (const l of listeners) {
         l()
     }
-}
-
-// ---------------------------------------------------------------------------------
-//   the palette trees (created once; names translated on each call)
-// ---------------------------------------------------------------------------------
-
-/** the default palette tree with the current language */
-export function userPalettes(): PaletteInfo[] {
-    return defaultPalettes()
 }
 
 /**

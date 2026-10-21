@@ -2370,6 +2370,11 @@ declare module '../dom/score' {
         /** Like toggleArticulation, but for ornaments. */
         toggleOrnament(attr: SymId): void
         cmdToggleLayoutBreak(type: LayoutBreakType): void
+        /**
+         * C++ cmdAddSpanner(Spanner*, const PointF&, bool): drop VOLTA, OTTAVA, TRILL, PEDAL, DYNAMIC, HAIRPIN, LET_RING,
+         * VIBRATO and TEXTLINE at a canvas position
+         */
+        cmdAddSpannerAtPos(spanner: Spanner, pos: PointF, systemStavesOnly?: boolean): void
         /** C++ cmdAddSpanner(Spanner*, staff_idx_t, Segment*, Segment*, bool): used when applying a spanner to a selection */
         cmdAddSpanner(spanner: Spanner, staffIdx: number, startSegment: Segment, endSegment: Segment | null,
             ctrlModifier?: boolean): void
@@ -2600,6 +2605,40 @@ Score.prototype.cmdToggleLayoutBreak = function (this: Score, type: LayoutBreakT
             break
         }
     }
+}
+
+Score.prototype.cmdAddSpannerAtPos = function (this: Score, spanner: Spanner, pos: PointF, systemStavesOnly = false): void {
+    const res = this.pos2measure(pos)
+    let staffIdx = res ? res.staffIdx : spanner.staffIdx()
+    if (systemStavesOnly) {
+        staffIdx = 0
+    }
+    // ignore if we do not have a measure
+    if (!res || !res.measure.isMeasure()) {
+        // C++: LOGD("cmdAddSpanner: cannot put object here"); delete spanner
+        return
+    }
+    const segment = res.segment
+    const mb = res.measure
+
+    // all spanners live in voice 0 (except slurs/ties)
+    const track = staffIdx === nidx ? nidx : staffIdx * VOICES
+
+    spanner.setTrack(track)
+    spanner.setTrack2(track)
+
+    if (spanner.anchor() === 0 /* Spanner::Anchor::SEGMENT */) {
+        spanner.setTick(segment.tick())
+        const tick2 = Fraction.min(segment.measure().endTick(), this.lastMeasure()!.endTick())
+        spanner.setTick2(tick2)
+    } else { // Anchor::MEASURE, Anchor::CHORD, Anchor::NOTE
+        spanner.setTick(mb.tick())
+        spanner.setTick2(mb.endTick())
+    }
+    spanner.eraseSpannerSegments()
+
+    const ctrlModifier = spanner.isTextLineBase() && spanner.systemFlag() && !systemStavesOnly // isSystemTextLine(spanner)
+    this.undoAddElement(spanner, true /*addToLinkedStaves*/, ctrlModifier)
 }
 
 Score.prototype.cmdAddSpanner = function (this: Score, spanner: Spanner, staffIdx: number, startSegment: Segment,

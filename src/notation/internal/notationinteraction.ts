@@ -13,7 +13,7 @@
  * Score::nextElement/prevElement), moveStringSelection, anchor lines, drop of dragged palette items / mime data.
  */
 
-import { PointF, RectF } from '../../framework/draw/types/geometry'
+import { LineF, PointF, RectF } from '../../framework/draw/types/geometry'
 import { DirectionV, DurationType, ElementType, VOICES, nidx, type staff_idx_t, type track_idx_t, type voice_idx_t } from '../../engraving/types/types'
 import type { Rest } from '../../engraving/dom/rest'
 import { Pad } from '../../engraving/dom/score'
@@ -58,7 +58,7 @@ import { scoreDummy } from '../../engraving/compat/dummyelement'
 import { EditData, KeyboardModifier } from '../../engraving/editing/editdata'
 import type { Selection } from '../../engraving/dom/select'
 import type { LayoutBreak } from '../../engraving/dom/layoutbreak'
-import type { Spanner } from '../../engraving/dom/spanner'
+import type { Spanner, SpannerSegment } from '../../engraving/dom/spanner'
 import type { Hairpin } from '../../engraving/dom/hairpin'
 import type { Clef } from '../../engraving/dom/clef'
 // (imports of the copy/paste, editing and drag sections)
@@ -82,7 +82,11 @@ import type { ElementGroup } from '../../engraving/dom/elementgroup'
 import type { PaintOptions } from '../../engraving/rendering/paintoptions'
 import type { TBox } from '../../engraving/dom/box'
 import type { FretDiagram } from '../../engraving/dom/fret'
-import '../../engraving/dom/paste'
+import { readType } from '../../engraving/dom/paste'
+import { ActionIconType, type ActionIcon } from '../../engraving/dom/actionicon'
+import type { StaffLines } from '../../engraving/dom/stafflines'
+import { RWRegister } from '../../engraving/rw/rwregister'
+import { SingleLayout } from '../../engraving/rendering/single/singlelayout'
 // (imports of the note input section)
 import { Constants } from '../../engraving/types/constants'
 import { NoteHeadGroup, type BeamMode } from '../../engraving/types/types'
@@ -2004,6 +2008,775 @@ export class NotationInteraction {
 
         if (element.needStartEditingAfterSelecting()) {
             this.startEditElement(element)
+        }
+    }
+
+    // =================================================================================================================
+    //   drop of an element (a palette cell dragged onto the score): startDropSingle, updateDropSingle, dropSingle,
+    //   endDrop (C++ "Copied from ScoreView::dragEnterEvent" etc.). The view calls them with canvas positions.
+    //   TODO(port): drop of ranges (startDropRange/updateDropRange/dropRange: outgoing drags of a selection), images
+    //   (startDropImage), the time tick anchors shown while dragging (EditTimeTickAnchors, hideAnchors)
+    // =================================================================================================================
+
+    private m_dropData: ElementDropData | null = null
+    private m_anchorLines: LineF[] = []
+    private m_currentDropPage: Page | null = null
+    /** C++ m_droppableTree: the page elements accepting the drop (nearestNeighbor searches them) */
+    private m_droppableItems: EngravingItem[] = []
+    private m_dropChanged = new Notification()
+
+    dropChanged(): Notification { return this.m_dropChanged }
+    private notifyAboutDropChanged(): void { this.m_dropChanged.notify() }
+
+    /** the element being dropped (null if no drop is in progress) */
+    dropElement(): EngravingItem | null { return this.m_dropData?.ed.dropElement ?? null }
+    /** the current drop target (highlighted) */
+    dropTargetItem(): EngravingItem | null { return this.m_dropData?.dropTarget ?? null }
+    anchorLines(): readonly LineF[] { return this.m_anchorLines }
+
+    setAnchorLines(anchorList: LineF[]): void {
+        this.m_anchorLines = anchorList.map(l => l.clone())
+    }
+
+    resetAnchorLines(): void {
+        this.m_anchorLines = []
+    }
+
+    // outgoing drag of an element (Shift+Ctrl+drag: an element dragged to a palette). C++ creates a QDrag with the
+    // mime data; here the view does the drag with the mime data of outgoingDrag()
+
+    private m_outgoingDrag: OutgoingDrag | null = null
+
+    isOutgoingDragElementAllowed(element: EngravingItem | null): boolean {
+        if (!element) {
+            return false
+        }
+
+        switch (element.type()) {
+        case ElementType.MEASURE:
+        case ElementType.NOTE:
+        case ElementType.VBOX:
+        case ElementType.HBOX:
+        case ElementType.TBOX:
+        case ElementType.FBOX:
+        // TODO: Bends & NoteLines can't be copy-dragged until corresponding SingleLayout::layout and SingleDraw::draw methods have been implemented
+        case ElementType.GUITAR_BEND:
+        case ElementType.GUITAR_BEND_SEGMENT:
+        case ElementType.GUITAR_BEND_HOLD:
+        case ElementType.GUITAR_BEND_HOLD_SEGMENT:
+        case ElementType.GUITAR_BEND_TEXT:
+        case ElementType.NOTELINE:
+        case ElementType.NOTELINE_SEGMENT:
+            return false
+        default: return true
+        }
+    }
+
+    /** hotSpot: the position of the pointer relative to the element's top left corner (canvas units) */
+    startOutgoingDragElement(element: EngravingItem, hotSpot: PointF): void {
+        if (this.isDragStarted()) {
+            this.endOutgoingDrag()
+        }
+
+        let mimeData: string
+        if (element.isSpannerSegment()) {
+            const s = (element as unknown as SpannerSegment).spanner()!
+            mimeData = s.mimeData()
+        } else {
+            mimeData = element.mimeData()
+        }
+
+        // TODO(port): the drag pixmap (the element drawn at the screen's resolution): the view draws the drag image
+        this.m_outgoingDrag = { mimeData, hotSpot: hotSpot.clone(), element }
+    }
+
+    isOutgoingDragStarted(): boolean {
+        return this.m_outgoingDrag !== null
+    }
+
+    /** the started outgoing drag (mime data of mimeSymbolFormat) */
+    outgoingDrag(): OutgoingDrag | null {
+        return this.m_outgoingDrag
+    }
+
+    endOutgoingDrag(): void {
+        this.m_outgoingDrag = null
+    }
+
+    /** edata: the element's mime data (EngravingItem::mimeData, mimeSymbolFormat) */
+    startDropSingle(edata: string): boolean {
+        this.resetDropData()
+
+        const edd: ElementDropData = { ed: new EditData(), dropTarget: null, dropRect: new RectF() }
+        // C++ EditData(&m_scoreCallbacks): ScoreCallbacks forwards the view callbacks to the interaction
+        edd.ed.view = {
+            setDropRectangle: (rect) => this.setDropRect(rect),
+            setDropTarget: (item) => this.setDropTarget(item, false),
+        }
+        this.m_dropData = edd
+
+        const e = new XmlReader(edata)
+        const dragOffset = { v: new PointF() }
+        const duration = { v: new Fraction(0, 1) } // dummy
+        const type = readType(e, dragOffset, duration)
+        edd.ed.dragOffset = dragOffset.v
+
+        const el = type === ElementType.INVALID ? null : Factory.createItem(type, scoreDummy(this.score()))
+        if (el) {
+            if (type === ElementType.BAR_LINE || type === ElementType.BRACKET) {
+                const spatium = this.score().style().spatium()
+                el.setHeight(spatium * 5)
+            }
+            edd.ed.dropElement = el
+
+            RWRegister.reader().readItem(edd.ed.dropElement, e)
+
+            SingleLayout.layoutItem(edd.ed.dropElement) // C++ engravingRenderer(): the ISingleRenderer
+            return true
+        }
+
+        this.resetDropData()
+        return false
+    }
+
+    /** modifiers: KeyboardModifier flags; returns true if the drop is accepted at pos */
+    updateDropSingle(pos: PointF, modifiers: number): boolean {
+        if (!this.m_dropData) {
+            return false
+        }
+
+        const edd = this.m_dropData
+
+        const dropElem = edd.ed.dropElement
+        if (!dropElem) {
+            return false
+        }
+
+        switch (dropElem.type()) {
+        case ElementType.BRACKET:
+        case ElementType.GRADUAL_TEMPO_CHANGE:
+        case ElementType.JUMP:
+        case ElementType.KEYSIG:
+        case ElementType.LAYOUT_BREAK:
+        case ElementType.MARKER:
+        case ElementType.MEASURE_REPEAT:
+        case ElementType.MEASURE_NUMBER:
+        case ElementType.TIMESIG:
+        case ElementType.SPACER:
+        case ElementType.STAFFTYPE_CHANGE:
+        case ElementType.STRING_TUNINGS:
+        case ElementType.VOLTA: {
+            edd.ed.modifiers = modifiers
+            return this.prepareDropMeasureAnchorElement(pos)
+        }
+        case ElementType.PEDAL:
+        case ElementType.LET_RING:
+        case ElementType.VIBRATO:
+        case ElementType.PALM_MUTE:
+        case ElementType.OTTAVA:
+        case ElementType.TRILL:
+        case ElementType.HAIRPIN:
+        case ElementType.TEXTLINE:
+        case ElementType.WHAMMY_BAR: {
+            edd.ed.modifiers = modifiers
+            return this.prepareDropTimeAnchorElement(pos)
+        }
+        case ElementType.IMAGE:
+        case ElementType.SYMBOL:
+        case ElementType.FSYMBOL:
+        case ElementType.DYNAMIC:
+        case ElementType.CLEF:
+        case ElementType.BAR_LINE:
+        case ElementType.ARPEGGIO:
+        case ElementType.CHORD_BRACKET:
+        case ElementType.BREATH:
+        case ElementType.GLISSANDO:
+        case ElementType.ARTICULATION:
+        case ElementType.TAPPING:
+        case ElementType.FERMATA:
+        case ElementType.CHORDLINE:
+        case ElementType.BEND:
+        case ElementType.ACCIDENTAL:
+        case ElementType.TEXT:
+        case ElementType.FINGERING:
+        case ElementType.TEMPO_TEXT:
+        case ElementType.ORNAMENT:
+        case ElementType.EXPRESSION:
+        case ElementType.STAFF_TEXT:
+        case ElementType.SYSTEM_TEXT:
+        case ElementType.TRIPLET_FEEL:
+        case ElementType.PLAYTECH_ANNOTATION:
+        case ElementType.CAPO:
+        case ElementType.NOTEHEAD:
+        case ElementType.TREMOLO_SINGLECHORD:
+        case ElementType.TREMOLO_TWOCHORD:
+        case ElementType.STAFF_STATE:
+        case ElementType.INSTRUMENT_CHANGE:
+        case ElementType.REHEARSAL_MARK:
+        case ElementType.CHORD:
+        case ElementType.SLUR:
+        case ElementType.HAMMER_ON_PULL_OFF:
+        case ElementType.HARMONY:
+        case ElementType.BAGPIPE_EMBELLISHMENT:
+        case ElementType.AMBITUS:
+        case ElementType.TREMOLOBAR:
+        case ElementType.FIGURED_BASS:
+        case ElementType.LYRICS:
+        case ElementType.FRET_DIAGRAM:
+        case ElementType.HARP_DIAGRAM: {
+            return this.prepareDropStandardElement(pos, modifiers)
+        }
+        //! NOTE: See Measure::acceptDrop
+        case ElementType.ACTION_ICON: {
+            switch ((dropElem as unknown as ActionIcon).actionType()) {
+            case ActionIconType.VFRAME:
+            case ActionIconType.HFRAME:
+            case ActionIconType.TFRAME:
+            case ActionIconType.FFRAME:
+            case ActionIconType.MEASURE:
+            case ActionIconType.SYSTEM_LOCK:
+            case ActionIconType.STAFF_TYPE_CHANGE: {
+                edd.ed.modifiers = modifiers
+                return this.prepareDropMeasureAnchorElement(pos)
+            }
+            // Other action icons (e.g parenthesis) can be dragged normally
+            default: return this.prepareDropStandardElement(pos, modifiers)
+            }
+        }
+        default:
+            break
+        }
+
+        return false
+    }
+
+    /** modifiers: KeyboardModifier flags; returns true if the element was dropped */
+    dropSingle(pos: PointF, modifiers: number): boolean {
+        if (!this.m_dropData) {
+            return false
+        }
+
+        const edd = this.m_dropData
+
+        if (!edd.ed.dropElement) {
+            return false
+        }
+
+        if (edd.ed.dropElement.score() !== this.score()) {
+            return false
+        }
+
+        let accepted = false
+
+        // If the drop position hasn't been set already through isDropAccepted's helper methods, use the mouse position
+        if (edd.ed.pos.isNull()) {
+            edd.ed.pos = pos.clone()
+        }
+
+        edd.ed.modifiers = modifiers
+        edd.ed.dropElement.styleChanged()
+
+        let systemStavesOnly = false
+        let applyUserOffset = false
+
+        this.startEdit(new TranslatableString('undoableAction', 'Drop element: %1').arg(edd.ed.dropElement.typeUserName().translated()))
+        const et = edd.ed.dropElement.type()
+        switch (et) {
+        case ElementType.TEXTLINE:
+        case ElementType.VOLTA:
+        case ElementType.GRADUAL_TEMPO_CHANGE:
+        case ElementType.OTTAVA:
+        case ElementType.TRILL:
+        case ElementType.PEDAL:
+        case ElementType.LET_RING:
+        case ElementType.VIBRATO:
+        case ElementType.PALM_MUTE:
+        case ElementType.HAIRPIN:
+        case ElementType.WHAMMY_BAR: {
+            if (et === ElementType.TEXTLINE) {
+                systemStavesOnly = edd.ed.dropElement.systemFlag()
+            }
+            if (et === ElementType.TEXTLINE || et === ElementType.VOLTA || et === ElementType.GRADUAL_TEMPO_CHANGE) {
+                // voltas drop to system staves by default, or closest staff if Control is held
+                systemStavesOnly = systemStavesOnly || !(edd.ed.modifiers & KeyboardModifier.ControlModifier)
+            }
+            const spanner = edd.ed.dropElement as unknown as Spanner
+            this.score().cmdAddSpannerAtPos(spanner, pos, systemStavesOnly)
+            this.score().setUpdateAll()
+            accepted = true
+            break
+        }
+        case ElementType.SYMBOL:
+        case ElementType.FSYMBOL:
+        case ElementType.IMAGE:
+            applyUserOffset = true
+            accepted = this.doDropTextBaseAndSymbols(pos, applyUserOffset)
+            break
+        case ElementType.DYNAMIC:
+        case ElementType.HARMONY:
+            accepted = this.doDropTextBaseAndSymbols(pos, applyUserOffset)
+            break
+        case ElementType.FRET_DIAGRAM:
+            accepted = this.doDropTextBaseAndSymbols(pos, applyUserOffset)
+            // TODO(port): doFinishAddFretboardDiagram (a chord symbol for the diagram)
+            break
+        case ElementType.HBOX:
+        case ElementType.VBOX:
+        case ElementType.KEYSIG:
+        case ElementType.CLEF:
+        case ElementType.TIMESIG:
+        case ElementType.BAR_LINE:
+        case ElementType.ARPEGGIO:
+        case ElementType.CHORD_BRACKET:
+        case ElementType.BREATH:
+        case ElementType.GLISSANDO:
+        case ElementType.MEASURE_NUMBER:
+        case ElementType.BRACKET:
+        case ElementType.ARTICULATION:
+        case ElementType.TAPPING:
+        case ElementType.FERMATA:
+        case ElementType.CHORDLINE:
+        case ElementType.BEND:
+        case ElementType.ACCIDENTAL:
+        case ElementType.TEXT:
+        case ElementType.FINGERING:
+        case ElementType.TEMPO_TEXT:
+        case ElementType.ORNAMENT:
+        case ElementType.EXPRESSION:
+        case ElementType.STAFF_TEXT:
+        case ElementType.SYSTEM_TEXT:
+        case ElementType.TRIPLET_FEEL:
+        case ElementType.PLAYTECH_ANNOTATION:
+        case ElementType.CAPO:
+        case ElementType.STRING_TUNINGS:
+        case ElementType.NOTEHEAD:
+        case ElementType.TREMOLO_SINGLECHORD:
+        case ElementType.TREMOLO_TWOCHORD:
+        case ElementType.LAYOUT_BREAK:
+        case ElementType.MARKER:
+        case ElementType.STAFF_STATE:
+        case ElementType.INSTRUMENT_CHANGE:
+        case ElementType.REHEARSAL_MARK:
+        case ElementType.JUMP:
+        case ElementType.MEASURE_REPEAT:
+        case ElementType.ACTION_ICON:
+        case ElementType.NOTE:
+        case ElementType.CHORD:
+        case ElementType.SPACER:
+        case ElementType.BAGPIPE_EMBELLISHMENT:
+        case ElementType.AMBITUS:
+        case ElementType.TREMOLOBAR:
+        case ElementType.FIGURED_BASS:
+        case ElementType.LYRICS:
+        case ElementType.HARP_DIAGRAM:
+        case ElementType.STAFFTYPE_CHANGE:
+            accepted = this.doDropStandard()
+            break
+        case ElementType.SLUR:
+        case ElementType.HAMMER_ON_PULL_OFF: {
+            const el = this.dropTarget(edd.ed)
+            const dropElement = edd.ed.dropElement as unknown as Slur
+            if (el && el.isNote() && (el as unknown as Note).chord()) {
+                this.doAddSlurBetween((el as unknown as Note).chord(), null, dropElement)
+                accepted = true
+            }
+            break
+        }
+        default:
+            this.resetDropData()
+            break
+        }
+
+        if (this.m_dropData) {
+            this.m_dropData.ed.dropElement = null
+            this.m_dropData.ed.pos = new PointF()
+            this.m_dropData.ed.modifiers = 0
+        }
+
+        this.setDropTarget(null) // this also resets dropRectangle and dropAnchor
+        this.apply()
+
+        if (accepted) {
+            this.notifyAboutDropChanged()
+        }
+
+        this.checkAndShowError()
+
+        return accepted
+    }
+
+    /** NOTE: Helper method for dropSingle. Handles drop logic for majority of elements (returns "accepted") */
+    private doDropStandard(): boolean {
+        if (!this.m_dropData) {
+            return false
+        }
+
+        const edd = this.m_dropData
+
+        const el = edd.dropTarget ? edd.dropTarget : this.dropTarget(edd.ed)
+        if (!el) {
+            if (!this.dropCanvas(edd.ed.dropElement!)) {
+                // C++: LOGD("cannot drop %s(%p) to canvas")
+                this.resetDropData()
+            }
+            return false
+        }
+
+        const dropElement = el.drop(edd.ed)
+
+        // TODO(port): instrument changes (selectInstrument: the instrument dialog)
+
+        if (dropElement) {
+            if (!this.score().noteEntryMode()) {
+                this.selectAndStartEditIfNeeded(dropElement)
+            }
+        }
+        return true
+    }
+
+    /** NOTE: Helper method for dropSingle. Handles drop logic for text base items & symbols (returns "accepted") */
+    private doDropTextBaseAndSymbols(pos: PointF, applyUserOffset: boolean): boolean {
+        if (!this.m_dropData) {
+            return false
+        }
+
+        const edd = this.m_dropData
+
+        let el: EngravingItem | null = edd.dropTarget ? edd.dropTarget : this.elementAt(pos)
+        if (!el || el.isStaffLines()) {
+            const res = this.score().pos2measure(pos)
+            el = res?.measure ?? null
+            if (res && el && el.isMeasure()) {
+                edd.ed.dropElement!.setTrack(staff2track(res.staffIdx))
+                edd.ed.dropElement!.setParent(res.segment)
+
+                if (applyUserOffset) {
+                    edd.ed.dropElement!.setOffset(res.offset)
+                }
+
+                this.score().undoAddElement(edd.ed.dropElement!)
+            } else {
+                // C++: LOGD("cannot drop here")
+                this.resetDropData()
+            }
+        } else {
+            if (!el.acceptDrop(edd.ed)) {
+                // C++: LOGD("drop %s onto %s not accepted")
+                return false
+            }
+            edd.ed.pos = pos.clone()
+            const dropElement = el.drop(edd.ed)
+            if (dropElement) {
+                this.selectAndStartEditIfNeeded(dropElement)
+            }
+        }
+
+        return true
+    }
+
+    /** C++ Copied from ScoreView::dragLeaveEvent */
+    endDrop(): void {
+        // TODO(port): score()->hideAnchors() (time tick anchors)
+        this.score().setUpdateAll()
+        this.setDropTarget(null, /*notify=*/ false)
+        this.resetDropData()
+        this.notifyAboutDragChanged()
+    }
+
+    /** C++ Copied from ScoreView::dropCanvas */
+    private dropCanvas(e: EngravingItem): boolean {
+        if (e.isActionIcon()) {
+            switch ((e as unknown as ActionIcon).actionType()) {
+            case ActionIconType.VFRAME:
+                this.score().insertBox(ElementType.VBOX, null)
+                break
+            case ActionIconType.HFRAME:
+                this.score().insertBox(ElementType.HBOX, null)
+                break
+            case ActionIconType.TFRAME:
+                this.score().insertBox(ElementType.TBOX, null)
+                break
+            case ActionIconType.FFRAME:
+                this.score().insertBox(ElementType.FBOX, null)
+                break
+            case ActionIconType.MEASURE:
+                this.score().insertMeasure(ElementType.MEASURE)
+                break
+            default:
+                return false
+            }
+            return true
+        }
+        return false
+    }
+
+    /** C++ Copied from ScoreView::getDropTarget */
+    private dropTarget(ed: EditData): EngravingItem | null {
+        const el = this.elementsAt(ed.pos)
+        let fallbackMeasure: Measure | null = null
+        for (const e of el) {
+            if (e.isStaffLines()) {
+                fallbackMeasure = (e as unknown as StaffLines).measure()
+                continue
+            }
+            if (e.acceptDrop(ed)) {
+                return e
+            }
+        }
+        if (fallbackMeasure && fallbackMeasure.acceptDrop(ed)) {
+            return fallbackMeasure
+        }
+        return null
+    }
+
+    private prepareDropStandardElement(pos: PointF, modifiers: number): boolean {
+        if (!this.m_dropData) {
+            return false
+        }
+
+        const edd = this.m_dropData
+
+        const page = this.point2page(pos, true)
+        if (!page) {
+            return false
+        }
+
+        // Update the tree when starting a new drag (ed.pos hasn't been set yet), if the modifier changed, or when crossing a page
+        if (edd.ed.pos.isNull() || edd.ed.modifiers !== modifiers || page !== this.m_currentDropPage) {
+            this.m_currentDropPage = page
+            edd.ed.modifiers = modifiers
+
+            this.m_droppableItems = page.elements().filter(elem => elem.acceptDrop(edd.ed))
+        }
+
+        const posInPage = new PointF(pos.x() - page.pos().x(), pos.y() - page.pos().y())
+        const targetElem = nearestNeighbor(this.m_droppableItems, posInPage)
+        const dropElem = edd.ed.dropElement
+
+        if (!targetElem || !dropElem) {
+            return false
+        }
+
+        // Clefs are a special case somewhere between a measure anchored and standard element (hence why
+        // we handle it here instead of dragMeasureAnchorElement). They can be applied to individual items
+        // but we should switch targets to the whole measure if the target element is the first in the measure...
+        if (dropElem.isClef() && targetElem.rtick().eq(new Fraction(0, 1))) {
+            const targetMeasure = targetElem.findMeasure()
+            if (targetMeasure && dropElem.type() !== targetElem.type()) {
+                this.setDropTarget(targetMeasure, true)
+
+                const measureRect = targetMeasure.staffPageBoundingRect(targetElem.staffIdx())
+                measureRect.adjust(page.x(), page.y(), page.x(), page.y())
+                edd.ed.pos = measureRect.center()
+                edd.ed.track = trackZeroVoice(targetElem.track())
+                this.setAnchorLines([new LineF(pos, measureRect.topLeft())])
+
+                return targetMeasure.acceptDrop(edd.ed)
+            }
+        }
+
+        this.setDropTarget(targetElem, true)
+        edd.ed.pos = targetElem.canvasBoundingRect().center()
+        this.setAnchorLines([new LineF(pos, targetElem.canvasBoundingRect().center())])
+
+        return true
+    }
+
+    /** C++ Copied from ScoreView::dragMeasureAnchorElement */
+    private prepareDropMeasureAnchorElement(pos: PointF): boolean {
+        if (!this.m_dropData) {
+            return false
+        }
+
+        const edd = this.m_dropData
+
+        const dropElem = edd.ed.dropElement
+        const page = this.point2page(pos)
+        if (!dropElem || !page) {
+            return false
+        }
+
+        const res = this.score().pos2measure(pos)
+        let staffIdx = res ? res.staffIdx : 0
+
+        //! NOTE: Should match Measure::acceptDrop
+        switch (dropElem.type()) {
+        case ElementType.VOLTA:
+        case ElementType.GRADUAL_TEMPO_CHANGE:
+        case ElementType.KEYSIG:
+        case ElementType.TIMESIG:
+            // If ctrl is pressed, break and target a specific staff
+            if (edd.ed.modifiers & KeyboardModifier.ControlModifier) {
+                break
+            }
+            staffIdx = 0 // Target all staves
+            break
+        case ElementType.JUMP:
+        case ElementType.LAYOUT_BREAK:
+        case ElementType.MARKER:
+        case ElementType.MEASURE_NUMBER:
+        case ElementType.VBOX:
+        case ElementType.TBOX:
+        case ElementType.FBOX:
+        case ElementType.HBOX:
+            // Target all staves
+            staffIdx = 0
+            break
+        default: break
+        }
+
+        // Apart from STAFF_TYPE_CHANGE, measure anchored action icons are applied to all staves
+        if (dropElem.isActionIcon() && (dropElem as unknown as ActionIcon).actionType() !== ActionIconType.STAFF_TYPE_CHANGE) {
+            staffIdx = 0
+        }
+
+        const mb = res?.measure ?? null
+        if (mb && mb.isMeasure()) {
+            const targetMeasure = mb
+            this.setDropTarget(targetMeasure, true)
+            edd.ed.track = staff2track(staffIdx)
+
+            const measureRect = targetMeasure.staffPageBoundingRect(staffIdx)
+            measureRect.adjust(page.x(), page.y(), page.x(), page.y())
+            edd.ed.pos = measureRect.center()
+
+            const dropAccepted = targetMeasure.acceptDrop(edd.ed)
+            if (dropAccepted) {
+                this.setAnchorLines([new LineF(pos, measureRect.topLeft())])
+            }
+
+            return dropAccepted
+        }
+        this.setDropTarget(null)
+        return false
+    }
+
+    /** C++ Copied from ScoreView::dragTimeAnchorElement */
+    private prepareDropTimeAnchorElement(pos: PointF): boolean {
+        if (!this.m_dropData) {
+            return false
+        }
+
+        const edd = this.m_dropData
+
+        const res = this.score().pos2measure(pos)
+        const staffIdx = res ? res.staffIdx : 0
+        const track = staff2track(staffIdx)
+
+        if (res && res.measure.isMeasure() && res.segment.element(track)) {
+            const m = res.measure
+            const s = m.system()!
+            const y = s.staff(staffIdx)!.y() + s.pos().y() + s.page()!.pos().y()
+            const anchor = new PointF(res.segment.canvasBoundingRect().x(), y)
+            this.setAnchorLines([new LineF(pos, anchor)])
+            edd.ed.dropElement!.setTrack(track)
+            this.notifyAboutDragChanged()
+            return true
+        }
+
+        this.setDropTarget(null)
+
+        return false
+    }
+
+    /** C++ Copied from ScoreView::setDropTarget */
+    setDropTarget(item: EngravingItem | null, notify = true): void {
+        if (!this.m_dropData) {
+            return
+        }
+
+        const edd = this.m_dropData
+
+        if (edd.dropTarget !== item) {
+            if (edd.dropTarget) {
+                edd.dropTarget.setDropTarget(false)
+                edd.ed.track = nidx
+                edd.dropTarget = null
+            }
+
+            edd.dropTarget = item
+            if (edd.dropTarget) {
+                edd.dropTarget.setDropTarget(true)
+                edd.ed.track = edd.dropTarget.track()
+            }
+        }
+
+        this.resetAnchorLines()
+
+        if (edd.dropRect.isValid()) {
+            edd.dropRect = new RectF()
+        }
+
+        if (notify) {
+            this.notifyAboutDragChanged()
+        }
+    }
+
+    /** NOTE: Copied from ScoreView::setDropRectangle */
+    setDropRect(rect: RectF): void {
+        if (!this.m_dropData) {
+            return
+        }
+
+        const edd = this.m_dropData
+
+        if (edd.dropRect.equals(rect)) {
+            return
+        }
+
+        edd.dropRect = rect.clone()
+
+        if (edd.dropTarget) {
+            edd.dropTarget.setDropTarget(false)
+        } else if (this.m_anchorLines.length) {
+            this.resetAnchorLines()
+        }
+
+        this.notifyAboutDragChanged()
+    }
+
+    private resetDropData(): void {
+        // C++ deletes the drop element (setDropTarget(nullptr) resets the drop target before)
+        this.m_dropData?.dropTarget?.setDropTarget(false)
+        this.m_dropData = null
+        this.m_droppableItems = []
+        this.m_currentDropPage = null
+    }
+
+    /** the drop rectangle (C++ NotationInteraction::drawDrop; drop ranges are not ported) */
+    drawDrop(painter: Painter): void {
+        if (this.m_dropData) {
+            const edd = this.m_dropData
+
+            if (edd.dropRect.isValid()) {
+                const c = EngravingConfiguration.selectionColor()
+                c.setAlpha(80) // NotationConfiguration::dropRectColor
+                painter.fillRect(edd.dropRect, c)
+            }
+        }
+    }
+
+    drawAnchorLines(painter: Painter, scaling: number): void {
+        if (!this.m_anchorLines.length) {
+            return
+        }
+
+        const dropAnchorColor = EngravingConfiguration.formattingColor()
+        const pen = new Pen(dropAnchorColor, 2.0 / scaling, PenStyle.DotLine)
+
+        for (const anchor of this.m_anchorLines) {
+            painter.setPen(pen)
+            painter.drawLine(anchor)
+
+            const d = 4.0 / scaling
+            const rect = new RectF(-d, -d, 2 * d, 2 * d)
+
+            painter.setBrush(new Brush(dropAnchorColor))
+            painter.setNoPen()
+            rect.moveCenter(anchor.p1())
+            painter.drawEllipse(rect)
+            rect.moveCenter(anchor.p2())
+            painter.drawEllipse(rect)
         }
     }
 
@@ -4227,4 +5000,37 @@ function extractSyllable(text: string): string {
     }
 
     return t.substring(textPos, splitPos)
+}
+
+/** the drag of an element to other places (C++ m_outgoingDrag: a QDrag with the element's mime data) */
+export interface OutgoingDrag {
+    /** mimeSymbolFormat data */
+    mimeData: string
+    hotSpot: PointF
+    element: EngravingItem
+}
+
+/** C++ NotationInteraction::ElementDropData */
+interface ElementDropData {
+    ed: EditData
+    dropTarget: EngravingItem | null
+    dropRect: RectF
+}
+
+/**
+ * C++ BspTree::nearestNeighbor: the item whose page bounding rectangle's center is nearest to pos (page coordinates).
+ * Deviation: a linear search instead of the BSP tree (the same result up to items at equal distances).
+ */
+function nearestNeighbor(items: readonly EngravingItem[], pos: PointF): EngravingItem | null {
+    let nn: EngravingItem | null = null
+    let bestDistance = Number.MAX_VALUE
+    for (const item of items) {
+        const itemPos = item.pageBoundingRect().center()
+        const currDistance = Math.sqrt((pos.x() - itemPos.x()) ** 2 + (pos.y() - itemPos.y()) ** 2)
+        if (currDistance < bestDistance) {
+            nn = item
+            bestDistance = currDistance
+        }
+    }
+    return nn
 }

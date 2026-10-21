@@ -3,7 +3,10 @@
 // single renderer (every cell of an element draws pixels).
 import { createCanvas } from '@napi-rs/canvas'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { defaultPalettes, drawPaletteCell, masterPalettes, morePaletteCells, paletteCellElement, type PaletteCellInfo } from '../src/index'
+import {
+    defaultPalettes, drawPaletteCell, loadUserPalettes, masterPalettes, morePaletteCells, paletteCellElement, userPalettes,
+    type PaletteCellInfo,
+} from '../src/index'
 import { initFonts } from './helpers'
 
 beforeAll(async () => {
@@ -27,7 +30,7 @@ function inkPixels(cell: PaletteCellInfo, width: number, height: number, mag: nu
 describe('palettes', () => {
     it('builds the default palette tree like MuseScore', () => {
         const palettes = defaultPalettes()
-        expect(palettes.map(p => p.id)).toEqual([
+        expect(palettes.map(p => p.type)).toEqual([
             'Clef', 'KeySig', 'TimeSig', 'Tempo', 'Pitch', 'Accidental', 'Dynamic', 'Articulation', 'Text', 'Keyboard', 'Repeat',
             'BarLine', 'Layout', 'Bracket', 'Ornament', 'Breath', 'GraceNote', 'NoteHead', 'Arpeggio', 'Tremolo', 'Harp', 'Guitar',
             'Fingering', 'FretboardDiagram', 'Accordion', 'BagpipeEmbellishment', 'Handbells', 'Beam', 'Line',
@@ -42,19 +45,19 @@ describe('palettes', () => {
         ])
         expect(clefs.cells.every(c => c.drawStaff)).toBe(true)
         // hidden by default ("Add palettes")
-        expect(palettes.filter(p => !p.visible).map(p => p.id)).toContain('GraceNote')
+        expect(palettes.filter(p => !p.visible).map(p => p.type)).toContain('GraceNote')
 
         const keySigs = palettes[1].cells.map(c => c.name)
         expect(keySigs[0]).toBe('G major / E minor')
         expect(keySigs.at(-1)).toBe('Open / Atonal')
 
-        const fingerings = palettes.find(p => p.id === 'Fingering')!.cells
+        const fingerings = palettes.find(p => p.type === 'Fingering')!.cells
         expect(fingerings[0].name).toBe('Fingering 0')
 
-        const grace = palettes.find(p => p.id === 'GraceNote')!.cells
+        const grace = palettes.find(p => p.type === 'GraceNote')!.cells
         expect(grace.map(c => c.action)).toEqual(['acciaccatura', 'appoggiatura', 'grace4', 'grace16', 'grace32', 'grace8after',
             'grace16after', 'grace32after'])
-        expect(palettes.find(p => p.id === 'Layout')!.cells[0].icon).toBe(0xF483)
+        expect(palettes.find(p => p.type === 'Layout')!.cells[0].icon).toBe(0xF483)
     })
 
     it('draws every cell of an element', () => {
@@ -66,7 +69,7 @@ describe('palettes', () => {
                         continue
                     }
                     if (inkPixels(cell, p.gridWidth, p.gridHeight, p.mag) < 4) {
-                        empty.push(`${p.id}: ${cell.name}`)
+                        empty.push(`${p.type}: ${cell.name}`)
                     }
                 }
             }
@@ -75,7 +78,7 @@ describe('palettes', () => {
     })
 
     it('centers elements in the cell', () => {
-        const dyn = defaultPalettes().find(p => p.id === 'Dynamic')!
+        const dyn = defaultPalettes().find(p => p.type === 'Dynamic')!
         const cell = dyn.cells.find(c => c.name.startsWith('mf '))!
         const dpr = 1
         const w = dyn.gridWidth
@@ -102,7 +105,9 @@ describe('palettes', () => {
     })
 
     it('offers the master palette elements under "More"', () => {
-        const more = morePaletteCells('Clef').map(c => c.name)
+        loadUserPalettes(null)
+        const clefs = userPalettes().find(p => p.type === 'Clef')!
+        const more = morePaletteCells(clefs.id).pool.map(c => c.name)
         expect(more).toContain('Treble clef optional 8va bassa')
         expect(more).not.toContain('Treble clef')
         const cell = defaultPalettes()[0].cells[0]

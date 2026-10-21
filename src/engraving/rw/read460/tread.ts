@@ -138,6 +138,7 @@ import type { StaffTypeChange } from '../../dom/stafftypechange'
 import type { LaissezVib } from '../../dom/laissezvib'
 import type { PartialTie } from '../../dom/partialtie'
 import type { MeasureRepeat } from '../../dom/measurerepeat'
+import type { PlayTechAnnotation } from '../../dom/playtechannotation'
 import { NoteParenthesisInfo, updatePercussionNotes } from '../../dom/chord'
 import { HammerOnPullOffText, type HammerOnPullOffSegment } from '../../dom/hammeronpulloff'
 
@@ -230,6 +231,19 @@ export class TRead {
         case ElementType.ACCIDENTAL: TRead.readAccidental(item as Accidental, xml, ctx); break
         case ElementType.ACTION_ICON: TRead.readActionIcon(item as ActionIcon, xml, ctx); break
         case ElementType.BAGPIPE_EMBELLISHMENT: TRead.readBagpipeEmbellishment(item as BagpipeEmbellishment, xml, ctx); break
+        case ElementType.CHORDLINE: TRead.readChordLine(item as ChordLine, xml, ctx); break
+        case ElementType.FINGERING: TRead.readFingering(item as Fingering, xml, ctx); break
+        case ElementType.MEASURE_REPEAT: TRead.readMeasureRepeat(item as MeasureRepeat, xml, ctx); break
+        case ElementType.NOTEHEAD: TRead.readSymbol(item as Symbol, xml, ctx); break // C++ read(NoteHead*)
+        case ElementType.ORNAMENT: TRead.readOrnament(item as Ornament, xml, ctx); break
+        case ElementType.PLAYTECH_ANNOTATION: TRead.readPlayTechAnnotation(item as PlayTechAnnotation, xml, ctx); break
+        case ElementType.STAFFTYPE_CHANGE: TRead.readStaffTypeChange(item as StaffTypeChange, xml, ctx); break
+        case ElementType.TREMOLO_SINGLECHORD:
+            TRead.readTremoloCompat({ parent: null, single: item as TremoloSingleChord, two: null }, xml, ctx)
+            break
+        case ElementType.TREMOLO_TWOCHORD:
+            TRead.readTremoloCompat({ parent: null, single: null, two: item as TremoloTwoChord }, xml, ctx)
+            break
         case ElementType.ARPEGGIO: TRead.readArpeggio(item as Arpeggio, xml, ctx); break
         case ElementType.AMBITUS: TRead.readAmbitus(item as Ambitus, xml, ctx); break
         case ElementType.INSTRUMENT_CHANGE: TRead.readInstrumentChange(item as InstrumentChange, xml, ctx); break
@@ -810,6 +824,18 @@ export class TRead {
                 setActionIconTypeFromAction(i, actionCode)
             } else {
                 e.unknown()
+            }
+        }
+    }
+
+    static readPlayTechAnnotation(a: PlayTechAnnotation, xml: XmlReader, ctx: ReadContext): void {
+        while (xml.readNextStartElement()) {
+            const tag = xml.name()
+
+            if (TRead.readPropertyIfTag(a, tag, xml, ctx, Pid.PLAY_TECH_TYPE)) {
+            } else if (TRead.readPropertyIfTag(a, tag, xml, ctx, Pid.PLAY)) {
+            } else if (!TRead.readStaffTextBaseProperties(a, xml, ctx)) {
+                xml.unknown()
             }
         }
     }

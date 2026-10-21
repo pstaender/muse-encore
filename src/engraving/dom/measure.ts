@@ -27,6 +27,7 @@ import { absStep, actualTicks, moveDownWhenAddingStaves, relStep, skipTuplet } f
 import { toRhythmicDurationList } from './durationtype'
 import { TimeSigFrac } from './sig'
 import type { System } from './system'
+import { ActionIconType, type ActionIcon } from './actionicon'
 import type { EngravingObject } from './engravingobject'
 import type { Staff } from './staff'
 import type { ChordRest } from './chordrest'
@@ -1594,6 +1595,7 @@ export class Measure extends MeasureBase {
     // ---------------------------------------------------------
 
     override acceptDrop(data: EditData): boolean {
+        const viewer = data.view
         const e = data.dropElement!
 
         if (data.track === nidx || !this.system()) {
@@ -1601,30 +1603,35 @@ export class Measure extends MeasureBase {
         }
 
         const staffIdx = track2staff(data.track)
-        if (!this.system()!.staff(staffIdx)) {
+        const sysStaff = this.system()!.staff(staffIdx)
+        if (!sysStaff) {
             return false
         }
+
+        let staffRect = sysStaff.bbox().translated(this.system()!.canvasPos())
+        staffRect = staffRect.intersected(this.canvasBoundingRect())
 
         //! NOTE: Should match NotationInteraction::dragMeasureAnchorElement
         switch (e.type()) {
         case ElementType.VBOX:
         case ElementType.TBOX:
         case ElementType.FBOX:
-        case ElementType.HBOX: {
-            const m = this.isMMRest() ? this.mmRestFirst()! : this
-            for (let staffIdxLoop = 0; staffIdxLoop < this.score().nstaves(); ++staffIdxLoop) {
-                if (m.isMeasureRepeatGroupWithPrevM(staffIdxLoop)) {
-                    return false
-                }
-            }
-            return true
-        }
-
+        case ElementType.HBOX:
         case ElementType.MEASURE_NUMBER:
         case ElementType.JUMP:
         case ElementType.MARKER:
         case ElementType.LAYOUT_BREAK:
+            if (e.type() === ElementType.VBOX || e.type() === ElementType.TBOX || e.type() === ElementType.FBOX
+                || e.type() === ElementType.HBOX) {
+                const m = this.isMMRest() ? this.mmRestFirst()! : this
+                for (let staffIdxLoop = 0; staffIdxLoop < this.score().nstaves(); ++staffIdxLoop) {
+                    if (m.isMeasureRepeatGroupWithPrevM(staffIdxLoop)) {
+                        return false
+                    }
+                }
+            }
             // Always drop to all staves
+            viewer?.setDropRectangle(this.canvasBoundingRect())
             return true
 
         case ElementType.VOLTA:
@@ -1632,6 +1639,13 @@ export class Measure extends MeasureBase {
         case ElementType.KEYSIG:
         case ElementType.TIMESIG:
             // Drop to all staves or single staff depending on modifier
+            if (viewer) {
+                if (data.modifiers & KeyboardModifier.ControlModifier) {
+                    viewer.setDropRectangle(staffRect)
+                } else {
+                    viewer.setDropRectangle(this.canvasBoundingRect())
+                }
+            }
             return true
 
         case ElementType.BRACKET:
@@ -1644,10 +1658,33 @@ export class Measure extends MeasureBase {
         case ElementType.CLEF:
         case ElementType.STAFFTYPE_CHANGE:
             // Always drop to single staff
+            viewer?.setDropRectangle(staffRect)
             return true
 
-        // TODO(port): STRING_TUNINGS (canAddStringTunings), ACTION_ICON (frames, measures, staff type changes,
-        // system locks)
+        // TODO(port): STRING_TUNINGS (canAddStringTunings)
+
+        case ElementType.ACTION_ICON:
+            switch ((e as unknown as ActionIcon).actionType()) {
+            case ActionIconType.VFRAME:
+            case ActionIconType.HFRAME:
+            case ActionIconType.TFRAME:
+            case ActionIconType.FFRAME:
+            case ActionIconType.MEASURE: {
+                const m = this.isMMRest() ? this.mmRestFirst()! : this
+                for (let staffIdxLoop = 0; staffIdxLoop < this.score().nstaves(); ++staffIdxLoop) {
+                    if (m.isMeasureRepeatGroupWithPrevM(staffIdxLoop)) {
+                        return false
+                    }
+                }
+                viewer?.setDropRectangle(this.canvasBoundingRect())
+                return true
+            }
+            // TODO(port): STAFF_TYPE_CHANGE (canAddStaffTypeChange), SYSTEM_LOCK (EditSystemLocks::makeIntoSystem)
+            default:
+                break
+            }
+            break
+
         default:
             break
         }
@@ -1841,8 +1878,30 @@ export class Measure extends MeasureBase {
             this.score().undoAddElement(e)
             break
 
-        // TODO(port): MEASURE_REPEAT (cmdAddMeasureRepeat), ACTION_ICON (frames, measures, staff type changes,
-        // system locks), VBOX/TBOX/FBOX/HBOX (InsertMeasures)
+        case ElementType.ACTION_ICON:
+            switch ((e as unknown as ActionIcon).actionType()) {
+            case ActionIconType.VFRAME:
+                return this.score().insertBox(ElementType.VBOX, this)
+            case ActionIconType.HFRAME:
+                return this.score().insertBox(ElementType.HBOX, this)
+            case ActionIconType.TFRAME:
+                return this.score().insertBox(ElementType.TBOX, this)
+            case ActionIconType.FFRAME:
+                // C++ Score::InsertMeasureOptions with cloneBoxToAllParts = false
+                return this.score().insertBox(ElementType.FBOX, this, {
+                    createEmptyMeasures: false, moveSignaturesClef: true, needDeselectAll: true, cloneBoxToAllParts: false,
+                    moveStaffTypeChanges: true, ignoreBarLines: false,
+                })
+            case ActionIconType.MEASURE:
+                this.score().insertMeasure(ElementType.MEASURE, this)
+                break
+            // TODO(port): STAFF_TYPE_CHANGE, SYSTEM_LOCK
+            default:
+                break
+            }
+            break
+
+        // TODO(port): MEASURE_REPEAT (cmdAddMeasureRepeat), VBOX/TBOX/FBOX/HBOX (InsertMeasures)
 
         default:
             break

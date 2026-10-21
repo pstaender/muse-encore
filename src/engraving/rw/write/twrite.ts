@@ -61,6 +61,7 @@ import type { Bracket } from '../../dom/bracket'
 import type { Breath } from '../../dom/breath'
 import type { BagpipeEmbellishment } from '../../dom/bagpembell'
 import type { ActionIcon } from '../../dom/actionicon'
+import type { PlayTechAnnotation } from '../../dom/playtechannotation'
 import type { BSymbol } from '../../dom/bsymbol'
 import type { Chord } from '../../dom/chord'
 import type { ChordLine } from '../../dom/chordline'
@@ -147,6 +148,8 @@ export class TWrite {
         case ElementType.ACCIDENTAL: TWrite.writeAccidental(item as Accidental, xml, ctx); break
         case ElementType.ACTION_ICON: TWrite.writeActionIcon(item as ActionIcon, xml, ctx); break
         case ElementType.BAGPIPE_EMBELLISHMENT: TWrite.writeBagpipeEmbellishment(item as BagpipeEmbellishment, xml, ctx); break
+        case ElementType.NOTEHEAD: TWrite.writeSymbol(item as Symbol, xml, ctx); break // C++ write(NoteHead*)
+        case ElementType.PLAYTECH_ANNOTATION: TWrite.writePlayTechAnnotation(item as PlayTechAnnotation, xml, ctx); break
         case ElementType.AMBITUS: TWrite.writeAmbitus(item as Ambitus, xml, ctx); break
         case ElementType.ARPEGGIO: TWrite.writeArpeggio(item as Arpeggio, xml, ctx); break
         case ElementType.ARTICULATION: TWrite.writeArticulation(item as Articulation, xml, ctx); break
@@ -670,6 +673,14 @@ export class TWrite {
         xml.startElement(item)
         xml.tag('subtype', item.actionType())
         xml.tag('action', item.actionCode())
+        xml.endElement()
+    }
+
+    static writePlayTechAnnotation(item: PlayTechAnnotation, xml: XmlWriter, ctx: WriteContext): void {
+        xml.startElement(item)
+        TWrite.writeProperty(item, xml, Pid.PLAY_TECH_TYPE)
+        TWrite.writeProperty(item, xml, Pid.PLAY)
+        TWrite.writeTextBaseProperties(item, xml, ctx, true)
         xml.endElement()
     }
 

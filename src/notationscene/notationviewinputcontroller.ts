@@ -400,7 +400,11 @@ export class NotationViewInputController {
             interaction.endEditElement()
         }
 
-        // TODO(port): Drag outgoing: element (Shift+Ctrl+drag of an element to other applications)
+        // Drag outgoing: element
+        consumed = this.mousePressConsiderDragOutgoingElement(ctx)
+        if (consumed) {
+            return
+        }
 
         // Drag outgoing: range
         consumed = this.mousePressConsiderDragOutgoingRange(ctx)
@@ -479,6 +483,22 @@ export class NotationViewInputController {
         interaction.select([ctx.hitElement], selectType, ctx.hitStaff, ctx.event.ctrl && !ctx.event.shift)
     }
 
+    private mousePressConsiderDragOutgoingElement(ctx: ClickContext): boolean {
+        if (ctx.event.button !== MouseButton.LeftButton || !(ctx.event.shift && ctx.event.ctrl && !ctx.event.alt)) {
+            return false
+        }
+
+        if (!ctx.hitElement || !this.viewInteraction().isOutgoingDragElementAllowed(ctx.hitElement)) {
+            return false
+        }
+
+        this.viewInteraction().select([ctx.hitElement], SelectType.SINGLE, ctx.hitStaff)
+        // TODO(port): playbackController()->seekElement
+        this.m_mouseDownInfo.dragAction = DragAction.DragOutgoingElement
+
+        return true
+    }
+
     private mousePressConsiderDragOutgoingRange(ctx: ClickContext): boolean {
         if (ctx.event.button !== MouseButton.LeftButton) {
             return false
@@ -549,6 +569,16 @@ export class NotationViewInputController {
         }
 
         switch (this.m_mouseDownInfo.dragAction) {
+        case DragAction.DragOutgoingElement: {
+            // C++ QDrag::exec takes over the mouse events; here the view continues the drag (outgoingDrag())
+            if (!isDragStarted && !interaction.isOutgoingDragStarted()) {
+                const element = interaction.hitElementContext().element!
+                const hotSpot = this.m_mouseDownInfo.logicalBeginPoint.minus(element.canvasBoundingRect().topLeft())
+
+                interaction.startOutgoingDragElement(element, hotSpot)
+            }
+            return none
+        }
         case DragAction.DragOutgoingRange:
             return none // TODO(port): startOutgoingDragRange
         case DragAction.Other:
@@ -650,6 +680,7 @@ export class NotationViewInputController {
         }
 
         this.m_isCanvasDragged = false
+        interaction.endOutgoingDrag()
 
         if (interaction.isDragStarted()) {
             interaction.endDrag()

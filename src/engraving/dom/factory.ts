@@ -14,6 +14,7 @@ import type { EngravingObject } from './engravingobject'
 import { Accidental } from './accidental'
 import { ActionIcon } from './actionicon'
 import { BagpipeEmbellishment } from './bagpembell'
+import { PlayTechAnnotation } from './playtechannotation'
 import { Arpeggio } from './arpeggio'
 import { Articulation } from './articulation'
 import { BarLine } from './barline'
@@ -200,6 +201,7 @@ export class Factory {
         case ElementType.BREATH: return new Breath(segmentOrDummy())
         case ElementType.ACTION_ICON: return new ActionIcon(itemOrDummy())
         case ElementType.BAGPIPE_EMBELLISHMENT: return new BagpipeEmbellishment(itemOrDummy())
+        case ElementType.PLAYTECH_ANNOTATION: return new PlayTechAnnotation(segmentOrDummy())
         default:
             // TODO(port): element type not ported yet
             return null

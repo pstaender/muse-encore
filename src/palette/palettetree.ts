@@ -4,11 +4,12 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/palette/internal/palettetree.h/.cpp
- *
- * TODO(port): reading/writing (PaletteBox)
  */
 
-import type { Palette } from './palette'
+import { Constants } from '../engraving/types/constants'
+import type { XmlReader } from '../engraving/rw/xmlreader'
+import type { XmlWriter } from '../engraving/rw/xmlwriter'
+import { Palette } from './palette'
 
 export class PaletteTree {
     palettes: Palette[] = []
@@ -19,6 +20,31 @@ export class PaletteTree {
 
     append(palette: Palette): void {
         this.palettes.push(palette)
+    }
+
+    read(e: XmlReader, pasteMode: boolean): boolean {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'Palette') {
+                const p = new Palette()
+                p.read(e, pasteMode)
+                this.palettes.push(p)
+            } else {
+                e.unknown()
+            }
+        }
+
+        return true
+    }
+
+    write(xml: XmlWriter, pasteMode: boolean): void {
+        xml.startElement('PaletteBox', [['version', Constants.MSC_VERSION_STR]]) // for compatibility with old palettes file format
+
+        for (const palette of this.palettes) {
+            palette.write(xml, pasteMode)
+        }
+
+        xml.endElement()
     }
 
     retranslate(): void {

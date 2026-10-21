@@ -7,6 +7,7 @@
  * only)
  */
 
+import type { MuseScoreView } from './mscoreview'
 import { PointF, RectF } from '../../framework/draw/types/geometry'
 import { nidx, type track_idx_t } from '../types/types'
 import type { EngravingItem } from '../dom/engravingitem'
@@ -140,6 +141,9 @@ export class EditData {
 
     /** MouseButton flags */
     buttons = MouseButton.NoButton
+
+    /** C++ m_view (EditData(MuseScoreView*)): the view callbacks while dropping */
+    view: MuseScoreView | null = null
 
     // drop data:
     dragOffset = new PointF()

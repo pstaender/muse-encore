@@ -31,7 +31,7 @@ beforeAll(async () => {
 
 describe('bagpipe embellishments', () => {
     it('fills the palette like MuseScore', () => {
-        const p = defaultPalettes().find(x => x.id === 'BagpipeEmbellishment')!
+        const p = defaultPalettes().find(x => x.type === 'BagpipeEmbellishment')!
         expect(p.name).toBe('Bagpipe embellishments')
         expect(p.visible).toBe(false)
         expect([p.gridWidth, p.gridHeight, p.mag, p.drawGrid]).toEqual([55, 72, 0.8, true])
@@ -40,11 +40,11 @@ describe('bagpipe embellishments', () => {
         expect(p.cells[0].name).toBe('Single grace low G')
         expect(p.cells.at(-1)!.name).toBe('Thumb triple strike on high G')
         expect(p.cells.every(c => c.drawStaff && c.elementType === 'BagpipeEmbellishment')).toBe(true)
-        expect(masterPalettes().find(x => x.id === 'BagpipeEmbellishment')!.cells.length).toBe(214)
+        expect(masterPalettes().find(x => x.type === 'BagpipeEmbellishment')!.cells.length).toBe(214)
     })
 
     it('lays out the grace notes of a cell', () => {
-        const cells = defaultPalettes().find(x => x.id === 'BagpipeEmbellishment')!.cells
+        const cells = defaultPalettes().find(x => x.type === 'BagpipeEmbellishment')!.cells
         // single grace: a flag, no beam
         const single = paletteCellElement(cells[0].id) as BagpipeEmbellishment
         expect(single.resolveNoteList()).toEqual([0])
@@ -64,7 +64,7 @@ describe('bagpipe embellishments', () => {
     })
 
     it('writes and reads the element (mime data)', () => {
-        const cells = defaultPalettes().find(x => x.id === 'BagpipeEmbellishment')!.cells
+        const cells = defaultPalettes().find(x => x.type === 'BagpipeEmbellishment')!.cells
         const b = paletteCellElement(cells[42].id) as BagpipeEmbellishment
         const data = b.mimeData()
         expect(data).toContain('<BagpipeEmbellishment>')
@@ -83,7 +83,7 @@ describe.skipIf(!hasSubmodule)('bagpipe embellishments on a score', () => {
     })
 
     it('adds the grace notes of an embellishment to a note, undo removes them', () => {
-        const cells = defaultPalettes().find(x => x.id === 'BagpipeEmbellishment')!.cells
+        const cells = defaultPalettes().find(x => x.type === 'BagpipeEmbellishment')!.cells
         const cell = cells.find(c => c.name === 'Doubling on low G')! // HG LG D
         let chord: Chord | null = null
         for (let s = score.firstMeasure()!.first(SegmentType.ChordRest); s && !chord; s = s.next1(SegmentType.ChordRest)) {

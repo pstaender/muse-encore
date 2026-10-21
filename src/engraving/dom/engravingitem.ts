@@ -555,6 +555,9 @@ export abstract class EngravingItem extends EngravingObject {
     selected(): boolean { return this.flag(ElementFlag.SELECTED) }
     setSelected(f: boolean): void { this.setFlag(ElementFlag.SELECTED, f) }
 
+    dropTarget(): boolean { return this.flag(ElementFlag.DROP_TARGET) }
+    setDropTarget(v: boolean): void { this.setFlag(ElementFlag.DROP_TARGET, v) }
+
     visible(): boolean { return !this.flag(ElementFlag.INVISIBLE) }
     setVisible(f: boolean): void { this.setFlag(ElementFlag.INVISIBLE, !f) }
 
@@ -915,7 +918,11 @@ export abstract class EngravingItem extends EngravingObject {
             return normalColor.equals(EngravingConfiguration.defaultColor()) ? Color.BLACK : normalColor
         }
 
-        // TODO(port): DROP_TARGET (highlightSelectionColor), Note::mark()
+        if (this.flag(ElementFlag.DROP_TARGET)) {
+            return EngravingConfiguration.highlightSelectionColor(this.track() === nidx ? 0 : this.voice())
+        }
+
+        // TODO(port): Note::mark()
         if (this.selected()) {
             let voiceForColorChoice = this.track() === nidx ? 0 : this.voice()
             if (this.hasVoiceAssignmentProperties()) {

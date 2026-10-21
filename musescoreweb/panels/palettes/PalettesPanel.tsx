@@ -1,10 +1,11 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
  * The palettes panel (port of src/palette/qml/MuseScore/Palette/PalettesPanel.qml with PalettesPanelHeader.qml,
- * AddPalettesPopup.qml and PalettesPanelContextMenuModel): "Add palettes" (the hidden palettes of the default tree)
- * and the search (all elements of the master palette by name), the palette tree. The palettes are the library's
- * (src/palette: PaletteCreator's default and master palettes), their cells drawn by the library.
- * TODO(port): custom palettes ("Create custom palette"), palette files, the master palette dialog, drag and drop.
+ * AddPalettesPopup.qml, CreateCustomPalettePopup.qml and PalettesPanelContextMenuModel): "Add palettes" (the hidden
+ * palettes of the user palette tree and the palettes of the master palette it lacks, "Create custom palette") and the
+ * search (all elements of the master palette by name), the palette tree. The palettes are the library's (src/palette:
+ * the user palette tree of PaletteProvider), their cells drawn by the library.
+ * TODO(port): the master palette dialog (key/time signature editors, all symbols).
  */
 import { useEffect, useRef, useState } from 'react'
 import { fontsInitialized } from '../../../src/index'
@@ -16,9 +17,11 @@ import { fontsReady, scoreViewState } from '../../scoreview'
 import { setCurrentPanel, setPanelOpen } from '../panels'
 import { applyPaletteCell, paletteCellName } from './PaletteGridView'
 import { PaletteTree } from './PaletteTree'
+import { addExtraPalette, createCustomPalette, extraPalettes } from '../../../src/index'
+import { PaletteDialogs } from './PaletteDialogs'
 import {
-    endSearch, expandCollapseAll, hiddenPalettes, palettesState, searchPalettes, setPaletteVisible, setSearchText,
-    setSingleClickToOpen, setSinglePalette, shownPalettes, startSearch, usePalettesState, userPalettes,
+    allUserPalettes, endSearch, ensureUserPalettesLoaded, expandCollapseAll, palettesState, searchPalettes, setSearchText,
+    setSingleClickToOpen, setSinglePalette, shownPalettes, startSearch, usePalettesState,
 } from './palettestate'
 import './palettes.css'
 
@@ -55,10 +58,8 @@ function registerPalettesActions(): void {
     registerAction('toggle-single-palette', {
         run: () => setSinglePalette(!palettesState().singlePalette), checked: () => palettesState().singlePalette,
     }, { title: ['palette', 'Open only one palette at a time'], checkable: true })
-    registerAction('collapse-all-palettes', { run: () => expandCollapseAll(false, []) }, { title: ['palette', 'Collapse all palettes'] })
-    registerAction('expand-all-palettes', {
-        run: () => expandCollapseAll(true, shownPalettes(userPalettes()).map(p => p.id)),
-    }, { title: ['palette', 'Expand all palettes'] })
+    registerAction('collapse-all-palettes', { run: () => expandCollapseAll(false) }, { title: ['palette', 'Collapse all palettes'] })
+    registerAction('expand-all-palettes', { run: () => expandCollapseAll(true) }, { title: ['palette', 'Expand all palettes'] })
 }
 
 registerPalettesActions()
@@ -79,15 +80,44 @@ export function palettesPanelMenu(): MenuItem[] {
 //   the header: "Add palettes", search
 // ---------------------------------------------------------------------------------
 
-/** AddPalettesPopup: the hidden palettes, each with a "+" button ("%1 added") */
+/** CreateCustomPalettePopup: the name of the new palette */
+function CreateCustomPalette({ onCreate, onCancel }: { onCreate: (name: string) => void; onCancel: () => void }): React.JSX.Element {
+    const [name, setName] = useState('')
+    const field = useRef<HTMLInputElement>(null)
+    useEffect(() => field.current?.focus(), [])
+    return (
+        <div className="create-custom-palette">
+            <label className="add-palettes-title" htmlFor="custom-palette-name">{qtrc('palette', 'Name your custom palette')}</label>
+            <input ref={field} id="custom-palette-name" type="text" value={name} onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && name.trim()) {
+                        e.preventDefault()
+                        onCreate(name.trim())
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        onCancel()
+                    }
+                }} />
+            <div className="dialog-buttons">
+                <button type="button" className="secondary" onClick={onCancel}>{qtrc('global', 'Cancel')}</button>
+                <button type="button" className="primary" disabled={!name.trim()} onClick={() => onCreate(name.trim())}>
+                    {qtrc('palette', 'Create')}
+                </button>
+            </div>
+        </div>
+    )
+}
+
+/** AddPalettesPopup: the hidden palettes, each with a "+" button ("%1 added"), and "Create custom palette" */
 function AddPalettesPopup({ anchor, onClose }: { anchor: HTMLElement; onClose: () => void }): React.JSX.Element {
     useLanguage()
     usePalettesState()
     const ref = useRef<HTMLDivElement>(null)
-    const [added, setAdded] = useState<string[]>([])
-    const all = userPalettes()
+    const [added, setAdded] = useState<{ key: string; name: string }[]>([])
+    const [creating, setCreating] = useState(false)
     // the palettes added while the popup is open stay in the list with their message
-    const list = all.filter(p => hiddenPalettes(all).includes(p) || added.includes(p.id))
+    const list = [...extraPalettes().map(e => ({ ...e, added: false })), ...added.map(a => ({ ...a, custom: false, added: true }))]
     useEffect(() => {
         const close = (e: PointerEvent): void => {
             if (!ref.current?.contains(e.target as Node) && !anchor.contains(e.target as Node)) {
@@ -111,16 +141,26 @@ function AddPalettesPopup({ anchor, onClose }: { anchor: HTMLElement; onClose: (
             e.stopPropagation()
         }
     }
+    if (creating) {
+        return (
+            <div ref={ref} className="add-palettes-popup" role="dialog" aria-label={qtrc('palette', 'Create custom palette')}>
+                <CreateCustomPalette onCancel={() => setCreating(false)} onCreate={(name) => {
+                    // PalettesPanel: addCustomPaletteRequested -> insertCustomPalette(0, name), expanded
+                    createCustomPalette(name, 0)
+                    onClose()
+                }} />
+            </div>
+        )
+    }
     return (
         <div ref={ref} className="add-palettes-popup" role="dialog" aria-label={qtrc('palette', 'More palettes')} onKeyDown={onKeyDown}>
             <div className="add-palettes-title">{qtrc('palette', 'More palettes')}</div>
-            {/* TODO(port): custom palettes */}
-            <button type="button" className="secondary" disabled>{qtrc('palette', 'Create custom palette')}</button>
+            <button type="button" className="secondary" onClick={() => setCreating(true)}>{qtrc('palette', 'Create custom palette')}</button>
             {list.length === 0 && <div className="add-palettes-empty">{qtrc('palette', 'All palettes were added')}</div>}
             <ul>
                 {list.map(p => (
-                    <li key={p.id} data-palette={p.id}>
-                        {added.includes(p.id)
+                    <li key={p.key + (p.added ? ':added' : '')} data-palette-name={p.name}>
+                        {p.added
                             ? <span className="add-palettes-added">{arg(qtrc('palette', '%1 added'), p.name)}</span>
                             : (
                                 <>
@@ -128,8 +168,9 @@ function AddPalettesPopup({ anchor, onClose }: { anchor: HTMLElement; onClose: (
                                     <button type="button" className="icon" aria-label={arg(qtrc('palette', 'Add %1 palette'), p.name)}
                                         title={arg(qtrc('palette', 'Add %1 palette'), p.name)}
                                         onClick={() => {
-                                            setPaletteVisible(p.id, true)
-                                            setAdded(a => [...a, p.id])
+                                            if (addExtraPalette(p.key)) {
+                                                setAdded(a => [...a, { key: p.key, name: p.name }])
+                                            }
                                         }}>
                                         {icon('PLUS')}
                                     </button>
@@ -229,8 +270,11 @@ export function PalettesPanel(): React.JSX.Element {
     if (!ready) {
         return <div className="palettes-panel" />
     }
+    ensureUserPalettesLoaded()
+    void state.treeVersion
     const searching = state.searchOpened
-    const palettes = searching ? searchPalettes(state.searchText, paletteCellName) : shownPalettes(userPalettes())
+    const palettes = searching ? searchPalettes(state.searchText, paletteCellName) : shownPalettes()
+    const rows = new Map(allUserPalettes().map((p, i) => [p.id, i]))
     return (
         <div className="palettes-panel">
             <PalettesPanelHeader />
@@ -241,8 +285,9 @@ export function PalettesPanel(): React.JSX.Element {
                 <div className="palettes-hint">{qtrc('global', 'No results found')}</div>
             )}
             <div className="palettes-scroll">
-                <PaletteTree palettes={palettes} searching={searching} />
+                <PaletteTree palettes={palettes} searching={searching} rows={searching ? undefined : rows} />
             </div>
+            <PaletteDialogs />
         </div>
     )
 }

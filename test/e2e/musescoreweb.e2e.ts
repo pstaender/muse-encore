@@ -485,8 +485,8 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         expect(await page.textContent('#title')).not.toMatch(/^\*/)
 
         // a palette cell: the flat of the accidentals palette
-        await page.click('.palette-tree-item[data-palette="Accidental"] .palette-header')
-        const flat = '.palette-tree-item[data-palette="Accidental"] .palette-cell[aria-label="Flat"]'
+        await page.click('.palette-tree-item[data-palette-type="Accidental"] .palette-header')
+        const flat = '.palette-tree-item[data-palette-type="Accidental"] .palette-cell[aria-label="Flat"]'
         await page.waitForSelector(flat)
         await page.click(flat)
         await page.waitForFunction(() => /^Note;.*Pitch: [A-G]♭/.test(document.getElementById('status')!.textContent!))
@@ -589,11 +589,11 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
         await scoreShown(page)
-        await page.waitForSelector('.palettes-panel .palette-tree-item[data-palette="Clef"]')
+        await page.waitForSelector('.palettes-panel .palette-tree-item[data-palette-type="Clef"]')
         // expand the clefs: the cells are drawn
-        await page.click('.palette-tree-item[data-palette="Clef"] .palette-header')
-        await page.waitForSelector('.palette-tree-item[data-palette="Clef"] .palette-header[aria-expanded="true"]')
-        const cell = '.palette-tree-item[data-palette="Clef"] .palette-cell[data-element="Clef"]'
+        await page.click('.palette-tree-item[data-palette-type="Clef"] .palette-header')
+        await page.waitForSelector('.palette-tree-item[data-palette-type="Clef"] .palette-header[aria-expanded="true"]')
+        const cell = '.palette-tree-item[data-palette-type="Clef"] .palette-cell[data-element="Clef"]'
         expect(await page.getAttribute(cell, 'title')).toBe('Treble clef')
         const inked = await page.waitForFunction((sel) => {
             const c = document.querySelector<HTMLCanvasElement>(`${sel} canvas.palette-cell-canvas`)
@@ -612,7 +612,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         // the search
         await page.click('.palette-search-button')
         await page.fill('.palette-search input', 'trill')
-        await page.waitForFunction(() => [...document.querySelectorAll<HTMLElement>('.palette-tree-item')].map(e => e.dataset.palette).join() === 'Ornament,Line')
+        await page.waitForFunction(() => [...document.querySelectorAll<HTMLElement>('.palette-tree-item')].map(e => e.dataset.paletteType).join() === 'Ornament,Line')
         await context.close()
     }, 120000)
 
@@ -879,6 +879,80 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.waitForFunction(() => /^Lyrics: maz/.test(document.getElementById('status')!.textContent!))
         await page.keyboard.press('ControlOrMeta+z')
         await page.waitForFunction(() => !/^Lyrics: maz/.test(document.getElementById('status')!.textContent!))
+        await context.close()
+    }, 180000)
+
+    it('creates a custom palette, adds cells by drag and drop, keeps it after a reload; drops cells on the score', async () => {
+        const layout = await amazingGraceLayout()
+        const { page, context, box } = await openAmazingGrace()
+        const at = (fx: number, fy: number): [number, number] => [box.x + box.width * fx, box.y + box.height * fy]
+
+        // Add palettes > Create custom palette
+        await page.click('.palettes-header .add-palettes')
+        await page.click('.add-palettes-popup button:has-text("Create custom palette")')
+        await page.fill('#custom-palette-name', 'My palette')
+        await page.click('.add-palettes-popup button:has-text("Create")')
+        const custom = '.palette-tree-item[data-palette-type="Custom"]'
+        await page.waitForSelector(`${custom} .palette-empty`)
+        expect(await page.textContent(`${custom} .palette-name`)).toBe('My palette')
+        expect(await page.textContent(`${custom} .palette-empty`)).toBe('Drag and drop any element here')
+
+        // a cell of the clefs dragged into the custom palette
+        await page.click('.palette-tree-item[data-palette-type="Clef"] .palette-header')
+        const bass = '.palette-tree-item[data-palette-type="Clef"] .palette-cell[aria-label="Bass clef"]'
+        await page.dragAndDrop(bass, `${custom} .palette-grid`)
+        await page.waitForSelector(`${custom} .palette-cell[aria-label="Bass clef"]`)
+
+        // the title dragged out of the score with Shift+Ctrl onto the custom palette: a custom cell
+        const [tx, ty] = at(layout.tempo!.x, layout.tempo!.y)
+        const grid = (await page.locator(`${custom} .palette-grid`).boundingBox())!
+        await page.keyboard.down('Shift')
+        await page.keyboard.down('ControlOrMeta')
+        await page.mouse.move(tx, ty)
+        await page.mouse.down()
+        for (let i = 1; i <= 8; ++i) {
+            await page.mouse.move(tx + (grid.x + grid.width / 2 - tx) * i / 8, ty + (grid.y + grid.height / 2 - ty) * i / 8)
+        }
+        await page.mouse.up()
+        await page.keyboard.up('ControlOrMeta')
+        await page.keyboard.up('Shift')
+        await page.waitForSelector(`${custom} .palette-cell[data-element="Text"]`)
+
+        // the user palettes are kept after a reload
+        await page.waitForTimeout(500)
+        await page.reload()
+        await scoreShown(page)
+        await page.waitForSelector(`${custom} .palette-cell[aria-label="Bass clef"]`)
+        expect(await page.locator(`${custom} .palette-cell[data-element="Text"]`).count()).toBe(1)
+
+        // the cell's properties (context menu), the name is its tooltip
+        await page.click(`${custom} .palette-cell[aria-label="Bass clef"]`, { button: 'right', force: true }) // aria-disabled: no selection
+        await page.click('.menu-item:has-text("Properties…")')
+        await page.waitForSelector('dialog.palette-properties[open]')
+        await page.fill('#palette-cell-name', 'F clef')
+        await page.click('dialog.palette-properties button:has-text("OK")')
+        await page.waitForSelector(`${custom} .palette-cell[aria-label="F clef"]`)
+
+        // a cell dragged onto a note of the score: the accent is added (undoable)
+        await pageSnapshot(page)
+        await page.click('.palette-tree-item[data-palette-type="Articulation"] .palette-header')
+        const accent = '.palette-tree-item[data-palette-type="Articulation"] .palette-cell[aria-label="Accent above"]'
+        await page.waitForSelector(accent)
+        const note = layout.cr.find(c => c.type === 'Chord')!
+        const vp = (await page.locator('#viewport').boundingBox())!
+        const [nx, ny] = at(note.x, note.y)
+        await page.dragAndDrop(accent, '#viewport', { targetPosition: { x: nx - vp.x, y: ny - vp.y - 4 } })
+        await page.waitForFunction(() => /^\*/.test(document.getElementById('title')!.textContent!))
+        expect(await pixelsChanged(page)).toBeGreaterThan(30)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => !/^\*/.test(document.getElementById('title')!.textContent!))
+
+        // the custom palette is deleted permanently ("Hide/Delete palette" asks)
+        await page.click(`${custom} .palette-header`, { button: 'right' })
+        await page.click('.menu-item:has-text("Hide/Delete palette")')
+        await page.click('dialog.palette-question button[data-value="delete"]')
+        await page.waitForFunction((sel) => !document.querySelector(sel), custom)
         await context.close()
     }, 180000)
 

@@ -5,15 +5,24 @@
  * size, stretched to fill the width, with grid lines; the "More" button (MoreElementsPopup) at the end.
  * A click (or Enter) applies the cell to the selection (PaletteRootModel / Palette::applyPaletteElement), the
  * tooltip is the cell's translated name. Keyboard: arrows move between the cells (a WAI-ARIA grid-like listbox),
- * Home/End, Enter/Space apply, Escape goes back to the palette's header.
- * TODO(port): drag and drop of cells (to the score and within palettes), editing (delete, cell properties).
+ * Home/End, Enter/Space apply, Escape goes back to the palette's header, Delete removes the cell.
+ * Drag and drop (the grid's DropArea and the cells' Drag): cells are dragged onto the score or into a palette (moved
+ * inside their palette, added from "More" or other palettes); elements dragged out of the score with Shift+Ctrl
+ * become custom cells (UserPaletteController::insert). The context menu of a cell: Delete, Properties….
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { drawPaletteCell, paletteCellElement, type PaletteCellInfo, type PaletteInfo } from '../../../src/index'
-import { actionDefinition, actionDescription } from '../../actions/actions'
+import {
+    canEditPaletteCell, canInsertPaletteCell, drawPaletteCell, insertPaletteCell, movePaletteCell, paletteCellCount,
+    paletteCellElement, paletteCellMimeData, paletteCellRow, removePaletteCells, type PaletteCellInfo, type PaletteInfo,
+} from '../../../src/index'
+import { actionDefinition, actionDescription, registerAction } from '../../actions/actions'
+import { MenuPopup } from '../../components/Menu'
+import { ELEMENT_DROP_EVENT, dragData, setDragData, type AppDragData, type ElementDropDetail } from '../../dragcontroller'
 import { qtrc, useLanguage } from '../../i18n'
+import type { MenuItem } from '../../menus/appmenu'
 import { currentScore } from '../../scoreview'
 import { applyPaletteElement, canApplyPaletteElement, scoreChanged } from '../editbridge'
+import { askRemove, openPaletteDialog } from './PaletteDialogs'
 import { setCurrentCell, usePalettesState } from './palettestate'
 
 /** the text color of the theme: PaletteConfiguration::elementsColor (ui.theme.fontPrimaryColor) */
@@ -55,6 +64,11 @@ export function applyPaletteCell(cellId: string, modifiers: { shift: boolean; ct
     return false
 }
 
+/** "Delete" of a cell (UserPaletteController::remove: custom cells ask whether to hide or delete them) */
+export function removePaletteCell(cellId: string): void {
+    void removePaletteCells([cellId], askRemove)
+}
+
 /** the icon of a cell: the element drawn on a canvas, or a glyph of the icon font (actions, layout breaks) */
 function CellIcon({ cell, palette }: { cell: PaletteCellInfo; palette: PaletteInfo }): React.JSX.Element {
     const lang = useLanguage()
@@ -74,7 +88,7 @@ function CellIcon({ cell, palette }: { cell: PaletteCellInfo; palette: PaletteIn
         drawPaletteCell(cell.id, ctx, {
             width: palette.gridWidth, height: palette.gridHeight, dpr, color: elementsColor(canvas), extraMag: palette.mag,
         })
-    }, [cell.id, palette.gridWidth, palette.gridHeight, palette.mag, lang, dark])
+    }, [cell.id, cell.mag, cell.xoffset, cell.yoffset, cell.drawStaff, palette.gridWidth, palette.gridHeight, palette.mag, lang, dark])
     if (cell.action || cell.icon) {
         return (
             <span className="palette-cell-glyph" aria-hidden="true"
@@ -103,7 +117,45 @@ function columnCount(grid: HTMLElement): number {
     return Math.max(1, n)
 }
 
-export function PaletteGridView({ palette, cells = palette.cells, label, showMoreButton = false, onMore, moreExpanded = false, onEscape }: {
+/**
+ * The row of the user palette a drop at a client position inserts before (the cell under the pointer; its right half:
+ * after it); -1: at the end
+ */
+function paletteDropRow(grid: HTMLElement, clientX: number, clientY: number): number {
+    const cells = [...grid.querySelectorAll<HTMLElement>('.palette-cell')]
+    const i = dropRow(grid, clientX, clientY)
+    return i < cells.length ? paletteCellRow(cells[i].dataset.cell!) : -1
+}
+
+/** the index among the shown cells a drop at a client position inserts before */
+function dropRow(grid: HTMLElement, clientX: number, clientY: number): number {
+    const cells = [...grid.querySelectorAll<HTMLElement>('.palette-cell')]
+    const rtl = document.documentElement.dir === 'rtl'
+    for (let i = 0; i < cells.length; ++i) {
+        const r = cells[i].getBoundingClientRect()
+        if (clientY >= r.top && clientY < r.bottom && clientX >= r.left && clientX < r.right) {
+            const after = rtl ? clientX < r.left + r.width / 2 : clientX >= r.left + r.width / 2
+            return after ? i + 1 : i
+        }
+    }
+    return cells.length
+}
+
+/** the cell context menu (PaletteGridView's ContextMenuLoader) */
+function cellMenu(cellId: string): MenuItem[] {
+    registerAction(`palette-cell-delete:${cellId}`, {
+        run: () => removePaletteCell(cellId), enabled: () => canEditPaletteCell(cellId),
+    }, { title: ['palette', 'Delete'] })
+    registerAction(`palette-cell-properties:${cellId}`, {
+        run: () => openPaletteDialog({ kind: 'cell', cellId }), enabled: () => canEditPaletteCell(cellId),
+    }, { title: ['palette', 'Properties…'] })
+    return [{ kind: 'action', code: `palette-cell-delete:${cellId}` }, { kind: 'action', code: `palette-cell-properties:${cellId}` }]
+}
+
+export function PaletteGridView({
+    palette, cells = palette.cells, label, showMoreButton = false, onMore, moreExpanded = false, onEscape, paletteId = null,
+    pool = 'main', editable = false, selected, onSelect,
+}: {
     palette: PaletteInfo
     cells?: readonly PaletteCellInfo[]
     label: string
@@ -112,12 +164,38 @@ export function PaletteGridView({ palette, cells = palette.cells, label, showMor
     moreExpanded?: boolean
     /** Escape in the grid (focus back to the header) */
     onEscape?: () => void
+    /** the user palette shown (cells can be dropped and edited); null: search results, the master palette */
+    paletteId?: string | null
+    /** where the cells come from: the user palette, the pool of "More" or its custom cells */
+    pool?: 'main' | 'more' | 'custom'
+    /** the cells can be edited (the palette is editable, not searching) */
+    editable?: boolean
+    /** the selected cells ("More": "Add to %1"); a click selects them instead of only making them current */
+    selected?: ReadonlySet<string>
+    onSelect?: (cellId: string, add: boolean) => void
 }): React.JSX.Element {
     useLanguage()
     const state = usePalettesState()
     const gridRef = useRef<HTMLDivElement>(null)
     const [focusIdx, setFocusIdx] = useState(0)
+    const [menu, setMenu] = useState<{ cellId: string; anchor: DOMRect; items: MenuItem[] } | null>(null)
+    const [dropAt, setDropAt] = useState<number | null>(null)
     const canApply = canApplyPaletteElement(currentScore())
+    const acceptsDrops = pool === 'main' && !!paletteId && editable
+
+    // an element dragged out of the score (Shift+Ctrl+drag) released over this palette: a new custom cell
+    useEffect(() => {
+        const grid = gridRef.current
+        if (!grid || !acceptsDrops || !paletteId) {
+            return
+        }
+        const onElementDrop = (e: Event): void => {
+            const d = (e as CustomEvent<ElementDropDetail>).detail
+            insertPaletteCell(paletteId, paletteDropRow(grid, d.clientX, d.clientY), { symbol: d.mimeData }, 'copy')
+        }
+        grid.addEventListener(ELEMENT_DROP_EVENT, onElementDrop)
+        return () => grid.removeEventListener(ELEMENT_DROP_EVENT, onElementDrop)
+    }, [acceptsDrops, paletteId])
 
     const focusCell = (idx: number): void => {
         const i = Math.max(0, Math.min(cells.length - 1, idx))
@@ -143,6 +221,21 @@ export function PaletteGridView({ palette, cells = palette.cells, label, showMor
             e.stopPropagation()
             applyPaletteCell(cells[idx].id, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey })
             return
+        case 'Delete':
+        case 'Backspace':
+            if (pool === 'main' && editable) {
+                e.preventDefault()
+                e.stopPropagation()
+                removePaletteCell(cells[idx].id)
+            }
+            return
+        case 'ContextMenu':
+        case 'F10':
+            if (pool === 'main' && paletteId && (e.key === 'ContextMenu' || e.shiftKey)) {
+                e.preventDefault()
+                setMenu({ cellId: cells[idx].id, anchor: (e.currentTarget as HTMLElement).getBoundingClientRect(), items: cellMenu(cells[idx].id) })
+            }
+            return
         case 'Escape':
             if (onEscape) {
                 e.preventDefault()
@@ -160,21 +253,116 @@ export function PaletteGridView({ palette, cells = palette.cells, label, showMor
         }
     }
 
+    // ---- drag and drop (the cells are drag sources, the grid of a user palette a drop area) ----
+
+    const dropKind = (data: AppDragData | null): 'reorder' | 'move' | 'copy' | null => {
+        if (!acceptsDrops || !paletteId || !data) {
+            return null
+        }
+        if (data.cell && data.source?.paletteId === paletteId && data.source.pool === 'main') {
+            return 'reorder'
+        }
+        if (data.cell && canInsertPaletteCell(paletteId, { cell: data.cell }, 'move')) {
+            return 'move'
+        }
+        if (data.symbol && !data.source && canInsertPaletteCell(paletteId, { symbol: data.symbol }, 'copy')) {
+            return 'copy'
+        }
+        return null
+    }
+
+    const onDragOver = (e: React.DragEvent<HTMLDivElement>): void => {
+        const kind = dropKind(dragData())
+        if (!kind) {
+            return
+        }
+        e.preventDefault()
+        e.stopPropagation()
+        e.dataTransfer.dropEffect = kind === 'copy' ? 'copy' : 'move'
+        setDropAt(dropRow(e.currentTarget, e.clientX, e.clientY))
+    }
+
+    const onDrop = (e: React.DragEvent<HTMLDivElement>): void => {
+        const data = dragData()
+        const kind = dropKind(data)
+        setDropAt(null)
+        if (!kind || !data || !paletteId) {
+            return
+        }
+        e.preventDefault()
+        e.stopPropagation()
+        const row = paletteDropRow(e.currentTarget, e.clientX, e.clientY)
+        if (kind === 'reorder') {
+            const from = paletteCellRow(data.source!.cellId)
+            const before = row < 0 ? paletteCellCount(paletteId) : row
+            if (from >= 0 && before !== from && before !== from + 1) {
+                movePaletteCell(data.source!.cellId, before > from ? before - 1 : before)
+            }
+        } else if (kind === 'move') {
+            insertPaletteCell(paletteId, row, { cell: data.cell }, 'move')
+        } else {
+            insertPaletteCell(paletteId, row, { symbol: data.symbol }, 'copy')
+        }
+        setDragData(null)
+    }
+
     const tabIdx = Math.min(focusIdx, cells.length - 1)
     return (
-        <div className={`palette-grid${palette.drawGrid ? ' draw-grid' : ''}`} ref={gridRef} role="listbox" aria-label={label}
-            aria-orientation="horizontal"
-            style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${palette.gridWidth}px, 1fr))`, gridAutoRows: `${palette.gridHeight}px` }}>
-            {cells.length === 0 && <div className="palette-empty">{qtrc('palette', 'No elements')}</div>}
+        <div className={`palette-grid${palette.drawGrid ? ' draw-grid' : ''}${dropAt !== null ? ' drop-active' : ''}`} ref={gridRef}
+            role="listbox" aria-label={label} aria-orientation="horizontal" aria-multiselectable={onSelect ? true : undefined}
+            data-palette-grid={paletteId ?? undefined}
+            style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${palette.gridWidth}px, 1fr))`, gridAutoRows: `${palette.gridHeight}px` }}
+            onDragOver={onDragOver} onDragEnter={onDragOver}
+            onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                    setDropAt(null)
+                }
+            }}
+            onDrop={onDrop}>
+            {cells.length === 0 && (
+                <div className="palette-empty">
+                    {acceptsDrops ? qtrc('palette', 'Drag and drop any element here') : qtrc('palette', 'No elements')}
+                </div>
+            )}
             {cells.map((cell, i) => {
                 const name = paletteCellName(cell)
+                const isSelected = selected ? selected.has(cell.id) : state.currentCell === cell.id
                 return (
-                    <div key={cell.id} className={`palette-cell${state.currentCell === cell.id ? ' current' : ''}`} role="option"
-                        data-cell={cell.id} data-element={cell.elementType} tabIndex={i === tabIdx ? 0 : -1}
-                        aria-selected={state.currentCell === cell.id} aria-label={name} title={name}
+                    <div key={cell.id}
+                        className={`palette-cell${state.currentCell === cell.id && !selected ? ' current' : ''}${selected?.has(cell.id) ? ' selected' : ''}`
+                            + `${dropAt === i ? ' drop-before' : ''}${dropAt === i + 1 && i === cells.length - 1 ? ' drop-after' : ''}`}
+                        role="option" data-cell={cell.id} data-element={cell.elementType} tabIndex={i === tabIdx ? 0 : -1}
+                        aria-selected={isSelected} aria-label={name} title={name}
                         aria-disabled={!canApply || undefined}
+                        draggable
+                        onDragStart={(e) => {
+                            const mime = paletteCellMimeData(cell.id)
+                            if (mime.symbol) {
+                                e.dataTransfer.setData('application/musescore/symbol', mime.symbol)
+                            }
+                            if (mime.cell) {
+                                e.dataTransfer.setData('application/musescore/palette/cell', mime.cell)
+                            }
+                            e.dataTransfer.effectAllowed = 'copyMove'
+                            setDragData({ ...mime, source: { paletteId, cellId: cell.id, pool } })
+                        }}
+                        onDragEnd={() => {
+                            setDragData(null)
+                            setDropAt(null)
+                        }}
                         onFocus={() => { setFocusIdx(i); setCurrentCell(cell.id) }}
-                        onClick={(e) => applyPaletteCell(cell.id, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey })}
+                        onClick={(e) => {
+                            if (onSelect) {
+                                onSelect(cell.id, e.ctrlKey || e.metaKey || e.shiftKey)
+                            }
+                            applyPaletteCell(cell.id, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey })
+                        }}
+                        onContextMenu={(e) => {
+                            if (pool === 'main' && paletteId) {
+                                e.preventDefault()
+                                setMenu({ cellId: cell.id, anchor: new DOMRect(e.clientX, e.clientY, 0, 0), items: cellMenu(cell.id) })
+                            }
+                        }}
                         onKeyDown={(e) => onKeyDown(e, i)}>
                         <CellIcon cell={cell} palette={palette} />
                     </div>
@@ -185,6 +373,16 @@ export function PaletteGridView({ palette, cells = palette.cells, label, showMor
                     onClick={(e) => onMore?.(e.currentTarget)}>
                     {qtrc('palette', 'More')}
                 </button>
+            )}
+            {menu && (
+                <MenuPopup items={menu.items} anchor={menu.anchor} placement="below" label={label}
+                    onClose={(back) => {
+                        const id = menu.cellId
+                        setMenu(null)
+                        if (back) {
+                            gridRef.current?.querySelector<HTMLElement>(`.palette-cell[data-cell="${id}"]`)?.focus()
+                        }
+                    }} />
             )}
         </div>
     )

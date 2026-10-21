@@ -24,6 +24,7 @@ let s_voiceColors: Color[] = DEFAULT_VOICE_COLORS.map(c => Color.fromString(c))
 let s_invisibleColor = Color.fromString('#808080')
 let s_unlinkedColor = Color.fromString(UNLINKED_ITEM_COLOR)
 let s_frameColor = Color.fromString('#A0A0A4')
+let s_formattingColor = Color.fromString('#C31989')
 const s_scoreInversionColor = new Color(220, 220, 220)
 
 export class EngravingConfiguration {
@@ -32,6 +33,9 @@ export class EngravingConfiguration {
     static invisibleColor(): Color { return s_invisibleColor }
     static setInvisibleColor(c: Color): void { s_invisibleColor = c.clone() }
     static frameColor(): Color { return s_frameColor }
+    /** the color of anchor lines (C++ engraving/colors/formattingColor) */
+    static formattingColor(): Color { return s_formattingColor }
+    static setFormattingColor(c: Color): void { s_formattingColor = c.clone() }
     static setFrameColor(c: Color): void { s_frameColor = c.clone() }
     static unlinkedColor(): Color { return s_unlinkedColor }
     static setUnlinkedColor(c: Color): void { s_unlinkedColor = c.clone() }
@@ -68,6 +72,7 @@ export class EngravingConfiguration {
         s_invisibleColor = Color.fromString('#808080')
         s_unlinkedColor = Color.fromString(UNLINKED_ITEM_COLOR)
         s_frameColor = Color.fromString('#A0A0A4')
+        s_formattingColor = Color.fromString('#C31989')
     }
 }
 

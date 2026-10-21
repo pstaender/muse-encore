@@ -1471,13 +1471,85 @@ export function viewMousePress(score: MasterScore, e: ViewPointerEvent): void {
  * C++ mouseMoveEvent (drag of elements and grips, lasso with Shift on empty space, text selection); returns the
  * logical move of the canvas (inches) when the view should be moved instead
  */
-export function viewMouseMove(score: MasterScore, e: ViewPointerEvent): { moveCanvas: { x: number; y: number } | null } {
+export function viewMouseMove(score: MasterScore, e: ViewPointerEvent): { moveCanvas: { x: number; y: number } | null; outgoingDrag: OutgoingElementDrag | null } {
     const ev = viewMouseEvent(score, e)
     if (!ev) {
-        return { moveCanvas: null }
+        return { moveCanvas: null, outgoingDrag: null }
     }
+    const interaction = notationState(score).interaction
+    const wasOutgoing = interaction.isOutgoingDragStarted()
     const r = notationState(score).controller.mouseMoveEvent(ev)
-    return { moveCanvas: r.moveCanvas ? { x: r.moveCanvas.x() / DPI, y: r.moveCanvas.y() / DPI } : null }
+    const drag = !wasOutgoing ? interaction.outgoingDrag() : null
+    return {
+        moveCanvas: r.moveCanvas ? { x: r.moveCanvas.x() / DPI, y: r.moveCanvas.y() / DPI } : null,
+        outgoingDrag: drag ? { mimeData: drag.mimeData, type: drag.element.typeName(), name: drag.element.translatedTypeUserName() } : null,
+    }
+}
+
+/**
+ * An element dragged out of the view (Shift+Ctrl+drag: NotationInteraction::startOutgoingDragElement): its mime data
+ * (MIME_SYMBOL_FORMAT, e.g. for insertPaletteCell). Returned once by the viewMouseMove that started the drag; the
+ * view carries out the drag.
+ */
+export interface OutgoingElementDrag {
+    mimeData: string
+    /** MuseScore's element type name */
+    type: string
+    /** the translated user name of the element type */
+    name: string
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+//   drop of a palette cell (or another element's mime data) onto the view (NotationViewInputController
+//   dragEnterEvent/dragMoveEvent/dragLeaveEvent/dropEvent -> NotationInteraction startDropSingle/updateDropSingle/
+//   dropSingle/endDrop). The drop target is highlighted and the anchor line drawn by drawPage (printing: false).
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** a position during a drag: page and position on it (inches from its top left), the keyboard modifiers */
+export interface ViewDragEvent {
+    page: number
+    x: number
+    y: number
+    shift: boolean
+    /** Ctrl (Cmd on macOS) */
+    ctrl: boolean
+    alt: boolean
+}
+
+function dragModifiers(e: ViewDragEvent): number {
+    return (e.shift ? KeyboardModifier.ShiftModifier : 0) | (e.ctrl ? KeyboardModifier.ControlModifier : 0)
+        | (e.alt ? KeyboardModifier.AltModifier : 0)
+}
+
+/** dragEnterEvent: starts the drop of an element (mimeData: MIME_SYMBOL_FORMAT data); false if it cannot be read */
+export function viewDragEnter(score: MasterScore, mimeData: string): boolean {
+    return notationState(score).interaction.startDropSingle(mimeData)
+}
+
+/** dragMoveEvent: returns true if the element can be dropped at the position (the target is highlighted) */
+export function viewDragMove(score: MasterScore, e: ViewDragEvent): boolean {
+    const pos = pagePointToCanvas(score, e.page, e.x, e.y)
+    return !!pos && notationState(score).interaction.updateDropSingle(pos, dragModifiers(e))
+}
+
+/** dropEvent: drops the element (one undoable command); returns true if it was dropped. The drop ends. */
+export function viewDrop(score: MasterScore, e: ViewDragEvent): boolean {
+    const pos = pagePointToCanvas(score, e.page, e.x, e.y)
+    const interaction = notationState(score).interaction
+    const accepted = !!pos && interaction.dropSingle(pos, dragModifiers(e))
+    interaction.endDrop()
+    return accepted
+}
+
+/** the current drop target of a drag over the view (highlighted), null if none */
+export function viewDropTarget(score: MasterScore): { type: string; name: string } | null {
+    const t = notationState(score).interaction.dropTargetItem()
+    return t ? { type: t.typeName(), name: t.translatedTypeUserName() } : null
+}
+
+/** dragLeaveEvent: ends the drop without dropping */
+export function viewDragLeave(score: MasterScore): void {
+    notationState(score).interaction.endDrop()
 }
 
 export function viewMouseRelease(score: MasterScore, e: ViewPointerEvent): void {
@@ -1612,6 +1684,8 @@ function drawEditMode(score: MasterScore, page: EngravingItem, painter: Painter,
         interaction.drawGripPoints(painter, scaling, opt)
     }
     interaction.drawLasso(painter, scaling)
+    interaction.drawDrop(painter)
+    interaction.drawAnchorLines(painter, scaling)
 }
 
 //   note input in the view: the shadow note at the mouse position, the right click, changes made by a timer
