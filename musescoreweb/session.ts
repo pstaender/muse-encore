@@ -5,14 +5,17 @@
  */
 import { useSyncExternalStore } from 'react'
 import {
-    createScore, drawPage, layoutScore, loadScore, pageCount, pageSize, scoreTitle, type MasterScore,
-    type NewScoreOptions,
+    createScore, drawPage, isModified, layoutScore, loadScore, markSaved, pageCount, pageSize, saveMscz, scoreTitle,
+    type MasterScore, type NewScoreOptions,
 } from '../src/index'
 import {
-    addScore, contentHash, loadScoreContent, openScoreId, setOpenScoreId, takeLegacyLastFile, updateScore,
-    type ScoreEntry,
+    addScore, contentHash, loadScoreContent, openScoreId, saveScoreContent, setOpenScoreId, takeLegacyLastFile,
+    updateScore, type ScoreEntry,
 } from './db'
-import { clearScore, fontsReady, handlers, hideBusy, setStatus, showBusy, showScore, viewShown } from './scoreview'
+import { arg, qtrc } from './i18n'
+import {
+    clearScore, currentScore, fontsReady, handlers, hideBusy, scoreSaved, setStatus, showBusy, showScore, viewShown,
+} from './scoreview'
 
 export interface SessionState {
     view: 'home' | 'score'
@@ -20,7 +23,7 @@ export interface SessionState {
     current: { id: string | null; name: string } | null
     newScoreDialog: boolean
     /** another dialog of the app */
-    dialog: 'preferences' | 'about' | 'clearRecent' | 'revertFactory' | null
+    dialog: 'preferences' | 'about' | 'clearRecent' | 'revertFactory' | 'saveChanges' | null
     /** the last error, shown on the home screen */
     error: string | null
 }
@@ -223,7 +226,86 @@ export async function createNewScore(options: NewScoreOptions): Promise<void> {
     }
 }
 
+// ---------------------------------------------------------------------------------
+//   saving (ProjectActionsController): "Save" stores the score in this browser, "Save a copy" downloads it
+// ---------------------------------------------------------------------------------
+
+/** the file name of the open score with the extension .mscz */
+function msczName(): string {
+    const name = state.current?.name ?? UNTITLED
+    return `${name.replace(/\.mscx?z?$/i, '')}.mscz`
+}
+
+export function canSave(): boolean {
+    return !!state.current && !!currentScore()
+}
+
+/** File > Save: writes the score and stores it in this browser (a new entry if it is not stored any more) */
+export async function saveScore(): Promise<boolean> {
+    const s = currentScore()
+    const current = state.current
+    if (!s || !current) {
+        return false
+    }
+    const bytes = saveMscz(s, msczName())
+    const data = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+    const info = { size: data.byteLength, hash: await contentHash(data), ...entryInfo(s) }
+    let id = current.id
+    if (!id || !(await saveScoreContent(id, data, info))) {
+        id = await addScore({ name: current.name, source: 'file', ...info }, { data })
+        if (!id) {
+            setStatus(`Could not save ${current.name}: the browser does not store data for this page`, true)
+            return false
+        }
+        setOpenScoreId(id)
+        setState({ current: { id, name: current.name } })
+    }
+    markSaved(s)
+    scoreSaved()
+    setStatus(`${current.name} saved in this browser`)
+    void makeThumbnail(s).then(thumbnail => updateScore(id, { thumbnail }))
+    return true
+}
+
+/** File > Save a copy: downloads the score as .mscz */
+export function downloadScore(): void {
+    const s = currentScore()
+    if (!s) {
+        return
+    }
+    const url = URL.createObjectURL(new Blob([saveMscz(s, msczName()) as Uint8Array<ArrayBuffer>], { type: 'application/x-musescore' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = msczName()
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+/** the title of the question before closing a modified score (ProjectActionsController::askAboutSavingScore) */
+export function saveChangesTitle(): string {
+    return arg(qtrc('project', 'Do you want to save changes to the score “%1” before closing?'), (state.current?.name ?? UNTITLED).replace(/\.mscx?z?$/i, ''))
+}
+
+/** the answer to the question before closing: save, close without saving, or keep the score open (cancel) */
+export async function answerSaveChanges(answer: 'save' | 'dontSave' | 'cancel'): Promise<void> {
+    showDialog(null)
+    if (answer === 'cancel' || (answer === 'save' && !(await saveScore()))) {
+        return
+    }
+    doCloseScore()
+}
+
+/** File > Close; asks first if the score has unsaved changes */
 export function closeScore(): void {
+    const s = currentScore()
+    if (s && isModified(s)) {
+        showDialog('saveChanges')
+        return
+    }
+    doCloseScore()
+}
+
+function doCloseScore(): void {
     clearScore()
     setOpenScoreId(null)
     setState({ current: null })
@@ -258,6 +340,14 @@ export function chooseFile(): void {
 }
 
 handlers.openFile = (f) => void openFile(f)
+
+// unsaved changes: the browser asks before the page is left
+window.addEventListener('beforeunload', (e) => {
+    const s = currentScore()
+    if (s && isModified(s)) {
+        e.preventDefault()
+    }
+})
 
 // ---------------------------------------------------------------------------------
 //   startup: ?url=<score url>, otherwise the score that was open

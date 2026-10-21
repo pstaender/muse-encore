@@ -24,7 +24,8 @@ import { StaffLines } from './stafflines'
 import { AccidentalState } from './key'
 import { tpc2alter } from './pitchspelling'
 import { absStep, actualTicks, relStep, skipTuplet } from './utils'
-import { toDurationList } from './durationtype'
+import { toRhythmicDurationList } from './durationtype'
+import { TimeSigFrac } from './sig'
 import type { System } from './system'
 import type { EngravingObject } from './engravingobject'
 import type { Staff } from './staff'
@@ -355,8 +356,8 @@ export class Measure extends MeasureBase {
 
     /** fill gap with rests (C++: dom/check.cpp) */
     fillGap(rtickStart: Fraction, len: Fraction, track: track_idx_t, stretch: Fraction, useGapRests = true): void {
-        // TODO(port): C++ uses toRhythmicDurationList() which splits the gap at beat boundaries
-        const durationList = toDurationList(len, true)
+        // break the gap into shorter durations if necessary
+        const durationList = toRhythmicDurationList(len, true, rtickStart, TimeSigFrac.from(this.timesig()), this, 0, stretch)
         let curTick = this.tick().plus(actualTicks(rtickStart, null, stretch))
         for (const d of durationList) {
             const rest = measureFactories.createRest!(this)

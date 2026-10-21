@@ -762,7 +762,7 @@ export class GuitarBendSegment extends LineSegment {
     setBendText(t: GuitarBendText): void { this.m_text = t }
 
     override isUserModified(): boolean {
-        const modified = !this.vertexPointOff().isNull() || false // TODO(port): TextBase::isUserModified()
+        const modified = !this.vertexPointOff().isNull() || (this.m_text && this.m_text.isUserModified())
         return modified || super.isUserModified()
     }
 }

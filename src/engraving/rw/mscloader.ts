@@ -6,7 +6,7 @@
  * Port of src/engraving/rw/mscloader.h/.cpp
  *
  * Readers: read460 (4.x, incl. the read400/read410 differences), read302 (3.x), read206 (2.x).
- * TODO(port): read114 (1.x files), excerpts, images, audio
+ * TODO(port): read114 (1.x files), excerpts of pre-4.0 files (read302/read206), images, audio
  */
 
 import { DefaultStyle } from '../style/defaultstyle'
@@ -19,6 +19,8 @@ import { Read302 } from './read302/read302'
 import { Read460 } from './read460/read460'
 import { Sid } from '../style/styledef'
 import { ChordStylePreset } from '../types/types'
+import { Excerpt } from '../dom/excerpt'
+import type { ReadLinks } from './read460/readcontext'
 
 export const MSC_VERSION = 470
 
@@ -61,15 +63,59 @@ export class MscLoader {
             throw new MscLoadError('no score file found')
         }
         const xml = new XmlReader(scoreData)
-        this.readMasterScore(masterScore, xml, scoreData)
-        // TODO(port): excerpts (parts)
+        const inOut: { links?: ReadLinks } = {}
+        this.readMasterScore(masterScore, xml, scoreData, inOut)
+
+        // Read excerpts
+        if (masterScore.mscVersion() >= 400 && mscReader.isContainer()) {
+            for (const excerptFileName of mscReader.excerptFileNames()) {
+                const partScore = masterScore.createScore()
+
+                // compat::ReadStyleHook::setupDefaultStyle(partScore)
+                const defaultsVersion = masterScore.style().defaultStyleVersion()
+                partScore.setStyle(DefaultStyle.resolveStyleDefaults(defaultsVersion))
+                partScore.style().setDefaultStyleVersion(defaultsVersion)
+
+                const ex = new Excerpt(masterScore)
+                ex.setExcerptScore(partScore)
+                ex.setFileName(excerptFileName)
+
+                const excerptStyleData = mscReader.readExcerptStyleFile(excerptFileName)
+                if (excerptStyleData && excerptStyleData.length) {
+                    partScore.style().readDocument(excerptStyleData)
+                    partScore.styleChanged()
+                }
+
+                const excerptData = mscReader.readExcerptFile(excerptFileName)
+                if (!excerptData) {
+                    continue
+                }
+                partScore.setMscVersion(masterScore.mscVersion())
+                const exml = new XmlReader(excerptData)
+                const partReadInData: { links?: ReadLinks } = { links: inOut.links }
+                if (!new Read460().readScoreFile(partScore, exml, partReadInData)) {
+                    throw new MscLoadError(`bad format: ${exml.errorString()}`)
+                }
+
+                // TODO(port): partScore->linkMeasures(masterScore)
+
+                if (!ex.name()) {
+                    // If no excerpt name tag was found while reading, try the "partName" meta tag
+                    const nameFromMeta = partScore.metaTag('partName')
+                    // If that's also empty, fall back to the filename
+                    ex.setName(nameFromMeta ? nameFromMeta : excerptFileName)
+                }
+
+                masterScore.addExcerpt(ex)
+            }
+        }
 
         // Compatibility conversions
         // NOTE: must be done after all score and parts have been read
         CompatConversions.doCompatibilityConversions(masterScore)
     }
 
-    readMasterScore(score: MasterScore, e: XmlReader, scoreData: Uint8Array): void {
+    readMasterScore(score: MasterScore, e: XmlReader, scoreData: Uint8Array, inOut: { links?: ReadLinks } | null = null): void {
         while (e.readNextStartElement()) {
             if (e.name() === 'museScore') {
                 const version = e.attribute('version')
@@ -91,7 +137,8 @@ export class MscLoader {
                 }
                 // C++ makeReader(): RWRegister::reader(version)
                 const reader = score.mscVersion() <= 207 ? new Read206() : score.mscVersion() < 400 ? new Read302() : new Read460()
-                if (!reader.readScoreFile(score, e)) {
+                const ok = reader instanceof Read460 ? reader.readScoreFile(score, e, inOut) : reader.readScoreFile(score, e)
+                if (!ok) {
                     throw new MscLoadError(`bad format: ${e.errorString()}`)
                 }
                 return

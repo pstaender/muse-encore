@@ -569,3 +569,53 @@
   sections, other notation models (ornaments, other lines, frames, frets, bends, lyrics, chord symbols), font list,
   notehead grid, the show-* / page-settings / measure actions the sections link to (no handlers yet).
 - Tests: test/palette.test.ts, layoutpanel.test.ts, inspector.test.ts; e2e for the panels (musescoreweb.e2e.ts).
+
+## 2026-10-21 — Writer
+
+- Score writer ported: rw/write (Writer incl. WriteScoreHook, TWrite, MeasureWrite, StaffWrite, ConnectorInfoWriter,
+  WriteContext), rw/xmlwriter.ts (XmlWriter, propertyToString), framework/global/serialization/xmlstreamwriter.ts
+  (indentation quirk of closing tags, doubles like TextStream: %g with 6 digits, "-0"), rw/mscsaver.ts (MscSaver:
+  score_style.mss, main .mscx, Excerpts/<n>_<name>/*.mss|mscx, chordlist.xml), infrastructure/mscwriter.ts (zip via
+  fflate, META-INF/container.xml). MStyle.save/write (styledef order with the C++ palmMute/whammyBar swap), ScoreOrder.write,
+  Drumset.save, ChordList.write, SynthesizerState (read + write), EID/EIDRegister (EIDs of the file are kept, new ones
+  random), LinkedObjects mainElement, EngravingItem.isUserModified (+ Chord, HOPO text/segment overrides).
+- API: writeMscx(score) (main .mscx, version 4.70 / 4.7.5 / 3654226) and saveMscz(score, fileName?). Both lay the score
+  out first if needed (MuseScore saves laid out scores; multimeasure rests are written from the layout).
+  loadScore/createScore mark the score open and add the empty cloud meta tags like NotationProject.
+- Excerpts (parts) of 4.x files are read now (MscLoader, Excerpt class, MasterScore.excerpts/initParts, part scores with
+  a master score, <linked>/<linkedMain> links of read410 shared between master and parts) and written.
+- Instrument MIDI data is kept (channels with program/bank/volume/pan/..., synti, color, MIDI actions, articulations),
+  singleNoteDynamics, glissandoStyle; read206 fallback channel and recognizeMidiProgram.
+- Reader fixes found by the comparison (render output only improved, compare:all baseline updated for 8 pages):
+  read400 BeamMode begin32/begin64 renaming (< 4.10), note parenthesis symbols of < 4.6 files, glissando subtype/text of
+  < 4.10 files, PARENTHESES_MODE/PLAYTECH_TYPE property values, html staff names (HtmlParser), CustomDashLine = 6,
+  instrument clef list filled with G, Part ids assigned on appendPart, <open>, hammer-on/pull-off texts, percussion
+  note order before <NoteParenGroup>, FBox part-linking defaults, Dynamic VELO_CHANGE, Measure.fillGap uses
+  toRhythmicDurationList, propertyValueEquals with the C++ hacks (bool/int, Spatium/real, fuzzy reals).
+- Tools: `npm run roundtrip` (839 baseline scores: 657 identical, 172 equal within 6-digit rounding, 10 differing — all
+  10 verified to render differently in MuseScore too after its own re-save, e.g. a lost unterminated volta,
+  2.x VBox gap, glissando text of 2.x files; second round trip always exact), `npm run compare:mscx` (740/839 main files
+  textually identical to MuseScore's re-save after EID normalization, 834/839 styles).
+- Known gaps: unported element types are not written (ChordBracket, FiguredBass, Sticking, Capo, Bend, StringTunings,
+  HarpPedalDiagram, PlayTechAnnotation (3.x "Normal" texts), Image, SoundFlag, Tapping, SystemDivider...), MIDI mapping
+  (midiPort/midiChannel), note play events (<Events>), audio/thumbnail/images in the .mscz, project files
+  (audiosettings/viewsettings.json), excerpts of pre-4.0 files, clipboard/selection writing, a parts style difference of
+  a 4.0 file (mmrest-15), generated parentheses of tab bend notes, pedal ROSETTE end hook of 4.2 files.
+
+## 2026-10-21 — Integration: panels edit, saving
+
+- The panels' edit bridge (`musescoreweb/panels/editbridge.ts`) uses the editing API: palette cells go through
+  `applyPaletteElement`, the Properties panel through the new `applyInspectorChanges(score, changes)` (one undo command
+  "Edit %1" / "Reset %1" like AbstractInspectorModel::setPropertyValue / onPropertyValueReset; `changeVisible` through
+  Score::undoChangeVisible). TODO(port): the `addParentheses` / `removeParentheses` inspector commands and all Layout
+  panel commands (NotationParts: visibility, add/move/remove parts and staves, system markings, score order) — their
+  controls stay disabled (`canEditParts` is false).
+- ScoreViewState: one counter `scoreVersion` for score changes (commands, undo, redo, new score) and `selectionVersion`;
+  the panels and toolbars follow them. The notation tab shows "*" before the title while there are unsaved changes
+  (NotationSwitchButton).
+- Saving: File > Save (Ctrl+S) writes an .mscz with `saveMscz` and stores it in IndexedDB as the score's content
+  (a score that is not stored any more gets a new entry), then `markSaved`. File > Save a copy downloads the .mscz.
+  Closing a modified score asks like ProjectActionsController::askAboutSavingScore (Save / Don't save / Cancel);
+  leaving the page with unsaved changes triggers the browser's question. Entries of new scores created before the
+  writer existed (stored as NewScoreOptions) still open. Not done: Save as / Export dialogs, autosave.
+- `npm test` only scans `test/` (the agent worktrees in `.claude/` contain copies of the tests).

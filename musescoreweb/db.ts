@@ -31,8 +31,8 @@ export interface ScoreEntry {
 }
 
 /**
- * The content of a score: a file, or the options of a new score. There is no score writer yet, so a new score is
- * stored as the options it was created with (createScore() is deterministic).
+ * The content of a score: a file (.mscz or .mscx; saving stores an .mscz). New scores of earlier versions, which
+ * had no score writer, are stored as the options they were created with (createScore() is deterministic).
  */
 export type ScoreContent =
     | { id: string; data: ArrayBuffer }
@@ -98,6 +98,23 @@ export async function updateScore(id: string, changes: Partial<Omit<ScoreEntry, 
         await db.scores.update(id, changes)
     } catch {
         // ignore
+    }
+}
+
+/** replaces the content of a stored score (saving); false if it is not stored */
+export async function saveScoreContent(id: string, data: ArrayBuffer, changes: Partial<Omit<ScoreEntry, 'id'>>): Promise<boolean> {
+    try {
+        return await db.transaction('rw', db.scores, db.contents, async () => {
+            if (!(await db.scores.get(id))) {
+                return false
+            }
+            await db.contents.put({ id, data } as ScoreContent)
+            await db.scores.update(id, { ...changes, modified: Date.now() })
+            return true
+        })
+    } catch (e) {
+        console.warn('could not store the score', e)
+        return false
     }
 }
 

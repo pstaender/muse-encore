@@ -11,9 +11,11 @@
 
 import { RealIsNull } from '../../framework/global/realfn'
 import { PointF } from '../../framework/draw/types/geometry'
+import { Constants } from '../types/constants'
 import { ChordStylePreset, DirectionH, NoteSpellingType } from '../types/types'
 import { CompatUtils } from '../rw/compat/compatutils'
 import { XmlReader } from '../rw/xmlreader'
+import type { XmlAttributes, XmlWriter } from '../rw/xmlwriter'
 import type { MStyle } from '../style/style'
 import { Sid } from '../style/styledef'
 import { NoteCaseType, tpc2name, tpc2pitch } from './pitchspelling'
@@ -653,7 +655,82 @@ function readRenderList(val: string, renderList: RenderAction[], mscVersion: num
     }
 }
 
-// TODO(port): writing (writeRenderList)
+/** muse::String::number(double, prec = 6): fixed notation, trailing zeros (and a trailing '.') removed, no "-0" */
+function stringNumber(n: number, prec = 6): string {
+    let s = n.toFixed(prec)
+    if (s.includes('.')) {
+        s = s.replace(/0+$/, '').replace(/\.$/, '')
+    }
+    if (s === '-0') {
+        s = '0'
+    }
+    return s
+}
+
+//---------------------------------------------------------
+//   writeRenderList
+//---------------------------------------------------------
+
+function writeRenderList(xml: XmlWriter, al: readonly RenderAction[], name: string): void {
+    let s = ''
+
+    for (const a of al) {
+        if (s !== '') {
+            s += ' '
+        }
+        switch (a.actionType()) {
+        case RenderActionType.SET: {
+            const set = a as RenderActionSet
+            s += set.text()
+            break
+        }
+        case RenderActionType.MOVE: {
+            const move = a as RenderActionMove
+
+            if (!RealIsNull(move.x()) || !RealIsNull(move.y())) {
+                const scaled = move.scaled() ? 's' : ''
+                s += `m${scaled}:${stringNumber(move.x())}:${stringNumber(move.y())}`
+            }
+            break
+        }
+        case RenderActionType.MOVEXHEIGHT: {
+            const movex = a as RenderActionMoveXHeight
+            const scaled = movex.scaled() ? 's' : ''
+            s += `:mx${scaled}`
+            break
+        }
+        case RenderActionType.SCALE: {
+            const scale = a as RenderActionScale
+            s += `sc:${stringNumber(scale.scale())}`
+            break
+        }
+        case RenderActionType.PUSH:
+            s += ':push'
+            break
+        case RenderActionType.POP: {
+            const pop = a as RenderActionPop
+            const coord = pop.popX() && pop.popY() ? '' : (pop.popX() ? 'x' : 'y')
+            s += `:pop${coord}`
+            break
+        }
+        case RenderActionType.NOTE:
+            s += ':n'
+            break
+        case RenderActionType.ACCIDENTAL:
+            s += ':a'
+            break
+        case RenderActionType.PAREN: {
+            const paren = a as RenderActionParen
+            s += paren.direction() === DirectionH.LEFT ? ':pl' : ':pr'
+            break
+        }
+        case RenderActionType.STOPHALIGN:
+            // Internal, skip
+            break
+        }
+    }
+    xml.tag(name, s)
+}
 
 //---------------------------------------------------------
 //   ChordToken
@@ -703,7 +780,35 @@ export class ChordToken {
         }
     }
 
-    // TODO(port): writing (write)
+    write(xml: XmlWriter): void {
+        const attrs: Array<[string, string]> = []
+        switch (this.tokenClass) {
+        case ChordTokenClass.QUALITY:
+            attrs.push(['class', 'quality'])
+            break
+        case ChordTokenClass.EXTENSION:
+            attrs.push(['class', 'extension'])
+            break
+        case ChordTokenClass.MODIFIER:
+            attrs.push(['class', 'modifier'])
+            break
+        case ChordTokenClass.TYPE:
+            attrs.push(['class', 'type'])
+            break
+        case ChordTokenClass.ACCIDENTAL:
+            // sic: C++ writes accidental="type" (read back as ALL)
+            attrs.push(['accidental', 'type'])
+            break
+        default:
+            break
+        }
+        xml.startElement('token', attrs)
+        for (const s of this.names) {
+            xml.tag('name', s)
+        }
+        writeRenderList(xml, this.renderList, 'render')
+        xml.endElement()
+    }
 
     isValid(): boolean { return this.names.length !== 0 }
 }
@@ -2180,7 +2285,30 @@ export class ChordDescription {
         }
     }
 
-    // TODO(port): writing (write)
+    //---------------------------------------------------------
+    //   write
+    //---------------------------------------------------------
+
+    write(xml: XmlWriter): void {
+        if (this.generated && !this.exportOk) {
+            return
+        }
+        if (this.id > 0) {
+            xml.startElement('chord', [['id', this.id]])
+        } else {
+            xml.startElement('chord')
+        }
+        for (const s of this.names) {
+            xml.tag('name', s)
+        }
+        xml.tag('xml', this.xmlKind)
+        xml.tag('voicing', this.chord.voicing())
+        for (const s of this.xmlDegrees) {
+            xml.tag('degree', s)
+        }
+        writeRenderList(xml, this.renderList, 'render')
+        xml.endElement()
+    }
 }
 
 //---------------------------------------------------------
@@ -2636,7 +2764,67 @@ export class ChordList {
         }
     }
 
-    // TODO(port): writing (write(name), write(IODevice*), write(XmlWriter&))
+    //---------------------------------------------------------
+    //   write
+    //---------------------------------------------------------
+
+    write(xml: XmlWriter): void {
+        // m_symbols is a std::map: iterate sorted by name
+        const symbols = [...this.m_symbols.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+        let fontIdx = 0
+        for (const f of this.fonts) {
+            xml.startElement('font', [['id', fontIdx], ['family', f.family]])
+            xml.tag('mag', f.mag)
+            for (const [, s] of symbols) {
+                if (s.fontIdx === fontIdx) {
+                    if (s.code === 0) {
+                        xml.tag('sym', [['name', s.name], ['value', s.value]])
+                    } else {
+                        // write hex numbers with a "0x" prefix, so they can convert back properly on read
+                        xml.tag('sym', [['name', s.name], ['code', '0x' + s.code.toString(16)]])
+                    }
+                }
+            }
+            xml.endElement()
+            ++fontIdx
+        }
+        if (this.m_autoAdjust) {
+            const attrs: XmlAttributes = [['mag', this.m_nmag], ['adjust', this.m_nadjust]]
+            xml.tag('autoAdjust', attrs)
+        }
+        for (const t of this.chordTokenList) {
+            t.write(xml)
+        }
+        if (this.renderListRoot.length !== 0) {
+            writeRenderList(xml, this.renderListRoot, 'renderRoot')
+        }
+        if (this.renderListFunction.length !== 0) {
+            writeRenderList(xml, this.renderListFunction, 'renderFunction')
+        }
+        if (this.renderListBass.length !== 0) {
+            writeRenderList(xml, this.renderListBass, 'renderBass')
+        }
+        if (this.renderListBassOffset.length !== 0) {
+            writeRenderList(xml, this.renderListBassOffset, 'renderBassOffset')
+        }
+        for (const [, cd] of this) {
+            cd.write(xml)
+        }
+    }
+
+    // TODO(port): write(name) (writing a chord description file to disk)
+
+    /** C++ write(IODevice*) */
+    writeDocument(xml: XmlWriter): boolean {
+        xml.startDocument()
+        xml.startElement('museScore', [['version', Constants.MSC_VERSION_STR]])
+
+        this.write(xml)
+
+        xml.endElement()
+
+        return true
+    }
 
     //---------------------------------------------------------
     //   loaded

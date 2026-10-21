@@ -166,7 +166,7 @@ export function ScoresPage(): React.JSX.Element {
                                         </button>
                                     </td>
                                     <td className="muted">{timeAgo(e.opened)}</td>
-                                    <td className="muted">{e.source === 'new' ? 'new score' : fileSize(e.size)}</td>
+                                    <td className="muted">{e.source === 'new' && !e.size ? 'new score' : fileSize(e.size)}</td>
                                     <td>
                                         <button className="icon" title="Remove from list" aria-label={`Remove ${displayName(e)} from the list`}
                                             onClick={() => remove(e)}>{ICON.close}</button>

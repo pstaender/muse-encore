@@ -11,7 +11,8 @@
 
 import type { Color } from '../../framework/draw/types/color'
 import type { PointF, SizeF } from '../../framework/draw/types/geometry'
-import type { Spatium } from './dimension'
+import { Spatium } from './dimension'
+import { RealIsEqual } from '../../framework/global/realfn'
 import { Fraction } from './fraction'
 import type { Align } from './types'
 
@@ -113,7 +114,22 @@ export function propertyValueEquals(a: PropertyValue | undefined, b: PropertyVal
     if (a === b) {
         return true
     }
-    if (a === undefined || b === undefined || a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
+    if (a === undefined || b === undefined || a === null || b === null) {
+        return false
+    }
+    //! C++ HACK Temporary hack for bool comparisons (maybe one type is bool and another type is int)
+    if (typeof a === 'boolean' || typeof b === 'boolean') {
+        return (typeof a === 'boolean' || typeof a === 'number') && (typeof b === 'boolean' || typeof b === 'number')
+               && Boolean(a) === Boolean(b)
+    }
+    //! C++ HACK Temporary hack for Spatium comparisons (maybe one type is Spatium and another type is real)
+    const isSpatium = (v: unknown): v is Spatium => v instanceof Spatium
+    if ((isSpatium(a) || typeof a === 'number') && (isSpatium(b) || typeof b === 'number')) {
+        const x = isSpatium(a) ? a.val() : a
+        const y = isSpatium(b) ? b.val() : b
+        return x === y || RealIsEqual(x, y)
+    }
+    if (typeof a !== 'object' || typeof b !== 'object') {
         return false
     }
     if (a instanceof Fraction && b instanceof Fraction) {

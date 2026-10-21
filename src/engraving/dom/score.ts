@@ -51,6 +51,9 @@ import { InputState, type NoteEntryMethod } from './input'
 import type { UndoCommand, UndoStack } from '../editing/undo'
 import { UpdateMode, type CmdState } from '../editing/cmdstate'
 import type { EditData } from '../editing/editdata'
+import { EIDRegister } from '../infrastructure/eidregister'
+import type { Excerpt } from './excerpt'
+import { SynthesizerState } from './synthesizerstate'
 
 export enum LayoutMode {
     PAGE, FLOAT, LINE, SYSTEM, HORIZONTAL_FIXED,
@@ -146,7 +149,7 @@ export const scoreRendererHooks: { layoutScore?: (score: Score, st: Fraction, et
 export class Score extends EngravingObject {
     protected m_style: MStyle
     private m_systemLocks = new SystemLocks()
-    protected m_eidRegister = new Map<string, EngravingObject>() // C++ EIDRegister (of the master score)
+    protected m_eidRegister = new EIDRegister() // used of the master score only
     protected m_staves: Staff[] = []
     protected m_parts: Part[] = []
     protected m_systemObjectStaves: Staff[] = []
@@ -173,6 +176,10 @@ export class Score extends EngravingObject {
     protected m_showInstrumentNames = true
     protected m_printing = false
     protected m_scoreOrder = new ScoreOrder()
+    protected m_isOpen = false
+    protected m_synthesizerState = new SynthesizerState()
+    private m_masterScore: import('./masterscore').MasterScore | null = null // the master score of a part (excerpt) score
+    private m_excerpt: Excerpt | null = null
     private m_selection: Selection
     private m_selectionFilter = new SelectionFilter()
     private m_selectionChanged = false // C++ m_updateState.selectionChanged
@@ -180,8 +187,10 @@ export class Score extends EngravingObject {
     protected m_updatesLocked = false
     protected m_needSetUpTempoMap = false
 
-    constructor() {
+    /** C++ Score(MasterScore* parent, const MStyle& s) with parent: a part (excerpt) score */
+    constructor(parent: import('./masterscore').MasterScore | null = null) {
         super(ElementType.SCORE, null)
+        this.m_masterScore = parent
         this.m_score = this
         this.m_style = DefaultStyle.defaultStyle().clone()
         this.m_style.precomputeValues()
@@ -190,7 +199,17 @@ export class Score extends EngravingObject {
 
     override score(): Score { return this }
     isMaster(): boolean { return false }
-    override masterScore(): import('./masterscore').MasterScore { return this as unknown as import('./masterscore').MasterScore }
+    override masterScore(): import('./masterscore').MasterScore {
+        return this.m_masterScore ?? this as unknown as import('./masterscore').MasterScore
+    }
+
+    excerpt(): Excerpt | null { return this.m_excerpt }
+    setExcerpt(e: Excerpt | null): void { this.m_excerpt = e }
+
+    synthesizerState(): SynthesizerState { return this.m_synthesizerState }
+
+    isOpen(): boolean { return this.m_isOpen }
+    setIsOpen(open: boolean): void { this.m_isOpen = open }
 
     override style(): MStyle { return this.m_style }
     setStyle(s: MStyle): void {
@@ -928,7 +947,7 @@ export class Score extends EngravingObject {
 
     /** C++ Score::assignIdIfNeed(Part&/Staff&); TODO(port): ids are numbered here, not muse::ID random-ish values */
     assignIdIfNeed(object: Part | Staff): void {
-        if (object.id()) {
+        if (object.id() && object.id() !== '0') { // C++ ID::isValid(): != 0
             return
         }
         const list: readonly (Part | Staff)[] = object.isStaff() ? this.m_staves : this.m_parts
@@ -1573,7 +1592,7 @@ export class Score extends EngravingObject {
 
     systemLocks(): SystemLocks { return this.m_systemLocks }
     addSystemLock(lock: SystemLock): void { this.m_systemLocks.add(lock) }
-    eidRegister(): Map<string, EngravingObject> { return this.masterScore().m_eidRegister }
+    eidRegister(): EIDRegister { return this.masterScore().m_eidRegister }
 
     sigmap(): TimeSigMap { return this.masterScore().sigmap() }
 

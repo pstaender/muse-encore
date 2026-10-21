@@ -93,6 +93,11 @@ export class LineAttachPoint {
     start(): boolean { return this.m_start }
 }
 
+/** set by editing/editchord.ts (C++ EditChord::addChordParentheses; avoids an import cycle) */
+export const noteParenthesesHooks: {
+    addChordParentheses?: (chord: Chord, notes: Note[], addToLinked: boolean, generated: boolean) => void
+} = {}
+
 export class NoteLayoutData extends LayoutData {
     useTablature = false
     cachedNoteheadSym: SymId = SymId.noSym // use in draw to avoid recomputing at every update
@@ -1168,6 +1173,43 @@ export class Note extends EngravingItem {
     tieFor(): Tie | null { return this.m_tieFor }
 
     parenthesisInfo(): NoteParenthesisInfo | null { return this.chord() ? this.chord().findNoteParenthesisInfo(this) : null }
+
+    /** notes have chord parentheses (NoteParenthesisInfo) instead of their own Parenthesis items */
+    override setParenthesesMode(v: ParenthesesMode, addToLinked = true, generated = false): void {
+        if (v !== ParenthesesMode.BOTH && v !== ParenthesesMode.NONE) {
+            // C++ logs "Notes cannot set left & right parens individually"
+            return
+        }
+
+        if ((this.m_hasParens && v === ParenthesesMode.BOTH) || (!this.m_hasParens && v === ParenthesesMode.NONE)) {
+            return
+        }
+
+        const noteParenInfo = this.parenthesisInfo()
+
+        const leftParen = noteParenInfo ? noteParenInfo.leftParen() : null
+
+        const hasGeneratedParen = !!leftParen && leftParen.generated()
+        const hasUserParen = !!leftParen && !leftParen.generated()
+
+        const hasParen = v === ParenthesesMode.BOTH
+
+        if (generated && hasParen === hasGeneratedParen) {
+            return
+        }
+
+        if (!generated && hasParen === hasUserParen) {
+            return
+        }
+
+        this.m_hasParens = hasParen
+
+        if (hasParen) {
+            noteParenthesesHooks.addChordParentheses!(this.chord(), [this], addToLinked, generated)
+        } else {
+            // TODO(port): EditChord::removeChordParentheses
+        }
+    }
     tieBack(): Tie | null { return this.m_tieBack }
     tieForNonPartial(): Tie | null { return this.m_tieFor && this.m_tieFor.type() === ElementType.TIE ? this.m_tieFor : null }
     tieBackNonPartial(): Tie | null { return this.m_tieBack && this.m_tieBack.type() === ElementType.TIE ? this.m_tieBack : null }

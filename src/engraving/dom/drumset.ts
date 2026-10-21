@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/drumset.h/.cpp
  *
- * TODO(port): save, findVariant (only used for note input and playback)
+ * TODO(port): findVariant (only used for note input and playback)
  */
 
 import { SymId } from '../types/symid'
@@ -13,6 +13,7 @@ import { SymNames } from '../types/symnames'
 import { DirectionV, NoteHeadGroup, NoteHeadType, TremoloType } from '../types/types'
 import { TConv } from '../types/typesconv'
 import type { XmlReader } from '../rw/xmlreader'
+import type { XmlWriter } from '../rw/xmlwriter'
 import { STANDARD_DRUMSET } from './drumsetdata'
 
 const INVALID_PITCH = -1
@@ -106,6 +107,54 @@ export class Drumset {
             }
         }
         return firstValidPitch
+    }
+
+    save(xml: XmlWriter): void {
+        xml.tag('percussionPanelColumns', this.m_percussionPanelColumns)
+        for (let i = 0; i < DRUM_INSTRUMENTS; ++i) {
+            if (!this.isValid(i)) {
+                continue
+            }
+            xml.startElement('Drum', [['pitch', i]])
+            const nh = this.noteHead(i)
+            //write custom as Normal notehead group + noteheads tag to keep compatibility with 2.X versions
+            const saveNHValue = (nh === NoteHeadGroup.HEAD_CUSTOM) ? NoteHeadGroup.HEAD_NORMAL : nh
+            xml.tag('head', TConv.toXmlNoteHeadGroup(saveNHValue))
+            if (nh === NoteHeadGroup.HEAD_CUSTOM) {
+                xml.startElement('noteheads')
+                for (let j = 0; j < NoteHeadType.HEAD_TYPES; j++) {
+                    xml.tag(TConv.toXmlNoteHeadType(j as NoteHeadType), SymNames.nameForSymId(this.noteHeads(i, j as NoteHeadType)))
+                }
+                xml.endElement()
+            }
+            xml.tag('line', this.line(i))
+            xml.tag('voice', this.voice(i))
+            xml.tag('name', this.name(i))
+            xml.tag('stem', this.stemDirection(i))
+            if (this.shortcut(i)) {
+                xml.tag('shortcut', this.shortcut(i))
+            }
+            const vs = this.variants(i)
+            if (vs.length) {
+                xml.startElement('variants')
+                for (const v of vs) {
+                    xml.startElement('variant', [['pitch', v.pitch]])
+                    if (v.articulationName) {
+                        xml.tag('articulation', v.articulationName)
+                    }
+                    if (v.tremolo !== TremoloType.INVALID_TREMOLO) {
+                        xml.tag('tremolo', TConv.toXmlTremoloType(v.tremolo))
+                    }
+                    xml.endElement()
+                }
+                xml.endElement()
+            }
+            if (this.panelRow(i) > -1 && this.panelColumn(i) > -1) {
+                xml.tag('panelRow', this.panelRow(i))
+                xml.tag('panelColumn', this.panelColumn(i))
+            }
+            xml.endElement()
+        }
     }
 
     readDrumProperties(e: XmlReader, pitch: number): boolean {

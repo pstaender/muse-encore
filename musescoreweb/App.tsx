@@ -18,7 +18,7 @@ import { NewScoreDialog } from './newscore/NewScoreDialog'
 import { PanelDock } from './panels/PanelDock'
 import { resetPalettesState } from './panels/palettes/palettestate'
 import { setChrome, useScoreView, viewport, viewShown } from './scoreview'
-import { closeScore, openStored, setView, showDialog, useSession } from './session'
+import { answerSaveChanges, closeScore, openStored, saveChangesTitle, setView, showDialog, useSession } from './session'
 import { resetSettings } from './settings'
 import { ToolBarDock, toolbarMenuItems } from './toolbars/ToolBars'
 import { restoreDefaultLayout, useToolBarLayout } from './toolbars/layout'
@@ -28,6 +28,26 @@ const MAX_RECENT_IN_MENU = 20
 /** MuseScore's status bar shows the accessibility info as rich text: instrument names may contain markup */
 function plainText(s: string): string {
     return new DOMParser().parseFromString(s, 'text/html').body.textContent ?? s
+}
+
+/** "Do you want to save changes … before closing?" (ProjectActionsController::askAboutSavingScore) */
+function SaveChangesDialog(): React.JSX.Element {
+    const ref = useRef<HTMLDialogElement>(null)
+    useEffect(() => {
+        ref.current?.showModal()
+    }, [])
+    return (
+        <dialog ref={ref} className="confirm" aria-labelledby="save-changes-title"
+            onClose={() => void answerSaveChanges((ref.current?.returnValue || 'cancel') as 'save' | 'dontSave' | 'cancel')}>
+            <h2 id="save-changes-title">{saveChangesTitle()}</h2>
+            <p>{qtrc('project', 'Your changes will be lost if you don’t save them.')}</p>
+            <form method="dialog" className="dialog-buttons">
+                <button className="secondary" value="dontSave">{qtrc('global', 'Don’t save')}</button>
+                <button className="secondary" value="cancel">{qtrc('global', 'Cancel')}</button>
+                <button className="primary" value="save" autoFocus>{qtrc('global', 'Save')}</button>
+            </form>
+        </dialog>
+    )
 }
 
 function StatusBar(): React.JSX.Element {
@@ -49,7 +69,7 @@ function NotationTab(): React.JSX.Element | null {
     return (
         <div className="notation-tabs" role="tablist" aria-label={qtrc('notation', 'Scores')}>
             <div className="notation-tab" role="tab" aria-selected="true" title={v.tooltip}>
-                <span id="title" className="notation-tab-title">{v.title}</span>
+                <span id="title" className="notation-tab-title">{(v.modified ? '*' : '') + v.title}</span>
                 <button id="clear" className="icon" title={qtrc('global', 'Close')} aria-label={qtrc('global', 'Close')} onClick={closeScore}>
                     {''}
                 </button>
@@ -127,6 +147,7 @@ export function App(): React.JSX.Element {
             {session.newScoreDialog && <NewScoreDialog />}
             {session.dialog === 'preferences' && <PreferencesDialog onClose={() => showDialog(null)} />}
             {session.dialog === 'about' && <AboutDialog onClose={() => showDialog(null)} />}
+            {session.dialog === 'saveChanges' && <SaveChangesDialog />}
             {session.dialog === 'clearRecent' && (
                 <ConfirmDialog
                     title={qtrc('appshell/menu/file', 'Clear recent')}

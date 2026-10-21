@@ -192,6 +192,13 @@ export function clearScore(): void {
     setStatus('Ready')
 }
 
+/** the score was saved: its modified state changed (no new layout) */
+export function scoreSaved(): void {
+    if (score) {
+        publish({ modified: isModified(score) })
+    }
+}
+
 /** called when the score view becomes visible again (its size was 0 while hidden) */
 export function viewShown(): void {
     updatePan()

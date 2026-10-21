@@ -7,7 +7,7 @@
  *
  * C++ reads the elements of 3.x files with the read400 readers; here the shared (read460) readers are used,
  * which contain the read400/read410 compat code (see claude_history.md).
- * TODO(port): excerpts (<Score> recursion), Audio, Synthesizer, instrument id recognition
+ * TODO(port): excerpts (<Score> recursion), Audio, instrument id recognition
  * tempo map, MIDI mapping
  */
 
@@ -65,8 +65,10 @@ export class Read302 {
             if (tag === 'Staff') {
                 StaffRead.readStaff(score, e, ctx)
             } else if (tag === 'Omr' || tag === 'Audio' || tag === 'showOmr' || tag === 'playMode' || tag === 'LayerTag'
-                       || tag === 'Layer' || tag === 'currentLayer' || tag === 'Synthesizer') {
+                       || tag === 'Layer' || tag === 'currentLayer') {
                 e.skipCurrentElement()
+            } else if (tag === 'Synthesizer') {
+                score.synthesizerState().read(e)
             } else if (tag === 'page-offset') {
                 score.setPageNumberOffset(e.readInt())
             } else if (tag === 'Division') {

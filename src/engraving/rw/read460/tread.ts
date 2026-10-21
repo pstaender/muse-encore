@@ -23,7 +23,7 @@ import {
     LineType, LyricsSyllabic, NoteHeadGroup, NoteHeadScheme, NoteHeadType, Orientation, OrnamentStyle, PartialSpannerDirection,
     PlacementH, PlacementV, PreferSharpFlat, SlurStyleType, StaffGroup, TextPlace, TextStyleType, TiePlacement,
     VeloType, VoiceAssignment, AccidentalRole, DynamicType, AutoCustomHide, MarkerType, GlissandoType,
-    ElementType, OrnamentInterval, ParenthesesMode, TrillType, ChordLineType, GradualTempoChangeType, GuitarBendType, VibratoType, track2staff, type track_idx_t,
+    ElementType, OrnamentInterval, ParenthesesMode, PlayingTechniqueType, TrillType, ChordLineType, GradualTempoChangeType, GuitarBendType, VibratoType, track2staff, type track_idx_t,
     ChangeMethod, DynamicSpeed, SpannerSegmentType, VOICES,
     TremoloType, TremoloStyle, isTremoloTwoChord,
 } from '../../types/types'
@@ -38,7 +38,10 @@ import { TDuration } from '../../dom/durationtype'
 import { ClefTypeList } from '../../dom/clefinfo'
 import { KeySigEvent, type CustDef, type KeyList } from '../../dom/key'
 import { Groups } from '../../dom/groups'
-import { StaffName, Instrument, InstrChannel } from '../../dom/instrument'
+import { StaffName, Instrument, InstrChannel, type MidiArticulation, type NamedEventList } from '../../dom/instrument'
+import {
+    CTRL_CHORUS_SEND, CTRL_HBANK, CTRL_LBANK, CTRL_PANPOT, CTRL_PROGRAM, CTRL_REVERB_SEND, CTRL_VOLUME, ME_CONTROLLER, MidiCoreEvent,
+} from '../../compat/midi/midicoreevent'
 import { StaffType } from '../../dom/stafftype'
 import { Location } from '../../dom/location'
 import { NoteType, type ChordRest } from '../../dom/chordrest'
@@ -91,6 +94,9 @@ import type { Dynamic } from '../../dom/dynamic'
 import type { Fermata } from '../../dom/fermata'
 import type { Breath } from '../../dom/breath'
 import { SystemLock } from '../../dom/systemlock'
+import { EID } from '../../infrastructure/eid'
+import { linkedObjectsMainElement } from '../../dom/linkedobjects'
+import { HtmlParser } from '../../infrastructure/htmlparser'
 import { type Hairpin, type HairpinType } from '../../dom/hairpin'
 import type { TextLine } from '../../dom/textline'
 import { TextLineBase } from '../../dom/textlinebase'
@@ -130,7 +136,8 @@ import type { StaffTypeChange } from '../../dom/stafftypechange'
 import type { LaissezVib } from '../../dom/laissezvib'
 import type { PartialTie } from '../../dom/partialtie'
 import type { MeasureRepeat } from '../../dom/measurerepeat'
-import { NoteParenthesisInfo } from '../../dom/chord'
+import { NoteParenthesisInfo, updatePercussionNotes } from '../../dom/chord'
+import { HammerOnPullOffText, type HammerOnPullOffSegment } from '../../dom/hammeronpulloff'
 
 // the C++ array has 18 entries of which only 14 are initialized; the remaining ones are Pid(0) == Pid::SUBTYPE
 const TextBasePropertyId: Pid[] = [
@@ -298,13 +305,13 @@ export class TRead {
         case P_TYPE.AUTO_ON_OFF: return TConv.fromXmlAutoOnOff(e.readAsciiText(), AutoOnOff.AUTO)
         case P_TYPE.PARTIAL_SPANNER_DIRECTION:
             return TConv.fromXmlPartialSpannerDirection(e.readAsciiText(), PartialSpannerDirection.OUTGOING)
-        case P_TYPE.PARENTHESES_MODE: return e.readInt()
+        case P_TYPE.PARENTHESES_MODE: return TConv.fromXmlParenthesesMode(e.readAsciiText(), ParenthesesMode.NONE)
+        case P_TYPE.PLAYTECH_TYPE: return TConv.fromXmlPlayingTechniqueType(e.readAsciiText(), PlayingTechniqueType.Natural)
         case P_TYPE.AUTO_CUSTOM_HIDE: return TConv.fromXmlAutoCustomHide(e.readAsciiText(), AutoCustomHide.AUTO)
         case P_TYPE.MARKER_TYPE: return TConv.fromXmlMarkerType(e.readAsciiText(), MarkerType.USER)
         case P_TYPE.TEMPOCHANGE_TYPE: return TConv.fromXmlTempoChangeType(e.readAsciiText(), GradualTempoChangeType.Undefined)
         case P_TYPE.CHANGE_METHOD: return TConv.fromXmlChangeMethod(e.readAsciiText(), ChangeMethod.NORMAL)
         default:
-            // TODO(port): PLAYTECH_TYPE
             return e.readText()
         }
     }
@@ -357,17 +364,17 @@ export class TRead {
         return false
     }
 
-    /** registers the element under its EID (only used to resolve references, e.g. of system locks) */
-    static readItemEID(item: EngravingObject, xml: XmlReader, ctx: ReadContext): void {
-        const s = xml.readAsciiText()
-        if (s) {
-            ctx.score().eidRegister().set(s, item)
+    static readItemEID(item: EngravingObject, xml: XmlReader, _ctx: ReadContext): void {
+        const eid = EID.fromStdString(xml.readAsciiText())
+        if (!eid.isValid()) {
+            return
         }
+        item.setEID(eid.toStdString())
     }
 
     static readItemLink(item: EngravingItem, xml: XmlReader, ctx: ReadContext): void {
-        const s = xml.readAsciiText()
-        const mainElement = ctx.score().masterScore().eidRegister().get(s)
+        const s = EID.fromStdString(xml.readAsciiText()).toStdString()
+        const mainElement = ctx.score().masterScore().eidRegister().itemFromEID(s)
         if (!mainElement) {
             // C++ logs "Link failed: Main linked element not found"
             return
@@ -380,7 +387,7 @@ export class TRead {
         item.linkTo(mainElement)
     }
 
-    /** read410 compat: <linked>/<linkedMain> of EngravingItem::readProperties (master score only) */
+    /** read410 compat: <linked>/<linkedMain> of EngravingItem::readProperties */
     static readItemLink410(item: EngravingItem, tag: string, e: XmlReader, ctx: ReadContext): void {
         let s = item.staff()
         if (!s) {
@@ -399,7 +406,8 @@ export class TRead {
             e.skipCurrentElement()
         } else {
             const sLinks = s.links()
-            const ls = sLinks ? sLinks[0] as Staff : null
+            const ls = sLinks ? linkedObjectsMainElement(sLinks) as Staff : null
+            let linkedIsMaster = ls ? ls.score().isMaster() : false
             const loc = ctx.location(true)
             if (ls) {
                 loc.setStaff(ls.idx())
@@ -411,7 +419,10 @@ export class TRead {
                 const ntag = e.name()
 
                 if (ntag === 'score') {
-                    e.readText() // parts (excerpts) are not read
+                    const val = e.readText()
+                    if (val === 'same') {
+                        linkedIsMaster = item.score().isMaster()
+                    }
                 } else if (ntag === 'location') {
                     TRead.readLocation(mainLoc, e, ctx)
                     mainLoc.toAbsolute(loc)
@@ -425,9 +436,9 @@ export class TRead {
             if (!locationRead) {
                 mainLoc = loc
             }
-            const link = ctx.getLink(mainLoc, localIndexDiff)
+            const link = ctx.getLink(linkedIsMaster, mainLoc, localIndexDiff)
             if (link) {
-                const linked = link[0]
+                const linked = linkedObjectsMainElement(link)!
                 if (linked.type() === item.type()) {
                     item.linkTo(linked)
                 }
@@ -452,9 +463,9 @@ export class TRead {
         while (e.readNextStartElement()) {
             const tag = e.name()
             if (tag === 'startMeasure') {
-                startMeas = (eidRegister.get(e.readAsciiText()) ?? null) as MeasureBase | null
+                startMeas = eidRegister.itemFromEID(EID.fromStdString(e.readAsciiText()).toStdString()) as MeasureBase | null
             } else if (tag === 'endMeasure') {
-                endMeas = (eidRegister.get(e.readAsciiText()) ?? null) as MeasureBase | null
+                endMeas = eidRegister.itemFromEID(EID.fromStdString(e.readAsciiText()).toStdString()) as MeasureBase | null
             } else {
                 e.unknown()
             }
@@ -971,6 +982,15 @@ export class TRead {
 
     /** TODO(port): note sorting on percussion staves, linked parentheses */
     static readNoteParenGroup(ch: Chord, e: XmlReader, ctx: ReadContext): void {
+        const staff = ctx.staff(ch.staffIdx())
+        const staffGroup = staff ? staff.staffTypeForElement(ch).group() : StaffGroup.STANDARD
+        if (staffGroup === StaffGroup.PERCUSSION) {
+            // We should have read all notes by now. They need to be sorted for percussion staves
+            const instrument = ch.part()!.instrument(ch.tick())
+            updatePercussionNotes(ch, instrument.drumset())
+            ch.sortNotes()
+        }
+
         let leftParen: Parenthesis | null = null
         let rightParen: Parenthesis | null = null
         const notes: Note[] = []
@@ -1203,11 +1223,22 @@ export class TRead {
             g.setIsHarpGliss(instrId === 'harp')
         }
         g.resetProperty(Pid.GLISS_STYLE)
+        const read400 = ctx.mscVersion() < 410
+        if (read400) {
+            g.setShowText(false)
+        }
 
         while (e.readNextStartElement()) {
             const tag = e.name()
             if (tag === 'text') {
+                if (read400) {
+                    g.setShowText(true)
+                }
                 TRead.readProperty(g, e, ctx, Pid.GLISS_TEXT)
+            } else if (read400 && tag === 'subtype') {
+                g.setGlissandoType(TConv.fromXmlGlissandoType(e.readAsciiText(), GlissandoType.STRAIGHT))
+            } else if (read400 && tag === 'glissandoStyle') {
+                TRead.readProperty(g, e, ctx, Pid.GLISS_STYLE)
             } else if (tag === 'isHarpGliss' && ctx.pasteMode()) {
                 g.setIsHarpGliss(e.readBool())
                 g.resetProperty(Pid.GLISS_STYLE)
@@ -1700,21 +1731,41 @@ export class TRead {
 
     static readStaffName(item: StaffName, xml: XmlReader): void {
         item.setPos(xml.intAttribute('pos', 0))
-        const name = TRead.lineBreakFromTag(xml.readXml())
-        // TODO(port): HtmlParser::parse for names starting with <html>
+        let name = TRead.lineBreakFromTag(xml.readXml())
+        if (name.startsWith('<html>')) {
+            // compatibility to old html implementation:
+            name = HtmlParser.parse(name)
+        }
         item.setName(name)
     }
 
     static readInstrument(item: Instrument, e: XmlReader, ctx: ReadContext, part: Part): void {
         const customDrumset = { value: false }
+        let readSingleNoteDynamics = false
+        item.clearChannels() // remove default channel
         item.setId(e.attribute('id'))
         while (e.readNextStartElement()) {
             const tag = e.name()
             if (tag === 'singleNoteDynamics') {
-                e.skipCurrentElement()
+                item.setSingleNoteDynamics(e.readBool())
+                readSingleNoteDynamics = true
             } else if (!TRead.readInstrumentProperties(item, e, ctx, part, customDrumset)) {
                 e.unknown()
             }
+        }
+        item.updateInstrumentId()
+
+        if (!item.channels().length) { // for backward compatibility
+            const fallbackChannel = new InstrChannel()
+            fallbackChannel.setName(InstrChannel.DEFAULT_NAME)
+            fallbackChannel.setProgram(item.recognizeMidiProgram())
+            item.appendChannel(fallbackChannel)
+        } else if (item.channel(0)!.program() === -1) {
+            item.channel(0)!.setProgram(item.recognizeMidiProgram())
+        }
+
+        if (!readSingleNoteDynamics) {
+            item.setSingleNoteDynamicsFromTemplate()
         }
     }
 
@@ -1776,9 +1827,13 @@ export class TRead {
             const a = new InstrChannel()
             TRead.readInstrChannel(a, e)
             item.appendChannel(a)
-        } else if (tag === 'Tablature' || tag === 'MidiAction' || tag === 'Articulation') {
-            // TODO(port): MIDI data
-            e.skipCurrentElement()
+        } else if (tag === 'Tablature') {
+            // support tag "Tablature" for a while for compatibility with existent 2.0 scores
+            TRead.readStringData(item.stringData(), e)
+        } else if (tag === 'MidiAction') {
+            item.addMidiAction(TRead.readNamedEventList(e))
+        } else if (tag === 'Articulation') {
+            item.addMidiArticulation(TRead.readMidiArticulation(e))
         } else if (tag === 'clef') { // sets both transposing and concert clef
             const idx = e.intAttribute('staff', 1) - 1
             const ct = TConv.fromXmlClefType(e.readAsciiText(), ClefType.G)
@@ -1792,11 +1847,58 @@ export class TRead {
             item.setClefType(idx, new ClefTypeList(item.clefType(idx).concertClef,
                 TConv.fromXmlClefType(e.readAsciiText(), ClefType.G)))
         } else if (tag === 'glissandoStyle') {
-            e.skipCurrentElement()
+            item.setGlissandoStyle(TConv.fromXmlGlissandoStyle(e.readAsciiText(), GlissandoStyle.CHROMATIC))
         } else {
             return false
         }
         return true
+    }
+
+    static readMidiArticulation(e: XmlReader): MidiArticulation {
+        const item: MidiArticulation = { name: e.attribute('name'), descr: '', velocity: 0, gateTime: 0 }
+        const readPercent = (): number => {
+            let text = e.readText()
+            if (text.endsWith('%')) {
+                text = text.slice(0, -1)
+            }
+            return parseInt(text, 10) || 0
+        }
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'velocity') {
+                item.velocity = readPercent()
+            } else if (tag === 'gateTime') {
+                item.gateTime = readPercent()
+            } else if (tag === 'descr') {
+                item.descr = e.readText()
+            } else {
+                e.unknown()
+            }
+        }
+        return item
+    }
+
+    static readNamedEventList(e: XmlReader): NamedEventList {
+        const item: NamedEventList = { name: e.attribute('name'), descr: '', events: [] }
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'program') {
+                item.events.push(new MidiCoreEvent(ME_CONTROLLER, 0, CTRL_PROGRAM, e.intAttribute('value', 0)))
+                e.skipCurrentElement()
+            } else if (tag === 'controller') {
+                const ev = new MidiCoreEvent()
+                ev.setType(ME_CONTROLLER)
+                ev.setDataA(e.intAttribute('ctrl', 0))
+                ev.setDataB(e.intAttribute('value', 0))
+                item.events.push(ev)
+                e.skipCurrentElement()
+            } else if (tag === 'descr') {
+                item.descr = e.readText()
+            } else {
+                e.unknown()
+            }
+        }
+        return item
     }
 
     static readPart(p: Part, e: XmlReader, ctx: ReadContext): void {
@@ -2753,7 +2855,16 @@ export class TRead {
                 ch.setTicks(ch.actualDurationType().fraction())
             }
         } else if (tag === 'BeamMode') {
-            ch.setBeamMode(TConv.fromXmlBeamMode(e.readAsciiText(), BeamMode.AUTO))
+            let txt = e.readAsciiText()
+            if (ctx.mscVersion() < 410) {
+                // read400: 400 and previous used begin32/begin64 for beam mode, 410 uses begin16/begin32
+                if (txt === 'begin64') {
+                    txt = 'begin32'
+                } else if (txt === 'begin32') {
+                    txt = 'begin16'
+                }
+            }
+            ch.setBeamMode(TConv.fromXmlBeamMode(txt, BeamMode.AUTO))
         } else if (tag === 'Articulation') {
             const atr = Factory.createItem(ElementType.ARTICULATION, ch) as Articulation
             atr.setTrack(ch.track())
@@ -2939,7 +3050,13 @@ export class TRead {
             const s = Factory.createItem(ElementType.SYMBOL, n) as Symbol
             s.setTrack(n.track())
             TRead.readSymbol(s, e, ctx)
-            n.add(s)
+            if (ctx.mscVersion() < 460
+                && (s.sym() === SymId.noteheadParenthesisLeft || s.sym() === SymId.noteheadParenthesisRight)) {
+                // read400/read410: parenthesis symbols are note parentheses
+                n.setParenthesesMode(ParenthesesMode.BOTH)
+            } else {
+                n.add(s)
+            }
         } else if (tag === 'NoteDot') {
             const dot = Factory.createItem(ElementType.NOTEDOT, n) as NoteDot
             dot.setParent(n)
@@ -3025,16 +3142,48 @@ export class TRead {
             } else if (tag === 'controller') {
                 const value = e.intAttribute('value', 0)
                 const ctrl = e.intAttribute('ctrl', 0)
-                if (ctrl === 0) { // CTRL_HBANK
+                switch (ctrl) {
+                case CTRL_HBANK:
                     item.setBank((value << 7) + (item.bank() & 0x7f))
-                } else if (ctrl === 32) { // CTRL_LBANK
+                    item.setUserBankController(true)
+                    break
+                case CTRL_LBANK:
                     item.setBank((item.bank() & ~0x7f) + (value & 0x7f))
+                    item.setUserBankController(true)
+                    break
+                case CTRL_VOLUME:
+                    item.setVolume(value)
+                    break
+                case CTRL_PANPOT:
+                    item.setPan(value)
+                    break
+                case CTRL_CHORUS_SEND:
+                    item.setChorus(value)
+                    break
+                case CTRL_REVERB_SEND:
+                    item.setReverb(value)
+                    break
+                default:
+                    item.addToInit(new MidiCoreEvent(ME_CONTROLLER, 0, ctrl, value))
+                    break
                 }
                 e.skipCurrentElement()
-            } else {
+            } else if (tag === 'Articulation') {
+                item.articulation.push(TRead.readMidiArticulation(e))
+            } else if (tag === 'MidiAction') {
+                item.midiActions.push(TRead.readNamedEventList(e))
+            } else if (tag === 'synti') {
+                item.setSynti(e.readText())
+            } else if (tag === 'color') {
+                item.setColor(e.readInt())
+            } else if (tag === 'mute' || tag === 'solo' || tag === 'midiPort' || tag === 'midiChannel') {
+                // TODO(port): part audio settings compat, MIDI mapping
                 e.skipCurrentElement()
+            } else {
+                e.unknown()
             }
         }
+        item.setMustUpdateInit(true)
     }
 
     static readStem(s: Stem, e: XmlReader, ctx: ReadContext): void {
@@ -3543,11 +3692,27 @@ export class TRead {
             } else if (tag === 'o4') {
                 s.ups(Grip.END).off = e.readPoint().times(sp)
             } else if (tag === 'HammerOnPullOffText') {
-                e.skipCurrentElement() // TODO(port): hammer-on / pull-off
+                TRead.readHopoText(s as HammerOnPullOffSegment, e, ctx, e.intAttribute('idx', 0))
             } else if (!TRead.readItemProperties(s, e, ctx)) {
                 e.unknown()
             }
         }
+    }
+
+    static readHopoText(hopoSeg: HammerOnPullOffSegment, xml: XmlReader, ctx: ReadContext, idx: number): void {
+        const hopoTextCount = hopoSeg.hopoText().length
+        for (let i = hopoTextCount; i < idx; ++i) {
+            hopoSeg.addHopoText(new HammerOnPullOffText(hopoSeg))
+        }
+
+        const hopoText = new HammerOnPullOffText(hopoSeg)
+        while (xml.readNextStartElement()) {
+            if (!TRead.readTextBaseProperties(hopoText, xml, ctx)) {
+                xml.unknown()
+            }
+        }
+
+        hopoSeg.addHopoText(hopoText)
     }
 
     static readSpannerProperties(s: Spanner, e: XmlReader, ctx: ReadContext): boolean {

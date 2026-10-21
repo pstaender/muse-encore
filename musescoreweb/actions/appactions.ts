@@ -11,7 +11,8 @@ import {
     showShortcutsHelp, stepPage, toggleFullscreen, toggleSpread, zoomAt, zoomStep,
 } from '../scoreview'
 import {
-    chooseFile, closeScore, forgetScore, onSessionChanged, session, showDialog, showNewScoreDialog,
+    canSave, chooseFile, closeScore, downloadScore, forgetScore, onSessionChanged, saveScore, session, showDialog,
+    showNewScoreDialog,
 } from '../session'
 import { isToolBarVisible, onToolBarLayoutChanged, restoreDefaultLayout, setStatusBarVisible, setToolBarVisible, toolBarLayout } from '../toolbars/layout'
 import { currentLanguage } from '../i18n'
@@ -32,6 +33,9 @@ export function registerAppActions(): void {
     registerAction('file-new', { run: () => showNewScoreDialog(true) })
     registerAction('file-open', { run: chooseFile })
     registerAction('file-close', { run: closeScore, enabled: hasScore })
+    // saving: in this browser (IndexedDB); a copy is downloaded as .mscz
+    registerAction('file-save', { run: () => void saveScore(), enabled: canSave })
+    registerAction('file-save-a-copy', { run: downloadScore, enabled: canSave })
     registerAction('clear-recent', { run: () => showDialog('clearRecent') })
     registerAction('print', { run: () => void print(), enabled: scoreShown })
 

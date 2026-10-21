@@ -28,7 +28,9 @@ src/
   engraving/infrastructure  Shape, Skyline, Smufl, MscReader (zip)
   engraving/dom         the score object model (Score, Measure, Segment, Chord, Note, ...)
   engraving/rw          XmlReader, readers (read460 for 4.x incl. read400/read410 compat, read302 for 3.x, read206 for 2.x),
-                        rw/compat (chord list hook, CompatUtils incl. doCompatibilityConversions = compatconversions.ts)
+                        rw/compat (chord list hook, CompatUtils incl. doCompatibilityConversions = compatconversions.ts),
+                        XmlWriter, rw/write (Writer, TWrite, MeasureWrite, StaffWrite, ConnectorInfoWriter, WriteContext),
+                        MscSaver (.mscz contents); infrastructure/MscWriter (zip via fflate), EID/EIDRegister
   engraving/compat      EngravingCompat (pre/post layout conversions of old files), page format, dummy element
   engraving/rendering/score  layout (ScoreLayout, SystemLayout, ChordLayout, ...) and painting (TDraw)
   engraving/rendering/single  SingleLayout/SingleDraw: standalone items (palette cells) on the palette score
@@ -54,10 +56,10 @@ musescoreweb/           Vite score editor app "MuseScore Web": React UI (App.tsx
                         QML pages), menu bar (menus/appmenu.ts = AppMenuModel), toolbars (toolbars/: docks, note input bar),
                         actions (actions/: MuseScore's UiActions + shortcuts, generated uiactiondata.ts; appactions.ts =
                         the handlers), i18n.ts (MuseScore's translations via vite-plugin-locales.ts), score view
-                        (scoreview.ts, DOM code from the viewer), session.ts (open/create scores), db.ts (IndexedDB via
+                        (scoreview.ts, DOM code from the viewer), session.ts (open/create/save scores), db.ts (IndexedDB via
                         Dexie), settings.ts (localStorage), panels/ (the left dock: PanelDock.tsx tabs + splitter,
                         panels.ts state, palettes/, layout/, inspector/ UIs; editbridge.ts = all score changes of the
-                        panels, stubs until the editing port provides them)
+                        panels; the Layout panel's NotationParts commands are still stubs)
 test/                   vitest tests
 ```
 
@@ -106,6 +108,10 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
   the same 1200 DPI coordinates as the layout.
 - `npm run compare:all` - compare all vtest scores and `mscz-test-files/` with MuseScore against
   `test/compare-baseline.csv` (regressions fail); `-- --update-baseline` after intended changes
+- `npm run roundtrip` - load -> saveMscz -> load every baseline score and compare the SVG of every page (exact, or
+  equal within the rounding of 6-digit values; a second round trip must be exact)
+- `npm run compare:mscx` - diff writeMscx/saveMscz output (main .mscx, style, parts) against MuseScore's own re-save
+  (`mscore -o out.mscx`, cached in compare-out/mscx/ref); EIDs are normalized
 - `npx tsx tools/gen/<gen-*.ts> MuseScore` - regenerate tables from the reference sources (symids, styledef,
   property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates, scoreorders, uiactions [-> musescoreweb/actions])
 

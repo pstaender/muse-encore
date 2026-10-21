@@ -309,6 +309,99 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 180000)
 
+    it('saves the edited score in the browser and asks before closing it with unsaved changes', async () => {
+        const { page, context } = await newPage()
+        await page.goto(base)
+        await page.click('.home-footer button:has-text("New")')
+        await page.waitForSelector('dialog.new-score[open]')
+        await page.fill('.instruments input[type="search"]', 'flute')
+        await page.dblclick('.instruments [role="option"] >> text=Flute')
+        await page.click('dialog.new-score .dialog-buttons button:has-text("Done")')
+        await scoreShown(page)
+        await page.focus('#viewport')
+        await page.keyboard.press('n')
+        await page.keyboard.press('c')
+        await page.keyboard.press('d')
+        await page.waitForFunction(() => /^Note;.*Pitch: D5/.test(document.getElementById('status')!.textContent!))
+        await page.keyboard.press('Escape')
+        // Ctrl+Home selects the clef, the right arrow moves to the first note
+        const firstNote = async (): Promise<void> => {
+            await page.keyboard.press('ControlOrMeta+Home')
+            await page.waitForFunction(() => /^Treble clef/.test(document.getElementById('status')!.textContent!))
+            await page.keyboard.press('ArrowRight')
+            await page.waitForFunction(() => /^Note/.test(document.getElementById('status')!.textContent!))
+        }
+
+        // File > Save stores it; after a reload the notes are there
+        // the tab shows "*" before the title while there are unsaved changes (NotationSwitchButton)
+        expect(await page.textContent('#title')).toMatch(/^\*/)
+        await page.keyboard.press('ControlOrMeta+s')
+        await page.waitForFunction(() => !document.getElementById('title')!.textContent!.startsWith('*'))
+        await page.reload()
+        await scoreShown(page)
+        await page.focus('#viewport')
+        await firstNote()
+        expect(await page.textContent('#status')).toMatch(/^Note;.*Pitch: C5/)
+
+        // an unsaved change: closing asks; "Cancel" keeps the score open, "Don’t save" closes it
+        await page.keyboard.press('ArrowUp')
+        await page.waitForFunction(() => /^Note;.*Pitch: C♯5/.test(document.getElementById('status')!.textContent!))
+        await page.click('.notation-tab #clear')
+        await page.waitForSelector('dialog.confirm[open]')
+        expect(await page.textContent('#save-changes-title')).toContain('before closing')
+        await page.click('dialog.confirm button[value="cancel"]')
+        expect(await page.isVisible('.notation-tab')).toBe(true)
+        await page.click('.notation-tab #clear')
+        await page.click('dialog.confirm button[value="dontSave"]')
+        await page.waitForSelector('.home')
+        // the stored version is the saved one
+        await page.click('.score-card:not(.new)')
+        await scoreShown(page)
+        await page.focus('#viewport')
+        await firstNote()
+        expect(await page.textContent('#status')).toMatch(/^Note;.*Pitch: C5/)
+        await context.close()
+    }, 180000)
+
+    it('edits the selection from the palettes and the Properties panel (undoable)', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+Home')
+        for (let i = 0; i < 8 && !(await page.textContent('#status'))!.startsWith('Note'); i++) {
+            await page.keyboard.press('ArrowRight')
+        }
+        const before = (await page.textContent('#status'))!
+        expect(before).toMatch(/^Note/)
+        expect(await page.textContent('#title')).not.toMatch(/^\*/)
+
+        // a palette cell: the flat of the accidentals palette
+        await page.click('.palette-tree-item[data-palette="Accidental"] .palette-header')
+        const flat = '.palette-tree-item[data-palette="Accidental"] .palette-cell[aria-label="Flat"]'
+        await page.waitForSelector(flat)
+        await page.click(flat)
+        await page.waitForFunction(() => /^Note;.*Pitch: [A-G]♭/.test(document.getElementById('status')!.textContent!))
+        expect(await page.textContent('#title')).toMatch(/^\*/)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction((b) => document.getElementById('status')!.textContent === b, before)
+
+        // the Properties panel: "Visible" off, then undo
+        await page.click('#panel-tab-inspectorPanel')
+        const visible = '.inspector [data-section="SECTION_GENERAL"] [data-property="isVisible"] input'
+        await page.waitForSelector(visible)
+        expect(await page.isChecked(visible)).toBe(true)
+        await page.click(visible)
+        await page.waitForFunction((sel) => !document.querySelector<HTMLInputElement>(sel)!.checked, visible)
+        expect(await page.textContent('#title')).toMatch(/^\*/)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction((sel) => document.querySelector<HTMLInputElement>(sel)!.checked, visible)
+        expect(await page.textContent('#title')).not.toMatch(/^\*/)
+        await context.close()
+    }, 180000)
+
     it('shows the panels Palettes, Layout and Properties, toggled by the View menu and shortcuts', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)

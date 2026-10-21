@@ -10,7 +10,7 @@ import { PointF, PolygonF, RectF } from '../../framework/draw/types/geometry'
 import { Spatium } from '../types/dimension'
 import type { PropertyValue } from '../types/propertyvalue'
 import { Align, AlignH, ElementType, FontStyle, HookType, TextPlace, TextStyleType } from '../types/types'
-import { ElementFlag, LayoutData } from './engravingitem'
+import { ElementFlag, LayoutData, type EngravingItem } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
 import { Pid, PropertyFlags } from './property'
 import { LineSegment, SLine } from './line'
@@ -459,4 +459,8 @@ export abstract class TextLineBase extends SLine {
             super.setPropertyFlags(id, f)
         }
     }
+}
+
+export function isSystemTextLine(element: EngravingItem | null): boolean {
+    return !!element && element instanceof TextLineBase && element.systemFlag()
 }

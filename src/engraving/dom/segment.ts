@@ -12,7 +12,7 @@ import { Spatium } from '../types/dimension'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import {
-    ClefToBarlinePosition, ElementType, TimeSigPlacement, TimeSigVSMargin, VOICES, nidx, staff2track,
+    ClefToBarlinePosition, ElementType, TimeSigPlacement, TimeSigVSMargin, VOICES, nidx, staff2track, track2staff,
     type staff_idx_t, type track_idx_t,
 } from '../types/types'
 import { Sid } from '../style/styledef'
@@ -29,6 +29,7 @@ import type { Clef } from './clef'
 import type { KeySig } from './keysig'
 import type { InstrumentChange } from './instrchange'
 import type { TimeSig } from './timesig'
+import type { Spanner } from './spanner'
 
 export enum SegmentType {
     Invalid = 0x0,
@@ -844,6 +845,24 @@ export class Segment extends EngravingItem {
 
     hasElements(): boolean {
         return this.m_elist.some(e => !!e)
+    }
+
+    /** used by the writer: can a spanner start or end of the given track be written at this segment */
+    canWriteSpannerStartEnd(track: track_idx_t, spanner: Spanner): boolean {
+        const staffIdx = track2staff(track)
+        if (this.isChordRestType() && (this.element(track) || (!spanner.isVoiceSpecific() && this.hasElementsInStaff(staffIdx)))) {
+            return true
+        }
+
+        if (this.isTimeTickType()) {
+            const crSegAtSameTick = this.score().tick2segment(this.tick(), true, SegmentType.ChordRest,
+                this.style().styleB(Sid.createMultiMeasureRests))
+            if (!crSegAtSameTick || !crSegAtSameTick.canWriteSpannerStartEnd(track, spanner)) {
+                return true
+            }
+        }
+
+        return this.score().lastMeasure()!.last() === this
     }
 
     hasElementsInRange(minTrack: track_idx_t, maxTrack: track_idx_t): boolean {

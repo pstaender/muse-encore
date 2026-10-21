@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/engravingobject.h/.cpp
  *
- * Not ported: linked objects of parts/excerpts, EIDs.
+ * Not ported: linked objects of parts/excerpts.
  */
 
 import { PointF } from '../../framework/draw/types/geometry'
@@ -302,6 +302,11 @@ export abstract class EngravingObject {
     score(): Score { return this.m_score! }
 
     masterScore(): MasterScore { return this.score().masterScore() }
+
+    // EIDs (stored in the EIDRegister of the master score; empty string: invalid EID)
+    eid(): string { return this.masterScore().eidRegister().EIDFromItem(this) }
+    setEID(id: string): void { this.masterScore().eidRegister().registerItemEID(id, this) }
+    assignNewEID(): string { return this.masterScore().eidRegister().newEIDForItem(this) }
 
     onSameScore(other: EngravingObject): boolean { return this.score() === other.score() }
 

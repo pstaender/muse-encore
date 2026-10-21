@@ -194,7 +194,7 @@ export abstract class SpannerSegment extends EngravingItem {
 
     baseSetZ(val: number): void { super.setZ(val) }
 
-    isUserModified(): boolean {
+    override isUserModified(): boolean {
         const modified = !this.autoplace() || !this.visible()
                          || (this.propertyFlags(Pid.MIN_DISTANCE) === 1 /* PropertyFlags::UNSTYLED */
                              || !(this.getProperty(Pid.MIN_DISTANCE) as { equals(o: unknown): boolean })
@@ -750,7 +750,7 @@ export abstract class Spanner extends EngravingItem {
         }
     }
 
-    isUserModified(): boolean {
+    override isUserModified(): boolean {
         return this.m_segments.some(seg => seg.isUserModified())
     }
 }

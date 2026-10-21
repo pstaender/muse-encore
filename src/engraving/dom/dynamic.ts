@@ -186,7 +186,39 @@ export class Dynamic extends TextBase {
 
     setVelocity(v: number): void { this.m_velocity = v }
     velocity(): number { return this.m_velocity <= 0 ? DYN_LIST[this.m_dynamicType].velocity : this.m_velocity }
-    setChangeInVelocity(val: number): void { this.m_changeInVelocity = val }
+    changeInVelocity(): number {
+        return this.m_changeInVelocity >= 128 ? DYN_LIST[this.m_dynamicType].changeInVelocity : this.m_changeInVelocity
+    }
+    setChangeInVelocity(val: number): void {
+        if (DYN_LIST[this.m_dynamicType].changeInVelocity === val) {
+            this.m_changeInVelocity = 128
+        } else {
+            this.m_changeInVelocity = val
+        }
+    }
+
+    isVelocityChangeAvailable(): boolean {
+        switch (this.dynamicType()) {
+        case DynamicType.FP:
+        case DynamicType.SF:
+        case DynamicType.SFZ:
+        case DynamicType.SFF:
+        case DynamicType.SFFZ:
+        case DynamicType.SFFF:
+        case DynamicType.SFFFZ:
+        case DynamicType.SFP:
+        case DynamicType.SFPP:
+        case DynamicType.RFZ:
+        case DynamicType.RF:
+        case DynamicType.FZ:
+        case DynamicType.M:
+        case DynamicType.R:
+        case DynamicType.S:
+            return true
+        default:
+            return false
+        }
+    }
     velChangeSpeed(): DynamicSpeed { return this.m_velChangeSpeed }
     setVelChangeSpeed(val: DynamicSpeed): void { this.m_velChangeSpeed = val }
     playDynamic(): boolean { return this.m_playDynamic }
@@ -239,6 +271,7 @@ export class Dynamic extends TextBase {
         switch (propertyId) {
         case Pid.DYNAMIC_TYPE: return this.m_dynamicType
         case Pid.VELOCITY: return this.velocity()
+        case Pid.VELO_CHANGE: return this.isVelocityChangeAvailable() ? this.changeInVelocity() : undefined
         case Pid.VELO_CHANGE_SPEED: return this.m_velChangeSpeed
         case Pid.AVOID_BARLINES: return this.m_avoidBarLines
         case Pid.CENTER_ON_NOTEHEAD: return this.m_centerOnNotehead
@@ -252,6 +285,11 @@ export class Dynamic extends TextBase {
         switch (propertyId) {
         case Pid.DYNAMIC_TYPE: this.setDynamicType(v as DynamicType | string); break
         case Pid.VELOCITY: this.m_velocity = v as number; break
+        case Pid.VELO_CHANGE:
+            if (this.isVelocityChangeAvailable()) {
+                this.setChangeInVelocity(v as number)
+            }
+            break
         case Pid.VELO_CHANGE_SPEED: this.m_velChangeSpeed = v as DynamicSpeed; break
         case Pid.AVOID_BARLINES: this.m_avoidBarLines = v as boolean; break
         case Pid.CENTER_ON_NOTEHEAD: this.m_centerOnNotehead = v as boolean; break
@@ -270,6 +308,8 @@ export class Dynamic extends TextBase {
         switch (id) {
         case Pid.TEXT_STYLE: return TextStyleType.DYNAMICS
         case Pid.VELOCITY: return -1
+        case Pid.VELO_CHANGE:
+            return this.isVelocityChangeAvailable() ? DYN_LIST[this.dynamicType()].changeInVelocity : undefined
         case Pid.VELO_CHANGE_SPEED: return DynamicSpeed.NORMAL
         case Pid.PLAY: return true
         case Pid.ANCHOR_TO_END_OF_PREVIOUS: return false

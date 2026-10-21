@@ -13,7 +13,7 @@ import { PointF, RectF, SizeF } from '../../framework/draw/types/geometry'
 import type { Painter } from '../../framework/draw/painter'
 import { Spatium } from '../types/dimension'
 import { Fraction } from '../types/fraction'
-import type { PropertyValue } from '../types/propertyvalue'
+import { P_TYPE, propertyValueEquals, type PropertyValue } from '../types/propertyvalue'
 import { SmuflAnchorId, SymId, type SymIdList } from '../types/symid'
 import {
     AutoOnOff, DirectionH, DirectionV, ElementType, ParenthesesMode, PlacementV, VoiceAssignment, nidx, staff2track, track2staff, track2voice, VOICES,
@@ -22,7 +22,7 @@ import {
 import { Sid } from '../style/styledef'
 import { Shape } from '../infrastructure/shape'
 import { EngravingObject, PropertyPropagation } from './engravingobject'
-import { Pid, PropertyFlags, PropertyGroup, propertyGroup, propertyLink, propertyLinkSameScore } from './property'
+import { Pid, PropertyFlags, PropertyGroup, propertyGroup, propertyLink, propertyLinkSameScore, propertyType } from './property'
 import type { Staff } from './staff'
 import type { Part } from './part'
 import type { StaffType } from './stafftype'
@@ -430,6 +430,30 @@ export abstract class EngravingItem extends EngravingObject {
 
     subtypeUserName(): TranslatableString { return new TranslatableString() }
     translatedSubtypeUserName(): string { return this.subtypeUserName().translated() }
+
+    isUserModified(): boolean {
+        for (const spp of this.styledProperties()) {
+            const pid = spp.pid
+            const val = this.getProperty(pid)
+            const defaultValue = this.propertyDefault(pid)
+
+            if (propertyType(pid) === P_TYPE.MILLIMETRE) {
+                if (Math.abs((val as number) - (defaultValue as number)) > 0.0001) { // we don’t care spatium diffs that small
+                    return true
+                }
+            } else {
+                if (!propertyValueEquals(val, defaultValue)) {
+                    return true
+                }
+            }
+        }
+        for (const p of [Pid.VISIBLE, Pid.OFFSET, Pid.COLOR, Pid.Z, Pid.AUTOPLACE]) {
+            if (!propertyValueEquals(this.getProperty(p), this.propertyDefault(p))) {
+                return true
+            }
+        }
+        return false
+    }
 
     // accessibility (the status bar text; TODO(port): screenReaderInfo, accessibleExtraInfo)
 

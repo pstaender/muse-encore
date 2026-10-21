@@ -12,7 +12,7 @@
 import { DirectionH, ElementType } from '../types/types'
 import { Factory } from '../dom/factory'
 import { NoteParenthesisInfo, type Chord } from '../dom/chord'
-import type { Note } from '../dom/note'
+import { noteParenthesesHooks, type Note } from '../dom/note'
 import type { Parenthesis } from '../dom/parenthesis'
 import type { ChordRest } from '../dom/chordrest'
 import type { EngravingObject } from '../dom/engravingobject'
@@ -109,3 +109,6 @@ export class SwapCR extends UndoCommand {
         this.cr1.score().setLayout(s2.tick(), this.cr1.staffIdx(), this.cr1)
     }
 }
+
+noteParenthesesHooks.addChordParentheses = (chord, notes, addToLinked, generated) =>
+    EditChord.addChordParentheses(chord, notes, addToLinked, generated)
