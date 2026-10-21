@@ -685,3 +685,65 @@
   InLinkedTab, EditSystemLocks::removeSystemLocksContainingMMRests, remapBracketsAndBarlines for part scores, the
   notifications (partsChanged etc.), the instruments dialog listing the existing instruments (it only adds), part
   scores are not laid out after a change, rebuildMidiMapping/markInstrumentsAsPrimary (playback).
+
+## 2026-10-21 — Copy/paste, text and lyrics editing, dragging
+
+- Copy/paste: Selection::mimeType/mimeData/staffMimeData/symbolListMimeData/canCopy (dom/select.ts), EngravingItem
+  mimeData + readType/readMimeData (dom/paste.ts), Score::cmdPaste/cmdPasteSymbol/cmdPasteStaffList/cmdPasteSymbolList,
+  pasteStaff/pasteChordRest/pasteSymbols, cmdRepeatListSelection (dom/paste.ts), Read460::pasteStaff/pasteSymbols/
+  doReadItem, ConnectorInfoReader paste mode (spanners added through the undo stack, Score receiver), Score::makeGap1
+  (cmd.ts section), Transpose::transposeChord, Measure::undoGetChordRestOrTimeTickSegment, Chord/ChordRest::removeMarkings,
+  SelectionFilter element types (setFiltered/isFiltered/canSelect), Writer::writeSegments/doWriteItem with a filter.
+  rw/rwregister.ts gives the DOM the reader/writer (and new XmlWriters) without import cycles.
+  NotationInteraction: copySelection, pasteSelection(scale) (incl. pasting into an edited text / lyrics syllables),
+  swapSelection, repeatSelection; actions action://notation/copy|cut|paste, notation-paste-half/-double/-special,
+  notation-swap (Ctrl+Shift+X), repeat-sel (R). The clipboard is framework/global/clipboard.ts (in-memory MimeData);
+  API clipboardContents/setClipboardContents/selectionMimeData.
+  MuseScore's own tests reproduce exactly (staves of writeMscx vs the -ref files): copypaste01-12, 19, 22-27, 50,
+  copypasteNote01-10 and the copypastesymbollist tests (articulation, ornament, chord names, lyrics, staff text,
+  tremolo, rests, ranges) — test/copypaste.test.ts.
+- Text editing: TextCursor movement/selection (movePosition, set, selectWord, cursorRect, selectedText, ...), TextBlock
+  remove/removeRange/split/simplify/column/boundingRect, editing/textedit.ts (TextEditData, ChangeTextProperties,
+  InsertText, RemoveText, SplitText, JoinText; TextBase startEdit/edit/isEditAllowed/endEdit (one undo step merged
+  with adding the text, empty texts removed), insertText/insertSym/paste/deleteSelectedText/endHexState), Lyrics
+  (isEditAllowed, endEdit, adjustPrevious, paste), Harmony (startEdit as plain text, edit, endEdit -> setHarmony),
+  TextBase select/mousePress/dragTo/editCopy/editCut/nudge. UndoStack.undo respects TextEditData.startUndoIdx.
+  NotationInteraction: startEditText, editText (input method commit/preedit), editElement/isEditAllowed (key events),
+  doTextEdit (curly quotes), endEditText, selectText, addText/addTextToItem (Score::addText for staff/system text,
+  expression, dynamics, rehearsal marks with createRehearsalMarkText, fingering, chord symbols, lyrics, tempo),
+  lyrics navigation (navigateToLyrics, navigateToNextSyllable, addMelisma, addLyricsVerse, navigateToLyricsVerse,
+  moveLyrics), chord symbol navigation (navigateToNearHarmony, navigateToHarmonyInNearMeasure), toggleBold/... ,
+  nudge (arrows on a selected text). Actions: staff-text (Ctrl+T), system-text, tempo, rehearsalmark-text,
+  chord-text (Ctrl+K), lyrics (Ctrl+L), title/subtitle/composer/poet/part/frame/expression/fingering texts,
+  next-syllable (-), add-melisma (_), next-word (Space), next/prev-lyric-verse, add-lyric-verse, edit-element (F2),
+  edit-text (Enter), text-b/i/u/s/sub/sup. EditModeRenderer draws the text cursor, selection (translucent instead of
+  HardLight) and frame; drawPage(printing: false) paints it (and grips, lasso).
+- Drag: EngravingItem startDrag/drag/endDrag (offset through undoPropertyChanged), getDragGroup/ElementGroup,
+  startEdit/edit/isEditAllowed/endEdit, grips (startDragGrip/dragGrip/endDragGrip, gripsPositions, nextGrip/prevGrip),
+  Note drag (vertical: pitch, horizontal: leading space), LineSegment grips and drag (hairpins, lines), SlurTieSegment/
+  SlurSegment grips, Lasso (dom/lasso.ts) with Score::lassoSelect/lassoSelectEnd. NotationInteraction startDrag/drag/
+  endDrag/doDragLasso/endLasso, grip edit (startEditGrip, isHitGrip, endEditGrip), handleKeyPress (arrow nudging of
+  edited elements and grips), nudgeAnchors. NotationViewInputController: mousePressEvent/mouseMoveEvent/
+  mouseReleaseEvent/mouseDoubleClickEvent (triple click selects the text), keyPressEvent, shortcutOverrideEvent,
+  inputMethodEvent; API viewMousePress/Move/Release/DoubleClick, viewKeyPress, viewShortcutOverride, viewInputText,
+  textEditingInfo, isDragging, isTextEditingAction.
+- Editor: the view sends the pointer events to the library (drag, grips, lasso with Shift on empty space, double
+  click edits a text, empty space moves the canvas); a hidden textarea at the text cursor gets the keys while a text
+  is edited (input method compositions and dead keys work); actions.ts asks the view first (setShortcutOverride, like
+  MuseScore's shortcutOverrideEvent) and chooses among actions with the same shortcut an enabled one of the higher
+  context priority (text editing actions: "-" is next-syllable while editing lyrics, else flat). Copy/cut/paste are
+  the browser's clipboard events with MuseScore's mime types as DataTransfer formats; the in-memory clipboard is the
+  fallback (and the Edit menu's Paste). The menus show Ctrl+C/X/V for the notation's copy/cut/paste.
+- cmd.ts endCmd: a rolled back command that changed something is laid out (removing an empty new text left a stale
+  layout).
+- Tests: test/copypaste.test.ts, textedit.test.ts, drag.test.ts (undo/redo restore the SVG of all pages); e2e: copy a
+  measure and paste it, add a staff text and type, lyrics on two notes, drag the title, lasso.
+- Known: after a command + undo, some real scores (Amazing Grace) paint slur/tie segments of a system in another
+  order than after a full layout (same SVG content, other order; a full relayout restores it) — the e2e tests compare
+  states, not pixels, for undo.
+- Missing (TODO(port)): rebasing line anchors while dragging (MoveElementAnchors, time tick anchors), changing slur/line
+  anchor notes by dragging grips, the slur shoulder grip, bar line/beam/bracket/box grips, dynamics grips (hairpin from
+  a dynamic), anchor lines, outgoing drags of elements/ranges, Alt+click paste of a range, drag and drop of palette
+  items onto the score, image paste, figured bass, sticking, instrument change text (dialog), partial lyrics dashes and
+  melismas at repeats, FSymbol drops into texts, the text style popup and text toolbar, copyLyrics,
+  TempoText::updateTempo (playback tempo), prev/next-element navigation into texts (navigateToNearText).
