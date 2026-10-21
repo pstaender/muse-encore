@@ -15,6 +15,7 @@ import { PainterPath } from '../../../framework/draw/types/painterpath'
 import { Font, FontType } from '../../../framework/draw/types/font'
 import type { Color } from '../../../framework/draw/types/color'
 import { FontMetrics } from '../../../framework/draw/fontmetrics'
+import { EngravingConfiguration } from '../../internal/engravingconfiguration'
 import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
 import { AlignH, AlignV, BarLineType, BracketType, ClefType, DirectionH, DirectionV, ElementType, Key, KeySigNatural, NoteHeadGroup, NoteHeadType,
@@ -3543,12 +3544,13 @@ export class TLayout {
 
     static layoutLayoutBreak(item: LayoutBreak, _ctx: LayoutContext): void {
         const ldata = item.mutldata()
-        if (ldata.isValid()) {
+        if (ldata.isValid() || !EngravingConfiguration.canLayoutIcons()) {
             return
         }
-        // layout break icons are only shown in edit mode (configuration()->canLayoutIcons())
-        // TODO(port): FontMetrics(item->font()).boundingRect(item->iconCode())
-        void FontMetrics
+
+        const metrics = new FontMetrics(item.font())
+        const bbox = metrics.boundingRect(item.iconCode())
+        ldata.setShape(new Shape(bbox, item))
     }
 
     static layoutTabDurationSymbol(item: TabDurationSymbol): void {

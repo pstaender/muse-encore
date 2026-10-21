@@ -8,7 +8,7 @@
 /// <reference types="vite/client" />
 import { useSyncExternalStore } from 'react'
 import {
-    clearSelection, drawPage, drawPageSvg, hasSelection, initEngravingFonts, isModified, isTwoSided, moveSelection,
+    clearSelection, drawPage, drawPageSvg, setCanLayoutIcons, hasSelection, initEngravingFonts, isModified, isTwoSided, moveSelection,
     noteInputCursorBounds, noteInputState, onImageDecoded, onNotationChanged, pageCount, pageSize, scoreTitle, selectAll, selectionBounds, selectionInfo,
     SvgGlyphDefs, type MasterScore,
     // copy/paste, text editing, drag
@@ -174,6 +174,9 @@ export function hideBusy(): void {
 // ---------------------------------------------------------------------------------
 //   fonts and the open score
 // ---------------------------------------------------------------------------------
+
+// the editor shows the layout break icons like MuseScore (not printed)
+setCanLayoutIcons(true)
 
 /** resolves when the engraving fonts are loaded (rejects if they cannot be loaded) */
 export const fontsReady = initEngravingFonts(async (path) => {

@@ -15,7 +15,7 @@
 
 import type { SoundFlag } from '../../engraving/dom/soundflag'
 import { LineF, PointF, RectF } from '../../framework/draw/types/geometry'
-import { DirectionV, DurationType, ElementType, VOICES, nidx, type staff_idx_t, type track_idx_t, type voice_idx_t } from '../../engraving/types/types'
+import { DirectionV, DurationType, ElementType, LayoutBreakType, VOICES, nidx, type staff_idx_t, type track_idx_t, type voice_idx_t } from '../../engraving/types/types'
 import type { Rest } from '../../engraving/dom/rest'
 import { Pad } from '../../engraving/dom/score'
 import { NoteEntryMethod } from '../../engraving/dom/input'
@@ -739,6 +739,16 @@ export class NotationInteraction {
     private execute(f: () => void, actionName: TranslatableString): void {
         this.startEdit(actionName)
         f()
+        this.apply()
+    }
+
+    toggleLayoutBreakAvailable(): boolean {
+        return !this.score().selection().isNone() && !this.isTextEditingStarted()
+    }
+
+    toggleLayoutBreak(breakType: LayoutBreakType): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Toggle layout break'))
+        this.score().cmdToggleLayoutBreak(breakType)
         this.apply()
     }
 

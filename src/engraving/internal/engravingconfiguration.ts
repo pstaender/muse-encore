@@ -26,8 +26,14 @@ let s_unlinkedColor = Color.fromString(UNLINKED_ITEM_COLOR)
 let s_frameColor = Color.fromString('#A0A0A4')
 let s_formattingColor = Color.fromString('#C31989')
 const s_scoreInversionColor = new Color(220, 220, 220)
+// C++: uiConfiguration() != nullptr, i.e. not in the converter; here set by an app that shows unprintable items
+let s_canLayoutIcons = false
 
 export class EngravingConfiguration {
+    /** layout break (and indicator) icons are laid out (and drawn when not printing) */
+    static canLayoutIcons(): boolean { return s_canLayoutIcons }
+    static setCanLayoutIcons(v: boolean): void { s_canLayoutIcons = v }
+    static iconsFontFamily(): string { return 'MusescoreIcon' }
     static defaultColor(): Color { return Color.BLACK }
     static scoreInversionColor(): Color { return s_scoreInversionColor }
     static invisibleColor(): Color { return s_invisibleColor }

@@ -16,6 +16,11 @@ import type { MeasureBase } from './measurebase'
 import type { EditData } from '../editing/editdata'
 import type { TranslatableString } from '../../framework/global/types/translatablestring'
 import { TConv } from '../types/typesconv'
+import { Font, FontType } from '../../framework/draw/types/font'
+import { EngravingConfiguration } from '../internal/engravingconfiguration'
+
+/** C++ mscore.h UI_ICONS_DEFAULT_FONT_SIZE */
+const UI_ICONS_DEFAULT_FONT_SIZE = 12.0
 
 const sectionBreakStyle: ElementStyle = [
     { sid: Sid.sectionPause, pid: Pid.PAUSE },
@@ -79,6 +84,12 @@ export class LayoutBreak extends EngravingItem {
         case LayoutBreakType.NOBREAK: return 0xF486
         default: return 0x000
         }
+    }
+
+    font(): Font {
+        const font = new Font(EngravingConfiguration.iconsFontFamily(), FontType.Icon)
+        font.setPointSizeF(UI_ICONS_DEFAULT_FONT_SIZE * this.magS())
+        return font
     }
 
     override getProperty(propertyId: Pid): PropertyValue {

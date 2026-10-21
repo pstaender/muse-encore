@@ -109,7 +109,7 @@ const NOTE_NAMES: readonly [string, NoteName][] = [
 
 // (constants and imports of the note input section)
 import { Fraction } from '../engraving/types/fraction'
-import { BeamMode, ElementType } from '../engraving/types/types'
+import { BeamMode, ElementType, LayoutBreakType } from '../engraving/types/types'
 import { Sid } from '../engraving/style/styledef'
 import { TranslatableString } from '../framework/global/types/translatablestring'
 import { NoteType as GraceNoteType } from '../engraving/dom/chordrest'
@@ -240,6 +240,11 @@ export class NotationActionController {
         this.registerAction('add-brackets', () => this.interaction().addBracketsToSelection(BracketsType.Brackets))
         this.registerAction('add-parentheses', () => this.interaction().addBracketsToSelection(BracketsType.Parentheses))
         this.registerAction('add-braces', () => this.interaction().addBracketsToSelection(BracketsType.Braces))
+
+        const toggleLayoutBreakAvailable = (): boolean => this.interaction().toggleLayoutBreakAvailable()
+        this.registerAction('system-break', () => this.interaction().toggleLayoutBreak(LayoutBreakType.LINE), toggleLayoutBreakAvailable)
+        this.registerAction('page-break', () => this.interaction().toggleLayoutBreak(LayoutBreakType.PAGE), toggleLayoutBreakAvailable)
+        this.registerAction('section-break', () => this.interaction().toggleLayoutBreak(LayoutBreakType.SECTION), toggleLayoutBreakAvailable)
 
         this.initEditingActions()
         this.initNoteInputActions()

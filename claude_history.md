@@ -994,3 +994,14 @@
 - Full screen: besides the menu bar and toolbars (top edge), the bottom toolbar dock with the status bar (bottom edge)
   and the panels (left edge, right in RTL) are collapsed and slide in while the pointer is at their edge or on them,
   or while they have the focus (scoreview.ts: one auto-hide logic per edge, `setChrome(el, edge)`).
+
+## 2026-10-22 — Layout break icons, break actions
+
+- Layout breaks are shown in the editor like in MuseScore: `LayoutBreak.font()` (MuseScore's UI icon font
+  "MusescoreIcon", now also in `fonts/musescoreicon/` and registered by initEngravingFonts), TLayout.layoutLayoutBreak
+  (icon bbox, only when `EngravingConfiguration.canLayoutIcons()`), TDraw for LayoutBreak and Spacer (formatting color,
+  not when printing or with showUnprintable off). `setCanLayoutIcons(true)` is called by the editor; the default is
+  false (C++: no UI configuration in the converter), so exports, renders and compare:all are unchanged.
+- Actions "system-break" (Enter), "page-break", "section-break": NotationInteraction.toggleLayoutBreak /
+  toggleLayoutBreakAvailable (Score.cmdToggleLayoutBreak was already ported). Test: test/layoutbreak.test.ts.
+- TODO(port): IndicatorIcon / system lock indicators; EditSystemLocks::removeSystemLocksOnAddLayoutBreak.

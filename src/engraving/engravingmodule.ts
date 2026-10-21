@@ -50,6 +50,7 @@ const TEXT_FONTS: FontFile[] = [
     { family: 'FreeSans', path: 'freefont/FreeSans.ttf' },
     { family: 'MScoreTabulature', path: 'mscoretab/mscoreTab.ttf' },
     { family: 'MScoreBC', path: 'mscorebc/mscore-BC.ttf' }, // C++ registers it as "MscoreBC" (Qt matches case-insensitively)
+    { family: 'MusescoreIcon', path: 'musescoreicon/MusescoreIcon.ttf' }, // the UI icon font (layout break icons)
 ]
 
 const MUSIC_FONTS: { name: string; family: string; path: string; metadata: string }[] = [

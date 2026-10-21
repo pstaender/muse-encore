@@ -76,6 +76,14 @@ import { customOrder, type PartInstrumentList } from './notation/notationtypes'
 
 export { initEngravingFonts, fontsInitialized, type FontFileLoader } from './engraving/engravingmodule'
 export { MscLoadError } from './engraving/rw/mscloader'
+
+/**
+ * whether layout break icons are laid out (C++ EngravingConfiguration::canLayoutIcons: in the app, not in the
+ * converter); an editor that shows unprintable items (drawPage with printing: false) turns it on before loading scores
+ */
+export function setCanLayoutIcons(v: boolean): void {
+    EngravingConfiguration.setCanLayoutIcons(v)
+}
 export { setTranslator, mtrc, qtrc, arg, type Translator } from './framework/global/translation'
 export type { MasterScore } from './engraving/dom/masterscore'
 export type { Score } from './engraving/dom/score'

@@ -47,6 +47,8 @@ import type { EngravingItem } from '../../dom/engravingitem'
 import type { Hook } from '../../dom/hook'
 import type { KeySig } from '../../dom/keysig'
 import type { LedgerLine } from '../../dom/ledgerline'
+import type { LayoutBreak } from '../../dom/layoutbreak'
+import type { Spacer } from '../../dom/spacer'
 import { DisplayFretOption, type Note } from '../../dom/note'
 import { prevChordRest, type Chord } from '../../dom/chord'
 import type { NoteDot } from '../../dom/notedot'
@@ -116,8 +118,9 @@ export class TDraw {
             break
         case ElementType.KEYSIG: TDraw.drawKeySig(item as KeySig, painter, opt)
             break
-        case ElementType.LAYOUT_BREAK: // not printable
-        case ElementType.SPACER:
+        case ElementType.LAYOUT_BREAK: TDraw.drawLayoutBreak(item as LayoutBreak, painter, opt)
+            break
+        case ElementType.SPACER: TDraw.drawSpacer(item as Spacer, painter, opt)
             break
         case ElementType.LEDGER_LINE: TDraw.drawLedgerLine(item as LedgerLine, painter, opt)
             break
@@ -653,6 +656,29 @@ export class TDraw {
                 painter.drawLine(new LineF(x1, y, x2, y))
             }
         }
+    }
+
+    static drawLayoutBreak(item: LayoutBreak, painter: Painter, opt: PaintOptions): void {
+        if (opt.isPrinting || !item.score().showUnprintable()) {
+            return
+        }
+
+        const pen = new Pen(item.selected() ? EngravingConfiguration.selectionColor() : EngravingConfiguration.formattingColor())
+        painter.setPen(pen)
+        painter.setFont(item.font())
+        painter.drawSymbol(new PointF(), item.iconCode())
+    }
+
+    static drawSpacer(item: Spacer, painter: Painter, opt: PaintOptions): void {
+        if (opt.isPrinting || !item.score().showUnprintable()) {
+            return
+        }
+
+        const pen = new Pen(item.selected() ? EngravingConfiguration.selectionColor() : EngravingConfiguration.formattingColor(), item.spatium() * 0.3)
+
+        painter.setPen(pen)
+        painter.setBrush(BrushStyle.NoBrush)
+        painter.drawPath(item.ldata().path)
     }
 
     static drawLedgerLine(item: LedgerLine, painter: Painter, opt: PaintOptions): void {
