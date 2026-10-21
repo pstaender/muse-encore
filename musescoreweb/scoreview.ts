@@ -9,9 +9,14 @@
 import { useSyncExternalStore } from 'react'
 import {
     clearSelection, drawPage, drawPageSvg, hasSelection, initEngravingFonts, isModified, isTwoSided, moveSelection,
-    noteInputCursorBounds, noteInputState, pageCount, pageSize, scoreTitle, selectAll, selectAt, selectionBounds, selectionInfo,
-    SvgGlyphDefs, type MasterScore, type SelectMode,
+    noteInputCursorBounds, noteInputState, pageCount, pageSize, scoreTitle, selectAll, selectionBounds, selectionInfo,
+    SvgGlyphDefs, type MasterScore,
+    // copy/paste, text editing, drag
+    CLIPBOARD_FORMATS, clipboardContents, executeAction, isActionEnabled, isDragging, setClipboardContents, textEditingInfo,
+    viewInputText, viewKeyPress, viewMouseDoubleClick, viewMouseMove, viewMousePress, viewMouseRelease, viewResetTripleClick,
+    viewShortcutOverride, type ViewKeyEvent, type ViewPointerEvent,
 } from '../src/index'
+import { setShortcutOverride } from './actions/actions'
 import { settings as appSettings, updateSettings, type ViewSettings } from './settings'
 
 /** commands of the score view that the app handles */
@@ -296,7 +301,7 @@ function buildPages(keepPosition = false): void {
  * new page sizes, repaint, the status bar, the modified flag; the selection (in note input: the cursor) is scrolled
  * into view.
  */
-export function scoreChanged(): void {
+export function scoreChanged(scroll = true): void {
     if (!score) {
         return
     }
@@ -306,7 +311,8 @@ export function scoreChanged(): void {
         applyZoom(zoom)
     }
     publish({ modified: isModified(score), noteInput: noteInputState(score).active, scoreVersion: viewState.scoreVersion + 1 })
-    selectionChanged(true)
+    selectionChanged(scroll)
+    updateTextInput()
 }
 
 function pageCssSize(idx: number, z = zoom): { w: number; h: number } {
@@ -801,41 +807,302 @@ export function deselect(): boolean {
     return false
 }
 
-let press: { x: number; y: number; id: number } | null = null
+// ---------------------------------------------------------------------------------
+//   mouse: MuseScore's NotationViewInputController (click selection, drag of elements and grips, Shift+drag on
+//   empty space: lasso, double click: text editing, triple click: select the text)
+// ---------------------------------------------------------------------------------
+
+/** the page under the pointer, or the nearest one, and the point on it (inches; may be outside of the page) */
+function pagePointAt(clientX: number, clientY: number): { page: number; x: number; y: number; dpi: number } | null {
+    if (!score || !pages.length) {
+        return null
+    }
+    let best: HTMLDivElement | null = null
+    let bestDist = Infinity
+    for (const el of visible.size ? visible : pages) {
+        if (!el.isConnected) {
+            continue
+        }
+        const r = el.getBoundingClientRect()
+        const dx = Math.max(r.left - clientX, 0, clientX - r.right)
+        const dy = Math.max(r.top - clientY, 0, clientY - r.bottom)
+        const d = dx * dx + dy * dy
+        if (d < bestDist) {
+            bestDist = d
+            best = el
+        }
+    }
+    if (!best) {
+        return null
+    }
+    const idx = Number(best.dataset.page)
+    const r = best.getBoundingClientRect()
+    const cssDpi = r.width / pageSize(score, idx).width
+    return { page: idx, x: (clientX - r.left) / cssDpi, y: (clientY - r.top) / cssDpi, dpi: cssDpi }
+}
+
+const isMacPlatform = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+
+function pointerEvent(e: MouseEvent): ViewPointerEvent | null {
+    const pt = pagePointAt(e.clientX, e.clientY)
+    if (!pt) {
+        return null
+    }
+    return {
+        ...pt, clientX: e.clientX, clientY: e.clientY, button: e.button, buttons: e.buttons,
+        shift: e.shiftKey, ctrl: isMacPlatform ? e.metaKey : e.ctrlKey, alt: e.altKey,
+    }
+}
+
+let mouse: { id: number; lastX: number; lastY: number } | null = null
+let tripleClickTimer = 0
 
 viewport.addEventListener('pointerdown', (e) => {
-    if (score && e.button === 0 && !spaceDown) {
-        press = { x: e.clientX, y: e.clientY, id: e.pointerId }
+    if (!score || spaceDown || (e.button !== 0 && e.button !== 2)) {
+        return
+    }
+    const ev = pointerEvent(e)
+    if (!ev) {
+        return
+    }
+    mouse = { id: e.pointerId, lastX: e.clientX, lastY: e.clientY }
+    viewport.setPointerCapture(e.pointerId)
+    const noteInput = noteInputState(score).active
+    viewMousePress(score, ev)
+    // in note input mode a click puts a note (a new layout)
+    afterViewInput(noteInput)
+})
+
+viewport.addEventListener('pointermove', (e) => {
+    if (!score || !mouse || mouse.id !== e.pointerId) {
+        return
+    }
+    const ev = pointerEvent(e)
+    if (!ev) {
+        return
+    }
+    const r = viewMouseMove(score, ev)
+    if (r.moveCanvas) {
+        // move the canvas with the pointer (like the hand tool)
+        viewport.scrollLeft -= e.clientX - mouse.lastX
+        viewport.scrollTop -= e.clientY - mouse.lastY
+    } else if (isDragging(score) || textEditingInfo(score).active) {
+        afterViewInput(false, false)
+    }
+    mouse.lastX = e.clientX
+    mouse.lastY = e.clientY
+})
+
+const releasePointer = (e: PointerEvent): void => {
+    if (!score || !mouse || mouse.id !== e.pointerId) {
+        return
+    }
+    mouse = null
+    const ev = pointerEvent(e)
+    if (ev) {
+        viewMouseRelease(score, { ...ev, buttons: e.buttons })
+    }
+    afterViewInput(true)
+}
+viewport.addEventListener('pointerup', releasePointer)
+viewport.addEventListener('pointercancel', releasePointer)
+
+viewport.addEventListener('dblclick', (e) => {
+    if (!score || spaceDown) {
+        return
+    }
+    const ev = pointerEvent(e)
+    if (!ev) {
+        return
+    }
+    viewMouseDoubleClick(score, ev)
+    clearTimeout(tripleClickTimer)
+    const s = score
+    tripleClickTimer = window.setTimeout(() => viewResetTripleClick(s), 500) // QApplication::doubleClickInterval()
+    afterViewInput(true)
+})
+
+// the context menu is not ported: a right click only selects
+viewport.addEventListener('contextmenu', (e) => {
+    if (score) {
+        e.preventDefault()
     }
 })
 
-viewport.addEventListener('pointerup', (e) => {
-    const p = press
-    press = null
-    if (!score || !p || p.id !== e.pointerId || Math.hypot(e.clientX - p.x, e.clientY - p.y) > 4) {
+/** after a view event: repaint (with a new layout if the score changed), the status bar, the text input */
+function afterViewInput(layoutChanged: boolean, scroll = false): void {
+    if (!score) {
         return
     }
-    // the page under the pointer and the point on it in inches
-    const el = (e.target as Element).closest<HTMLDivElement>('.page:not(.placeholder)')
-    const mode: SelectMode = e.shiftKey ? 'range' : (e.ctrlKey || e.metaKey) ? 'add' : 'single'
-    if (!el) {
-        if (mode === 'single') {
-            deselect()
+    // a click in note input mode puts a note, drags change the layout inside an open command: always a new paint
+    void layoutChanged
+    scoreChanged(scroll)
+}
+
+// ---------------------------------------------------------------------------------
+//   text editing: keyboard input through a hidden text field at the text cursor (IME and dead keys work), the
+//   cursor and the selection are painted by the library (MuseScore's EditModeRenderer)
+// ---------------------------------------------------------------------------------
+
+const textInput = document.createElement('textarea')
+textInput.className = 'notation-text-input'
+textInput.dataset.notationInput = ''
+textInput.setAttribute('aria-label', 'Text')
+textInput.setAttribute('autocomplete', 'off')
+textInput.setAttribute('autocapitalize', 'off')
+textInput.spellcheck = false
+document.body.appendChild(textInput)
+
+/** a DOM key event as the library's key event (Qt's Ctrl is Command on macOS) */
+function viewKey(e: KeyboardEvent): ViewKeyEvent {
+    return {
+        key: e.key, code: e.code, shift: e.shiftKey, alt: e.altKey,
+        ctrl: isMacPlatform ? e.metaKey : e.ctrlKey, meta: isMacPlatform ? e.ctrlKey : e.metaKey,
+    }
+}
+
+/** the text field follows the text cursor and has the focus while a text is edited */
+function updateTextInput(): void {
+    const info = score ? textEditingInfo(score) : null
+    if (!info || !info.active || !info.cursor) {
+        textInput.classList.remove('active')
+        textInput.style.left = '-1000px'
+        if (document.activeElement === textInput) {
+            viewport.focus({ preventScroll: true })
         }
         return
     }
-    const idx = Number(el.dataset.page)
-    const r = el.getBoundingClientRect()
-    const size = pageSize(score, idx)
-    const cssDpi = r.width / size.width
-    const noteInput = noteInputState(score).active
-    if (selectAt(score, idx, (e.clientX - r.left) / cssDpi, (e.clientY - r.top) / cssDpi, mode, { dpi: cssDpi }) || noteInput) {
-        // in note input mode a click puts a note (a new layout)
-        if (noteInput) {
-            scoreChanged()
-        } else {
-            selectionChanged()
+    const el = pages[info.cursor.page]
+    if (el) {
+        const pr = el.getBoundingClientRect()
+        const f = pr.width / pageSize(score!, info.cursor.page).width
+        textInput.style.left = `${pr.left + info.cursor.x * f}px`
+        textInput.style.top = `${pr.top + info.cursor.y * f}px`
+        textInput.style.height = `${Math.max(8, info.cursor.height * f)}px`
+        textInput.style.fontSize = `${Math.max(8, info.cursor.height * f * 0.8)}px`
+    }
+    textInput.classList.add('active')
+    if (document.activeElement !== textInput) {
+        textInput.focus({ preventScroll: true })
+    }
+}
+
+textInput.addEventListener('keydown', (e) => {
+    if (!score || e.isComposing || e.keyCode === 229) {
+        return // the input method composes
+    }
+    const k = viewKey(e)
+    if (viewShortcutOverride(score, k)) {
+        e.preventDefault()
+        e.stopPropagation()
+        viewKeyPress(score, k)
+        scoreChanged(false)
+    }
+    // otherwise the key is a shortcut (actions.ts: lyrics navigation, Escape, Ctrl+B, ...)
+})
+
+textInput.addEventListener('compositionupdate', (e) => {
+    if (score) {
+        viewInputText(score, '', e.data)
+        scoreChanged(false)
+    }
+})
+
+textInput.addEventListener('compositionend', (e) => {
+    if (score) {
+        viewInputText(score, e.data)
+        textInput.value = ''
+        scoreChanged(false)
+    }
+})
+
+textInput.addEventListener('input', (e) => {
+    const ie = e as InputEvent
+    if (score && !ie.isComposing && ie.inputType === 'insertText' && ie.data) {
+        // characters that came without a usable keydown (e.g. on-screen keyboards)
+        viewInputText(score, ie.data)
+        scoreChanged(false)
+    }
+    if (!ie.isComposing) {
+        textInput.value = ''
+    }
+})
+
+// the global shortcuts (actions.ts) leave the keys the edited element takes (MuseScore's shortcutOverrideEvent)
+setShortcutOverride((e) => {
+    if (!score || document.body.dataset.view !== 'score' || e.isComposing) {
+        return false
+    }
+    const t = e.target as Element | null
+    if (t !== textInput && t !== viewport && t !== document.body) {
+        return false
+    }
+    return viewShortcutOverride(score, viewKey(e))
+})
+
+// ---------------------------------------------------------------------------------
+//   clipboard: MuseScore's clipboard formats through the copy/cut/paste events (custom mime types in the
+//   DataTransfer); the library's in-memory clipboard is the fallback (and serves the Edit menu's Paste)
+// ---------------------------------------------------------------------------------
+
+function clipboardTarget(e: ClipboardEvent): boolean {
+    const t = e.target as Element | null
+    return !!score && document.body.dataset.view === 'score' && (t === textInput || t === viewport || t === document.body || !!t?.closest?.('#viewport'))
+}
+
+function writeClipboard(e: ClipboardEvent): void {
+    const data = clipboardContents()
+    if (!e.clipboardData || !Object.keys(data).length) {
+        return
+    }
+    for (const [format, text] of Object.entries(data)) {
+        try {
+            e.clipboardData.setData(format, text)
+        } catch {
+            // a browser that does not accept the custom type: the in-memory clipboard keeps it
         }
+    }
+    e.preventDefault()
+}
+
+document.addEventListener('copy', (e) => {
+    if (clipboardTarget(e) && executeAction(score!, 'action://notation/copy')) {
+        writeClipboard(e)
+    }
+})
+
+document.addEventListener('cut', (e) => {
+    if (clipboardTarget(e) && isActionEnabled(score!, 'action://notation/cut')) {
+        executeAction(score!, 'action://notation/copy')
+        writeClipboard(e)
+        executeAction(score!, 'action://notation/delete')
+        scoreChanged()
+    }
+})
+
+document.addEventListener('paste', (e) => {
+    if (!clipboardTarget(e)) {
+        return
+    }
+    e.preventDefault()
+    const dt = e.clipboardData
+    if (dt) {
+        const data: Record<string, string> = {}
+        for (const format of [...CLIPBOARD_FORMATS, 'text/plain']) {
+            const d = dt.getData(format)
+            if (d) {
+                data[format] = d
+            }
+        }
+        const hasMuseScoreData = CLIPBOARD_FORMATS.some(f => f in data)
+        const current = clipboardContents()
+        // the system clipboard has something else than what was copied here: paste that
+        if (hasMuseScoreData || (data['text/plain'] !== undefined && data['text/plain'] !== current['text/plain'])) {
+            setClipboardContents(data)
+        }
+    }
+    if (executeAction(score!, 'action://notation/paste')) {
+        scoreChanged()
     }
 })
 
@@ -966,6 +1233,14 @@ document.addEventListener('keydown', (e) => {
     // the commands of the menus and toolbars are actions (actions/actions.ts) with MuseScore's shortcuts;
     // here only the keys of the view itself
     if (!score || document.body.dataset.view !== 'score') {
+        return
+    }
+
+    if (e.target === viewport && viewShortcutOverride(score, viewKey(e))) {
+        // the selected or edited element takes the key (MuseScore's shortcutOverrideEvent / keyPressEvent)
+        e.preventDefault()
+        viewKeyPress(score, viewKey(e))
+        scoreChanged(false)
         return
     }
 

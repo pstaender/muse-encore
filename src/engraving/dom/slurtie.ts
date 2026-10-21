@@ -11,7 +11,7 @@ import { PointF } from '../../framework/draw/types/geometry'
 import { PainterPath } from '../../framework/draw/types/painterpath'
 import type { PropertyValue } from '../types/propertyvalue'
 import { DirectionV, SlurStyleType, type ElementType } from '../types/types'
-import { Grip } from '../editing/editdata'
+import { Grip, type EditData } from '../editing/editdata'
 import { ElementFlag, LayoutData } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
 import { Pid } from './property'
@@ -71,6 +71,40 @@ export abstract class SlurTieSegment extends SpannerSegment {
 
     setSlurOffset(i: Grip, val: PointF): void { this.m_ups[i].off = val.clone() }
     ups(i: Grip): UP { return this.m_ups[i] }
+
+    // ---- grips (slurtie.cpp: gripsPositions, startDragGrip, endDragGrip) ----
+
+    override needStartEditingAfterSelecting(): boolean { return true }
+    override gripsCount(): number { return Grip.GRIPS }
+    override initialEditModeGrip(): Grip { return Grip.END }
+    override defaultGrip(): Grip { return Grip.DRAG }
+
+    override gripsPositions(_ed?: EditData): PointF[] {
+        const ngrips = this.gripsCount()
+        const grips: PointF[] = []
+
+        const p = this.pagePos()
+        for (let i = 0; i < ngrips; ++i) {
+            grips.push(this.m_ups[i].p.plus(this.m_ups[i].off).plus(p))
+        }
+
+        return grips
+    }
+
+    override startDragGrip(ed: EditData): void {
+        const eed = ed.getData(this)
+        if (!eed) {
+            return
+        }
+        for (const i of [Pid.SLUR_UOFF1, Pid.SLUR_UOFF2, Pid.SLUR_UOFF3, Pid.SLUR_UOFF4, Pid.OFFSET]) {
+            eed.pushProperty(i)
+        }
+    }
+
+    override endDragGrip(ed: EditData): void {
+        super.endDragGrip(ed)
+        this.triggerLayout()
+    }
 
     abstract endWidth(): number
     abstract midWidth(): number

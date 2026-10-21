@@ -4,7 +4,7 @@
  * executeAction). After each command the score view is updated (new layout, selection, status bar, modified flag).
  */
 import {
-    executeAction, isActionChecked as isScoreActionChecked, isActionEnabled as isScoreActionEnabled, isCheckableAction,
+    executeAction, isTextEditingAction, isActionChecked as isScoreActionChecked, isActionEnabled as isScoreActionEnabled, isCheckableAction,
     notationActionCodes,
 } from '../../src/index'
 import { currentScore, scoreChanged, scoreViewState } from '../scoreview'
@@ -31,6 +31,7 @@ export function registerNotationActions(): void {
                 return !!score && scoreShown() && isScoreActionChecked(score, code)
             } : undefined,
             context: 'notation',
+            priority: isTextEditingAction(code) ? 1 : 0,
         })
     }
 }

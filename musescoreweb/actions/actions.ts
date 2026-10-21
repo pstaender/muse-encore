@@ -19,6 +19,8 @@ export interface ActionHandler {
      * is in a menu, list or dialog, or on a button for the keys the button handles itself
      */
     context?: 'notation'
+    /** the priority of the shortcut's context when several actions have the shortcut (text editing: 1) */
+    priority?: number
 }
 
 export const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
@@ -99,7 +101,10 @@ export function useActions(): number {
 // ---------------------------------------------------------------------------------
 
 export function shortcuts(code: string): readonly string[] {
-    return (isMac ? SHORTCUTS_MAC : SHORTCUTS)[code] ?? []
+    const table = isMac ? SHORTCUTS_MAC : SHORTCUTS
+    // the notation's copy/cut/paste are MuseScore's standard keys of action://copy etc. (shown in the menus; the
+    // keys themselves are the browser's copy/cut/paste events, see scoreview.ts)
+    return table[code] ?? (/^action:\/\/notation\/(copy|cut|paste)$/.test(code) ? table[code.replace('notation/', '')] ?? [] : [])
 }
 
 const KEY_NAMES: Record<string, string> = {
@@ -176,8 +181,10 @@ function outsideNotationContext(t: HTMLElement | null, combo: KeyCombo): boolean
 export function actionForEvent(e: KeyboardEvent): string | null {
     const t = e.target as HTMLElement | null
     // the panels (palette grid, layout tree, properties) handle their own keys like text fields
-    const inText = !!t && (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || t.isContentEditable
+    // the text field of the notation's text editing is the notation (its shortcuts apply)
+    const inText = !!t && !(t instanceof Element && t.matches('[data-notation-input]')) && (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || t.isContentEditable
         || !!t.closest?.('.panel-dock'))
+    const candidates: string[] = []
     for (const { code, combo } of shortcutIndex()) {
         if (!handlers.has(code) || !matches(combo, e)) {
             continue
@@ -188,9 +195,21 @@ export function actionForEvent(e: KeyboardEvent): string | null {
         if (inText && !combo.ctrl && !combo.meta && !(combo.alt && combo.key.length > 1) && !/^F\d+$/.test(combo.key)) {
             continue
         }
-        return code
+        candidates.push(code)
     }
-    return null
+    // like MuseScore's ShortcutsController::resolveAction: of several actions with the shortcut, an enabled one of the
+    // highest context priority (e.g. "-": next-syllable while editing lyrics, else flat)
+    let best: string | null = null
+    for (const code of candidates) {
+        const h = handlers.get(code)!
+        if (!(h.enabled?.() ?? true)) {
+            continue
+        }
+        if (best === null || (h.priority ?? 0) > (handlers.get(best)!.priority ?? 0)) {
+            best = code
+        }
+    }
+    return best ?? candidates[0] ?? null
 }
 
 /** for menus and tooltips: "Ctrl+Shift+N", on macOS "⇧⌘N" */
@@ -215,9 +234,19 @@ export function shortcutText(code: string): string {
     return s ? formatShortcut(s) : ''
 }
 
+let s_shortcutOverride: ((e: KeyboardEvent) => boolean) | null = null
+
+/** keys that are not shortcuts because the notation view takes them (MuseScore's shortcutOverrideEvent) */
+export function setShortcutOverride(f: (e: KeyboardEvent) => boolean): void {
+    s_shortcutOverride = f
+}
+
 // global shortcuts: before the score view's own keys (capture phase)
 window.addEventListener('keydown', (e) => {
     if (e.defaultPrevented || document.body.getAttribute('aria-busy') === 'true') {
+        return
+    }
+    if (s_shortcutOverride?.(e)) {
         return
     }
     // modal dialogs keep their keys

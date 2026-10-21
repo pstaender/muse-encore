@@ -1394,6 +1394,16 @@ export function setClipboardContents(data: Record<string, string>): void {
     clipboard().setMimeData(m)
 }
 
+/** the actions whose shortcuts apply while a text is edited and have priority then (MuseScore's CTX_NOTATION_TEXT_EDITING) */
+export function isTextEditingAction(code: string): boolean {
+    return TEXT_EDITING_ACTIONS.has(code)
+}
+
+const TEXT_EDITING_ACTIONS: ReadonlySet<string> = new Set([
+    'next-word', 'next-text-element', 'prev-text-element', 'next-lyric-verse', 'prev-lyric-verse', 'next-syllable',
+    'add-melisma', 'text-b', 'text-i', 'text-u', 'text-s', 'text-sub', 'text-sup',
+])
+
 /** the clipboard formats MuseScore's copy writes (mime types) */
 export const CLIPBOARD_FORMATS: readonly string[] = [mimeSymbolFormat, mimeSymbolListFormat, mimeStaffListFormat,
     TextEditData.mimeRichTextFormat]

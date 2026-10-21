@@ -7,11 +7,14 @@ import {
     executeAction, isDragging, redo, undo, viewMouseMove, viewMousePress, viewMouseRelease, type MasterScore,
     type ViewPointerEvent,
 } from '../src/index'
-import { DPI } from '../src/engraving/types/types'
+import { DPI, ElementType } from '../src/engraving/types/types'
 import { SegmentType } from '../src/engraving/dom/segment'
 import { SelectType } from '../src/engraving/dom/select'
 import type { Chord } from '../src/engraving/dom/chord'
 import type { EngravingItem } from '../src/engraving/dom/engravingitem'
+import type { SlurSegment } from '../src/engraving/dom/slur'
+import { Grip } from '../src/engraving/editing/editdata'
+import { drawPageSvg } from '../src/index'
 import { DEMOS, hasSubmodule, openScore, scoreHash as hashWithSelection } from './helpers'
 
 function scoreHash(score: MasterScore): string {
@@ -139,5 +142,39 @@ describe.skipIf(!hasSubmodule)('drag', () => {
         undo(score)
         undo(score)
         expect(scoreHash(score)).toBe(before)
+    })
+
+    it('drags the end grip of a slur (grip edit), undo/redo', () => {
+        let seg: SlurSegment | null = null
+        score.scanElements(e => {
+            if (!seg && e.isSlurSegment() && e.findAncestor(ElementType.PAGE) === score.pages()[0]) {
+                seg = e as unknown as SlurSegment
+            }
+        })
+        expect(seg).not.toBeNull()
+        const s = seg! as SlurSegment
+        const before = scoreHash(score)
+        // the selected slur: edit-element (F2, or a click on it) starts its grip edit; the grips are placed when the
+        // page is painted
+        const pagePos = score.pages()[0].pos()
+        score.select(s)
+        expect(executeAction(score, 'edit-element')).toBe(true)
+        drawPageSvg(score, 0, { printing: false, dpi: DPI_VIEW })
+        const end = s.gripsPositions()[Grip.END].plus(pagePos)
+        const off0 = s.ups(Grip.END).off.clone()
+        viewMousePress(score, pointer(score, end.x(), end.y()))
+        for (let i = 1; i <= 4; ++i) {
+            viewMouseMove(score, pointer(score, end.x() + i * 10, end.y() - i * 10))
+        }
+        viewMouseRelease(score, pointer(score, end.x() + 40, end.y() - 40, { buttons: 0 }))
+        expect(s.ups(Grip.END).off.x()).toBeGreaterThan(off0.x() + 30)
+        const after = scoreHash(score)
+        expect(after).not.toBe(before)
+        undo(score)
+        expect(scoreHash(score)).toBe(before)
+        redo(score)
+        expect(scoreHash(score)).toBe(after)
+        undo(score)
+        executeAction(score, 'action://notation/cancel')
     })
 })
