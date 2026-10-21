@@ -49,6 +49,12 @@ export class Part extends EngravingObject {
         this.m_staves.splice(idx, 0, staff)
         staff.setPart(this)
     }
+    removeStaff(staff: Staff): void {
+        const i = this.m_staves.indexOf(staff)
+        if (i >= 0) {
+            this.m_staves.splice(i, 1)
+        }
+    }
     clearStaves(): void { this.m_staves = [] }
     staff(idx: number): Staff | null { return this.m_staves[idx] ?? null }
 

@@ -23,7 +23,7 @@ import { Segment, SegmentType } from './segment'
 import { StaffLines } from './stafflines'
 import { AccidentalState } from './key'
 import { tpc2alter } from './pitchspelling'
-import { absStep, actualTicks, relStep, skipTuplet } from './utils'
+import { absStep, actualTicks, moveDownWhenAddingStaves, relStep, skipTuplet } from './utils'
 import { toRhythmicDurationList } from './durationtype'
 import { TimeSigFrac } from './sig'
 import type { System } from './system'
@@ -300,6 +300,90 @@ export class Measure extends MeasureBase {
     setMMRangeText(staffIdx: staff_idx_t, t: EngravingItem | null): void { this.m_mstaves[staffIdx].setMMRangeText(t) }
 
     mstaves(): MStaff[] { return this.m_mstaves }
+
+    // ---------------------------------------------------------
+    //   removeStaves / insertStaves / insertMStaff / removeMStaff / sortStaves
+    //   (the commands are cmdAddStaves / cmdRemoveStaves in editing/editstaff.ts)
+    // ---------------------------------------------------------
+
+    removeStaves(sStaff: staff_idx_t, eStaff: staff_idx_t): void {
+        for (let s = this.first(); s; s = s.next()) {
+            for (let staff = eStaff - 1; staff >= sStaff; --staff) {
+                s.removeStaff(staff)
+            }
+        }
+        for (const e of this.el()) {
+            if (e.track() === nidx) {
+                continue
+            }
+            const voice = e.voice()
+            let staffIdx = e.staffIdx()
+            if (staffIdx >= eStaff) {
+                staffIdx -= eStaff - sStaff
+                e.setTrack(staffIdx * VOICES + voice)
+            }
+        }
+    }
+
+    insertStaves(sStaff: staff_idx_t, eStaff: staff_idx_t): void {
+        for (const e of this.el()) {
+            if (e.track() === nidx) {
+                continue
+            }
+            let staffIdx = e.staffIdx()
+            if (moveDownWhenAddingStaves(e, sStaff, eStaff)) {
+                const voice = e.voice()
+                staffIdx += eStaff - sStaff
+                e.setTrack(staffIdx * VOICES + voice)
+            }
+        }
+        for (let s = this.first(); s; s = s.next()) {
+            for (let staff = sStaff; staff < eStaff; ++staff) {
+                s.insertStaff(staff)
+            }
+        }
+    }
+
+    insertMStaff(staff: MStaff, idx: staff_idx_t): void {
+        this.m_mstaves.splice(idx, 0, staff)
+        for (let staffIdx = 0; staffIdx < this.m_mstaves.length; ++staffIdx) {
+            this.m_mstaves[staffIdx].setTrack(staffIdx * VOICES)
+        }
+    }
+
+    removeMStaff(_staff: MStaff, idx: staff_idx_t): void {
+        this.m_mstaves.splice(idx, 1)
+        for (let staffIdx = 0; staffIdx < this.m_mstaves.length; ++staffIdx) {
+            this.m_mstaves[staffIdx].setTrack(staffIdx * VOICES)
+        }
+    }
+
+    sortStaves(dst: readonly staff_idx_t[]): void {
+        const ms: MStaff[] = []
+        for (const idx of dst) {
+            ms.push(this.m_mstaves[idx])
+        }
+        this.m_mstaves = ms
+
+        for (let staffIdx = 0; staffIdx < this.m_mstaves.length; ++staffIdx) {
+            this.m_mstaves[staffIdx].lines().setTrack(staffIdx * VOICES)
+        }
+        for (let s = this.first(); s; s = s.next()) {
+            s.sortStaves(dst)
+        }
+
+        for (const e of this.el()) {
+            if (e.track() === nidx || e.isTopSystemObject()) {
+                continue
+            }
+            const voice = e.voice()
+            const staffIdx = e.staffIdx()
+            const idx = dst.indexOf(staffIdx)
+            e.setTrack(idx * VOICES + voice)
+        }
+
+        this.score().undoUpdatePlayCountText(this)
+    }
 
     // ---------------------------------------------------------
     //   checkMeasure

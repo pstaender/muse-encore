@@ -38,6 +38,11 @@ import { ChangeFretting, ChangePitch } from './editnote'
 import { ChangeSpannerElements } from './editspanner'
 import { ChangeChordStaffMove } from './editchord'
 import { ExchangeVoice } from './editvoicing'
+import { InsertPart, RemovePart } from './editpart'
+import { InsertStaff, RemoveStaff } from './editstaff'
+import { AddBracket, RemoveBracket } from './editbrackets'
+import { searchTemplate } from '../dom/instrtemplate'
+import type { Bracket } from '../dom/bracket'
 import { scoreDummy } from '../compat/dummyelement'
 import { MScore, MsError } from '../dom/mscore'
 import { InputState, NoteEntryMethod, NoteVal } from '../dom/input'
@@ -48,7 +53,9 @@ import { PropertyPropagation } from '../dom/engravingobject'
 import { SelectType } from '../dom/select'
 import { nextChordRest } from '../dom/chord'
 import { tpc2alter } from '../dom/pitchspelling'
-import { collectElementsAnchoredToChordRest, collectElementsAnchoredToNote, noteAnchoredSpannerIsInRange, searchTieNote } from '../dom/utils'
+import {
+    allowRemoveWhenRemovingStaves, collectElementsAnchoredToChordRest, collectElementsAnchoredToNote, noteAnchoredSpannerIsInRange, searchTieNote,
+} from '../dom/utils'
 import { propertyValueEquals } from '../types/propertyvalue'
 import { TranslatableString } from '../../framework/global/types/translatablestring'
 import type { PointF } from '../../framework/draw/types/geometry'
@@ -105,9 +112,12 @@ declare module '../dom/score' {
         undoAddElement(element: EngravingItem, addToLinkedStaves?: boolean, ctrlModifier?: boolean, elementToRelink?: EngravingItem | null): void
         doUndoRemoveElement(element: EngravingItem): void
         undoRemoveElement(element: EngravingItem | null, removeLinked?: boolean): void
+        undoRemovePart(part: Part, partIdx?: number): void
         undoInsertPart(part: Part, targetPartIndex: number): void
+        undoRemoveStaff(staff: Staff): void
         undoInsertStaff(staff: Staff, ridx: staff_idx_t, createRests?: boolean): void
         undoAddBracket(staff: Staff, level: number, type: BracketType, span: number): void
+        undoRemoveBracket(b: Bracket): void
         undoInsertTime(tick: Fraction, len: Fraction): void
         undoAddCR(cr: ChordRest, measure: Measure, tick: Fraction): void
         insertMeasure(type: ElementType, beforeMeasure?: MeasureBase | null, options?: InsertMeasureOptions): MeasureBase | null
@@ -172,6 +182,12 @@ declare module '../dom/score' {
         undoExchangeVoice(measure: Measure, srcVoice: voice_idx_t, dstVoice: voice_idx_t, srcStaff: staff_idx_t, dstStaff: staff_idx_t): void
 
         // ---- score.cpp ----
+        cmdRemovePart(part: Part | null): void
+        cmdRemoveStaff(staffIdx: staff_idx_t): void
+        adjustBracketsDel(sidx: number, eidx: number): void
+        adjustBracketsIns(sidx: number, eidx: number): void
+        updateBracesAndBarlines(part: Part, newIndex: number): void
+        remapBracketsAndBarlines(): void
         changeSelectedElementsVoice(voice: voice_idx_t): void
         canReselectItem(item: EngravingItem | null): boolean
     }
@@ -384,16 +400,61 @@ Score.prototype.undoRemoveElement = function (this: Score, element: EngravingIte
     }
 }
 
+Score.prototype.undoRemovePart = function (this: Score, part: Part, partIdx: number = nidx): void {
+    this.undo(new RemovePart(part, partIdx))
+}
+
 Score.prototype.undoInsertPart = function (this: Score, part: Part, targetPartIndex: number): void {
-    this.insertPart(part, targetPartIndex) // TODO(port): undo (InsertPart)
+    this.undo(new InsertPart(part, targetPartIndex))
+}
+
+/** idx - index of staff in part */
+Score.prototype.undoRemoveStaff = function (this: Score, staff: Staff): void {
+    const staffIndex = staff.idx()
+
+    const spannersToRemove: Spanner[] = []
+
+    for (const spanner of this.spanner()) {
+        if (allowRemoveWhenRemovingStaves(spanner, staffIndex)) {
+            spannersToRemove.push(spanner)
+        }
+    }
+
+    for (const spanner of this.unmanagedSpanners()) {
+        if (allowRemoveWhenRemovingStaves(spanner, staffIndex)) {
+            spannersToRemove.push(spanner)
+        }
+    }
+
+    for (const spanner of spannersToRemove) {
+        spanner.undoUnlink()
+        this.doUndoRemoveElement(spanner)
+    }
+
+    //
+    //    adjust measures
+    //
+    for (let m = staff.score().firstMeasure(); m; m = m.nextMeasure()) {
+        m.cmdRemoveStaves(staffIndex, staffIndex + 1)
+        if (m.hasMMRest()) {
+            m.mmRest()!.cmdRemoveStaves(staffIndex, staffIndex + 1)
+        }
+    }
+
+    staff.undoUnlink()
+
+    this.undo(new RemoveStaff(staff))
 }
 
 /** ridx - index of staff in part */
-Score.prototype.undoInsertStaff = function (this: Score, staff: Staff, ridx: staff_idx_t, _createRests = true): void {
-    this.insertStaff(staff, ridx) // TODO(port): undo (InsertStaff)
-    if (this.firstMeasure()) {
-        // TODO(port): Measure::cmdAddStaves (adding staves to a score with measures)
-        throw new Error('TODO(port): Score::undoInsertStaff into a score with measures')
+Score.prototype.undoInsertStaff = function (this: Score, staff: Staff, ridx: staff_idx_t, createRests = true): void {
+    this.undo(new InsertStaff(staff, ridx))
+    const idx = this.staffIdxOfPart(staff.part()) + ridx
+    for (let m = this.firstMeasure(); m; m = m.nextMeasure()) {
+        m.cmdAddStaves(idx, idx + 1, createRests)
+        if (m.hasMMRest()) {
+            m.mmRest()!.cmdAddStaves(idx, idx + 1, false)
+        }
     }
     // when newly adding an instrument,
     // this was already set when we created the staff
@@ -401,6 +462,136 @@ Score.prototype.undoInsertStaff = function (this: Score, staff: Staff, ridx: sta
     // and it doesn't work to adjust bracket & barlines until all staves are added
     // TODO: adjust brackets only when appropriate
     //adjustBracketsIns(idx, idx+1);
+}
+
+Score.prototype.undoRemoveBracket = function (this: Score, b: Bracket): void {
+    this.undo(new RemoveBracket(b.staff()!, b.column(), b.bracketType(), b.span()))
+}
+
+// ---- score.cpp: the part and staff functions that create undo commands ----
+
+Score.prototype.cmdRemovePart = function (this: Score, part: Part | null): void {
+    if (!part) {
+        return
+    }
+
+    const sidx = this.staffIdxOfPart(part)
+    const n = part.nstaves()
+
+    for (let i = 0; i < n; ++i) {
+        this.cmdRemoveStaff(sidx)
+    }
+
+    this.undoRemovePart(part, this.parts().indexOf(part))
+}
+
+Score.prototype.cmdRemoveStaff = function (this: Score, staffIdx: staff_idx_t): void {
+    const s = this.staff(staffIdx)!
+    this.adjustBracketsDel(staffIdx, staffIdx + 1)
+
+    this.undoRemoveStaff(s)
+}
+
+Score.prototype.adjustBracketsDel = function (this: Score, sidx: number, eidx: number): void {
+    if (!(sidx < eidx && eidx <= this.nstaves())) {
+        return
+    }
+
+    const staves = this.staves()
+    for (let staffIdx = 0; staffIdx < eidx; ++staffIdx) {
+        const staff = staves[staffIdx]
+        for (const bi of [...staff.brackets()]) {
+            const span = bi.bracketSpan()
+            if ((span === 0) || ((staffIdx + span) <= sidx)) {
+                continue
+            }
+            const startsOutsideDeletedRange = staffIdx < sidx
+            const endsOutsideDeletedRange = (staffIdx + span) >= eidx
+            if (startsOutsideDeletedRange && endsOutsideDeletedRange) {
+                // Shorten the bracket by the number of staves deleted
+                bi.undoChangeProperty(Pid.BRACKET_SPAN, span - (eidx - sidx))
+            } else if (startsOutsideDeletedRange) {
+                // Shorten the bracket by the number of staves deleted that were spanned by it
+                bi.undoChangeProperty(Pid.BRACKET_SPAN, sidx - staffIdx)
+            } else if (endsOutsideDeletedRange) {
+                if (eidx < staves.length) {
+                    // Move the bracket past the end of the deleted range,
+                    // and shorten it by the number of staves deleted that were spanned by it.
+                    // That is, add a new bracket; the old one will be removed when removing the staves.
+
+                    this.undoAddBracket(staves[eidx], bi.column(), bi.bracketType(), span - (eidx - staffIdx))
+                }
+            }
+        }
+    }
+}
+
+Score.prototype.adjustBracketsIns = function (this: Score, sidx: number, eidx: number): void {
+    const staves = this.staves()
+    for (let staffIdx = 0; staffIdx < staves.length; ++staffIdx) {
+        const staff = staves[staffIdx]
+        for (const bi of staff.brackets()) {
+            const span = bi.bracketSpan()
+            if ((span === 0) || ((staffIdx + span) < sidx) || (staffIdx > eidx)) {
+                continue
+            }
+            if ((sidx >= staffIdx) && (eidx <= (staffIdx + span))) {
+                bi.undoChangeProperty(Pid.BRACKET_SPAN, span + (eidx - sidx))
+            }
+        }
+    }
+}
+
+Score.prototype.updateBracesAndBarlines = function (this: Score, part: Part, newIndex: number): void {
+    let noBracesFound = true
+    for (let indexInPart = 0; indexInPart < part.nstaves(); ++indexInPart) {
+        const indexInScore = part.staves()[indexInPart].idx()
+        for (const bi of this.staff(indexInScore)!.brackets()) {
+            noBracesFound = false
+            if (bi.bracketType() === BracketType.BRACE) {
+                if ((indexInPart <= newIndex) && (newIndex <= bi.bracketSpan())) {
+                    bi.undoChangeProperty(Pid.BRACKET_SPAN, bi.bracketSpan() + 1)
+                }
+            }
+        }
+    }
+
+    const updateBracketSpan = (modIndex: number, refIndex: number): void => {
+        const modStaff = this.staff(part.staves()[modIndex].idx())!
+        const refStaff = this.staff(part.staves()[refIndex].idx())!
+        modStaff.undoChangeProperty(Pid.STAFF_BARLINE_SPAN, refStaff.getProperty(Pid.STAFF_BARLINE_SPAN))
+    }
+
+    if (newIndex >= 2) {
+        updateBracketSpan(newIndex - 1, newIndex - 2)
+    }
+
+    if (part.nstaves() === 2) {
+        const tp = searchTemplate(part.instrument().id())
+        if (tp) {
+            const firstStaffBarLineSpan = tp.barlineSpan[0]
+            if (firstStaffBarLineSpan) {
+                this.staff(part.staff(0)!.idx())!.undoChangeProperty(Pid.STAFF_BARLINE_SPAN, firstStaffBarLineSpan)
+            }
+            if (noBracesFound && (tp.bracket[0] !== BracketType.NO_BRACKET)) {
+                this.undoAddBracket(part.staves()[0], 0, tp.bracket[0], part.nstaves())
+            }
+        }
+    } else {
+        updateBracketSpan(newIndex, newIndex - 1)
+    }
+}
+
+/**
+ * Reconstructs brackets and barlines based on how they are in the masterScore. Must be called after creating an
+ * excerpt or adding new parts to it.
+ * TODO(port): excerpt scores (the master score has nothing to do)
+ */
+Score.prototype.remapBracketsAndBarlines = function (this: Score): void {
+    if (this.isMaster()) {
+        return
+    }
+    throw new Error('TODO(port): Score::remapBracketsAndBarlines for excerpts')
 }
 
 Score.prototype.undoAddBracket = function (this: Score, staff: Staff, level: number, type: BracketType, span: number): void {
@@ -427,9 +618,7 @@ Score.prototype.undoAddBracket = function (this: Score, staff: Staff, level: num
         }
     }
 
-    // TODO(port): undo (AddBracket)
-    staff.setBracketType(level, type)
-    staff.setBracketSpan(level, span)
+    this.undo(new AddBracket(staff, level, type, span))
 }
 
 /** acts on the linked scores as well (TODO(port): linked scores) */

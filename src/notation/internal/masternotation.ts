@@ -22,7 +22,8 @@ import type { MasterScore } from '../../engraving/dom/masterscore'
 import type { Measure } from '../../engraving/dom/measure'
 import type { TimeSig } from '../../engraving/dom/timesig'
 import type { TextBase } from '../../engraving/dom/textbase'
-import { NotationParts } from './notationparts'
+import { MasterNotationParts } from './masternotationparts'
+import type { NotationParts } from './notationparts'
 import type { ScoreCreateOptions } from '../notationtypes'
 import '../../engraving/editing/edit'
 
@@ -103,7 +104,7 @@ export class MasterNotation {
 
     masterScore(): MasterScore { return this.m_score }
 
-    parts(): NotationParts { return new NotationParts(this.m_score) }
+    parts(): NotationParts { return new MasterNotationParts(this.m_score) }
 
     setupNewScore(score: MasterScore, scoreOptions: ScoreCreateOptions): void {
         this.m_score = score
