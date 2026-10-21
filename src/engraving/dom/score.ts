@@ -1761,15 +1761,21 @@ export class Score extends EngravingObject {
         case ElementType.PICK_SCRAPE:
         case ElementType.TEXTLINE:
         case ElementType.HAIRPIN:
-        case ElementType.PARTIAL_LYRICSLINE:
-        case ElementType.OTTAVA: {
-            const s = element as unknown as Spanner
-            this.removeSpanner(s)
-            for (const ss of s.spannerSegments()) {
-                if (ss.system()) {
-                    ss.system()!.remove(ss)
-                }
+        case ElementType.PARTIAL_LYRICSLINE: {
+            const spanner = element as unknown as Spanner
+            if (et === ElementType.TEXTLINE && spanner.anchor() === 3 /* Spanner::Anchor::NOTE */) {
+                break
             }
+            // the segments stay in their systems (like C++) until these are laid out again
+            spanner.triggerLayout()
+            this.removeSpanner(spanner)
+            break
+        }
+        case ElementType.OTTAVA: {
+            const o = element as unknown as Spanner
+            o.triggerLayout()
+            this.removeSpanner(o)
+            // TODO(port): Ottava -> staff()->updateOttava()
             break
         }
         case ElementType.CHORD:

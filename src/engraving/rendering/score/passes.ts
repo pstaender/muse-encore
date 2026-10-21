@@ -12,6 +12,8 @@ import type { EngravingItem } from '../../dom/engravingitem'
 import type { EngravingObject } from '../../dom/engravingobject'
 import type { Score } from '../../dom/score'
 import type { Measure } from '../../dom/measure'
+import type { ChordRest } from '../../dom/chordrest'
+import { SegmentType } from '../../dom/segment'
 import type { LayoutContext } from './layoutcontext'
 import { TLayout } from './tlayout'
 
@@ -40,6 +42,17 @@ export class PassResetLayoutData {
                 resetLayoutData(mb)
                 if (mb.isMeasure() && (mb as Measure).mmRest()) {
                     resetLayoutData((mb as Measure).mmRest()!)
+                }
+                if (mb.isMeasure()) {
+                    // beams are children of their system
+                    for (let s = (mb as Measure).first(SegmentType.ChordRest); s; s = s.next(SegmentType.ChordRest)) {
+                        for (const e of s.elist()) {
+                            const beam = e && e.isChordRest() ? (e as ChordRest).beam() : null
+                            if (beam && beam.elements()[0] === e) {
+                                resetLayoutData(beam)
+                            }
+                        }
+                    }
                 }
             }
             for (const sp of [...score.spanner(), ...score.unmanagedSpanners()]) {

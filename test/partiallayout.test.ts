@@ -80,6 +80,37 @@ const KNOWN_EXCEPTIONS: Record<string, string[] | 'all'> = {
     // autoplace it again (SystemLayout::layoutParenthesisAndBigTimeSigs is only called for collected systems).
     'bigTimeSig-1.mscz': 'all',
     'bigTimeSig-2.mscz': 'all',
+    // The same "rangeDone" restore of the next system's first measure: system level layout of that measure (the x
+    // position of a cross-staff arpeggio, rests positioned by SystemLayout/beams) is not redone (checked: the
+    // differences disappear when the layout does not stop at the range end).
+    'arpeggio-3.mscz': 'all',
+    'beams-24.mscz': 'all',
+    'rests-3.mscz': 'all',
+    // Undo of a command that moved the last system to the next page: PageLayout::collectPage takes the systems after
+    // the range unchanged ("rangeDone") and checks whether the next one fits with its height from the previous layout,
+    // which includes the vertical spread of its page (restoreLayout2 is only applied when it is appended).
+    'tie-18.mscz': ['eighth'],
+    // A slur that spanned two systems before the undo keeps its second (now unused) segment: getNextLayoutSystemSegment
+    // only reuses free segments and layoutSystemsDone never runs (LayoutState::processedSpanners is never filled, also
+    // in C++); ChordLayout::layoutArticulations3 places the articulations of the end chord against backSegment(), whose
+    // layout data is stale in the partial layout and reset in the full layout.
+    'slurs-2.mscx': ['eighth'],
+    // The measures of the range are laid out (MeasureLayout::getNextMeasure -> Segment::createShapes,
+    // Measure::computeTicks) while they still belong to their old system, so a staff hidden there (hideEmptyStaves)
+    // makes the segments of that staff invisible and changes the segment durations; in a full layout the measures have
+    // no system yet (prepareScore resets the explicit parents).
+    'paren-ll.mscz': ['eighth'],
+    'gliss-3.mscz': 'all',
+    // The partial layout starts with the system of the measure before the range (initLayoutContext goes back one
+    // measure, here a multimeasure rest that is split by the edit), so a shorter first measure cannot move up into the
+    // previous system.
+    'mmrest-10.mscx': 'all',
+    // The partial layout reuses the old System objects (getNextSystem takes them from the system list): their SysStaff
+    // data from the previous layout (positions restored by restoreLayout, beams parented to the system) is used before
+    // the system is laid out again, e.g. for a cross-staff laissez vibrer (checked: the differences disappear with new
+    // systems).
+    'lv-7.mscz': ['flip'],
+    'trem-beam-small.mscz': 'all',
 }
 
 function withLayoutMode<T>(partial: boolean, f: () => T): T {
@@ -147,7 +178,8 @@ function vtestSelection(count: number): string[] {
 describe.runIf(hasSubmodule)('partial layout', () => {
     const files = [
         `${TEST_FILES}/Chopin_-_Nocturne_Op_9_No_2_E_Flat_Major.mscz`, `${VTEST}/beams-1.mscz`, `${VTEST}/accidental-1.mscx`,
-        `${VTEST}/ornament-7.mscz`, `${VTEST}/tie-9.mscz`, `${VTEST}/lyrics-14.mscz`,
+        `${VTEST}/ornament-7.mscz`, `${VTEST}/tie-9.mscz`, `${VTEST}/lyrics-14.mscz`, `${VTEST}/articulation-5.mscz`,
+        `${VTEST}/note-line.mscz`, `${VTEST}/slurs-27.mscz`,
     ]
     for (const file of files) {
         it(`equals the full layout after edits: ${file.split('/').pop()}`, async () => {

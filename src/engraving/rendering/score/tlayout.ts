@@ -2375,7 +2375,15 @@ export class TLayout {
                 break
             }
         }
-        // TODO(port): fermatas on barlines
+
+        if (!item.segment()) {
+            return
+        }
+
+        const fermata = item.segment()!.findAnnotation(ElementType.FERMATA, item.track(), item.track() + VOICES) as Fermata | null
+        if (fermata) {
+            TLayout.layoutFermata(fermata, ctx)
+        }
     }
 
     static updateBarlineShape(item: BarLine, ldata: BarLineLayoutData, ctx: LayoutContext): void {

@@ -101,6 +101,14 @@ export class System extends EngravingItem {
                 mb.resetExplicitParent()
             }
         }
+        // ~EngravingObject moves the remaining children to the dummy, so their explicit parent is no longer this
+        // system, e.g. a spanner segment that was removed from the system together with its spanner (System::remove
+        // keeps its parent) and is reused when the spanner is added back by an undo
+        for (const ch of [...this.children()]) {
+            if (ch.explicitParent() === this) {
+                ch.resetExplicitParent()
+            }
+        }
     }
 
     clear(): void {
