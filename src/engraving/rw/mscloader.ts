@@ -192,5 +192,7 @@ function styleDefaultByMscVersion(mscVer: number): number {
 export function loadScore(data: Uint8Array | ArrayBuffer): MasterScore {
     const score = new MasterScore()
     new MscLoader().loadMscz(score, new MscReader(data))
+    // C++ EngravingProject::setupMasterScore()
+    score.rebuildMidiMapping()
     return score
 }

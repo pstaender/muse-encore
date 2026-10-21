@@ -93,12 +93,15 @@ export class InstrChannel {
     private m_userBankController = false
     private m_init: MidiCoreEvent[] = Array.from({ length: InstrChannel.A_INIT_COUNT }, () => new MidiCoreEvent())
     private m_mustUpdateInit = true
+    private m_channel = -1 // mscore channel number, mapped to midi port/channel
 
     midiActions: NamedEventList[] = []
     articulation: MidiArticulation[] = []
 
     name(): string { return this.m_name }
     setName(n: string): void { this.m_name = n }
+    channel(): number { return this.m_channel }
+    setChannel(v: number): void { this.m_channel = v }
     program(): number { return this.m_program }
     setProgram(v: number): void {
         this.m_program = v

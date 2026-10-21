@@ -75,6 +75,8 @@ import type { ChordBracket } from '../../dom/chordbracket'
 import type { Tapping, TappingHalfSlur } from '../../dom/tapping'
 import type { SoundFlag } from '../../dom/soundflag'
 import type { Bend } from '../../dom/bend'
+import { NoteEvent } from '../../dom/noteevent'
+import { PlayEventType } from '../../dom/chord'
 import { SystemDividerType, type SystemDivider } from '../../dom/systemdivider'
 import type { System } from '../../dom/system'
 import { FBIDigitNone, FiguredBassContLine, FiguredBassModifier, type FiguredBass, type FiguredBassItem } from '../../dom/figuredbass'
@@ -1814,7 +1816,7 @@ export class TWrite {
         xml.endElement()
     }
 
-    static writeInstrChannel(item: InstrChannel, xml: XmlWriter, _part: Part | null): void {
+    static writeInstrChannel(item: InstrChannel, xml: XmlWriter, part: Part | null): void {
         if (!item.name() || item.name() === InstrChannel.DEFAULT_NAME) {
             xml.startElement('Channel')
         } else {
@@ -1854,7 +1856,11 @@ export class TWrite {
         }
         xml.tag('synti', item.synti())
 
-        // TODO(port): midiPort/midiChannel (only written if the score's MIDI mapping is exported, checkMidiMapping)
+        if (part && part.masterScore().exportMidiMapping() && part.score() === part.masterScore()) {
+            const mm = part.masterScore().midiMappingAt(item.channel())
+            xml.tag('midiPort', mm.port())
+            xml.tag('midiChannel', mm.channel())
+        }
         for (const a of item.midiActions) {
             TWrite.writeNamedEventList(a, xml, 'MidiAction')
         }
@@ -2114,7 +2120,14 @@ export class TWrite {
             TWrite.writeSpannerEnd(item.tieBack()!, xml, ctx, item, item.track())
         }
 
-        // TODO(port): <Events> (note play events, only written if the chord's play event type is not Auto)
+        const chord = item.explicitParent() ? item.chord() : null
+        if ((!chord || chord.playEventType() !== PlayEventType.Auto) && item.playEvents().length) {
+            xml.startElement('Events')
+            for (const e of item.playEvents()) {
+                TWrite.writeNoteEvent(e, xml, ctx)
+            }
+            xml.endElement()
+        }
 
         for (const id of [Pid.PITCH, Pid.CENT_OFFSET, Pid.TPC1, Pid.TPC2, Pid.SMALL, Pid.MIRROR_HEAD, Pid.DOT_POSITION,
             Pid.HEAD_SCHEME, Pid.HEAD_GROUP, Pid.USER_VELOCITY, Pid.PLAY, Pid.TUNING, Pid.FRET, Pid.STRING,
@@ -2141,6 +2154,14 @@ export class TWrite {
 
         TWrite.writeProperty(item, xml, Pid.HIDE_GENERATED_PARENTHESES)
 
+        xml.endElement()
+    }
+
+    static writeNoteEvent(item: NoteEvent, xml: XmlWriter, _ctx: WriteContext): void {
+        xml.startElement('Event')
+        xml.tag('pitch', item.pitch(), 0)
+        xml.tag('ontime', item.ontime(), 0)
+        xml.tag('len', item.len(), NoteEvent.NOTE_LENGTH)
         xml.endElement()
     }
 

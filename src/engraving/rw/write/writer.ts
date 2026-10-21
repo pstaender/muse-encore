@@ -237,7 +237,7 @@ export class Writer {
 
         ctx.setCurTrack(0)
 
-        // TODO(port): score->masterScore()->checkMidiMapping() (decides whether midiPort/midiChannel are written)
+        score.masterScore().checkMidiMapping()
 
         const shouldWritePart = (part: Part): boolean => {
             if (!range) {

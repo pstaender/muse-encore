@@ -246,7 +246,7 @@ export class ChangeStaff extends UndoCommand {
         this.mergeMatchingRests = oldMergeMatchingRests
 
         staff.triggerLayout()
-        // TODO(port): staff->masterScore()->rebuildMidiMapping() (playback)
+        staff.masterScore().rebuildMidiMapping()
         staff.masterScore().setPlaylistDirty()
     }
 

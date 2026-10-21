@@ -100,6 +100,8 @@ import { SoundFlag } from '../../dom/soundflag'
 import { SystemDivider, SystemDividerType } from '../../dom/systemdivider'
 import { Bend } from '../../dom/bend'
 import { PitchValue } from '../../types/pitchvalue'
+import { NoteEvent } from '../../dom/noteevent'
+import { PlayEventType } from '../../dom/chord'
 import type { Capo } from '../../dom/capo'
 import type { StringTunings } from '../../dom/stringtunings'
 import type { HarpPedalDiagram, HarpStringType, PedalPosition } from '../../dom/harppedaldiagram'
@@ -2070,7 +2072,7 @@ export class TRead {
         }
     }
 
-    static readInstrumentProperties(item: Instrument, e: XmlReader, _ctx: ReadContext, _part: Part,
+    static readInstrumentProperties(item: Instrument, e: XmlReader, _ctx: ReadContext, part: Part | null,
                                     customDrumset: { value: boolean }): boolean {
         const tag = e.name()
         if (tag === 'soundId') {
@@ -2126,7 +2128,7 @@ export class TRead {
             TRead.readStringData(item.stringData(), e)
         } else if (tag === 'Channel' || tag === 'channel') {
             const a = new InstrChannel()
-            TRead.readInstrChannel(a, e)
+            TRead.readInstrChannel(a, e, part)
             item.appendChannel(a)
         } else if (tag === 'Tablature') {
             // support tag "Tablature" for a while for compatibility with existent 2.0 scores
@@ -3070,6 +3072,21 @@ export class TRead {
         }
     }
 
+    static readNoteEvent(item: NoteEvent, e: XmlReader, _ctx: ReadContext): void {
+        while (e.readNextStartElement()) {
+            const tag = e.name()
+            if (tag === 'pitch') {
+                item.setPitch(e.readInt())
+            } else if (tag === 'ontime') {
+                item.setOntime(e.readInt())
+            } else if (tag === 'len') {
+                item.setLen(e.readInt())
+            } else {
+                e.unknown()
+            }
+        }
+    }
+
     static readSystemDivider(d: SystemDivider, e: XmlReader, ctx: ReadContext): void {
         const type = e.attribute('type') === 'left' ? SystemDividerType.LEFT : SystemDividerType.RIGHT
         d.setDividerType(type)
@@ -3508,8 +3525,23 @@ export class TRead {
             b.setTrack(n.track())
             TRead.readBend(b, e, ctx)
             n.add(b)
-        } else if (tag === 'Events' || tag === 'ChordLine') {
-            // TODO(port): play events
+        } else if (tag === 'Events') {
+            const playEvents: NoteEvent[] = []
+            while (e.readNextStartElement()) {
+                const t = e.name()
+                if (t === 'Event') {
+                    const ne = new NoteEvent()
+                    TRead.readNoteEvent(ne, e, ctx)
+                    playEvents.push(ne)
+                } else {
+                    e.unknown()
+                }
+            }
+            n.setPlayEvents(playEvents)
+            if (n.explicitParent()) {
+                n.chord().setPlayEventType(PlayEventType.User)
+            }
+        } else if (tag === 'ChordLine') {
             e.skipCurrentElement()
         } else if (tag === 'offset') {
             TRead.readItemProperties(n, e, ctx)
@@ -3547,11 +3579,15 @@ export class TRead {
     }
 
     /** TRead::read(InstrChannel*): only name, program and bank (no playback data) */
-    static readInstrChannel(item: InstrChannel, e: XmlReader): void {
+    static readInstrChannel(item: InstrChannel, e: XmlReader, part: Part | null = null): void {
         item.setName(e.attribute('name'))
         if (!item.name()) {
             item.setName(InstrChannel.DEFAULT_NAME)
         }
+
+        let midiPort = -1
+        let midiChannel = -1
+
         while (e.readNextStartElement()) {
             const tag = e.name()
             if (tag === 'program') {
@@ -3598,14 +3634,22 @@ export class TRead {
                 item.setSynti(e.readText())
             } else if (tag === 'color') {
                 item.setColor(e.readInt())
-            } else if (tag === 'mute' || tag === 'solo' || tag === 'midiPort' || tag === 'midiChannel') {
-                // TODO(port): part audio settings compat, MIDI mapping
+            } else if (tag === 'mute' || tag === 'solo') {
+                // TODO(port): part audio settings compat (ctx.addPartAudioSettingCompat)
                 e.skipCurrentElement()
+            } else if (tag === 'midiPort') {
+                midiPort = e.readInt()
+            } else if (tag === 'midiChannel') {
+                midiChannel = e.readInt()
             } else {
                 e.unknown()
             }
         }
         item.setMustUpdateInit(true)
+
+        if ((midiPort !== -1 || midiChannel !== -1) && part && part.score().isMaster()) {
+            part.masterScore().addMidiMapping(item, part, midiPort, midiChannel)
+        }
     }
 
     static readStem(s: Stem, e: XmlReader, ctx: ReadContext): void {

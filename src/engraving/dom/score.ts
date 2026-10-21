@@ -1047,8 +1047,9 @@ export class Score extends EngravingObject {
             this.m_parts.push(part)
         }
 
-        // TODO(port): masterScore()->rebuildMidiMapping(), markInstrumentsAsPrimary(m_parts) (playback)
+        this.masterScore().rebuildMidiMapping()
         this.masterScore().setInstrumentsChanged(true)
+        // TODO(port): markInstrumentsAsPrimary(m_parts) (playback)
     }
 
     removePart(part: Part): void {
@@ -1069,7 +1070,7 @@ export class Score extends EngravingObject {
             }
         }
 
-        // TODO(port): masterScore()->rebuildMidiMapping() (playback)
+        this.masterScore().rebuildMidiMapping()
         this.masterScore().setInstrumentsChanged(true)
     }
 

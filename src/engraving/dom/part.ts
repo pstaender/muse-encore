@@ -166,6 +166,32 @@ export class Part extends EngravingObject {
         return Fraction.fromTicks(this.harpDiagrams.keyAt(i - 1))
     }
 
+    /** C++ Part::masterPart() */
+    masterPart(): Part {
+        if (this.score().isMaster()) {
+            return this
+        }
+        if (!this.m_staves.length) {
+            return this
+        }
+
+        const st = this.m_staves[0]
+        const links = st.links()
+        if (!links) {
+            return this
+        }
+
+        for (const le of links) {
+            if (le.isStaff() && le.score().isMaster()) {
+                const p = (le as Staff).part()
+                if (p) {
+                    return p
+                }
+            }
+        }
+        return this
+    }
+
     instrument(tick: Fraction = new Fraction(-1, 1)): Instrument {
         return this.m_instruments.instrument(tick.ticks())
     }

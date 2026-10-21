@@ -7,11 +7,13 @@
  *
  * Like C++, the elements that did not change are read with the read400 readers (here: the shared read460
  * readers, which contain the read400/read410 compat code).
- * TODO(port): excerpts (<Score> recursion), Audio, note events,
+ * TODO(port): excerpts (<Score> recursion), Audio,
  * MIDI data of instrument channels,
  * tempo map, MIDI mapping, <ticklen> (< 1.12, needs the compat time sig map)
  */
 
+import { PlayEventType } from '../../dom/chord'
+import { NoteEvent } from '../../dom/noteevent'
 import { Bend } from '../../dom/bend'
 import { SystemDivider } from '../../dom/systemdivider'
 import { Image } from '../../dom/image'
@@ -730,7 +732,20 @@ export class Read206 {
             TRead.readItemPropertiesOnly(dot, e, ctx)
             note.add(dot)
         } else if (tag === 'Events') {
-            e.skipCurrentElement() // TODO(port): note events (playback only)
+            note.playEvents().length = 0 // remove default event
+            while (e.readNextStartElement()) {
+                const etag = e.name()
+                if (etag === 'Event') {
+                    const ne = new NoteEvent()
+                    TRead.readNoteEvent(ne, e, ctx)
+                    note.playEvents().push(ne)
+                } else {
+                    e.unknown()
+                }
+            }
+            if (note.explicitParent()) {
+                note.chord().setPlayEventType(PlayEventType.User)
+            }
         } else if (tag === 'endSpanner') {
             const id = e.intAttribute('id')
             const sp = ctx.findSpanner(id)

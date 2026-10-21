@@ -5,9 +5,10 @@
  *
  * Port of src/engraving/dom/note.h/.cpp
  *
- * TODO(port): tablature frets, drumsets, guitar bends, playback events, jump points, editing/dragging
+ * TODO(port): tablature frets, drumsets, guitar bends, jump points, editing/dragging
  */
 
+import { NoteEvent } from './noteevent'
 import { NoteVal } from './input'
 import { PointF } from '../../framework/draw/types/geometry'
 import { Fraction } from '../types/fraction'
@@ -163,6 +164,7 @@ export class Note extends EngravingItem {
     private m_hasParens = false
 
     private m_el: EngravingItem[] = [] // fingering, other text, symbols or images
+    private m_playEvents: NoteEvent[] = [new NoteEvent()] // add default play event
     private m_dots: NoteDot[] = []
     private m_spannerFor: Spanner[] = []
     private m_spannerBack: Spanner[] = []
@@ -178,6 +180,7 @@ export class Note extends EngravingItem {
         this.m_accidental = null
         this.m_el = []
         this.m_dots = []
+        this.m_playEvents = original.m_playEvents.map(e => e.clone())
         this.m_tieFor = null
         this.m_tieBack = null
         this.m_spannerFor = []
@@ -2098,6 +2101,10 @@ export class Note extends EngravingItem {
         return new PointF(x, this.pos().y())
     }
 
+    playEvents(): NoteEvent[] { return this.m_playEvents }
+    noteEvent(idx: number): NoteEvent { return this.m_playEvents[idx] }
+    setPlayEvents(l: readonly NoteEvent[]): void { this.m_playEvents = l.map(e => e.clone()) }
+
     // accessibility
 
     override accessibleInfo(): string {
@@ -2108,8 +2115,15 @@ export class Note extends EngravingItem {
         const duration = this.chord().durationUserName()
         const voice = arg(mtrc('engraving', 'Voice: %1'), this.track() % VOICES + 1)
         let pitchName: string
-        // TODO(port): onofftime (the note's play events are not ported)
-        const onofftime = ''
+        let onofftime = ''
+        if (this.m_playEvents.length) {
+            const on = this.m_playEvents[0].ontime()
+            const off = this.m_playEvents[0].offtime()
+            if (on !== 0 || off !== NoteEvent.NOTE_LENGTH) {
+                //: Note-on and note-off times relative to note duration, expressed in thousandths (per mille)
+                onofftime = ' ' + arg(mtrc('engraving', '(on %1‰ off %2‰)'), on, off)
+            }
+        }
 
         const drumset = this.part()!.instrument(this.chord().tick()).drumset()
         if (this.fixed() && this.headGroup() === NoteHeadGroup.HEAD_SLASH) {
