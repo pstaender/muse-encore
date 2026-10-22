@@ -3,11 +3,11 @@
  * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
- * Port of parts of src/engraving/editing/editexcerpt.h/.cpp (AddExcerpt, RemoveExcerpt) and of
+ * Port of parts of src/engraving/editing/editexcerpt.h/.cpp (AddExcerpt, RemoveExcerpt, SwapExcerpt, ChangeExcerptTitle) and of
  * MasterScore::deleteExcerpt / removeExcerpt (excerpt.cpp, masterscore.cpp), which are added to MasterScore by this
  * module (module augmentation).
  *
- * TODO(port): SwapExcerpt, ChangeExcerptTitle, creating excerpts (Excerpt::createExcerpt, cloneStaff, ...)
+ * TODO(port): creating excerpts (Excerpt::createExcerpt, cloneStaff, ...)
  */
 
 import { VOICES } from '../types/types'
@@ -29,7 +29,7 @@ MasterScore.prototype.removeExcerpt = function (this: MasterScore, ex: Excerpt):
     const i = this.excerpts().indexOf(ex)
     if (i >= 0) {
         this.excerpts().splice(i, 1)
-        // TODO(port): setExcerptsChanged(true)
+        this.setExcerptsChanged(true)
     }
 }
 
@@ -108,6 +108,24 @@ export class RemoveExcerpt extends UndoCommand {
     }
 }
 
+export class SwapExcerpt extends UndoCommand {
+    constructor(private score: MasterScore, private pos1: number, private pos2: number) {
+        super()
+    }
+
+    override type(): CommandType { return CommandType.SwapExcerpt }
+    override name(): string { return 'SwapExcerpt' }
+    override objectItems(): EngravingObject[] { return [this.score] }
+
+    protected override flip(_ed: EditData | null): void {
+        const excerpts = this.score.excerpts()
+        const tmp = excerpts[this.pos1]
+        excerpts[this.pos1] = excerpts[this.pos2]
+        excerpts[this.pos2] = tmp
+        this.score.setExcerptsChanged(true)
+    }
+}
+
 export class ChangeExcerptTitle extends UndoCommand {
     constructor(private excerpt: Excerpt, private title: string) {
         super()
@@ -120,6 +138,6 @@ export class ChangeExcerptTitle extends UndoCommand {
         const s = this.title
         this.title = this.excerpt.name()
         this.excerpt.setName(s)
-        // TODO(port): excerpt->masterScore()->setExcerptsChanged(true) (notifications)
+        this.excerpt.masterScore()!.setExcerptsChanged(true)
     }
 }

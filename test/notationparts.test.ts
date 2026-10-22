@@ -186,9 +186,11 @@ describe.skipIf(!hasSubmodule)('NotationParts on real scores', () => {
         const excerpt = score.excerpts()[0]
         const part = score.parts().find(p => p.id() === excerpt.initialPartId())!
         const oldName = excerpt.name()
+        expect(score.excerptsChanged()).toBe(false)
         expect(replacePartInstrument(score, part.id(), 'flute')).toBe(true)
         expect(part.instrument().id()).toBe('flute')
         expect(excerpt.name()).toBe('Flute')
+        expect(score.excerptsChanged()).toBe(true)
         expect(undo(score)).toBe(true)
         expect(excerpt.name()).toBe(oldName)
     })

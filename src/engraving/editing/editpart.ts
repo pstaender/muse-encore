@@ -282,14 +282,15 @@ export class EditPart {
             const cutaway = staff.cutaway()
             const hideSystemBarLine = staff.hideSystemBarLine()
             const mergeMatchingRests = staff.mergeMatchingRests()
-            // TODO(port): reflectTranspositionInLinkedTab (ChangeStaff)
+            const reflectTransposition = staff.reflectTranspositionInLinkedTab()
 
             // Get new clef type from the new instrument
             const newClefType = newInstrument.clefType(staffIdx)
 
             // Only update staff if clef type changes
             if (!currentClefType.equals(newClefType)) {
-                score.undo(new ChangeStaff(staff, visible, newClefType, userDist, cutaway, hideSystemBarLine, mergeMatchingRests))
+                score.undo(new ChangeStaff(staff, visible, newClefType, userDist, cutaway, hideSystemBarLine, mergeMatchingRests,
+                    reflectTransposition))
             }
 
             // Apply new staff type if provided

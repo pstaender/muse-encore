@@ -89,6 +89,7 @@ export class MasterScore extends Score {
             this.initParts(ex)
         }
         this.m_excerpts.splice(index === -1 ? this.m_excerpts.length : index, 0, ex)
+        this.setExcerptsChanged(true)
     }
 
     /** C++ MasterScore::initParts (excerpt.cpp) */
@@ -147,6 +148,8 @@ export class MasterScore extends Score {
     override cmdState(): CmdState { return this.m_cmdState }
     addLayoutFlags(val: number): void { this.m_cmdState.layoutFlags |= val }
     setInstrumentsChanged(val: boolean): void { this.m_cmdState.instrumentsChanged = val }
+    setExcerptsChanged(val: boolean): void { this.m_cmdState.excerptsChanged = val }
+    excerptsChanged(): boolean { return this.m_cmdState.excerptsChanged }
 
     setPlaylistDirty(): void {
         this.m_expandedRepeatList.setScoreChanged()

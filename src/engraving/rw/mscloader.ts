@@ -148,6 +148,7 @@ export class MscLoader {
                 if (!ok) {
                     throw new MscLoadError(`bad format: ${e.errorString()}`)
                 }
+                score.setExcerptsChanged(false)
                 return
             } else {
                 e.unknown()

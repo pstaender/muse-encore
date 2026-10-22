@@ -122,6 +122,7 @@ export function loadScore(data: Uint8Array | ArrayBuffer): MasterScore {
         }
     }
     score.setIsOpen(true) // GlobalContext::setCurrentNotation: the score is open (saved as <open>)
+    score.setExcerptsChanged(false) // MasterNotation::initExcerptNotations
     return score
 }
 

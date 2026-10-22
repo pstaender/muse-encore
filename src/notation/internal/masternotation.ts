@@ -117,7 +117,9 @@ export class MasterNotation {
 
         this.applyOptions(score, scoreOptions)
 
-        // TODO(port): initAfterSettingScore, excerpts
+        // TODO(port): initAfterSettingScore
+        // addExcerptsToMasterScore(score->excerpts()): a new score has no excerpts yet
+        score.setExcerptsChanged(false)
     }
 
     applyOptions(score: MasterScore, scoreOptions: ScoreCreateOptions, createdFromTemplate = false): void {
