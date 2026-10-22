@@ -22,7 +22,7 @@ const RENAME: Record<string, string> = { 'CapoParams::TransposeMode': 'CapoTrans
 interface TStr { context: string; str: string; disambiguation?: string; n?: number }
 
 function unescape(s: string): string {
-    return s.replace(/\\"/g, '"')
+    return s.replace(/\\"/g, '"').replace(/\\u([0-9a-fA-F]{4})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)))
 }
 
 function translatableStrings(s: string): TStr[] {

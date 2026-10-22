@@ -19,6 +19,7 @@ import { isToolBarVisible, onToolBarLayoutChanged, restoreDefaultLayout, setStat
 import { currentLanguage } from '../i18n'
 import { registerPanelActions } from '../panels/PanelDock'
 import { isPanelOpen, onPanelsChanged, togglePanel } from '../panels/panels'
+import { canOpenStaffProperties, openStaffProperties } from '../dialogs/EditStaffDialog'
 import { actionsChanged, isActionEnabled, registerAction, triggerAction } from './actions'
 import { registerNotationActions } from './notationactions'
 import { registerPlaybackActions } from '../playback/playbackcontroller'
@@ -48,6 +49,9 @@ export function registerAppActions(): void {
     registerAction('preference-dialog', { run: () => showDialog('preferences') })
     // the editing and note input actions (incl. undo/redo, select all, escape): notationactions.ts
     registerNotationActions()
+
+    // NotationActionController::openStaffProperties
+    registerAction('staff-properties', { run: openStaffProperties, enabled: () => scoreShown() && canOpenStaffProperties(), context: 'notation' })
 
     // ---- tools ----
     // NotationActionController::openTransposeDialog

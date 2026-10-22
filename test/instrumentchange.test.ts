@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Instrument changes and replaced instruments: MuseScore's instrumentchange_tests (add, delete, change, copy with
-// their reference files, compared by the staves of writeMscx), InstrumentChange::setupInstrument through the
+// their reference files (testMixer: the patch of the instrument change), compared by the staves of writeMscx), InstrumentChange::setupInstrument through the
 // instrument-change-text action (the instrument comes from the select instrument provider), "Replace instrument" and the
 // part's sharp/flat preference, which transpose the notes and key signatures (Transpose::transpositionChanged).
 import { existsSync, readFileSync } from 'node:fs'
@@ -13,6 +13,7 @@ import { Factory } from '../src/engraving/dom/factory'
 import { SegmentType } from '../src/engraving/dom/segment'
 import { SelectType } from '../src/engraving/dom/select'
 import { ChangeInstrument } from '../src/engraving/editing/editinstrumentchange'
+import { ChangePatch } from '../src/engraving/editing/editpart'
 import { Instrument } from '../src/engraving/dom/instrument'
 import { ElementType, PreferSharpFlat } from '../src/engraving/types/types'
 import type { InstrumentChange } from '../src/engraving/dom/instrchange'
@@ -87,6 +88,20 @@ describe.skipIf(!hasData)('instrument changes', () => {
         score.undo(new ChangeInstrument(ic, ic.instrument()))
         score.endCmd()
         expectRef(score, 'change')
+    })
+
+    it('changes the patch of an instrument change (testMixer)', () => {
+        const score = open(`${DATA}mixer.mscx`)
+        const s = secondMeasureSegment(score)
+        const ic = s.annotations()[0] as unknown as InstrumentChange
+        const idx = score.staff(0)!.channel(s.tick(), 0)
+        const c = score.staff(0)!.part().instrument(s.tick()).channel(idx)!
+        const mp = { bank: 0, drum: false, name: 'Viola', prog: 41, synti: 'Fluid', sfid: 0 }
+        score.startCmd()
+        ic.setXmlText('Mixer Viola')
+        score.undo(new ChangePatch(score, c, mp))
+        score.endCmd()
+        expectRef(score, 'mixer')
     })
 
     it('copies an instrument change (testCopy)', () => {

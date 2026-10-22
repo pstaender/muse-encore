@@ -29,7 +29,7 @@ import { mtrc, qtrc } from '../../framework/global/translation'
 import type { Score } from '../../engraving/dom/score'
 import type { ScoreOrder } from '../../engraving/dom/scoreorder'
 import type { Staff } from '../../engraving/dom/staff'
-import { formatInstrumentTitle, isMainInstrumentForPart, type InstrumentKey, type PartInstrument, type PartInstrumentList } from '../notationtypes'
+import { formatInstrumentTitle, isMainInstrumentForPart, staffConfigEquals, type StaffConfig, type InstrumentKey, type PartInstrument, type PartInstrumentList } from '../notationtypes'
 import { Pid } from '../../engraving/dom/property'
 import { PreferSharpFlat } from '../../engraving/types/types'
 import type { NotationInteraction } from './notationinteraction'
@@ -67,10 +67,6 @@ function formatInstrumentTitleOnScore(instrumentName: string, trait: Trait, inst
         .replace('%1', instrumentName).replace('%2', num)
 }
 
-/** C++ StaffConfig (the parts doSetStaffConfig changes) */
-interface StaffConfig {
-    visible: boolean
-}
 
 export class NotationParts {
     constructor(private m_score: Score, private m_interaction: NotationInteraction | null = null) {}
@@ -235,9 +231,36 @@ export class NotationParts {
         this.apply()
     }
 
-    /** C++ staffConfig(staffId) (only the visibility is ported) */
-    private staffConfig(staff: Staff): StaffConfig {
-        return { visible: staff.visible() }
+    /** C++ staffConfig(staffId) */
+    staffConfig(staff: Staff): StaffConfig {
+        const staffType = staff.staffType(new Fraction(0, 1))
+        return {
+            visible: staff.visible(),
+            userDistance: staff.userDist(),
+            cutaway: staff.cutaway(),
+            hideSystemBarline: staff.hideSystemBarLine(),
+            mergeMatchingRests: staff.mergeMatchingRests(),
+            clefTypeList: staff.defaultClefType().clone(),
+            reflectTranspositionInLinkedTab: staff.reflectTranspositionInLinkedTab(),
+            staffType: staffType.clone(),
+        }
+    }
+
+    setStaffConfig(staffId: string, config: StaffConfig): void {
+        const staff = this.staffModifiable(staffId)
+        if (!staff) {
+            return
+        }
+
+        if (staffConfigEquals(this.staffConfig(staff), config)) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Edit staff properties'))
+
+        this.doSetStaffConfig(staff, config)
+
+        this.apply()
     }
 
     appendStaff(staff: Staff, destinationPartId: string): boolean {
@@ -454,8 +477,10 @@ export class NotationParts {
             return
         }
 
-        this.score().undo(new ChangeStaff(staff, config.visible))
-        this.score().undo(new ChangeStaffType(staff, staffType))
+        this.score().undo(new ChangeStaff(staff, config.visible, config.clefTypeList, config.userDistance, config.cutaway,
+            config.hideSystemBarline, config.mergeMatchingRests, config.reflectTranspositionInLinkedTab))
+
+        this.score().undo(new ChangeStaffType(staff, config.staffType))
     }
 
     removeMissingParts(newParts: PartInstrumentList): void {

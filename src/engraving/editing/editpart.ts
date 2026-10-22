@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/editing/editpart.h/.cpp: the part undo commands and EditPart (the part and staff editing
  * functions of the Layout panel / NotationParts).
- * TODO(port): ChangeInstrumentLong/Short, ChangePatch, SetUserBankController and the EditPart functions that use
+ * TODO(port): ChangeInstrumentLong/Short, SetUserBankController and the EditPart functions that use
  * them (setInstrumentName, setInstrumentAbbreviature, setStaffType, replaceDrumset); appendLinkedStaff
  * and setVoiceVisible (Excerpt::cloneStaff, excerpts); insertPart/replacePart from a template.
  */
@@ -26,7 +26,8 @@ import type { Score } from '../dom/score'
 import type { ScoreOrder } from '../dom/scoreorder'
 import type { Staff } from '../dom/staff'
 import type { EditData } from './editdata'
-import { Instrument } from '../dom/instrument'
+import { Instrument, type InstrChannel } from '../dom/instrument'
+import type { MidiPatch } from '../compat/midi/midipatch'
 import { Drumset } from '../dom/drumset'
 import { Fraction } from '../types/fraction'
 import { SegmentType } from '../dom/segment'
@@ -175,6 +176,40 @@ export class ChangePart extends UndoCommand {
 
         this.partName = s
         this.instrument = oi
+    }
+}
+
+// ---------------------------------------------------------
+//   ChangePatch
+// ---------------------------------------------------------
+
+export class ChangePatch extends UndoCommand {
+    private patch: MidiPatch
+
+    constructor(private score: Score, private channel: InstrChannel, pt: MidiPatch) {
+        super()
+        this.patch = { ...pt }
+    }
+
+    override name(): string { return 'ChangePatch' }
+    override objectItems(): EngravingObject[] { return [this.score] }
+
+    protected override flip(_ed: EditData | null): void {
+        const op: MidiPatch = {
+            ...this.patch,
+            prog: this.channel.program(),
+            bank: this.channel.bank(),
+            synti: this.channel.synti(),
+        }
+
+        this.channel.setProgram(this.patch.prog)
+        this.channel.setBank(this.patch.bank)
+        this.channel.setSynti(this.patch.synti)
+
+        this.patch = op
+
+        //! TODO Needs porting for MU4 (C++: the controller events to the sequencer are commented out)
+        this.score.masterScore().setInstrumentsChanged(true)
     }
 }
 

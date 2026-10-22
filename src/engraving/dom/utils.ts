@@ -1087,3 +1087,14 @@ export function isFirstSystemKeySig(ks: KeySig | null): boolean {
     }
     return ks.tick().eq(sys.firstMeasure()!.tick())
 }
+
+export function formatUniqueExcerptName(baseName: string, allExcerptLowerNames: readonly string[]): string {
+    let result = baseName
+    let num = 0
+
+    while (allExcerptLowerNames.includes(result.toLowerCase())) {
+        result = `${baseName} (${++num})`
+    }
+
+    return result
+}

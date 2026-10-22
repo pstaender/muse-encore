@@ -6,6 +6,7 @@
  * Keyboard shortcuts follow MuseScore Studio (src/app/configs/data/shortcuts.xml) where they make sense.
  */
 /// <reference types="vite/client" />
+import { showScoreContextMenu } from './components/ScoreContextMenu'
 import { isInstrumentChangeSymbol, withSelectedInstrument } from './dialogs/instrumentchoice'
 import { useSyncExternalStore } from 'react'
 import {
@@ -1783,7 +1784,15 @@ viewport.addEventListener('pointerleave', () => {
 })
 
 viewport.addEventListener('contextmenu', (e) => {
-    if (!score || !noteInputState(score).active) {
+    if (!score) {
+        return
+    }
+    if (!noteInputState(score).active) {
+        // NotationView: the context menu of the right-clicked element (the press set the hit element context)
+        if (pagePointAt(e.clientX, e.clientY)) {
+            e.preventDefault()
+            showScoreContextMenu(score, e.clientX, e.clientY)
+        }
         return
     }
     e.preventDefault()

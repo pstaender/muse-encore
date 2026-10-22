@@ -1270,3 +1270,32 @@
 - Full screen: the collapsed chrome stays shown only for an open menu or popup ([aria-haspopup][aria-expanded=true]);
   expanded sections (the panel collapse button, palette headers, inspector sections) kept the panels shown (webapps
   e2e "collapses the toolbar in full screen"). The tempo and "Customize toolbar" buttons got aria-haspopup="dialog".
+
+### Staff/Part properties, Edit staff type, the score's context menu
+
+- notationscene/editstaff.ts: the logic of MuseScore's EditStaff (Staff/Part properties): the staff of the hit element
+  context (the context menu) or of the selection, its staff type and instrument as edited copies, the dialog's values,
+  replaceInstrument (template, staff type preset, clef), setStringData (pitch ranges follow the strings), next/previous
+  staff, apply() = setStaffConfig + replaceInstrument + setPartSharpFlat merged into one undo step (mergeCommands). Like
+  C++ the config's cutaway is false. Library: createEditStaff(score).
+- notationscene/editstafftype.ts: EditStaffType ("Advanced style properties"): the values of the controls from the
+  staff type (setValues) and back (setFromDlg), the tablature compatibility rules, the instrument's templates,
+  resetToTemplate, the preview (the staff type on the first staff of std_sample.mscx / tab_sample.mscx).
+  StaffType.tabFontNames/tabFontData/equals/translatedGroupName; TConv names of staff groups and notehead schemes
+  (gen-typesconv decodes \uXXXX now: "Solfège").
+- NotationParts.setStaffConfig/staffConfig (all of StaffConfig; notationtypes StaffConfig, staffConfigEquals), ChangeStaff
+  with reflectTranspositionInLinkedTab (Staff property, Part.stringData of TAB staves), TextBase.validateText (also
+  StaffName), Instrument nameAsPlainText/abbreviatureAsPlainText/equals, Part.setProperty calls setLayoutAll.
+- notationscene/notationcontextmenumodel.ts: NotationContextMenuModel (items per element type: measures, page, staff/
+  system text, time signature, instrument name, harmony, fret diagram, instrument change, frames, hairpins, gradual tempo
+  changes, play count text). Library: contextMenuItems(score). TODO(port): the edit-style arguments (style page).
+- Editor: the right click on the score opens the context menu (components/ScoreContextMenu.tsx; the press sets the hit
+  element context); dialogs/EditStaffDialog.tsx (action staff-properties), EditStaffTypeDialog.tsx (preview canvas,
+  samples bundled from the submodule), EditPitchDialog.tsx (Note selection, pitchToString), EditStringDataDialog.tsx.
+  Nested <dialog>s: React passes the close event of an inner dialog to the outer onClose, the handlers check the target.
+  Many context menu items are disabled: their actions are not ported (select similar, the Style dialog, measure
+  properties, insert measures dialogs, ...).
+- MasterNotationParts.replaceInstrument renames the part's excerpt (ChangeExcerptTitle, formatUniqueExcerptName);
+  ChangePatch (instrumentchange_tests testMixer).
+- Tests: test/editstaff.test.ts; instrumentchange testMixer; notationparts excerpt rename; e2e: context menu of an
+  instrument name -> Staff/Part properties -> Advanced style properties (preview) -> OK, undo.

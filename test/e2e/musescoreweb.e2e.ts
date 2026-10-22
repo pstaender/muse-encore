@@ -812,6 +812,43 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('opens the Staff/Part properties from the context menu of an instrument name and applies them (undoable)', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        // the instrument name "Soprano" of the first system
+        const box = (await page.locator('.page').first().boundingBox())!
+        await page.mouse.click(box.x + box.width * 0.09, box.y + box.height * 0.152, { button: 'right' })
+        await page.waitForSelector('.menu-popup')
+        const titles = await page.$$eval('.menu-popup .menu-title', e => e.map(x => x.textContent))
+        expect(titles).toContain('Staff/Part properties…')
+        await page.click('.menu-popup .menu-item:has-text("Staff/Part properties…")')
+        await page.waitForSelector('dialog.edit-staff[open]')
+        expect(await page.inputValue('dialog.edit-staff textarea >> nth=0')).toBe('Soprano')
+        // Advanced style properties: the staff type with a preview
+        await page.click('dialog.edit-staff .advanced-style')
+        await page.waitForSelector('dialog.edit-staff-type[open]')
+        expect(await page.textContent('dialog.edit-staff-type .group-name')).toBe('STANDARD STAFF')
+        await page.waitForFunction(() => {
+            const c = document.querySelector<HTMLCanvasElement>('dialog.edit-staff-type .staff-type-preview')!
+            const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data
+            return d.some((v, i) => i % 4 === 0 && v < 128)
+        })
+        await page.click('dialog.edit-staff-type .dialog-buttons .secondary')
+        await page.waitForSelector('dialog.edit-staff-type', { state: 'detached' })
+        const lines = 'dialog.edit-staff .edit-staff-grid input[type="number"] >> nth=0'
+        expect(await page.inputValue(lines)).toBe('5')
+        await page.fill(lines, '1')
+        await page.click('dialog.edit-staff .dialog-buttons .primary')
+        await page.waitForSelector('dialog.edit-staff', { state: 'detached' })
+        expect(await page.textContent('#title')).toMatch(/^\*/)
+        // one undo step
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => !document.getElementById('title')!.textContent!.startsWith('*'))
+        await context.close()
+    }, 120000)
+
     it('edits the instruments in the Layout panel: hides a part, undoes, removes and adds instruments', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)

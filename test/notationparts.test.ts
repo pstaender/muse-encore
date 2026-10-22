@@ -4,7 +4,7 @@
 // pages), redo restores the changed state.
 import { beforeAll, describe, expect, it } from 'vitest'
 import {
-    addInstruments, addSystemObjects, appendStaff, createScore, defaultNewScoreOptions, moveParts, moveStaves,
+    addInstruments, replacePartInstrument, addSystemObjects, appendStaff, createScore, defaultNewScoreOptions, moveParts, moveStaves,
     moveSystemObjectLayerBottomStaff, moveSystemObjects, removeParts, removeStaves, removeSystemObjects, setInstruments,
     setPartVisible, setScoreOrder, setStaffVisible, undo, redo, layoutPanelScoreOrder, layoutScore, saveMscz, type MasterScore,
 } from '../src/index'
@@ -180,6 +180,18 @@ describe.skipIf(!hasSubmodule)('NotationParts on real scores', () => {
             checkUndoRedo(score, () => addInstruments(score, ['trumpet']), undefined, true)
         }, 60000)
     }
+
+    it('replacing the instrument of a part renames its part score; undo restores it', async () => {
+        const score = await openScore(`${VTEST}/lyrics-15.mscz`)
+        const excerpt = score.excerpts()[0]
+        const part = score.parts().find(p => p.id() === excerpt.initialPartId())!
+        const oldName = excerpt.name()
+        expect(replacePartInstrument(score, part.id(), 'flute')).toBe(true)
+        expect(part.instrument().id()).toBe('flute')
+        expect(excerpt.name()).toBe('Flute')
+        expect(undo(score)).toBe(true)
+        expect(excerpt.name()).toBe(oldName)
+    })
 
     it('removing an instrument deletes its part score; undo restores it', async () => {
         const score = await openScore(`${VTEST}/lyrics-15.mscz`)

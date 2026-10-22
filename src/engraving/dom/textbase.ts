@@ -9,6 +9,7 @@
  * insert/remove, drag, accessibility) is not.
  */
 
+import { XmlReader } from '../rw/xmlreader'
 import { Color } from '../../framework/draw/types/color'
 import { Font, FontType } from '../../framework/draw/types/font'
 import { FontMetrics } from '../../framework/draw/fontmetrics'
@@ -1317,6 +1318,60 @@ export abstract class TextBase extends EngravingItem {
     setPosition(val: AlignH): void { this.m_position = val }
 
     static plainToXmlText(s: string): string { return xmlEscape(s) }
+
+    /**
+     * C++ validateText(String& s): check if s is a valid musescore xml text string; simple bugs are automatically
+     * adjusted. Returns the (fixed) text, or null if it is not valid (this is incomplete/experimental)
+     */
+    static validateText(s: string): string | null {
+        let d = ''
+        for (let i = 0; i < s.length; ++i) {
+            const c = s[i]
+            if (c === '&') {
+                const ok = ['amp;', 'lt;', 'gt;', 'quot;']
+                const t = s.substring(i + 1)
+                let found = false
+                for (const k of ok) {
+                    if (t.startsWith(k)) {
+                        d += c + k
+                        i += k.length
+                        found = true
+                        break
+                    }
+                }
+                if (!found) {
+                    d += '&amp;'
+                }
+            } else if (c === '<') {
+                const ok = ['b>', '/b>', 'i>', '/i>', 'u>', '/u', 's>', '/s>', 'font ', '/font>', 'sym>', '/sym>', 'sub>', '/sub>',
+                    'sup>', '/sup>']
+                const t = s.substring(i + 1)
+                let found = false
+                for (const k of ok) {
+                    if (t.startsWith(k)) {
+                        d += c + k
+                        i += k.length
+                        found = true
+                        break
+                    }
+                }
+                if (!found) {
+                    d += '&lt;'
+                }
+            } else {
+                d += c
+            }
+        }
+
+        const xml = new XmlReader('<data>' + d + '</data>\n')
+        while (xml.readNextStartElement()) {
+            // C++ LOGD("  token %d <%s>", int(xml.tokenType()), muPrintable(xml.name().toString()))
+        }
+        if (!xml.error()) {
+            return d
+        }
+        return null
+    }
     setPlainText(t: string): void { this.setXmlText(TextBase.plainToXmlText(t)) }
 
     setXmlText(s: string): void {

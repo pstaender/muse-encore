@@ -59,6 +59,7 @@ export class Staff extends EngravingItem {
     private m_showIfEntireSystemEmpty = false // show this staff if system is empty and hideEmptyStaves is true
     private m_hideSystemBarLine = false // no system barline if not preceded by staff with barline
     private m_mergeMatchingRests: AutoOnOff = AutoOnOff.AUTO // merge matching rests in multiple voices
+    private m_reflectTranspositionInLinkedTab = true
     private m_hideWhenEmpty: AutoOnOff = AutoOnOff.AUTO // hide empty staves
     private m_userDist = new Spatium(0) // user edited extra distance
     private m_staffTypeList = new StaffTypeList()
@@ -413,6 +414,8 @@ export class Staff extends EngravingItem {
     setHideWhenEmpty(v: AutoOnOff): void { this.m_hideWhenEmpty = v }
     mergeMatchingRests(): AutoOnOff { return this.m_mergeMatchingRests }
     setMergeMatchingRests(val: AutoOnOff): void { this.m_mergeMatchingRests = val }
+    reflectTranspositionInLinkedTab(): boolean { return this.m_reflectTranspositionInLinkedTab }
+    setReflectTranspositionInLinkedTab(reflect: boolean): void { this.m_reflectTranspositionInLinkedTab = reflect }
 
     shouldMergeMatchingRests(): boolean {
         return this.mergeMatchingRests() === AutoOnOff.ON
@@ -890,6 +893,8 @@ export class Staff extends EngravingItem {
             return this.hideSystemBarLine()
         case Pid.STAFF_MERGE_MATCHING_RESTS:
             return this.mergeMatchingRests()
+        case Pid.STAFF_REFLECT_TRANSPOSITION:
+            return this.reflectTranspositionInLinkedTab()
         default:
             return undefined
         }
@@ -961,6 +966,9 @@ export class Staff extends EngravingItem {
             break
         case Pid.STAFF_MERGE_MATCHING_RESTS:
             this.setMergeMatchingRests(v as AutoOnOff)
+            break
+        case Pid.STAFF_REFLECT_TRANSPOSITION:
+            this.setReflectTranspositionInLinkedTab(!!v)
             break
         default:
             return false

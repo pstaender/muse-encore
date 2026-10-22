@@ -8,8 +8,7 @@
  * NotationParts of the excerpt scores (without interaction; the master score's undo stack is locked meanwhile, so the
  * changes are recorded in the master command, like in C++).
  * TODO(port): appendStaff/appendLinkedStaff in the excerpts (appendStaffLinkedToMaster: Excerpt::cloneStaff2),
- * replaceDrumset; replaceInstrument does not rename the part's excerpt (ChangeExcerptTitle, formatUniqueExcerptName);
- * the part scores are not laid out after a change (Score::update: scoreList())
+ * replaceDrumset; the part scores are not laid out after a change (Score::update: scoreList())
  */
 
 import { TranslatableString } from '../../framework/global/types/translatablestring'
@@ -18,7 +17,10 @@ import type { MasterScore } from '../../engraving/dom/masterscore'
 import { Part } from '../../engraving/dom/part'
 import type { ScoreOrder } from '../../engraving/dom/scoreorder'
 import type { Staff } from '../../engraving/dom/staff'
-import type { InstrumentKey, PartInstrument, PartInstrumentList } from '../notationtypes'
+import { isMainInstrumentForPart, type InstrumentKey, type PartInstrument, type PartInstrumentList } from '../notationtypes'
+import { ChangeExcerptTitle } from '../../engraving/editing/editexcerpt'
+import { formatUniqueExcerptName } from '../../engraving/dom/utils'
+import type { Excerpt } from '../../engraving/dom/excerpt'
 import type { Instrument } from '../../engraving/dom/instrument'
 import type { StaffType } from '../../engraving/dom/stafftype'
 import { Interval } from '../../engraving/dom/interval'
@@ -197,6 +199,7 @@ export class MasterNotationParts extends NotationParts {
         this.startGlobalEdit(new TranslatableString('undoableAction', 'Replace instrument'))
 
         const part = this.partModifiable(instrumentKey.partId)
+        const isMainInstrument = !!part && isMainInstrumentForPart(instrumentKey, part)
 
         const oldTranspose = part ? part.instrument().transpose().clone() : new Interval(0, 0)
 
@@ -211,9 +214,27 @@ export class MasterNotationParts extends NotationParts {
             Transpose.transpositionChangedAt(this.score(), part, Part.MAIN_INSTRUMENT_TICK, oldTranspose)
         }
 
-        // TODO(port): rename the excerpt of the part (isMainInstrumentForPart: ChangeExcerptTitle)
+        if (part && isMainInstrument) {
+            const excerpt = this.findExcerpt(part.id())
+            if (excerpt) {
+                const allExcerptLowerNames = this.masterScore().excerpts().map(e => e.name().toLowerCase())
+
+                const newName = formatUniqueExcerptName(part.partName(), allExcerptLowerNames)
+                excerpt.excerptScore()!.undo(new ChangeExcerptTitle(excerpt, newName))
+            }
+        }
 
         this.endGlobalEdit()
+    }
+
+    private findExcerpt(initialPartId: string): Excerpt | null {
+        for (const excerpt of this.masterScore().excerpts()) {
+            if (excerpt.initialPartId() === initialPartId) {
+                return excerpt
+            }
+        }
+
+        return null
     }
 
     /** the NotationParts of the part scores (C++: the excerpt notations' parts) */

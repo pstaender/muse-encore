@@ -7,6 +7,7 @@
  * names, clefs, transposition, the MIDI data of the channels; no playback state)
  */
 
+import { TextBase } from './textbase'
 import { SortedMap } from '../../framework/global/sortedmap'
 import { ClefType, GlissandoStyle } from '../types/types'
 import { ClefTypeList } from './clefinfo'
@@ -19,7 +20,10 @@ import {
 } from './instrtemplate'
 
 export class StaffName {
-    constructor(private m_name = '', private m_pos = 0) {} // html string; even number -> between staves
+    // html string; even number -> between staves
+    constructor(private m_name = '', private m_pos = 0) {
+        this.m_name = TextBase.validateText(m_name) ?? m_name // enforce HTML encoding
+    }
 
     name(): string { return this.m_name }
     setName(n: string): void { this.m_name = n }
@@ -528,6 +532,51 @@ export class Instrument {
     setSoundId(id: string): void { this.m_soundId = id }
 
     trackName(): string { return this.m_trackName }
+
+    nameAsPlainText(): string {
+        return this.m_longNames.length ? this.m_longNames[0].toPlainText() : ''
+    }
+
+    abbreviatureAsPlainText(): string {
+        return this.m_shortNames.length ? this.m_shortNames[0].toPlainText() : ''
+    }
+
+    /** C++ operator== (the midi actions, articulations and channels are compared by their content) */
+    equals(i: Instrument): boolean {
+        const names = (a: StaffNameList, b: StaffNameList): boolean =>
+            a.length === b.length && a.every((n, k) => n.name() === b[k].name() && n.pos() === b[k].pos())
+        let equal = names(i.m_longNames, this.m_longNames)
+        equal &&= names(i.m_shortNames, this.m_shortNames)
+        equal &&= i.m_trackName === this.m_trackName
+        equal &&= i.m_id === this.m_id
+        equal &&= i.m_soundId === this.m_soundId
+        equal &&= i.m_musicXmlId === this.m_musicXmlId
+
+        equal &&= i.m_minPitchA === this.m_minPitchA
+        equal &&= i.m_maxPitchA === this.m_maxPitchA
+        equal &&= i.m_minPitchP === this.m_minPitchP
+        equal &&= i.m_maxPitchP === this.m_maxPitchP
+        equal &&= i.m_transpose.diatonic === this.m_transpose.diatonic
+        equal &&= i.m_transpose.chromatic === this.m_transpose.chromatic
+
+        equal &&= i.m_useDrumset === this.m_useDrumset
+        equal &&= JSON.stringify(i.m_drumset) === JSON.stringify(this.m_drumset)
+        equal &&= i.m_stringData.frets() === this.m_stringData.frets()
+            && i.m_stringData.stringList().length === this.m_stringData.stringList().length
+            && i.m_stringData.stringList().every((s, k) => s.equals(this.m_stringData.stringList()[k]))
+
+        equal &&= JSON.stringify(i.m_midiActions) === JSON.stringify(this.m_midiActions)
+        equal &&= JSON.stringify(i.m_articulation) === JSON.stringify(this.m_articulation)
+        // the cached midi init events of the channels are not compared
+        const channelJson = (c: InstrChannel[]): string => JSON.stringify(c, (k, v) => k === 'm_init' || k === 'm_mustUpdateInit' ? undefined : v)
+        equal &&= channelJson(i.m_channel) === channelJson(this.m_channel)
+
+        equal &&= i.m_clefType.length === this.m_clefType.length && i.m_clefType.every((c, k) => c.equals(this.m_clefType[k]))
+
+        equal &&= i.m_singleNoteDynamics === this.m_singleNoteDynamics
+
+        return equal
+    }
     setTrackName(s: string): void { this.m_trackName = s }
 
     transpose(): Interval { return this.m_transpose }

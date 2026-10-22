@@ -107,3 +107,19 @@ export class RemoveExcerpt extends UndoCommand {
         return score ? [score] : []
     }
 }
+
+export class ChangeExcerptTitle extends UndoCommand {
+    constructor(private excerpt: Excerpt, private title: string) {
+        super()
+    }
+
+    override type(): CommandType { return CommandType.ChangeExcerptTitle }
+    override name(): string { return 'ChangeExcerptTitle' }
+
+    protected override flip(_ed: EditData | null): void {
+        const s = this.title
+        this.title = this.excerpt.name()
+        this.excerpt.setName(s)
+        // TODO(port): excerpt->masterScore()->setExcerptsChanged(true) (notifications)
+    }
+}

@@ -210,9 +210,10 @@ export class ChangeStaff extends UndoCommand {
     private cutaway: boolean
     private hideSystemBarLine: boolean
     private mergeMatchingRests: AutoOnOff
+    private reflectTranspositionInLinkedTab: boolean
 
     constructor(private staff: Staff, visible?: boolean, clefType?: ClefTypeList, userDist?: Spatium, cutaway?: boolean,
-        hideSystemBarLine?: boolean, mergeMatchingRests?: AutoOnOff) {
+        hideSystemBarLine?: boolean, mergeMatchingRests?: AutoOnOff, reflectTranspositionInLinkedTab?: boolean) {
         super()
         this.visible = visible ?? staff.visible()
         this.clefType = (clefType ?? staff.defaultClefType()).clone()
@@ -220,6 +221,7 @@ export class ChangeStaff extends UndoCommand {
         this.cutaway = cutaway ?? staff.cutaway()
         this.hideSystemBarLine = hideSystemBarLine ?? staff.hideSystemBarLine()
         this.mergeMatchingRests = mergeMatchingRests ?? staff.mergeMatchingRests()
+        this.reflectTranspositionInLinkedTab = reflectTranspositionInLinkedTab ?? staff.reflectTranspositionInLinkedTab()
     }
 
     protected override flip(_ed: EditData | null): void {
@@ -230,6 +232,7 @@ export class ChangeStaff extends UndoCommand {
         const oldCutaway = staff.cutaway()
         const oldHideSystemBarLine = staff.hideSystemBarLine()
         const oldMergeMatchingRests = staff.mergeMatchingRests()
+        const oldReflectTranspositionInLinkedTab = staff.reflectTranspositionInLinkedTab()
 
         staff.setVisible(this.visible)
         staff.setDefaultClefType(this.clefType)
@@ -237,6 +240,7 @@ export class ChangeStaff extends UndoCommand {
         staff.setCutaway(this.cutaway)
         staff.setHideSystemBarLine(this.hideSystemBarLine)
         staff.setMergeMatchingRests(this.mergeMatchingRests)
+        staff.setReflectTranspositionInLinkedTab(this.reflectTranspositionInLinkedTab)
 
         this.visible = oldVisible
         this.clefType = oldClefType
@@ -244,6 +248,7 @@ export class ChangeStaff extends UndoCommand {
         this.cutaway = oldCutaway
         this.hideSystemBarLine = oldHideSystemBarLine
         this.mergeMatchingRests = oldMergeMatchingRests
+        this.reflectTranspositionInLinkedTab = oldReflectTranspositionInLinkedTab
 
         staff.triggerLayout()
         staff.masterScore().rebuildMidiMapping()

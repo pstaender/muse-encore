@@ -80,15 +80,26 @@ export class Part extends EngravingObject {
         return this.m_staves[this.m_staves.length - 1].idx() * VOICES + VOICES
     }
 
-    stringData(tick: Fraction, _staffIdx: staff_idx_t): StringData {
+    stringData(tick: Fraction, staffIdx: staff_idx_t): StringData {
         const instrument = this.instrument(tick)
 
-        // C++ reads Staff::reflectTranspositionInLinkedTab() of the primary staff of a TAB staff; the port's Staff has no
-        // such setting (it is not stored in the file and true by default)
+        let reflectTranspositionInLinkedTab = true
+
+        const staff = staffIdx !== nidx ? this.score().staff(staffIdx) : null
+        if (staff && staff.isTabStaff(tick)) {
+            const primaryStaff = staff.primaryStaff()
+            if (primaryStaff) {
+                reflectTranspositionInLinkedTab = primaryStaff.reflectTranspositionInLinkedTab()
+            }
+        }
+
         let stringTunings: StringTunings | null = null
-        const i = this.m_stringTunings.upperBound(tick.ticks()) - 1 // muse::findLessOrEqual
-        if (i >= 0) {
-            stringTunings = this.m_stringTunings.valueAt(i)
+
+        if (reflectTranspositionInLinkedTab) {
+            const i = this.m_stringTunings.upperBound(tick.ticks()) - 1 // muse::findLessOrEqual
+            if (i >= 0) {
+                stringTunings = this.m_stringTunings.valueAt(i)
+            }
         }
 
         if (stringTunings) {

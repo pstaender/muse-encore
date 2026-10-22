@@ -9,6 +9,7 @@
  */
 
 import { SortedMap } from '../../framework/global/sortedmap'
+import { TConv } from '../types/typesconv'
 import { Color } from '../../framework/draw/types/color'
 import { Font, FontType } from '../../framework/draw/types/font'
 import { FontMetrics } from '../../framework/draw/fontmetrics'
@@ -382,6 +383,68 @@ export class StaffType {
         st.setUseNumbers(useNumbers)
         st.setShowBackTied(showBackTied)
         return st
+    }
+
+    /** C++ operator== */
+    equals(st: StaffType): boolean {
+        let equal = true
+
+        equal &&= (this.m_group === st.m_group)
+        equal &&= (this.m_xmlName === st.m_xmlName)
+        equal &&= (this.m_name === st.m_name)
+        equal &&= (this.m_userMag === st.m_userMag)
+        equal &&= this.m_yoffset.equals(st.m_yoffset)
+        equal &&= (this.m_small === st.m_small)
+        equal &&= (this.m_invisible === st.m_invisible)
+        equal &&= this.m_color.equals(st.m_color)
+        equal &&= (this.m_lines === st.m_lines)
+        equal &&= (this.m_stepOffset === st.m_stepOffset)
+        equal &&= this.m_lineDistance.equals(st.m_lineDistance)
+        equal &&= (this.m_showBarlines === st.m_showBarlines)
+        equal &&= (this.m_showLedgerLines === st.m_showLedgerLines)
+        equal &&= (this.m_stemless === st.m_stemless)
+        equal &&= (this.m_genClef === st.m_genClef)
+        equal &&= (this.m_genTimesig === st.m_genTimesig)
+        equal &&= (this.m_genKeysig === st.m_genKeysig)
+        equal &&= (this.m_noteHeadScheme === st.m_noteHeadScheme)
+        equal &&= (this.m_durationFontSize === st.m_durationFontSize)
+        equal &&= (this.m_durationFontUserY === st.m_durationFontUserY)
+        equal &&= (this.m_fretFontSize === st.m_fretFontSize)
+        equal &&= (this.m_fretFontUserY === st.m_fretFontUserY)
+        equal &&= (this.m_genDurations === st.m_genDurations)
+        equal &&= (this.m_linesThrough === st.m_linesThrough)
+        equal &&= (this.m_minimStyle === st.m_minimStyle)
+        equal &&= (this.m_symRepeat === st.m_symRepeat)
+        equal &&= (this.m_onLines === st.m_onLines)
+        equal &&= (this.m_showRests === st.m_showRests)
+        equal &&= (this.m_stemsDown === st.m_stemsDown)
+        equal &&= (this.m_stemsThrough === st.m_stemsThrough)
+        equal &&= (this.m_upsideDown === st.m_upsideDown)
+        equal &&= (this.m_showTabFingering === st.m_showTabFingering)
+        equal &&= (this.m_useNumbers === st.m_useNumbers)
+        equal &&= (this.m_showBackTied === st.m_showBackTied)
+        equal &&= (this.m_durationBoxH === st.m_durationBoxH)
+        equal &&= (this.m_durationBoxY === st.m_durationBoxY)
+        equal &&= this.m_durationFont.equals(st.m_durationFont)
+        equal &&= (this.m_durationFontIdx === st.m_durationFontIdx)
+        equal &&= (this.m_durationYOffset === st.m_durationYOffset)
+        equal &&= (this.m_durationGridYOffset === st.m_durationGridYOffset)
+        equal &&= (this.m_fretBoxH === st.m_fretBoxH)
+        equal &&= (this.m_deadFretBoxH === st.m_deadFretBoxH)
+        equal &&= (this.m_fretBoxY === st.m_fretBoxY)
+        equal &&= (this.m_deadFretBoxY === st.m_deadFretBoxY)
+        equal &&= this.m_fretFont.equals(st.m_fretFont)
+        equal &&= (this.m_fretFontInfo.family === st.m_fretFontInfo.family)
+        equal &&= (this.m_fretYOffset === st.m_fretYOffset)
+        equal &&= (this.m_fretUseTextStyle === st.m_fretUseTextStyle)
+        equal &&= (this.m_fretTextStyle === st.m_fretTextStyle)
+        equal &&= (this.m_fretPresetIdx === st.m_fretPresetIdx)
+
+        return equal
+    }
+
+    translatedGroupName(): string {
+        return TConv.translatedUserNameStaffGroup(this.m_group)
     }
 
     clone(): StaffType {
@@ -887,6 +950,25 @@ export class StaffType {
     }
 
     // presets
+
+    /** the display names of the tablature fonts (durations or frets) */
+    static tabFontNames(bDuration: boolean): string[] {
+        return bDuration ? StaffType.s_durationFonts.map(f => f.displayName) : StaffType.s_fretFonts.map(f => f.displayName)
+    }
+
+    /** C++ tabFontData(): the default size and y offset of a tablature font; null if idx is not valid */
+    static tabFontData(bDuration: boolean, idx: number): { size: number; yOffset: number } | null {
+        if (bDuration) {
+            if (idx >= 0 && idx < StaffType.s_durationFonts.length) {
+                const f = StaffType.s_durationFonts[idx]
+                return { size: f.defSize, yOffset: f.defYOffset }
+            }
+        } else {
+            const f = idx >= 0 && idx < StaffType.s_fretFonts.length ? StaffType.s_fretFonts[idx] : new TablatureFretFont()
+            return { size: f.defSize, yOffset: f.defYOffset }
+        }
+        return null
+    }
 
     static presets(): StaffType[] {
         if (!StaffType.s_presets) {

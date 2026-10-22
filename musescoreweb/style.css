@@ -1250,3 +1250,81 @@ dialog.about h2 { font-size: 20px; }
     border-top: 2px solid currentColor;
     transform: rotate(-45deg);
 }
+
+/* ---- Staff/Part properties (EditStaff), Note selection (EditPitch), String data (EditStringData) ---- */
+dialog.edit-staff { width: min(720px, calc(100vw - 32px)); }
+dialog.edit-staff form { text-align: left; display: flex; flex-direction: column; gap: 12px; }
+dialog.edit-staff .groupbox, dialog.transpose .groupbox {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 0;
+    padding: 8px 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+dialog.edit-staff .groupbox legend { padding: 0 4px; font-weight: 600; }
+.edit-staff-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 16px; }
+.edit-staff-checks { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+dialog.edit-staff .field-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+dialog.edit-staff .field-row > span:first-child { color: var(--muted); }
+dialog.edit-staff .spin { display: inline-flex; align-items: center; gap: 4px; }
+dialog.edit-staff .spin input { width: 72px; }
+dialog.edit-staff .instrument-row { justify-content: flex-start; flex-wrap: wrap; }
+dialog.edit-staff .instrument-name { font-weight: 600; flex: 1; }
+dialog.edit-staff textarea { resize: vertical; font: inherit; }
+dialog.edit-staff .pitch-ranges, dialog.edit-staff .transposition, dialog.edit-staff .string-data-frame {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+}
+dialog.edit-staff .pitch-range { display: inline-flex; align-items: center; gap: 6px; }
+dialog.edit-staff .pitch-field { display: inline-flex; align-items: center; gap: 2px; }
+dialog.edit-staff .pitch-field input { width: 56px; text-align: center; }
+dialog.edit-staff .transposition input[type="number"] { width: 56px; }
+dialog.edit-staff .error { color: var(--danger, #c62828); margin: 0; }
+dialog.edit-staff .dialog-buttons .spacer { flex: 1; }
+dialog.edit-staff .icon-button, dialog.edit-string-data .icon-button {
+    font-family: "MusescoreIcon"; font-size: 16px; min-width: 32px;
+}
+
+dialog.edit-pitch { width: min(640px, calc(100vw - 32px)); }
+dialog.edit-pitch form, dialog.edit-pitch .dialog-buttons { margin-top: 12px; }
+.pitch-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+.pitch-table th { color: var(--muted); font-weight: normal; padding: 2px 4px; white-space: nowrap; }
+.pitch-table td { text-align: center; padding: 3px 2px; border: 1px solid var(--border); cursor: default; }
+.pitch-table td[aria-selected="true"] { background: var(--accent); color: #fff; }
+.pitch-table td:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+dialog.edit-string-data { width: min(460px, calc(100vw - 32px)); }
+.string-data-body { display: flex; gap: 16px; }
+.string-data-list { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.string-data-list p { margin: 0; }
+.string-table { border-collapse: collapse; width: 100%; }
+.string-table th { text-align: left; color: var(--muted); font-weight: normal; padding: 2px 6px; }
+.string-table td { padding: 2px 6px; border-top: 1px solid var(--border); }
+.string-table tr[aria-selected="true"] td { background: var(--hover); }
+.string-data-buttons { display: flex; flex-direction: column; gap: 8px; justify-content: flex-start; }
+.string-data-list .frets { display: flex; align-items: center; gap: 8px; }
+.string-data-list .frets input { width: 64px; }
+
+/* "Edit staff type" (EditStaffType: Advanced style properties) */
+dialog.edit-staff-type { width: min(720px, calc(100vw - 32px)); }
+.staff-type-body { display: flex; flex-direction: column; gap: 12px; text-align: left; }
+.staff-type-header { display: flex; align-items: center; gap: 12px; }
+.staff-type-header input { flex: 1; }
+.staff-type-common, .staff-type-page { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.staff-type-page.tab { flex-direction: column; align-items: stretch; }
+dialog.edit-staff-type .groupbox {
+    border: 1px solid var(--border); border-radius: 6px; margin: 0; padding: 8px 12px 12px;
+    display: flex; flex-direction: column; gap: 8px; min-width: 0;
+}
+dialog.edit-staff-type .groupbox legend { padding: 0 4px; font-weight: 600; }
+dialog.edit-staff-type .field-row { display: flex; align-items: center; gap: 8px; }
+dialog.edit-staff-type .field-row > span:first-child { color: var(--muted); }
+dialog.edit-staff-type .spin { display: inline-flex; align-items: center; gap: 4px; }
+dialog.edit-staff-type .spin input { width: 72px; }
+dialog.edit-staff-type .radio-row { display: flex; gap: 16px; }
+dialog.edit-staff-type .radio-grid { display: grid; grid-template-columns: auto repeat(4, auto); gap: 6px 12px; align-items: center; justify-content: start; }
+dialog.edit-staff-type .radio-grid > span { color: var(--muted); grid-column: 1; }
+.staff-type-preview { width: 100%; display: block; background: #fff; border-radius: 4px; }
+.staff-type-template { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

@@ -241,6 +241,8 @@ export const TConv = {
     // user names (C++ TConv::userName / translatedUserName overloads)
     userNameClefType: (v: ClefType): TranslatableString => findCapitalizedUserNameByType(D.CLEF_TYPES, v),
     translatedUserNameClefType: (v: ClefType): string => findCapitalizedUserNameByType(D.CLEF_TYPES, v).translated(),
+    translatedUserNameStaffGroup: (v: StaffGroup): string => findCapitalizedUserNameByType(D.STAFFGROUP_TYPES, v).translated(),
+    translatedUserNameNoteHeadScheme: (v: NoteHeadScheme): string => findCapitalizedUserNameByType(D.NOTEHEAD_SCHEMES, v).translated(),
     translatedUserNameDurationType: (v: DurationType): string => findCapitalizedUserNameByType(D.DURATION_TYPES, v).translated(),
     userNameNoteHeadGroup: (v: NoteHeadGroup): TranslatableString => findCapitalizedUserNameByType(D.NOTEHEAD_GROUPS, v),
     userNameDynamicType: (v: DynamicType): TranslatableString => findSingleUserNameByType(D.DYNAMIC_TYPES, v),

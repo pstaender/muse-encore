@@ -16,6 +16,8 @@ import { PointF, RectF } from './framework/draw/types/geometry'
 import { Fraction } from './engraving/types/fraction'
 import { DPI, DurationType, Key, PreferSharpFlat } from './engraving/types/types'
 import { Instrument } from './engraving/dom/instrument'
+import { EditStaff } from './notationscene/editstaff'
+import { NotationContextMenuModel, type ContextMenuItem } from './notationscene/notationcontextmenumodel'
 import { StaffType } from './engraving/dom/stafftype'
 import { Part } from './engraving/dom/part'
 import type { InstrumentChange } from './engraving/dom/instrchange'
@@ -289,6 +291,16 @@ export function pageSize(score: MasterScore, pageIdx = 0): { width: number; heig
         return { width: s.width(), height: s.height() }
     }
     return { width: bbox.width() / DPI, height: bbox.height() / DPI }
+}
+
+/** the bounding box of a system of a page (inches from the page's top left), e.g. a preview of the first system */
+export function systemRect(score: MasterScore, pageIdx = 0, systemIdx = 0): { x: number; y: number; width: number; height: number } | null {
+    const system = score.pages()[pageIdx]?.systems()[systemIdx]
+    if (!system) {
+        return null
+    }
+    const r = system.ldata().bbox().translated(system.pos())
+    return { x: r.x() / DPI, y: r.y() / DPI, width: r.width() / DPI, height: r.height() / DPI }
 }
 
 /** true if the score is laid out for two-sided printing (style "pageTwosided"): odd pages are right-hand pages */
@@ -797,7 +809,7 @@ export function selectAll(score: MasterScore): void {
     notationState(score).interaction.selectAll()
 }
 
-export { TransposeMode, TransposeDirection } from './engraving/types/types'
+export { TransposeMode, TransposeDirection, AutoOnOff, PreferSharpFlat } from './engraving/types/types'
 import type { TransposeOptions } from './notation/notationtypes'
 export type { TransposeOptions }
 
@@ -1521,6 +1533,30 @@ export function changeInstrumentChange(score: MasterScore, templateId: string): 
 export function setPartSharpFlat(score: MasterScore, partId: string, sharpFlat: PreferSharpFlat): boolean {
     return runPartsCommand(score, p => p.setPartSharpFlat(partId, sharpFlat))
 }
+
+/**
+ * The Staff/Part properties dialog (MuseScore's EditStaff) for the staff of the selection (or of the hit element
+ * context); null if there is no staff. The dialog edits its values and calls apply().
+ */
+export function createEditStaff(score: MasterScore): EditStaff | null {
+    const editStaff = new EditStaff(notationState(score).interaction, notationParts(score))
+    return editStaff.isValid() ? editStaff : null
+}
+export { EditStaff, type EditStaffValues, type EditStaffString } from './notationscene/editstaff'
+export {
+    EditStaffType, NOTEHEAD_SCHEMES, type EditStaffTypeValues, type EditStaffTypeEnabled, type TabNoteValues,
+} from './notationscene/editstafftype'
+export { TablatureMinimStyle, TablatureSymbolRepeat } from './engraving/dom/stafftype'
+export { StaffGroup, NoteHeadScheme, TextStyleType } from './engraving/types/types'
+
+/**
+ * The items of the score's context menu (MuseScore's NotationContextMenuModel) for the right-clicked element (the hit
+ * element context of the last mouse press) or the selection: action codes with optional titles ([context, source]).
+ */
+export function contextMenuItems(score: MasterScore): ContextMenuItem[] {
+    return new NotationContextMenuModel(notationState(score).interaction).loadItems()
+}
+export type { ContextMenuItem, ContextMenuTitle } from './notationscene/notationcontextmenumodel'
 
 /** shows or hides a part (INotationParts::setPartVisible); ids are Part.id() */
 export function setPartVisible(score: MasterScore, partId: string, visible: boolean): boolean {

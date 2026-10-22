@@ -7,12 +7,15 @@
  */
 
 import { Fraction } from '../engraving/types/fraction'
-import { DurationType, Key, TextStyleType, TransposeDirection, TransposeMode } from '../engraving/types/types'
+import { DurationType, Key, TextStyleType, TransposeDirection, TransposeMode, type AutoOnOff } from '../engraving/types/types'
 import { TimeSigType } from '../engraving/dom/timesig'
 import { ScoreOrder } from '../engraving/dom/scoreorder'
 import { TupletBracketType, TupletNumberType } from '../engraving/dom/tuplet'
 import { TraitType, type InstrumentTemplate, type Trait } from '../engraving/dom/instrtemplate'
 import { Part } from '../engraving/dom/part'
+import type { Spatium } from '../engraving/types/dimension'
+import type { ClefTypeList } from '../engraving/dom/clefinfo'
+import type { StaffType } from '../engraving/dom/stafftype'
 import { arg, qtrc } from '../framework/global/translation'
 
 export enum BracketsType {
@@ -148,4 +151,27 @@ export function formatInstrumentTitle(instrumentName: string, trait: Trait): str
     default:
         return instrumentName // Example: "Flute"
     }
+}
+
+export interface StaffConfig {
+    visible: boolean
+    userDistance: Spatium
+    cutaway: boolean
+    hideSystemBarline: boolean
+    mergeMatchingRests: AutoOnOff
+    reflectTranspositionInLinkedTab: boolean
+    clefTypeList: ClefTypeList
+    staffType: StaffType
+}
+
+/** C++ StaffConfig::operator== */
+export function staffConfigEquals(a: StaffConfig, b: StaffConfig): boolean {
+    return a.visible === b.visible
+        && a.userDistance.equals(b.userDistance)
+        && a.cutaway === b.cutaway
+        && a.hideSystemBarline === b.hideSystemBarline
+        && a.mergeMatchingRests === b.mergeMatchingRests
+        && a.clefTypeList.equals(b.clefTypeList)
+        && a.staffType.equals(b.staffType)
+        && a.reflectTranspositionInLinkedTab === b.reflectTranspositionInLinkedTab
 }
