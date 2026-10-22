@@ -67,7 +67,7 @@
     font-size: 16px;
 }
 
-.palette-menu-button { width: 20px; height: 20px; font-size: 14px; visibility: hidden; }
+.palette-menu-button { width: 30px; height: 20px; margin-right: 10px; font-size: 14px; visibility: hidden; }
 .palette-header:hover .palette-menu-button, .palette-tree-item.expanded .palette-menu-button,
 .palette-menu-button[aria-expanded="true"] { visibility: visible; }
 .palette-expand:hover, .palette-menu-button:hover { background: var(--active); }

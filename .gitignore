@@ -7,3 +7,4 @@ dist-musescoreweb/
 *.log
 .DS_Store
 _site/
+/.claude/worktrees/
