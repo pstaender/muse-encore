@@ -3,7 +3,8 @@
 // the "fit to window" view (not in MuseScore) and the continuous panel; editing and undo in a continuous view.
 import { describe, expect, it } from 'vitest'
 import { createCanvas } from '@napi-rs/canvas'
-import { drawContinuousPanel, executeAction, pageCount, pageSize, redo, setViewMode, undo, viewMode, type MasterScore } from '../src/index'
+import { drawContinuousPanel, executeAction, pageCount, pageSize, redo, setViewMode, undo, viewMode, withPageView,
+    type MasterScore } from '../src/index'
 import { SelectType } from '../src/engraving/dom/select'
 import type { Chord } from '../src/engraving/dom/chord'
 import { DEMOS, hasSubmodule, openScore, scoreHash as hashWithSelection } from './helpers'
@@ -44,6 +45,24 @@ describe.skipIf(!hasSubmodule)('view modes', () => {
         expect(setViewMode(score, 'page')).toBe(true)
         expect(pageCount(score)).toBe(pages)
         expect(scoreHash(score)).toBe(pageView)
+    })
+
+    it('lays out the page view temporarily (thumbnails, printing) and the view mode again', async () => {
+        const score = await openScore(`${DEMOS}/Triumph.mscz`)
+        const pageView = scoreHash(score)
+        const pages = pageCount(score)
+        for (const mode of ['continuous-horizontal', 'fit-width'] as const) {
+            setViewMode(score, mode, 7)
+            const continuous = scoreHash(score)
+            const reflowWidth = score.reflowWidth()
+            expect(withPageView(score, () => {
+                expect(viewMode(score)).toBe('page')
+                return [pageCount(score), scoreHash(score)]
+            })).toEqual([pages, pageView])
+            expect(viewMode(score)).toBe(mode)
+            expect(score.reflowWidth()).toBe(reflowWidth)
+            expect(scoreHash(score)).toBe(continuous)
+        }
     })
 
     it('lays out the continuous view (vertical) as all systems on one page', async () => {

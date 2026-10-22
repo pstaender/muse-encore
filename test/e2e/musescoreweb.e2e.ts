@@ -41,6 +41,21 @@ async function cardNames(page: Page): Promise<string[]> {
     return page.$$eval('.score-card:not(.new) .card-name', els => els.map(e => e.textContent ?? ''))
 }
 
+/**
+ * after a reload: the home screen (the score that was open is not opened again); opens the score from its card
+ * (without a name: the most recent one)
+ */
+async function reopen(page: Page, name?: string): Promise<void> {
+    if (new URL(page.url()).searchParams.has('url')) {
+        await scoreShown(page) // ?url= opens its score again
+        return
+    }
+    await page.waitForSelector('.home')
+    expect(await page.evaluate(() => document.body.dataset.view)).toBe('home')
+    await page.click(name ? `.score-card:not(.new):has(.card-name:text-is("${name}"))` : '.score-card:not(.new) >> nth=0')
+    await scoreShown(page)
+}
+
 async function scoreShown(page: Page): Promise<void> {
     await page.waitForFunction(() => document.body.dataset.view === 'score' && document.getElementById('busy')!.hidden
         && /\d+ ms$/.test(document.getElementById('status')!.textContent ?? ''), null, { timeout: 120000 })
@@ -112,7 +127,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
 
         // the open score is created again after a reload
         await page.reload()
-        await scoreShown(page)
+        await reopen(page, 'Test score')
         expect(await page.textContent('#title')).toBe('*Test score')
 
         // removing a created score asks first
@@ -219,7 +234,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.waitForFunction(() => !document.querySelector('[data-toolbar="noteInputBar"]')) // menu actions run after the menu closed
 
         await page.reload()
-        await scoreShown(page)
+        await reopen(page)
         expect((await docks()).top).toEqual(['viewToolBar'])
         await page.click('.menubar > button:has-text("View")')
         await page.click('.menu-item:has-text("Restore the default layout")')
@@ -471,7 +486,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.click('dialog.save-score button[type="submit"]')
         await page.waitForFunction(() => !document.getElementById('title')!.textContent!.startsWith('*'))
         await page.reload()
-        await scoreShown(page)
+        await reopen(page)
         await page.focus('#viewport')
         await firstNote()
         expect(await page.textContent('#status')).toMatch(/^Note;.*Pitch: C5/)
@@ -597,7 +612,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.mouse.up()
         expect(await dockWidth()).toBe(380)
         await page.reload()
-        await scoreShown(page)
+        await reopen(page)
         expect(await tabs()).toEqual(['Layout'])
         expect(await dockWidth()).toBe(380)
 
@@ -946,7 +961,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         // the user palettes are kept after a reload
         await page.waitForTimeout(500)
         await page.reload()
-        await scoreShown(page)
+        await reopen(page)
         await page.waitForSelector(`${custom} .palette-cell[aria-label="Bass clef"]`)
         expect(await page.locator(`${custom} .palette-cell[data-element="Text"]`).count()).toBe(1)
 
@@ -1049,7 +1064,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
 
         // the open score is the saved one after a reload; the new score's entry became the saved score
         await page.reload()
-        await scoreShown(page)
+        await reopen(page, 'My song')
         expect(await page.textContent('#title')).toBe('My song')
         await page.click('.app-tabs [role="tab"]:has-text("Home")')
         expect(await cardNames(page)).toEqual(['My song'])
@@ -1064,7 +1079,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.click('dialog.save-score button[type="submit"]')
         await page.waitForFunction(() => document.getElementById('title')!.textContent === 'Other version')
         await page.reload()
-        await scoreShown(page)
+        await reopen(page, 'Other version')
         expect(await page.textContent('#title')).toBe('Other version')
         await page.click('.app-tabs [role="tab"]:has-text("Home")')
         expect((await cardNames(page)).sort()).toEqual(['My song', 'Other version'])
@@ -1156,13 +1171,13 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         expect(await page.textContent('#title')).toBe('amazing')
         expect(await firstNote()).toBe(original)
 
-        // "No" removes the autosave and opens the saved version
+        // "No" removes the autosave; the score opened from the home screen is the saved version
         await raise()
         await waitAutosaves(1)
         await page.reload()
         await page.waitForSelector('dialog.restore-session[open]')
         await page.click('dialog.restore-session button[value="no"]')
-        await scoreShown(page)
+        await reopen(page, 'amazing')
         expect(await page.textContent('#title')).toBe('amazing')
         expect(await firstNote()).toBe(original)
         await waitAutosaves(0)
@@ -1264,7 +1279,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         expect((await playbackProbe(page)).notes).toBe(before)
         await page.keyboard.press('ControlOrMeta+z')
         await page.reload()
-        await scoreShown(page)
+        await reopen(page)
         expect((await playbackProbe(page)).muted).toBe(true)
         await page.click(muteButton)
         expect((await playbackProbe(page)).muted).toBe(false)
@@ -1349,7 +1364,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
 
         // the view mode is kept after a reload; back to the page view
         await page.reload()
-        await scoreShown(page)
+        await reopen(page)
         expect(await page.textContent('.statusbar-button')).toContain('fit to window')
         await chooseViewMode('Page view')
         expect(await page.locator('.page').count()).toBe(pageCount)

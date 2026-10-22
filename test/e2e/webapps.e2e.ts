@@ -143,7 +143,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
         await context.close()
     })
 
-    it('opens a score centered, remembers it and forgets it when closed', async () => {
+    it('opens a score centered; the viewer remembers it and forgets it when closed, the editor starts with the home screen', async () => {
         const { page, context } = await newPage()
         // the viewer shows its drop target without a score, the editor its home screen
         const noScore = (): Promise<boolean> => page.evaluate((a) => a === 'webviewer'
@@ -154,6 +154,15 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
         expect(await page.textContent(sel.pageInfo)).toBe('1 / 2')
         expect(await pageCenterOffset(page)).toEqual([0, 0])
 
+        if (app !== 'webviewer') {
+            // the editor does not open the last score again (a large score or one that crashes it would open every time)
+            await page.goto(base)
+            await page.waitForSelector('.home')
+            await page.waitForTimeout(1500)
+            expect(await noScore()).toBe(true)
+            await context.close()
+            return
+        }
         await page.goto(base) // no ?url: the last file is opened again
         await page.waitForFunction(() => /2 pages/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 60000 })
         expect(await text(page, 'title')).toBe('amazing')

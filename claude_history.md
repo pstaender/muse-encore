@@ -1110,3 +1110,12 @@
   printing uses the page view.
 - The drag-and-drop highlight (dashed frame) could stay after opening a dropped file: dragenter/dragleave counting does
   not pair up in every browser. It now lasts only while dragover keeps firing (and ends on drop or leaving the window).
+
+### Editor: no reopening at startup, thumbnails of the page view
+
+- The editor no longer opens the score that was open at the last start (a large score or one that crashes the editor
+  would be opened every time); it starts with the home screen. Only "Yes" in the restore-session question (left-over
+  autosaves) opens a score.
+- The home screen's thumbnail and page count are those of the page view again, also when the editor shows a continuous
+  view: taken when the score is loaded (before the view switches to its mode) and, when saving, with withPageView()
+  (index.ts: lays the score out as pages for a callback and in its view mode again afterwards).

@@ -6,8 +6,8 @@
  */
 import { useSyncExternalStore } from 'react'
 import {
-    createScore, drawPage, endTextEditing, isModified, layoutScore, loadScore, markSaved, markUnsaved, pageCount, pageFormatSize, pageSize, saveMscz, viewMode,
-    scoreTitle, type MasterScore, type NewScoreOptions,
+    createScore, drawPage, endTextEditing, isModified, layoutScore, loadScore, markSaved, markUnsaved, pageCount, pageFormatSize, pageSize, saveMscz,
+    scoreTitle, withPageView, type MasterScore, type NewScoreOptions,
 } from '../src/index'
 import {
     addScore, autosaveIds, contentHash, loadAutosave, loadScoreContent, openScoreId, removeAllAutosaves, removeAutosave,
@@ -129,22 +129,43 @@ export function answerDialog(answer: unknown): void {
 
 const UNTITLED = 'Untitled score' // NotationProject::scoreDefaultTitle
 
+/** what the home screen shows of a score: its page view (also when it is shown in a continuous view) */
+interface PageViewInfo {
+    pages: number
+    /** a small picture of the first page (like MuseScore's thumbnail) */
+    thumbnail: Promise<Blob | undefined>
+}
+
 /**
- * a small picture of the first page for the home screen; in the continuous views the beginning of their page
- * in the proportions of the page format
+ * Taken when a score is loaded (in the page view, before the view switches to its view mode) and when it is saved;
+ * otherwise the score is laid out as pages for it and back again (like printing).
  */
-function makeThumbnail(score: MasterScore): Promise<Blob | undefined> {
-    const size = viewMode(score) === 'page' ? pageSize(score, 0) : pageFormatSize(score)
+const s_pageViewInfo = new WeakMap<MasterScore, PageViewInfo>()
+
+function pageViewInfo(score: MasterScore): PageViewInfo {
+    let info = s_pageViewInfo.get(score)
+    if (!info) {
+        info = withPageView(score, () => ({ pages: pageCount(score), thumbnail: drawThumbnail(score) }))
+        s_pageViewInfo.set(score, info)
+    }
+    return info
+}
+
+function drawThumbnail(score: MasterScore): Promise<Blob | undefined> {
+    const size = pageSize(score, 0)
     const width = 360
-    const dpi = width / Math.min(size.width, pageSize(score, 0).width)
     const c = document.createElement('canvas')
     c.width = width
     c.height = Math.round(size.height * width / size.width)
     const ctx = c.getContext('2d')!
     ctx.fillStyle = '#fff'
     ctx.fillRect(0, 0, c.width, c.height)
-    drawPage(score, 0, ctx, { dpi, region: { x: 0, y: 0, width: c.width, height: c.height } })
+    drawPage(score, 0, ctx, { dpi: width / size.width })
     return new Promise(resolve => c.toBlob(b => resolve(b ?? undefined), 'image/webp', 0.85))
+}
+
+function makeThumbnail(score: MasterScore): Promise<Blob | undefined> {
+    return pageViewInfo(score).thumbnail
 }
 
 /** `aspect` is the one of the page format (also in the continuous views, which have one long page) */
@@ -153,7 +174,7 @@ function entryInfo(score: MasterScore): Pick<ScoreEntry, 'title' | 'composer' | 
     return {
         title: scoreTitle(score),
         composer: score.metaTag('composer') || '',
-        pages: pageCount(score),
+        pages: pageViewInfo(score).pages,
         aspect: size.width / size.height,
     }
 }
@@ -171,8 +192,11 @@ async function load(name: string, make: () => MasterScore): Promise<MasterScore 
         const t0 = performance.now()
         const s = make()
         const t1 = performance.now()
+        s_pageViewInfo.delete(s)
+        pageViewInfo(s)
         showScore(s, name)
-        setStatus(`${name} · ${pageCount(s)} ${pageCount(s) === 1 ? 'page' : 'pages'} · layout ${Math.round(t1 - t0)} ms`)
+        const pages = pageViewInfo(s).pages
+        setStatus(`${name} · ${pages} ${pages === 1 ? 'page' : 'pages'} · layout ${Math.round(t1 - t0)} ms`)
         return s
     } catch (e) {
         console.error(e)
@@ -376,6 +400,7 @@ export async function saveScore(): Promise<boolean> {
         }
     }
     const data = toArrayBuffer(bytes)
+    s_pageViewInfo.delete(s) // the score was edited since
     const info = { size: data.byteLength, hash: await contentHash(data), ...entryInfo(s) }
     let id = current.id
     if (!id || !(await saveScoreContent(id, data, info))) {
@@ -429,6 +454,7 @@ async function saveAs(name: string, toComputer: boolean): Promise<boolean> {
         where = `in this browser and to ${handle?.name ?? 'the downloads'}`
     }
     const data = toArrayBuffer(bytes)
+    s_pageViewInfo.delete(s) // the score was edited since
     const info = { size: data.byteLength, hash: await contentHash(data), ...entryInfo(s) }
     let id: string | null = null
     if (current.newlyCreated && current.id) {
@@ -556,21 +582,19 @@ window.addEventListener('beforeunload', (e) => {
 
 /**
  * StartupScenario::restoreLastSession: autosaves are left over if the page was closed with unsaved changes (or the
- * browser quit); "Yes" opens the score with its autosave, "No" removes the autosaves.
+ * browser quit); "Yes" opens the score with its autosave (returns its id), "No" removes the autosaves.
  */
-async function restoreSessionIfNeeded(): Promise<void> {
+async function restoreSessionIfNeeded(): Promise<string | null> {
     const ids = await autosaveIds()
     if (!ids.length) {
-        return
+        return null
     }
     if (await ask<boolean>('restoreSession')) {
         const open = openScoreId()
-        if (!open || !ids.includes(open)) {
-            setOpenScoreId(ids[0])
-        }
-    } else {
-        await removeAllAutosaves()
+        return open && ids.includes(open) ? open : ids[0]
     }
+    await removeAllAutosaves()
+    return null
 }
 
 export async function startup(): Promise<void> {
@@ -578,9 +602,9 @@ export async function startup(): Promise<void> {
     const legacy = await takeLegacyLastFile()
     if (url) {
         await openUrl(url)
-    } else if (legacy?.open) {
-        await openFileData(legacy.name, legacy.data, 'file')
     } else {
+        // the score that was open is not opened again (a large score or one that crashes the editor would be opened
+        // at every start); the home screen lists it
         if (legacy) {
             // keep it in the list without opening it; the details are filled in when it is opened
             await addScore({
@@ -588,10 +612,10 @@ export async function startup(): Promise<void> {
                 title: '', composer: '', pages: 0, aspect: 210 / 297,
             }, { data: legacy.data })
         }
-        await restoreSessionIfNeeded()
-        const id = openScoreId()
-        if (id && !(await openStored(id))) {
-            setOpenScoreId(null)
+        const id = await restoreSessionIfNeeded()
+        setOpenScoreId(null)
+        if (id) {
+            await openStored(id)
         }
     }
 }

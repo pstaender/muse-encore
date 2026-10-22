@@ -192,6 +192,28 @@ export function setViewMode(score: MasterScore, mode: ViewMode, width = 0): bool
     return true
 }
 
+/**
+ * Runs `fn` with the score laid out in the page view (e.g. for printing or a thumbnail of the first page, like
+ * Score::print) and lays it out in its view mode again afterwards.
+ */
+export function withPageView<T>(score: MasterScore, fn: () => T): T {
+    const layoutMode = score.layoutMode()
+    const reflowWidth = score.reflowWidth()
+    if (layoutMode === LayoutMode.PAGE) {
+        return fn()
+    }
+    score.setLayoutMode(LayoutMode.PAGE)
+    score.setReflowWidth(0)
+    ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
+    try {
+        return fn()
+    } finally {
+        score.setLayoutMode(layoutMode)
+        score.setReflowWidth(reflowWidth)
+        ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
+    }
+}
+
 /** MuseScore saves laid out scores (multimeasure rests, compatibility conversions of old files happen with the layout) */
 function ensureLaidOut(score: MasterScore): void {
     if (!s_compatDone.has(score)) {
