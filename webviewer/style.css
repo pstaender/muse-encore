@@ -232,13 +232,19 @@ main.view-switching #pages { opacity: .35; }
 .drop-target p { margin: 4px 0; }
 .drop-icon { font-family: "MusescoreIcon"; font-size: 40px; color: var(--muted); margin-bottom: 8px; }
 body.dragover .drop-target { border-color: var(--accent); background: var(--active); }
-body.dragover main::after {
+body.dragover::after {
     content: "";
-    position: absolute;
-    inset: 8px;
+    position: fixed;
+    /* the area of the drop (set by the script): fixed, so it does not scroll with a large score */
+    left: calc(var(--drop-left, 0px) + 8px);
+    top: calc(var(--drop-top, 0px) + 8px);
+    width: calc(var(--drop-width, 100vw) - 16px);
+    height: calc(var(--drop-height, 100vh) - 16px);
+    box-sizing: border-box;
     border: 2px dashed var(--accent);
     border-radius: 12px;
     pointer-events: none;
+    z-index: 10;
 }
 
 .muted { color: var(--muted); }

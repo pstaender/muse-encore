@@ -352,14 +352,19 @@ main.hand.dragging { cursor: grabbing; user-select: none; }
 
 /* ---- drag and drop of files ---- */
 
-body.dragover main::after,
-body.dragover .home::after {
+body.dragover::after {
     content: "";
-    position: absolute;
-    inset: 8px;
+    position: fixed;
+    /* the area of the drop (set by the script): fixed, so it does not scroll with a large score */
+    left: calc(var(--drop-left, 0px) + 8px);
+    top: calc(var(--drop-top, 0px) + 8px);
+    width: calc(var(--drop-width, 100vw) - 16px);
+    height: calc(var(--drop-height, 100vh) - 16px);
+    box-sizing: border-box;
     border: 2px dashed var(--accent);
     border-radius: 12px;
     pointer-events: none;
+    z-index: 10;
 }
 
 .muted { color: var(--muted); }

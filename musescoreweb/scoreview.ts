@@ -2016,24 +2016,43 @@ export function showShortcutsHelp(): void {
 helpDialog.addEventListener('close', () => viewport.focus({ preventScroll: true }))
 
 // a file can be dropped anywhere (also on the home screen)
-let dragDepth = 0
-document.addEventListener('dragenter', (e) => {
+// dragenter/dragleave do not pair up reliably (text nodes, Safari, drags cancelled outside the window), so the
+// highlight lasts as long as dragover keeps firing (every ~50 ms while a drag is over the page)
+/** the drop highlight covers the box of the given element (body::after is fixed: it must not scroll with the score) */
+function setDropArea(area: Element): void {
+    const r = area.getBoundingClientRect()
+    const style = document.body.style
+    style.setProperty('--drop-left', `${r.left}px`)
+    style.setProperty('--drop-top', `${r.top}px`)
+    style.setProperty('--drop-width', `${r.width}px`)
+    style.setProperty('--drop-height', `${r.height}px`)
+}
+let dragTimer = 0
+function endDragOver(): void {
+    clearTimeout(dragTimer)
+    document.body.classList.remove('dragover')
+}
+document.addEventListener('dragover', (e) => {
+    e.preventDefault()
     if (e.dataTransfer?.types.includes('Files')) {
-        dragDepth++
-        document.body.classList.add('dragover')
+        if (!document.body.classList.contains('dragover')) {
+            // the home screen or the score
+            const area = [...document.querySelectorAll('.home, .viewport-host')].find(el => el.getClientRects().length)
+            setDropArea(area ?? document.body)
+            document.body.classList.add('dragover')
+        }
+        clearTimeout(dragTimer)
+        dragTimer = window.setTimeout(endDragOver, 200)
     }
 })
-document.addEventListener('dragleave', () => {
-    dragDepth = Math.max(0, dragDepth - 1)
-    if (!dragDepth) {
-        document.body.classList.remove('dragover')
+document.addEventListener('dragleave', (e) => {
+    if (!e.relatedTarget) {
+        endDragOver() // left the window
     }
 })
-document.addEventListener('dragover', (e) => e.preventDefault())
 document.addEventListener('drop', (e) => {
     e.preventDefault()
-    dragDepth = 0
-    document.body.classList.remove('dragover')
+    endDragOver()
     const f = e.dataTransfer?.files[0]
     if (f && !isBusy() && !document.querySelector('dialog[open]')) {
         handlers.openFile(f)

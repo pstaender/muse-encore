@@ -1125,6 +1125,15 @@ fileInput.addEventListener('change', () => {
 
 // dragenter/dragleave do not pair up reliably (text nodes, Safari, drags cancelled outside the window), so the
 // highlight lasts as long as dragover keeps firing (every ~50 ms while a drag is over the page)
+/** the drop highlight covers the box of the given element (body::after is fixed: it must not scroll with the score) */
+function setDropArea(area: Element): void {
+    const r = area.getBoundingClientRect()
+    const style = document.body.style
+    style.setProperty('--drop-left', `${r.left}px`)
+    style.setProperty('--drop-top', `${r.top}px`)
+    style.setProperty('--drop-width', `${r.width}px`)
+    style.setProperty('--drop-height', `${r.height}px`)
+}
 let dragTimer = 0
 function endDragOver(): void {
     clearTimeout(dragTimer)
@@ -1133,7 +1142,10 @@ function endDragOver(): void {
 document.addEventListener('dragover', (e) => {
     e.preventDefault()
     if (e.dataTransfer?.types.includes('Files')) {
-        document.body.classList.add('dragover')
+        if (!document.body.classList.contains('dragover')) {
+            setDropArea(viewport)
+            document.body.classList.add('dragover')
+        }
         clearTimeout(dragTimer)
         dragTimer = window.setTimeout(endDragOver, 200)
     }

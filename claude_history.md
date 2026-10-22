@@ -1133,3 +1133,10 @@
 
 - The panel's measure number is right-aligned at the panel's right edge (was left-aligned after the clef column, so
   numbers with several digits were cut off), and the panel is widened if the number would not fit.
+
+### Drop highlight fixed in the visible area
+
+- The dashed frame of a file drag was an absolute ::after of the scrolling `main`, so it scrolled away with a large
+  score. It is now a fixed `body::after` over the box of the drop area (viewer: the viewport; editor: the home screen
+  or the score view), measured when the drag enters. The editor uses the viewer's dragover timer instead of counting
+  dragenter/dragleave.
