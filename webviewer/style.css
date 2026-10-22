@@ -190,6 +190,18 @@ main.hand.dragging { cursor: grabbing; user-select: none; }
     pointer-events: none;
     box-shadow: 6px 0 18px -6px rgba(0, 0, 0, .3);
 }
+/* the view mode changes: the score is greyed out with a spinner (set at once: no animation runs while the layout
+   blocks the page) */
+main.view-switching #pages { opacity: .35; }
+.view-switch-indicator {
+    position: fixed;
+    z-index: 5;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+}
+.view-switch-indicator .spinner { margin: 0; }
+
 /* the continuous views: one long page without page border (NotationPainting::isPaintPageBorder) */
 #pages.continuous .page { box-shadow: none; }
 

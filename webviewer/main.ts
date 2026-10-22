@@ -678,7 +678,15 @@ function showPageStart(): void {
 //   view modes (MuseScore's status bar: NotationStatusBarModel::setCurrentViewMode, NotationPainting::setViewMode)
 // ---------------------------------------------------------------------------------
 
-async function setViewMode(mode: ViewerViewMode): Promise<void> {
+// while the view mode changes (a new layout of the whole score, which blocks the page for a moment in large scores),
+// the score is greyed out with a spinner
+const viewSwitchIndicator = document.createElement('div')
+viewSwitchIndicator.className = 'view-switch-indicator'
+viewSwitchIndicator.setAttribute('aria-hidden', 'true')
+viewSwitchIndicator.appendChild(document.createElement('div')).className = 'spinner'
+let viewSwitch = 0
+
+function setViewMode(mode: ViewerViewMode): void {
     if (mode === settings.viewMode) {
         return
     }
@@ -688,15 +696,27 @@ async function setViewMode(mode: ViewerViewMode): Promise<void> {
         updateControls()
         return
     }
-    // a new layout of the whole score
-    await showBusy('Changing the view…', viewModeSelect.selectedOptions[0]?.textContent ?? '')
-    try {
-        setScoreViewMode(score, mode)
-        ++layoutVersion
-        buildPages()
-    } finally {
-        hideBusy()
-    }
+    const r = viewport.getBoundingClientRect()
+    Object.assign(viewSwitchIndicator.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` })
+    document.body.appendChild(viewSwitchIndicator)
+    viewport.classList.add('view-switching')
+    viewport.inert = true
+    // the indicator must be painted before the (synchronous) layout; a later switch replaces this one
+    const token = ++viewSwitch
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => {
+        if (token !== viewSwitch || !score) {
+            return
+        }
+        viewport.inert = false
+        try {
+            setScoreViewMode(score, mode)
+            ++layoutVersion
+            buildPages()
+        } finally {
+            viewport.classList.remove('view-switching')
+            viewSwitchIndicator.remove()
+        }
+    })))
 }
 
 // the continuous view (horizontal): the staff names, clefs, key and time signatures at the left edge of the view
@@ -1076,7 +1096,7 @@ btn.layoutH.addEventListener('click', () => setOrientation('horizontal'))
 btn.layoutV.addEventListener('click', () => setOrientation('vertical'))
 btn.spread.addEventListener('click', toggleSpread)
 viewModeSelect.addEventListener('change', () => {
-    void setViewMode(viewModeSelect.value as ViewerViewMode).then(() => viewport.focus({ preventScroll: true }))
+    setViewMode(viewModeSelect.value as ViewerViewMode)
 })
 btn.zoomIn.addEventListener('click', () => zoomStep(1))
 btn.zoomOut.addEventListener('click', () => zoomStep(-1))

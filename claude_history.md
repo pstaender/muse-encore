@@ -1119,3 +1119,12 @@
 - The home screen's thumbnail and page count are those of the page view again, also when the editor shows a continuous
   view: taken when the score is loaded (before the view switches to its mode) and, when saving, with withPageView()
   (index.ts: lays the score out as pages for a callback and in its view mode again afterwards).
+
+### Home thumbnails in the continuous views (fix), view switch indicator
+
+- pageFormatSize() returned the size of the first laid out page, which in a continuous view is the long page: a score
+  saved in a continuous view got the aspect of that page on the home screen (a thin strip instead of the thumbnail).
+  It now returns the style's page format (pageWidth/pageHeight).
+- Changing the view mode (editor and viewer) greys out the score with a spinner until the new layout is shown; the
+  state is set at once and the layout starts after it was painted (two frames), since no animation runs while the
+  layout blocks the page. Input to the view is blocked meanwhile (inert); a later switch replaces a pending one.

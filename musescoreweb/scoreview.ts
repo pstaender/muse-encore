@@ -909,6 +909,14 @@ function applyViewMode(): boolean {
     return setScoreViewMode(score, settings.viewMode, settings.viewMode === 'fit-width' ? fitWidthInches() : 0)
 }
 
+// while the view mode changes (a new layout of the whole score, which blocks the page for a moment in large scores),
+// the score is greyed out with a spinner
+const viewSwitchIndicator = document.createElement('div')
+viewSwitchIndicator.className = 'view-switch-indicator'
+viewSwitchIndicator.setAttribute('aria-hidden', 'true')
+viewSwitchIndicator.appendChild(document.createElement('div')).className = 'spinner'
+let viewSwitch = 0
+
 export function setViewMode(mode: ViewMode): void {
     if (mode === settings.viewMode) {
         return
@@ -919,10 +927,31 @@ export function setViewMode(mode: ViewMode): void {
         settings.zoom = '100'
         saveSettings(settings)
     }
-    applyViewMode()
-    buildPages()
-    // the selection stays in view
-    selectionChanged(true)
+    publish({ viewMode: mode })
+    if (!score) {
+        return
+    }
+    const host = viewport.parentElement!
+    host.classList.add('view-switching')
+    host.appendChild(viewSwitchIndicator)
+    viewport.inert = true
+    // the indicator must be painted before the (synchronous) layout; a later switch replaces this one
+    const token = ++viewSwitch
+    requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => {
+        if (token !== viewSwitch) {
+            return
+        }
+        viewport.inert = false
+        try {
+            applyViewMode()
+            buildPages()
+            // the selection stays in view
+            selectionChanged(true)
+        } finally {
+            host.classList.remove('view-switching')
+            viewSwitchIndicator.remove()
+        }
+    })))
 }
 
 // the continuous view (horizontal): the staff names, clefs, key and time signatures at the left edge of the view

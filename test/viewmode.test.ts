@@ -3,7 +3,7 @@
 // the "fit to window" view (not in MuseScore) and the continuous panel; editing and undo in a continuous view.
 import { describe, expect, it } from 'vitest'
 import { createCanvas } from '@napi-rs/canvas'
-import { drawContinuousPanel, executeAction, pageCount, pageSize, redo, setViewMode, undo, viewMode, withPageView,
+import { drawContinuousPanel, executeAction, pageCount, pageFormatSize, pageSize, redo, setViewMode, undo, viewMode, withPageView,
     type MasterScore } from '../src/index'
 import { SelectType } from '../src/engraving/dom/select'
 import type { Chord } from '../src/engraving/dom/chord'
@@ -51,8 +51,11 @@ describe.skipIf(!hasSubmodule)('view modes', () => {
         const score = await openScore(`${DEMOS}/Triumph.mscz`)
         const pageView = scoreHash(score)
         const pages = pageCount(score)
+        const format = pageFormatSize(score)
+        expect(format).toEqual(pageSize(score, 0))
         for (const mode of ['continuous-horizontal', 'fit-width'] as const) {
             setViewMode(score, mode, 7)
+            expect(pageFormatSize(score)).toEqual(format) // the home screen's thumbnails have its proportions
             const continuous = scoreHash(score)
             const reflowWidth = score.reflowWidth()
             expect(withPageView(score, () => {

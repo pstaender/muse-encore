@@ -244,8 +244,8 @@ export function pageCount(score: MasterScore): number {
 
 /** the page format of the style in inches (the page size of the page view, also in the continuous views) */
 export function pageFormatSize(score: MasterScore): { width: number; height: number } {
-    const s = Paint.pageSizeInch(score)
-    return { width: s.width(), height: s.height() }
+    // not Paint.pageSizeInch: that is the size of the first laid out page (the long page of a continuous view)
+    return { width: score.style().styleD(Sid.pageWidth), height: score.style().styleD(Sid.pageHeight) }
 }
 
 /** page size in inches (in the continuous views the size of their single page) */

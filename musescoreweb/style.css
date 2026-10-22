@@ -451,6 +451,18 @@ body.fullscreen.panels-shown .side-chrome { transform: none; }
     animation: spin .8s linear infinite;
 }
 
+/* the view mode changes: the score is greyed out with a spinner (set at once: no animation runs while the layout
+   blocks the page) */
+.viewport-host.view-switching #pages { opacity: .35; }
+.view-switch-indicator {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+}
+.view-switch-indicator .spinner { margin: 0; }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes busy-in { from { opacity: 0; } to { opacity: 1; } }
 
