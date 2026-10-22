@@ -76,7 +76,7 @@ export interface PlaybackChannel {
     midiPort: number
     midiChannel: number
     program: number
-    /** bank (128 and above: drum kit) */
+    /** bank (MIDI bank select: MSB << 7 | LSB) */
     bank: number
     volume: number
     pan: number
@@ -218,7 +218,9 @@ export class NotationPlayback {
                         pan: c.pan(),
                         reverb: c.reverb(),
                         chorus: c.chorus(),
-                        drum: c.bank() >= 128 || (instr.useDrumset() && c.name() !== 'harmony'),
+                        // like MuseScore 4's Fluid synth (sound mapping by the instrument's category): not the channel's
+                        // bank, old files have user banks >= 128 for melodic instruments (2.x piano: MSB 2, LSB 5)
+                        drum: instr.useDrumset() && c.name() !== 'harmony',
                         partId: part.id(),
                         name: c.name(),
                         muted: !part.show(),
