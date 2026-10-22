@@ -1783,7 +1783,7 @@ viewport.addEventListener('contextmenu', (e) => {
 })
 
 // hand tool: the middle mouse button drags the view; with the setting "Hold Space and drag to move the score"
-// (web.spacePan) also Space + the left button (then Ctrl/Option+Space plays, see actions.ts), otherwise Space plays
+// (web.spacePan) also Space + the left button (then Shift+Space plays and Escape stops, see actions.ts), otherwise Space plays
 // like in MuseScore (the "play" action)
 let spaceDown = false
 let drag: { x: number; y: number; left: number; top: number; id: number } | null = null

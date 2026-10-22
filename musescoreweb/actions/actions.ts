@@ -103,16 +103,15 @@ export function useActions(): number {
 
 /**
  * The Space key: "Hold Space and drag to move the score" (settings web.spacePan, not in MuseScore) takes Space from
- * the "play" action, which gets the key of "pause-and-select" (Ctrl+Space, on macOS Option+Space) instead
+ * the "play" action, which then has no key: playback starts with "play-from-selection" (Shift+Space) and stops with
+ * Escape (another key like Ctrl/Option+Space does not reach the page in every browser and system)
  */
-export const SPACE_PAN_PLAY_SHORTCUT = isMac ? 'Alt+Space' : 'Ctrl+Space'
-
 function shortcutTable(): Record<string, readonly string[]> {
     const table = isMac ? SHORTCUTS_MAC : SHORTCUTS
     if (!settings().web.spacePan) {
         return table
     }
-    return { ...table, play: [SPACE_PAN_PLAY_SHORTCUT], 'pause-and-select': [] }
+    return { ...table, play: [] }
 }
 
 let s_spacePan = settings().web.spacePan

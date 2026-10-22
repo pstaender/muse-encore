@@ -1270,7 +1270,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
     const playButton = '[data-toolbar="playbackToolBar"] .tool-button[data-action="play"]'
     const muteButton = '[data-toolbar="playbackToolBar"] .tool-button[data-action="playback-mute"]'
 
-    it('plays the score from the toolbar and with Ctrl/Option+Space, moves the playback cursor, mutes and plays notes on click', async () => {
+    it('plays the score from the toolbar and with Shift+Space, moves the playback cursor, mutes and plays notes on click', async () => {
         const layout = await amazingGraceLayout()
         const { page, context, box } = await openAmazingGrace()
         const at = (fx: number, fy: number): [number, number] => [box.x + box.width * fx, box.y + box.height * fy]
@@ -1294,21 +1294,19 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         const paused = await playbackProbe(page)
         expect(paused.position).toBeGreaterThan(0)
 
-        // with the default setting "Hold Space and drag to move the score" Ctrl+Space (macOS: Option+Space) plays:
-        // it continues from the last position, again it pauses
-        const playKey = process.platform === 'darwin' ? 'Alt+Space' : 'Control+Space'
+        // with the default setting "Hold Space and drag to move the score" Space is the hand tool: playback starts
+        // with Shift+Space (play from the selection) and stops with Escape
         await page.focus('#viewport')
         await page.keyboard.press(' ')
         await page.waitForTimeout(300)
         expect((await playbackProbe(page)).playing).toBe(false) // Space alone is the hand tool
-        await page.keyboard.press(playKey)
+        await page.keyboard.press('Shift+Space')
         await page.waitForFunction(() => (window as unknown as { __musescorewebPlayback: { state: () => { playing: boolean } } })
             .__musescorewebPlayback.state().playing)
         await page.waitForTimeout(300)
-        await page.keyboard.press(playKey)
+        await page.keyboard.press('Escape')
         await page.waitForFunction(() => !(window as unknown as { __musescorewebPlayback: { state: () => { playing: boolean } } })
             .__musescorewebPlayback.state().playing)
-        expect((await playbackProbe(page)).position).toBeGreaterThan(paused.position)
 
         // a click on a note plays it (and seeks there)
         const note = layout.cr.filter(c => c.type === 'Chord')[2]

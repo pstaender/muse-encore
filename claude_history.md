@@ -1164,3 +1164,10 @@
   picture, the fonts and MDL percussion, and for 3.6.x with MDL percussion; "Don't ask again", OK). The answer is stored
   per migration type like ProjectConfiguration (settings project.migration); closing the dialog does not open the
   score. The e2e tests preset "Don't ask again" without migration (test/e2e/e2ehelpers.ts) except the dialog test.
+
+### Playback keys with "Hold Space and drag to move the score"
+
+- Ctrl+Space / Option+Space did not reach the page everywhere (input source switching, browser limits), so the "play"
+  action has no extra key any more when Space is the hand tool: playback starts with MuseScore's Shift+Space (play from
+  the selection) and stops with Escape (NotationActionController::resetState); pause-and-select keeps MuseScore's key.
+  The Preferences hint names these keys with MuseScore's action titles.

@@ -6,7 +6,7 @@
  * settings of the web version (not in MuseScore).
  */
 import { useEffect, useRef, useState } from 'react'
-import { SPACE_PAN_PLAY_SHORTCUT, formatShortcut } from '../actions/actions'
+import { actionTitle, formatShortcut, shortcuts } from '../actions/actions'
 import { ICON_CODES } from '../actions/uiactiondata'
 import { arg, currentLanguage, languageList, qtrc, setLanguage, useLanguage, webtr } from '../i18n'
 import { updateSettings, useSettings } from '../settings'
@@ -132,7 +132,9 @@ function WebVersionPage(): React.JSX.Element {
                 {webtr('Hold Space and drag to move the score')}
             </label>
             <p className="muted hint">
-                {arg(webtr('Playback then starts and stops with %1.'), formatShortcut(SPACE_PAN_PLAY_SHORTCUT))}
+                {/* playback then starts with Shift+Space and stops with Escape */}
+                {actionTitle('play-from-selection')}: {formatShortcut(shortcuts('play-from-selection')[0] ?? 'Shift+Space')},
+                {' '}{actionTitle('stop')}: {formatShortcut('Esc')}.
                 {' '}
                 {webtr('Otherwise Space starts and stops playback and the middle mouse button moves the score.')}
             </p>

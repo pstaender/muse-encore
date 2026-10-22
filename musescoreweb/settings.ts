@@ -119,7 +119,7 @@ function sanitizeMigration(v: unknown): AppSettings['project']['migration'] {
 }
 
 export interface WebSettings {
-    /** holding Space and dragging moves the score (the hand tool); playback is then Alt+Space (macOS: Option+Space) */
+    /** holding Space and dragging moves the score (the hand tool); playback is then Shift+Space (from the selection), Escape stops */
     spacePan: boolean
 }
 
