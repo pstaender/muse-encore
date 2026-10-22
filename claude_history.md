@@ -1101,3 +1101,12 @@
   staff whose number is in the view (drawContinuousPanel takes the view's top). Softer, wider shadow.
 - .github/workflows/pages.yml builds the viewer and the editor (with the submodule: templates, translations, soundfont)
   for https://pstaender.github.io/musescoreweb/ (viewer/, editor/, landing page .github/pages/index.html); README links.
+
+### Viewer: continuous views, drop highlight
+
+- The web viewer has MuseScore's view modes in the toolbar (Page view, Continuous view horizontal/vertical; stored in
+  the view settings) with the sticky continuous panel of the editor; in the continuous views the page layout buttons
+  and the two-page spread are disabled, "Page width"/"Whole page" fit the long page across, the wheel scrolls, and
+  printing uses the page view.
+- The drag-and-drop highlight (dashed frame) could stay after opening a dropped file: dragenter/dragleave counting does
+  not pair up in every browser. It now lasts only while dragover keeps firing (and ends on drop or leaving the window).

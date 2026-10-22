@@ -95,7 +95,12 @@ export interface ViewSettings {
     zoom: string // a percentage ("100") or a fit mode ("page-width", "whole-page")
     orientation: 'horizontal' | 'vertical'
     spread: boolean
+    viewMode: ViewerViewMode
 }
+
+/** the view modes of MuseScore's status bar the viewer offers */
+export type ViewerViewMode = 'page' | 'continuous-horizontal' | 'continuous-vertical'
+const VIEW_MODES: readonly string[] = ['page', 'continuous-horizontal', 'continuous-vertical']
 
 const SETTINGS_KEY = 'musescore-web-viewer:view'
 
@@ -106,6 +111,7 @@ export function loadSettings(defaults: ViewSettings): ViewSettings {
             zoom: typeof s.zoom === 'string' ? s.zoom : defaults.zoom,
             orientation: s.orientation === 'vertical' ? 'vertical' : s.orientation === 'horizontal' ? 'horizontal' : defaults.orientation,
             spread: typeof s.spread === 'boolean' ? s.spread : defaults.spread,
+            viewMode: VIEW_MODES.includes(s.viewMode as string) ? s.viewMode as ViewerViewMode : defaults.viewMode,
         }
     } catch {
         return defaults

@@ -70,7 +70,7 @@ fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore,
                         scores (styles/)
 tools/gen/              generators for tables derived from the C++ sources (re-run on MuseScore updates)
 tools/                  node scripts: render to PNG, compare with MuseScore output
-webviewer/              Vite web viewer app (MuseScore icon font in webviewer/assets)
+webviewer/              Vite web viewer app (plain DOM: page and continuous views; MuseScore icon font in webviewer/assets)
 musescoreweb/           Vite score editor app "MuseScore Web": React UI (App.tsx, home/, newscore/, dialogs/ mirror MuseScore's
                         QML pages), menu bar (menus/appmenu.ts = AppMenuModel), toolbars (toolbars/: docks, note input bar),
                         actions (actions/: MuseScore's UiActions + shortcuts, generated uiactiondata.ts; appactions.ts =

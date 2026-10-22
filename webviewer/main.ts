@@ -5,10 +5,12 @@
  */
 /// <reference types="vite/client" />
 import {
-    drawPage, drawPageSvg, initEngravingFonts, isTwoSided, layoutScore, loadScore, onImageDecoded, pageCount, pageSize, scoreTitle,
-    SvgGlyphDefs, type MasterScore,
+    drawContinuousPanel, drawPage, drawPageSvg, initEngravingFonts, isTwoSided, layoutScore, loadScore, onImageDecoded, pageCount,
+    pageSize, scoreTitle, setViewMode as setScoreViewMode, SvgGlyphDefs, type MasterScore,
 } from '../src/index'
-import { clearLastFile, loadLastFile, loadSettings, saveLastFile, saveSettings, type ViewSettings } from './storage'
+import {
+    clearLastFile, loadLastFile, loadSettings, saveLastFile, saveSettings, type ViewerViewMode, type ViewSettings,
+} from './storage'
 
 // ---------------------------------------------------------------------------------
 //   elements
@@ -23,6 +25,7 @@ const statusEl = $<HTMLSpanElement>('status')
 const titleEl = $<HTMLSpanElement>('title')
 const fileInput = $<HTMLInputElement>('file')
 const zoomSelect = $<HTMLSelectElement>('zoom')
+const viewModeSelect = $<HTMLSelectElement>('view-mode')
 const pageInfo = $<HTMLSpanElement>('page-info')
 const btn = {
     open: $<HTMLButtonElement>('open'),
@@ -58,18 +61,19 @@ type FitMode = typeof FIT_MODES[number]
 
 let score: MasterScore | null = null
 let fileName = ''
-let settings: ViewSettings = loadSettings({ zoom: 'whole-page', orientation: 'horizontal', spread: false })
+let settings: ViewSettings = loadSettings({ zoom: 'whole-page', orientation: 'horizontal', spread: false, viewMode: 'page' })
 let zoom = 100 // current zoom in percent
 let pages: HTMLDivElement[] = []
 const visible = new Set<HTMLDivElement>()
 let renderTimer = 0
+let layoutVersion = 0 // counts the layouts of the score (the continuous panel repaints after a new one)
 
 function fitMode(): FitMode | null {
     return (FIT_MODES as readonly string[]).includes(settings.zoom) ? settings.zoom as FitMode : null
 }
 
 function spreadActive(): boolean {
-    return !!score && settings.spread && isTwoSided(score)
+    return !!score && settings.viewMode === 'page' && settings.spread && isTwoSided(score)
 }
 
 function setStatus(text: string, error = false): void {
@@ -128,11 +132,14 @@ async function openData(name: string, data: ArrayBuffer, remember: boolean): Pro
         const t0 = performance.now()
         const s = loadScore(data)
         layoutScore(s)
+        const n = pageCount(s) // the pages of the page view
+        setScoreViewMode(s, settings.viewMode)
         const t1 = performance.now()
         score = s
         fileName = name
+        ++layoutVersion
         buildPages()
-        setStatus(`${name} · ${pageCount(s)} ${pageCount(s) === 1 ? 'page' : 'pages'} · layout ${Math.round(t1 - t0)} ms`)
+        setStatus(`${name} · ${n} ${n === 1 ? 'page' : 'pages'} · layout ${Math.round(t1 - t0)} ms`)
         if (remember) {
             void saveLastFile({ name, data })
         }
@@ -185,6 +192,7 @@ function makePage(idx: number): HTMLDivElement {
 }
 
 function buildPages(): void {
+    hideContinuousPanel()
     observer.disconnect()
     visible.clear()
     pagesDiv.replaceChildren()
@@ -227,7 +235,9 @@ function buildPages(): void {
     updateControls()
     updatePan()
     applyZoom(computeZoom())
-    if (score) {
+    if (score && settings.viewMode !== 'page') {
+        showPageStart()
+    } else if (score) {
         centerPage(0)
     } else {
         viewport.scrollTo(0, 0)
@@ -263,8 +273,9 @@ function scheduleRender(delay: number): void {
 // images of the score are decoded asynchronously: draw the pages again when one is available
 onImageDecoded(() => {
     for (const el of pages) {
-        delete el.querySelector('canvas')!.dataset.dpi
+        delete el.querySelector<HTMLCanvasElement>(':scope > canvas')!.dataset.dpi
     }
+    panelShownKey = ''
     scheduleRender(0)
 })
 
@@ -279,7 +290,7 @@ function renderPage(el: HTMLDivElement, cssDpi: number): void {
     const dpi = cssDpi * dpr
     const fullW = s.width * dpi
     const fullH = s.height * dpi
-    const c = el.querySelector('canvas')!
+    const c = el.querySelector<HTMLCanvasElement>(':scope > canvas')!
     const d = c.dataset
     const sameDpi = d.dpi === dpi.toFixed(4)
 
@@ -336,6 +347,7 @@ function renderVisible(): void {
     if (!score) {
         return
     }
+    updateContinuousPanel()
     const cssDpi = CSS_DPI * zoom / 100
     // draw one page per frame to keep the UI responsive
     const queue = [...visible].sort((a, b) => Number(a.dataset.page) - Number(b.dataset.page))
@@ -364,6 +376,11 @@ function preparePrint(): void {
     if (!score || printPagesDiv.childElementCount) {
         return
     }
+    // like MuseScore (Score::print), the pages of the page view are printed in every view mode
+    const continuous = settings.viewMode !== 'page'
+    if (continuous) {
+        setScoreViewMode(score, 'page')
+    }
     // the paper has the page size of the score, which also gives portrait or landscape
     const size = pageSize(score, 0)
     pageStyle.textContent = `@page { size: ${size.width}in ${size.height}in; margin: 0; }`
@@ -374,6 +391,10 @@ function preparePrint(): void {
         html += `<div class="print-page">${drawPageSvg(score, i, { defs })}</div>`
     }
     printPagesDiv.innerHTML = defs.svg() + html
+    if (continuous) {
+        setScoreViewMode(score, settings.viewMode)
+        ++layoutVersion
+    }
 }
 
 async function print(): Promise<void> {
@@ -412,6 +433,13 @@ function computeZoom(): number {
     const availW = viewport.clientWidth - 2 * gap
     const availH = viewport.clientHeight - 2 * gap
     const s = pageSize(score, 0)
+    // the continuous views fit their long page across it (MuseScore fits the page view only)
+    if (settings.viewMode === 'continuous-horizontal') {
+        return Math.max(MIN_ZOOM, availH / (s.height * CSS_DPI) * 100)
+    }
+    if (settings.viewMode === 'continuous-vertical') {
+        return Math.max(MIN_ZOOM, availW / (s.width * CSS_DPI) * 100)
+    }
     const pagesAcross = spreadActive() ? 2 : 1
     const zw = availW / (s.width * pagesAcross * CSS_DPI) * 100
     const zh = availH / (s.height * CSS_DPI) * 100
@@ -534,16 +562,20 @@ new ResizeObserver(() => {
 function updateControls(): void {
     const has = !!score
     const horizontal = settings.orientation === 'horizontal'
-    pagesDiv.className = horizontal ? 'horizontal' : 'vertical'
+    const pageView = settings.viewMode === 'page'
+    pagesDiv.className = (horizontal ? 'horizontal' : 'vertical') + (pageView ? '' : ' continuous')
     btn.layoutH.setAttribute('aria-checked', String(horizontal))
     btn.layoutV.setAttribute('aria-checked', String(!horizontal))
+    viewModeSelect.value = settings.viewMode
     const twoSided = !!score && isTwoSided(score)
-    btn.spread.disabled = !twoSided
+    btn.spread.disabled = !twoSided || !pageView
     btn.spread.setAttribute('aria-pressed', String(spreadActive()))
     btn.spread.title = twoSided ? 'Two pages' : 'Two pages (only for scores with a two-sided page layout)'
-    for (const b of [btn.prev, btn.next, btn.zoomIn, btn.zoomOut, btn.center, btn.print, btn.layoutH, btn.layoutV]) {
+    for (const b of [btn.prev, btn.next, btn.zoomIn, btn.zoomOut, btn.center, btn.print]) {
         b.disabled = !has
     }
+    // the continuous views have one page: no page layout
+    btn.layoutH.disabled = btn.layoutV.disabled = !has || !pageView
     zoomSelect.disabled = !has
     updatePageInfo()
 }
@@ -617,8 +649,118 @@ function centerPage(idx = currentPage()): void {
     const target = c.parentElement?.classList.contains('spread') ? c.parentElement : c
     const vr = viewport.getBoundingClientRect()
     const tr = target.getBoundingClientRect()
-    viewport.scrollLeft += tr.left + tr.width / 2 - (vr.left + viewport.clientWidth / 2)
-    viewport.scrollTop += tr.top + tr.height / 2 - (vr.top + viewport.clientHeight / 2)
+    // the long page of a continuous view is centered only along the axis where it fits
+    const continuous = settings.viewMode !== 'page'
+    if (!continuous || tr.width <= viewport.clientWidth) {
+        viewport.scrollLeft += tr.left + tr.width / 2 - (vr.left + viewport.clientWidth / 2)
+    }
+    if (!continuous || tr.height <= viewport.clientHeight) {
+        viewport.scrollTop += tr.top + tr.height / 2 - (vr.top + viewport.clientHeight / 2)
+    }
+}
+
+/** the continuous views: shows the beginning of their page (centered along an axis where it fits) */
+function showPageStart(): void {
+    const el = pages[0]
+    if (!el) {
+        return
+    }
+    const gap = pageGap()
+    const vr = viewport.getBoundingClientRect()
+    const tr = el.getBoundingClientRect()
+    viewport.scrollLeft += tr.width <= viewport.clientWidth
+        ? tr.left + tr.width / 2 - (vr.left + viewport.clientWidth / 2) : tr.left - vr.left - gap
+    viewport.scrollTop += tr.height <= viewport.clientHeight
+        ? tr.top + tr.height / 2 - (vr.top + viewport.clientHeight / 2) : tr.top - vr.top - gap
+}
+
+// ---------------------------------------------------------------------------------
+//   view modes (MuseScore's status bar: NotationStatusBarModel::setCurrentViewMode, NotationPainting::setViewMode)
+// ---------------------------------------------------------------------------------
+
+async function setViewMode(mode: ViewerViewMode): Promise<void> {
+    if (mode === settings.viewMode) {
+        return
+    }
+    settings.viewMode = mode
+    saveSettings(settings)
+    if (!score) {
+        updateControls()
+        return
+    }
+    // a new layout of the whole score
+    await showBusy('Changing the view…', viewModeSelect.selectedOptions[0]?.textContent ?? '')
+    try {
+        setScoreViewMode(score, mode)
+        ++layoutVersion
+        buildPages()
+    } finally {
+        hideBusy()
+    }
+}
+
+// the continuous view (horizontal): the staff names, clefs, key and time signatures at the left edge of the view
+// (a box as wide as the panel, with a shadow at its right edge; the canvas in it is wider). The box is sticky at the left
+// edge of the view (CSS), so it doesn't lag behind the scrolling; its contents are repainted only when they change.
+const panelBox = document.createElement('div')
+panelBox.className = 'continuous-panel'
+panelBox.setAttribute('aria-hidden', 'true')
+const panelCanvas = document.createElement('canvas')
+panelBox.appendChild(panelCanvas)
+let panelFrame = 0
+let panelShownKey = ''
+
+function scheduleContinuousPanel(): void {
+    if (!panelFrame) {
+        panelFrame = requestAnimationFrame(() => {
+            panelFrame = 0
+            updateContinuousPanel()
+        })
+    }
+}
+
+function hideContinuousPanel(): void {
+    panelBox.remove()
+    panelShownKey = ''
+}
+
+/** C++ AbstractNotationPaintView::paint: m_continuousPanel->paint() after the score, at the left edge of the view */
+function updateContinuousPanel(): void {
+    const el = pages[0]
+    if (!score || !el || settings.viewMode !== 'continuous-horizontal') {
+        hideContinuousPanel()
+        return
+    }
+    const pr = el.getBoundingClientRect()
+    const vr = viewport.getBoundingClientRect()
+    const cssPerInch = pr.width / pageSize(score, 0).width
+    const leftCss = Math.max(0, vr.left - pr.left)
+    const topCss = Math.max(0, vr.top - pr.top)
+    const widthCss = Math.ceil(viewport.clientWidth / 2)
+    const dpr = window.devicePixelRatio
+    const w = Math.round(widthCss * dpr)
+    const h = Math.round(pr.height * dpr)
+    // the canvas keeps its contents unless its size, the zoom or the layout changed
+    const viewKey = `${layoutVersion}|${w}x${h}|${cssPerInch.toFixed(4)}|`
+    if (panelCanvas.width !== w || panelCanvas.height !== h) {
+        panelCanvas.width = w
+        panelCanvas.height = h
+        panelShownKey = ''
+    }
+    const ctx = panelCanvas.getContext('2d')!
+    const shownKey = panelShownKey.startsWith(viewKey) ? panelShownKey.slice(viewKey.length) : undefined
+    // paints only if the contents changed (over the old ones: the panel's background covers the visible part)
+    const result = drawContinuousPanel(score, ctx, { dpi: cssPerInch * dpr, left: leftCss / cssPerInch, top: topCss / cssPerInch, shownKey })
+    if (!result) {
+        hideContinuousPanel()
+        return
+    }
+    panelShownKey = viewKey + result.key
+    Object.assign(panelCanvas.style, { width: `${widthCss}px`, height: `${pr.height}px` })
+    Object.assign(panelBox.style, { width: `${Math.min(widthCss, result.width * cssPerInch)}px`, height: `${pr.height}px` })
+    if (panelBox.parentElement !== el) {
+        el.prepend(panelBox)
+    }
 }
 
 function pageGap(): number {
@@ -675,6 +817,7 @@ function updatePageInfo(): void {
 
 viewport.addEventListener('scroll', () => {
     updatePageInfo()
+    scheduleContinuousPanel()
     scheduleRender(60) // tiles of zoomed-in pages follow the view
 }, { passive: true })
 
@@ -702,7 +845,8 @@ viewport.addEventListener('wheel', (e) => {
         // trackpad pinch (reported as ctrl+wheel) and ctrl+wheel
         e.preventDefault()
         zoomAt(zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY)
-    } else if (!e.shiftKey && isMouseWheel(e)) {
+    } else if (!e.shiftKey && settings.viewMode === 'page' && isMouseWheel(e)) {
+        // a wheel notch zooms in the page view; the continuous views are scrolled
         e.preventDefault()
         zoomAt(zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1), e.clientX, e.clientY)
     }
@@ -931,6 +1075,9 @@ btn.next.addEventListener('click', () => stepPage(1))
 btn.layoutH.addEventListener('click', () => setOrientation('horizontal'))
 btn.layoutV.addEventListener('click', () => setOrientation('vertical'))
 btn.spread.addEventListener('click', toggleSpread)
+viewModeSelect.addEventListener('change', () => {
+    void setViewMode(viewModeSelect.value as ViewerViewMode).then(() => viewport.focus({ preventScroll: true }))
+})
 btn.zoomIn.addEventListener('click', () => zoomStep(1))
 btn.zoomOut.addEventListener('click', () => zoomStep(-1))
 btn.print.addEventListener('click', () => void print())
@@ -956,24 +1103,29 @@ fileInput.addEventListener('change', () => {
     fileInput.value = ''
 })
 
-let dragDepth = 0
-document.addEventListener('dragenter', (e) => {
+// dragenter/dragleave do not pair up reliably (text nodes, Safari, drags cancelled outside the window), so the
+// highlight lasts as long as dragover keeps firing (every ~50 ms while a drag is over the page)
+let dragTimer = 0
+function endDragOver(): void {
+    clearTimeout(dragTimer)
+    document.body.classList.remove('dragover')
+}
+document.addEventListener('dragover', (e) => {
+    e.preventDefault()
     if (e.dataTransfer?.types.includes('Files')) {
-        dragDepth++
         document.body.classList.add('dragover')
+        clearTimeout(dragTimer)
+        dragTimer = window.setTimeout(endDragOver, 200)
     }
 })
-document.addEventListener('dragleave', () => {
-    dragDepth = Math.max(0, dragDepth - 1)
-    if (!dragDepth) {
-        document.body.classList.remove('dragover')
+document.addEventListener('dragleave', (e) => {
+    if (!e.relatedTarget) {
+        endDragOver() // left the window
     }
 })
-document.addEventListener('dragover', (e) => e.preventDefault())
 document.addEventListener('drop', (e) => {
     e.preventDefault()
-    dragDepth = 0
-    document.body.classList.remove('dragover')
+    endDragOver()
     const f = e.dataTransfer?.files[0]
     if (f && !isBusy()) {
         void openFile(f)
