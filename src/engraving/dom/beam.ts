@@ -7,6 +7,7 @@
  */
 
 import { PointF } from '../../framework/draw/types/geometry'
+import { RealIsEqual } from '../../framework/global/realfn'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import { BeamMode, DirectionV, ElementType } from '../types/types'
@@ -221,6 +222,23 @@ export class Beam extends BeamBase {
     growRight(): number { return this.m_growRight }
     setGrowLeft(val: number): void { this.m_growLeft = val }
     setGrowRight(val: number): void { this.m_growRight = val }
+
+    override reset(): void {
+        if (!RealIsEqual(this.growLeft(), 1.0)) {
+            this.undoChangeProperty(Pid.GROW_LEFT, 1.0)
+        }
+        if (!RealIsEqual(this.growRight(), 1.0)) {
+            this.undoChangeProperty(Pid.GROW_RIGHT, 1.0)
+        }
+        if (this.userModified()) {
+            this.undoChangeProperty(Pid.BEAM_POS, this.beamPos())
+            this.undoChangeProperty(Pid.USER_MODIFIED, false)
+        }
+        this.undoChangeProperty(Pid.STEM_DIRECTION, DirectionV.AUTO)
+        this.undoResetProperty(Pid.BEAM_NO_SLOPE)
+        this.undoResetProperty(Pid.BEAM_CROSS_STAFF_MOVE)
+        this.undoChangeProperty(Pid.GENERATED, true)
+    }
 
     beamPos(): [number, number] {
         if (this.m_fragments.length === 0) {

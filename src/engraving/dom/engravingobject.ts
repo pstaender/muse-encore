@@ -424,6 +424,13 @@ export abstract class EngravingObject {
 
     styledProperties(): ElementStyle { return this.m_elementStyle }
 
+    /** resets the styled properties (undoable) */
+    reset(): void {
+        for (const spp of this.styledProperties()) {
+            this.undoResetProperty(spp.pid)
+        }
+    }
+
     protected getPropertyFlagsIdx(id: Pid): number {
         return this.m_elementStyle.findIndex(p => p.pid === id)
     }

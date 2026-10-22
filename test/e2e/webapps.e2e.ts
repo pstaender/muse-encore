@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
 import { createServer, type ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { presetNoMigration } from './e2ehelpers'
 import { DEMOS, ROOT, TEST_FILES, VTEST, hasSubmodule } from '../helpers'
 
 const CHROME = process.env.CHROME_PATH ?? [
@@ -31,6 +32,7 @@ let base = ''
 
 async function newPage(opts: { colorScheme?: 'light' | 'dark'; delayMs?: number } = {}): Promise<{ page: Page; context: BrowserContext }> {
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: opts.colorScheme })
+    await presetNoMigration(context)
     await context.route(`${SCORE_HOST}**`, async route => {
         const name = route.request().url().slice(SCORE_HOST.length)
         if (opts.delayMs) {

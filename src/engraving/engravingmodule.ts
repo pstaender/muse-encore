@@ -23,6 +23,15 @@ const LEGACY_STYLE_FILES: [number, string][] = [
     [450, 'legacy-style-defaults-v450.mss'],
 ]
 
+// the other style files of the engraving resources (C++ ":/engraving/styles/..."), e.g. for the project migration
+const RESOURCE_STYLE_FILES = ['migration-306-style-Leland.mss', 'migration-306-style-Edwin.mss']
+const s_resourceStyles = new Map<string, string>()
+
+/** the content of a style file of the engraving resources (RESOURCE_STYLE_FILES), e.g. "migration-306-style-Leland.mss" */
+export function engravingStyleResource(name: string): string | undefined {
+    return s_resourceStyles.get(name)
+}
+
 type Json = Record<string, unknown>
 
 /** loads a file relative to the fonts directory, e.g. "leland/Leland.otf" */
@@ -78,6 +87,7 @@ export async function initEngravingFonts(load: FontFileLoader): Promise<void> {
         load('fonts_figuredbass.xml'),
         ...CHORD_LIST_FILES.map(async (f) => registerChordListFile(f, toBytes(await load('chords/' + f)))),
         ...LEGACY_STYLE_FILES.map(async ([v, f]) => DefaultStyle.registerLegacyStyle(v, decoder.decode(toBytes(await load('styles/' + f))))),
+        ...RESOURCE_STYLE_FILES.map(async (f) => s_resourceStyles.set(f, decoder.decode(toBytes(await load('styles/' + f))))),
         ...TEXT_FONTS.map(async (f) => fdb.addFont(f.family, await load(f.path), { bold: f.bold, italic: f.italic })),
         ...MUSIC_FONTS.map(async (f) => {
             const [data, meta] = await Promise.all([load(f.path), load(f.metadata)])

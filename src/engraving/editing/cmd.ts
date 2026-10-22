@@ -55,6 +55,7 @@ import type { Box } from '../dom/box'
 import type { Segment } from '../dom/segment'
 import type { Measure } from '../dom/measure'
 import type { Tie } from '../dom/tie'
+import type { Beam } from '../dom/beam'
 import type { Slur } from '../dom/slur'
 import type { Clef } from '../dom/clef'
 import type { TimeSig } from '../dom/timesig'
@@ -68,6 +69,10 @@ declare module '../dom/score' {
         undoRedo(undo: boolean, ed?: EditData | null): void
         /** layout & update */
         update(resetCmdState?: boolean, layoutAllParts?: boolean): void
+
+        cmdResetAllPositions(undoable?: boolean): void
+        resetAutoplace(): void
+        resetCrossBeams(): void
 
         /** move current selection */
         move(cmd: string): EngravingItem | null
@@ -227,6 +232,45 @@ Score.prototype.update = function (this: Score, resetCmdState = true, _layoutAll
     if (sel.isRange() && !sel.isLocked()) {
         sel.updateSelectedElements()
     }
+}
+
+function resetElementPosition(e: EngravingItem): void {
+    if (e.generated()) {
+        return
+    }
+
+    e.undoResetProperty(Pid.AUTOPLACE)
+    e.undoResetProperty(Pid.OFFSET)
+    e.undoResetProperty(Pid.LEADING_SPACE)
+    e.setOffsetChanged(false)
+    if (e.isSpanner()) {
+        e.undoResetProperty(Pid.OFFSET2)
+    }
+}
+
+function resetBeamOffSet(e: EngravingItem): void {
+    // Reset completely cross staff beams from MU1&2
+    if (e.isBeam() && (e as Beam).fullCross()) {
+        e.reset()
+    }
+}
+
+Score.prototype.cmdResetAllPositions = function (this: Score, undoable = true): void {
+    if (undoable) {
+        this.startCmd(new TranslatableString('undoableAction', 'Reset all positions'))
+    }
+    this.resetAutoplace()
+    if (undoable) {
+        this.endCmd()
+    }
+}
+
+Score.prototype.resetAutoplace = function (this: Score): void {
+    this.scanElements(resetElementPosition)
+}
+
+Score.prototype.resetCrossBeams = function (this: Score): void {
+    this.scanElements(resetBeamOffSet)
 }
 
 Score.prototype.move = function (this: Score, cmd: string): EngravingItem | null {

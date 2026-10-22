@@ -24,6 +24,9 @@ import { NotationProject, ProjectCreateOptions } from './project/internal/notati
 import { Sid } from './engraving/style/styledef'
 import { fontProvider } from './engraving/infrastructure/engravingcontext'
 import { MscLoader, loadScore as loadMasterScore } from './engraving/rw/mscloader'
+import { ProjectMigrator, migrationTypeFromMscVersion } from './project/internal/projectmigrator'
+import { MigrationType, MigrationOptions } from './project/types/projecttypes'
+import type { TemplateFileProvider } from './project/internal/mdlmigrator'
 import { MscReader } from './engraving/infrastructure/mscreader'
 import { MscWriter } from './engraving/infrastructure/mscwriter'
 import { MscSaver } from './engraving/rw/mscsaver'
@@ -130,8 +133,31 @@ export function loadTemplate(mscx: string, style?: string | null): MasterScore {
     return score
 }
 
+export { MigrationType, MigrationOptions } from './project/types/projecttypes'
+export type { TemplateFileProvider } from './project/internal/mdlmigrator'
+
+/** the migration a score of an older version can get (Unknown: none, 4.0 and newer) */
+export function scoreMigrationType(score: MasterScore): MigrationType {
+    return migrationTypeFromMscVersion(score.mscVersion())
+}
+
+/** the version of MuseScore that saved the score (e.g. "3.6.2"; C++ EngravingProject::appVersion) */
+export function scoreAppVersion(score: MasterScore): string {
+    return score.mscoreVersion()
+}
+
+export interface LayoutScoreOptions {
+    /**
+     * the migration of a score of MuseScore 3 or older when it is laid out the first time (the options the user chose
+     * in MuseScore's migration dialog); none: the score keeps its old style
+     */
+    migration?: MigrationOptions | null
+    /** the files of MuseScore's share/templates, e.g. the drumsets of the migration of MDL percussion */
+    templateFile?: TemplateFileProvider | null
+}
+
 /** Lays out the whole score (pages, systems, measures, ...) */
-export function layoutScore(score: MasterScore): void {
+export function layoutScore(score: MasterScore, options: LayoutScoreOptions = {}): void {
     // MuseScore lays out a loaded score twice (EngravingProject::loadMscz and NotationProject::doLoad) and some
     // results depend on the previous pass (e.g. chord shapes include the lyrics bboxes, which are only laid out
     // after the chord shapes are filled), so do the same to get identical results.
@@ -140,6 +166,8 @@ export function layoutScore(score: MasterScore): void {
     ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
     if (firstLayout) {
         s_compatDone.add(score)
+        // NotationProject::doLoad: the migration (its command lays out the changed score)
+        new ProjectMigrator(options.templateFile ?? null).migrateEngravingProjectIfNeed(score, options.migration ?? null)
         EngravingCompat.doPreLayoutCompatIfNeeded(score)
         score.updateCapo(/* ignoreNotationUpdate */ true)
     }

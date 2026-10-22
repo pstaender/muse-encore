@@ -28,6 +28,8 @@ export interface AppSettings {
         autoSaveEnabled: boolean
         /** autoSaveIntervalMinutes (preference "project/autoSaveInterval"; the dialog offers 1..100) */
         autoSaveInterval: number
+        /** migrationOptions(type) (preference "project/migration"): the answers of the migration dialog per migration type */
+        migration: Partial<Record<'Pre_3_6' | 'Ver_3_6', StoredMigrationOptions>>
     }
     ui: {
         /** 'system' or a language code of MuseScore's translations (e.g. "de", "pt_BR") */
@@ -84,6 +86,38 @@ export interface PlaybackSettings {
     notePlayDuration: number
 }
 
+/** ProjectConfiguration's JSON of MigrationOptions */
+export interface StoredMigrationOptions {
+    appVersion: number
+    isApplyMigration: boolean
+    isAskAgain: boolean
+    isApplyLeland: boolean
+    isApplyEdwin: boolean
+    isRemapPercussion: boolean
+}
+
+function sanitizeMigration(v: unknown): AppSettings['project']['migration'] {
+    const result: AppSettings['project']['migration'] = {}
+    if (!v || typeof v !== 'object') {
+        return result
+    }
+    for (const type of ['Pre_3_6', 'Ver_3_6'] as const) {
+        const o = (v as Record<string, Record<string, unknown>>)[type]
+        if (o && typeof o === 'object') {
+            // like QJsonValue::toBool()/toInt(0): missing values are false/0
+            result[type] = {
+                appVersion: typeof o.appVersion === 'number' ? o.appVersion : 0,
+                isApplyMigration: o.isApplyMigration === true,
+                isAskAgain: o.isAskAgain === true,
+                isApplyLeland: o.isApplyLeland === true,
+                isApplyEdwin: o.isApplyEdwin === true,
+                isRemapPercussion: o.isRemapPercussion === true,
+            }
+        }
+    }
+    return result
+}
+
 export interface WebSettings {
     /** holding Space and dragging moves the score (the hand tool); playback is then Alt+Space (macOS: Option+Space) */
     spacePan: boolean
@@ -93,7 +127,7 @@ const DEFAULTS: AppSettings = {
     view: { zoom: 'whole-page', orientation: 'horizontal', spread: false, viewMode: 'page' },
     home: { layout: 'grid' },
     newScore: { mode: 'instruments' },
-    project: { autoSaveEnabled: true, autoSaveInterval: 5 }, // ProjectConfiguration::init
+    project: { autoSaveEnabled: true, autoSaveInterval: 5, migration: {} }, // ProjectConfiguration::init
     ui: { language: 'system' },
     layout: { docks: {}, hidden: [], statusBar: true },
     noteInputBar: null,
@@ -132,6 +166,7 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
             // fractions of a minute are accepted (tests)
             autoSaveInterval: typeof s.project?.autoSaveInterval === 'number' && s.project.autoSaveInterval > 0
                 && s.project.autoSaveInterval <= 1000 ? s.project.autoSaveInterval : DEFAULTS.project.autoSaveInterval,
+            migration: sanitizeMigration(s.project?.migration),
         },
         ui: { language: typeof s.ui?.language === 'string' ? s.ui.language : DEFAULTS.ui.language },
         layout: {

@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
 import { createServer, type ViteDevServer } from 'vite'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { presetNoMigration } from './e2ehelpers'
 import { DEMOS, ROOT, hasSubmodule, openScore } from '../helpers'
 import { SegmentType } from '../../src/engraving/dom/segment'
 import type { Chord } from '../../src/engraving/dom/chord'
@@ -22,8 +23,11 @@ let server: ViteDevServer
 let browser: Browser
 let base = ''
 
-async function newPage(): Promise<{ page: Page; context: BrowserContext }> {
+async function newPage(opts: { askMigration?: boolean } = {}): Promise<{ page: Page; context: BrowserContext }> {
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
+    if (!opts.askMigration) {
+        await presetNoMigration(context)
+    }
     await context.route(`${SCORE_HOST}**`, route => route.fulfill({
         body: readFileSync(`${DEMOS}/Amazing_grace.mscz`), headers: { 'access-control-allow-origin': '*' },
     }))
@@ -100,6 +104,49 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.click('.score-card:not(.new)')
         await scoreShown(page)
         expect(await page.textContent('#title')).toBe('amazing')
+        await context.close()
+    }, 180000)
+
+    it('asks about the migration of an older score (fonts Leland and Edwin) and remembers the answer', async () => {
+        const { page, context } = await newPage({ askMigration: true })
+        const url = `${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`
+        const stored = (): Promise<Record<string, unknown> | undefined> => page.evaluate(() =>
+            JSON.parse(localStorage.getItem('musescoreweb:settings') ?? '{}').project?.migration?.Pre_3_6)
+        const checks = page.locator('dialog.migration input[type="checkbox"]')
+
+        // a MuseScore 2 score: the dialog for scores older than 3.6.2, all improvements checked
+        await page.goto(url)
+        await page.waitForSelector('dialog.migration[open]')
+        expect(await page.textContent('#migration-title')).toMatch(/MuseScore 2\./)
+        expect(await checks.count()).toBe(4)
+        expect(await Promise.all([0, 1, 2, 3].map(i => checks.nth(i).isChecked()))).toEqual([true, true, true, false])
+        expect(await page.getAttribute('dialog.migration a', 'href')).toBe('https://musescore.org/node/367337')
+        expect(await page.isHidden('#busy')).toBe(true)
+        await checks.nth(1).uncheck() // no Edwin
+        await page.click('dialog.migration button.primary')
+        await scoreShown(page)
+        expect(await page.textContent('#title')).toBe('*amazing') // migrated: modified
+        expect(await stored()).toMatchObject({ isApplyMigration: true, isAskAgain: true, isApplyLeland: true, isApplyEdwin: false })
+
+        // asked again, with the last answer; closing the dialog does not open the score
+        await page.goto(url)
+        await page.waitForSelector('dialog.migration[open]')
+        expect(await checks.nth(1).isChecked()).toBe(false)
+        await page.keyboard.press('Escape')
+        await page.waitForFunction(() => document.getElementById('busy')!.hidden && !document.querySelector('dialog[open]'))
+        expect(await view(page)).toBe('home')
+
+        // "Don't ask again": the next time the score is opened with the stored answer
+        await page.goto(url)
+        await page.waitForSelector('dialog.migration[open]')
+        await checks.nth(3).check()
+        await page.click('dialog.migration button.primary')
+        await scoreShown(page)
+        expect(await stored()).toMatchObject({ isAskAgain: false, isApplyEdwin: false })
+        await page.goto(url)
+        await scoreShown(page)
+        expect(await page.locator('dialog.migration').count()).toBe(0)
+        expect(await page.textContent('#title')).toBe('*amazing')
         await context.close()
     }, 180000)
 
@@ -1106,8 +1153,10 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         const { page, context } = await newPage()
         // auto save every 1.2 s
         await context.addInitScript(() => {
-            if (!localStorage.getItem('musescoreweb:settings')) {
-                localStorage.setItem('musescoreweb:settings', JSON.stringify({ project: { autoSaveEnabled: true, autoSaveInterval: 0.02 } }))
+            const s = JSON.parse(localStorage.getItem('musescoreweb:settings') ?? '{}') as { project?: Record<string, unknown> }
+            if (s.project?.autoSaveInterval === undefined) {
+                s.project = { ...s.project, autoSaveEnabled: true, autoSaveInterval: 0.02 }
+                localStorage.setItem('musescoreweb:settings', JSON.stringify(s))
             }
         })
         const autosaves = (): Promise<number> => page.evaluate(() => new Promise<number>((resolve) => {

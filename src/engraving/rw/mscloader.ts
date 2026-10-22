@@ -172,7 +172,8 @@ export class MscLoader {
     }
 }
 
-function styleDefaultByMscVersion(mscVer: number): number {
+/** C++ compat::ReadStyleHook::styleDefaultByMscVersion */
+export function styleDefaultByMscVersion(mscVer: number): number {
     if (mscVer > 301 && mscVer < 400) {
         return 302
     }

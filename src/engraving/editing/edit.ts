@@ -34,7 +34,8 @@ import { Interval } from '../dom/interval'
 import { ChangeMeasureLen, InsertMeasures, InsertTime, InsertTimeUnmanagedSpanner, RemoveMeasures } from './editmeasures'
 import { AddElement, ChangeElement, ChangeParent, RemoveElement } from './addremoveelement'
 import { ChangeProperty } from './editproperty'
-import { ChangeStyleValues } from './editstyle'
+import { ChangeStyle, ChangeStyleValues } from './editstyle'
+import { DefaultStyle } from '../style/defaultstyle'
 import { ChangeFretting, ChangePitch } from './editnote'
 import { ChangeSpannerElements, ChangeStartEndSpanner } from './editspanner'
 import { MoveTremolo } from './edittremolo'
@@ -181,6 +182,12 @@ declare module '../dom/score' {
         undoChangeUserMirror(n: Note, d: DirectionH): void
         undoChangeSpannerElements(spanner: Spanner, startElement: EngravingItem | null, endElement: EngravingItem | null): void
         undoChangeStyleVal(idx: Sid, v: PropertyValue): void
+        resetStyleValue(styleToReset: Sid): void
+        /**
+         * C++ Score::loadStyle(IODevice&, ign, overlap) (scorefile.cpp): applies a style file (its content here) through
+         * the undo stack; overlap: only its values that are not the defaults
+         */
+        loadStyle(data: string, ign?: boolean, overlap?: boolean): boolean
         undoChangeStyleValues(values: Map<Sid, PropertyValue>): void
         /** C++ undoPropertyChanged(EngravingObject*, Pid, const PropertyValue&, PropertyFlags) */
         undoPropertyChanged(e: EngravingObject, t: Pid, st: PropertyValue, ps?: PropertyFlags): void
@@ -3625,6 +3632,21 @@ Score.prototype.undoPropertyChanged = function (this: Score, e: EngravingObject,
 
 Score.prototype.undoChangeStyleVal = function (this: Score, idx: Sid, v: PropertyValue): void {
     this.undo(new ChangeStyleValues(this, new Map([[idx, v]])))
+}
+
+Score.prototype.resetStyleValue = function (this: Score, styleToReset: Sid): void {
+    const defStyle = DefaultStyle.defaultStyle()
+    this.undoChangeStyleVal(styleToReset, defStyle.value(styleToReset))
+}
+
+Score.prototype.loadStyle = function (this: Score, data: string, _ign = false, overlap = false): boolean {
+    const st = this.style().clone()
+    if (st.readDocument(data)) {
+        this.undo(new ChangeStyle(this, st, overlap))
+        return true
+    }
+    console.error('The style data is not compatible with this version of MuseScore Studio.')
+    return false
 }
 
 Score.prototype.undoChangeStyleValues = function (this: Score, values: Map<Sid, PropertyValue>): void {

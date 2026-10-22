@@ -168,6 +168,11 @@ export async function showBusy(title: string, detail = ''): Promise<void> {
     await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve)))
 }
 
+/** shows the overlay again with its last texts (after a question while loading) */
+export function resumeBusy(): Promise<void> {
+    return showBusy($('busy-title').textContent ?? '', $('busy-detail').textContent ?? '')
+}
+
 export function hideBusy(): void {
     busyEl.hidden = true
     document.body.removeAttribute('aria-busy')

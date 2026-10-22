@@ -593,6 +593,16 @@ export abstract class EngravingItem extends EngravingObject {
 
     minDistance(): Spatium { return this.m_minDistance }
 
+    override reset(): void {
+        this.undoResetProperty(Pid.AUTOPLACE)
+        this.undoResetProperty(Pid.PLACEMENT)
+        this.undoResetProperty(Pid.MIN_DISTANCE)
+        this.undoResetProperty(Pid.OFFSET)
+        this.undoResetProperty(Pid.LEADING_SPACE)
+        this.setOffsetChanged(false)
+        super.reset()
+    }
+
     setOffsetChanged(v: boolean, absolute = true, diff: PointF = new PointF()): void {
         const ldata = this.mutldata()
         if (v) {

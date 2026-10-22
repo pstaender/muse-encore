@@ -6,8 +6,8 @@
  */
 import { useSyncExternalStore } from 'react'
 import {
-    createScore, drawPage, endTextEditing, isModified, layoutScore, loadScore, markSaved, markUnsaved, pageCount, pageFormatSize, pageSize, saveMscz,
-    scoreTitle, withPageView, type MasterScore, type NewScoreOptions,
+    createScore, drawPage, endTextEditing, isModified, layoutScore, loadScore, markSaved, markUnsaved, MigrationOptions, MigrationType, pageCount,
+    pageFormatSize, pageSize, saveMscz, scoreAppVersion, scoreMigrationType, scoreTitle, withPageView, type MasterScore, type NewScoreOptions,
 } from '../src/index'
 import {
     addScore, autosaveIds, contentHash, loadAutosave, loadScoreContent, openScoreId, removeAllAutosaves, removeAutosave,
@@ -16,9 +16,10 @@ import {
 import { baseName, isMsczName, msczFileName, pickFileToOpen, saveToComputer, writeFile } from './files'
 import { arg, qtrc } from './i18n'
 import {
-    clearScore, currentScore, fontsReady, handlers, hideBusy, scoreChanged, scoreSaved, setScoreName, setStatus, showBusy, showScore,
-    viewShown,
+    clearScore, currentScore, fontsReady, handlers, hideBusy, resumeBusy, scoreChanged, scoreSaved, setScoreName, setStatus, showBusy,
+    showScore, viewShown,
 } from './scoreview'
+import { settings, updateSettings, type StoredMigrationOptions } from './settings'
 
 export interface CurrentScore {
     /** the id of its stored entry; null if it could not be stored */
@@ -44,15 +45,28 @@ export interface SessionState {
     /** the open score */
     current: CurrentScore | null
     newScoreDialog: boolean
-    /** another dialog of the app; the questions (saveChanges, saveAs, restoreSession) are answered with answerDialog() */
-    dialog: 'preferences' | 'about' | 'clearRecent' | 'revertFactory' | 'saveChanges' | 'saveAs' | 'restoreSession' | null
+    /** another dialog of the app; the questions (saveChanges, saveAs, restoreSession, migration) are answered with answerDialog() */
+    dialog: 'preferences' | 'about' | 'clearRecent' | 'revertFactory' | 'saveChanges' | 'saveAs' | 'restoreSession' | 'migration' | null
     /** the name proposed by the Save as dialog */
     saveAsName: string
     /** the last error, shown on the home screen */
     error: string | null
+    /** the question of the migration dialog (answered with the chosen options, or null if it was closed) */
+    migration: MigrationQuestion | null
+    /** the number of the shown question (the key of its dialog: a question asked again gets a new dialog) */
+    question: number
 }
 
-let state: SessionState = { view: 'home', current: null, newScoreDialog: false, dialog: null, saveAsName: '', error: null }
+/** the parameters of MuseScore's migration dialog (ProjectMigrator::askAboutMigration) */
+export interface MigrationQuestion {
+    appVersion: string
+    migrationType: MigrationType.Pre_3_6 | MigrationType.Ver_3_6
+    options: StoredMigrationOptions
+}
+
+let state: SessionState = {
+    view: 'home', current: null, newScoreDialog: false, dialog: null, saveAsName: '', error: null, migration: null, question: 0,
+}
 const listeners = new Set<() => void>()
 
 function setState(patch: Partial<SessionState>): void {
@@ -107,16 +121,23 @@ export function session(): SessionState {
 // the questions (IInteractive::question etc.): a dialog whose answer resolves a promise
 let answerQuestion: ((answer: unknown) => void) | null = null
 
-function ask<T>(dialog: 'saveChanges' | 'saveAs' | 'restoreSession', patch: Partial<SessionState> = {}): Promise<T> {
+function ask<T>(dialog: 'saveChanges' | 'saveAs' | 'restoreSession' | 'migration', patch: Partial<SessionState> = {}): Promise<T> {
     answerQuestion?.(undefined)
     return new Promise<T>((resolve) => {
         answerQuestion = resolve as (answer: unknown) => void
-        setState({ ...patch, dialog })
+        setState({ ...patch, dialog, question: state.question + 1 })
     })
 }
 
-/** the answer of the shown question (the dialogs call it when they are closed) */
-export function answerDialog(answer: unknown): void {
+/**
+ * the answer of the shown question (the dialogs call it when they are closed). `question`: the number of the question
+ * the dialog was shown for; the close event of a dialog comes a task after it was closed, when the same question may
+ * already be asked again (e.g. Escape and Ctrl+S at once), so the answer of an older dialog is ignored.
+ */
+export function answerDialog(answer: unknown, question = state.question): void {
+    if (question !== state.question) {
+        return
+    }
     const resolve = answerQuestion
     answerQuestion = null
     showDialog(null)
@@ -179,19 +200,26 @@ function entryInfo(score: MasterScore): Pick<ScoreEntry, 'title' | 'composer' | 
     }
 }
 
+/** opening the score was cancelled (the migration dialog was closed) */
+class OpenCancelled extends Error {}
+
+/** the time the questions asked while loading were open (not part of the layout time) */
+let s_questionTime = 0
+
 /**
- * Shows the busy overlay, makes and lays out the score (synchronously, so the overlay is painted first) and shows it.
- * Returns null (with the error shown) if it fails.
+ * Shows the busy overlay, makes and lays out the score (synchronously, so the overlay is painted first; make() only
+ * waits for questions) and shows it. Returns null (with the error shown) if it fails or is cancelled.
  */
-async function load(name: string, make: () => MasterScore): Promise<MasterScore | null> {
+async function load(name: string, make: () => MasterScore | Promise<MasterScore>): Promise<MasterScore | null> {
     await showBusy(`Opening ${name}`, 'Loading fonts…')
     try {
         await fontsReady
         setStatus(`Loading ${name}…`)
         await showBusy(`Opening ${name}`, 'Laying out the score…')
+        s_questionTime = 0
         const t0 = performance.now()
-        const s = make()
-        const t1 = performance.now()
+        const s = await make()
+        const t1 = performance.now() - s_questionTime
         s_pageViewInfo.delete(s)
         pageViewInfo(s)
         showScore(s, name)
@@ -199,6 +227,10 @@ async function load(name: string, make: () => MasterScore): Promise<MasterScore 
         setStatus(`${name} · ${pages} ${pages === 1 ? 'page' : 'pages'} · layout ${Math.round(t1 - t0)} ms`)
         return s
     } catch (e) {
+        if (e instanceof OpenCancelled) {
+            setStatus('')
+            return null
+        }
         console.error(e)
         const msg = `Could not open ${name}: ${(e as Error).message}`
         setStatus(msg, true)
@@ -222,10 +254,58 @@ async function opened(score: Omit<CurrentScore, 'id'>, store: () => Promise<stri
     return id
 }
 
-function loadFileData(data: ArrayBuffer): MasterScore {
+async function loadFileData(data: ArrayBuffer): Promise<MasterScore> {
     const s = loadScore(data)
-    layoutScore(s)
+    const migration = await migrationOptions(s)
+    layoutScore(s, { migration, templateFile })
     return s
+}
+
+// ---------------------------------------------------------------------------------
+//   the migration of scores of MuseScore 3 and older (ProjectMigrator)
+// ---------------------------------------------------------------------------------
+
+// MdlMigrator: the drumsets of share/templates (C++ globalConfiguration()->appDataPath() + "templates/")
+const DRUMSETS = import.meta.glob<string>('../MuseScore/share/templates/*.drm', { query: '?raw', import: 'default', eager: true })
+
+function templateFile(name: string): string | null {
+    return DRUMSETS[`../MuseScore/share/templates/${name}`] ?? null
+}
+
+/**
+ * ProjectMigrator::migrateEngravingProjectIfNeed: the options of the migration of a score of an older version, from
+ * the settings or, unless "Don't ask again" was chosen, from the migration dialog (then stored). null: no migration
+ * needed. Closing the dialog cancels opening the score (OpenCancelled).
+ */
+async function migrationOptions(score: MasterScore): Promise<MigrationOptions | null> {
+    const migrationType = scoreMigrationType(score)
+    if (migrationType === MigrationType.Unknown) {
+        return null
+    }
+    // ProjectConfiguration::migrationOptions: the stored ones or the defaults
+    let options = settings().project.migration[migrationType] ?? { ...new MigrationOptions() }
+    if (options.isAskAgain) {
+        const answer = await askAboutMigration(options, scoreAppVersion(score), migrationType)
+        if (!answer) {
+            throw new OpenCancelled()
+        }
+        options = answer
+        updateSettings('project', { migration: { ...settings().project.migration, [migrationType]: options } })
+    }
+    return MigrationOptions.from(options)
+}
+
+async function askAboutMigration(options: StoredMigrationOptions, appVersion: string,
+    migrationType: MigrationType.Pre_3_6 | MigrationType.Ver_3_6): Promise<StoredMigrationOptions | null> {
+    const t0 = performance.now()
+    hideBusy()
+    const answer = await ask<StoredMigrationOptions | null>('migration', { migration: { appVersion, migrationType, options } })
+    setState({ migration: null })
+    if (answer) {
+        await resumeBusy()
+    }
+    s_questionTime += performance.now() - t0
+    return answer
 }
 
 /** a score that was not saved yet (a new score, a restored autosave) is modified from the start */
@@ -302,9 +382,9 @@ export async function openStored(id: string): Promise<boolean> {
     }
     // a new score that was never saved is stored as the options it was created with
     const newlyCreated = !('data' in content)
-    const s = await load(entry.name, () => {
+    const s = await load(entry.name, async () => {
         if (autosave) {
-            return unsaved(loadFileData(autosave.data))
+            return unsaved(await loadFileData(autosave.data))
         }
         return 'data' in content ? loadFileData(content.data) : unsaved(createScore(content.options))
     })

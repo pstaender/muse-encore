@@ -52,7 +52,9 @@ src/
                         (createScore), the part and staff commands of the Layout panel (editing/editpart.ts, editstaff.ts);
                         NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input;
                         NotationMidiInput: the real-time advance (no MIDI); NotationPlayback (notationplayback.ts:
-                        the events of the MIDI renderer in seconds, metronome, preview notes, loop boundaries)
+                        the events of the MIDI renderer in seconds, metronome, preview notes, loop boundaries);
+                        ProjectMigrator / MdlMigrator: the migration of 3.x and older scores (layoutScore's `migration`
+                        option; the app asks with MuseScore's migration dialog)
   playback              IPlaybackController (set by the app; the notation scene seeks/plays through it); api.ts
   notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands),
                         PlaybackCursor, LoopMarker, ContinuousPanel (left edge of the horizontal continuous view)
@@ -77,7 +79,8 @@ musescoreweb/           Vite score editor app "MuseScore Web": React UI (App.tsx
                         the handlers), i18n.ts (MuseScore's translations via vite-plugin-locales.ts; the app's own
                         strings without context are translated in locales/webstrings.json, webtr()), score view
                         (scoreview.ts, DOM code from the viewer; drops of palette cells), dragcontroller.ts (the data of
-                        the current drag), session.ts (open/create/save scores), db.ts (IndexedDB via
+                        the current drag), session.ts (open/create/save scores; the migration dialog
+                        dialogs/MigrationDialog.tsx), db.ts (IndexedDB via
                         Dexie), settings.ts (localStorage), playback/ (Synthesizer interface, SpessaSynth + MS Basic.sf3
                         loaded on first use and cached, player.ts scheduler, playbackcontroller.ts = playback actions,
                         playbackview.ts cursor/pan/loop markers; vite-plugin-sound.ts serves/copies the soundfont;

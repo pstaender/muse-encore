@@ -203,6 +203,8 @@ export class Score extends EngravingObject {
     protected m_noteHeadWidth: number | null = null
 
     protected m_mscVersion = 470
+    private m_resetAutoplace = false
+    private m_resetCrossBeams = false
     protected m_fileDivision = 480
     protected m_pageNumberOffset = 0
     protected m_layoutMode = LayoutMode.PAGE
@@ -253,8 +255,18 @@ export class Score extends EngravingObject {
     setIsOpen(open: boolean): void { this.m_isOpen = open }
 
     override style(): MStyle { return this.m_style }
-    setStyle(s: MStyle): void {
-        this.m_style = s.clone() // C++ copies the style
+    /** overlap: only the values of `s` that are not its defaults are set (C++ setStyle(const MStyle&, bool overlap)) */
+    setStyle(s: MStyle, overlap = false): void {
+        if (!overlap) {
+            this.m_style = s.clone() // C++ copies the style
+            this.styleChanged()
+            return
+        }
+        for (let sid = Sid.NOSTYLE + 1; sid < Sid.STYLES; sid++) {
+            if (!s.isDefault(sid as Sid)) {
+                this.m_style.set(sid as Sid, s.value(sid as Sid))
+            }
+        }
         this.styleChanged()
     }
 
@@ -285,6 +297,11 @@ export class Score extends EngravingObject {
 
     mscVersion(): number { return this.m_mscVersion }
     setMscVersion(v: number): void { this.m_mscVersion = v }
+
+    /** the positions of all elements are reset after the next layout (resetAutoplace) */
+    setResetAutoplace(): void { this.m_resetAutoplace = true }
+    /** the cross staff beams of MuseScore 1/2 are reset after the next layout (resetCrossBeams) */
+    setResetCrossBeams(): void { this.m_resetCrossBeams = true }
 
     fileDivision(t: number): number {
         return Math.trunc((t * 480 + Math.trunc(this.m_fileDivision / 2)) / this.m_fileDivision)
@@ -423,7 +440,15 @@ export class Score extends EngravingObject {
         }
         scoreRendererHooks.layoutScore!(this, start, end)
 
-        // TODO(port): m_resetAutoplace / m_resetCrossBeams
+        if (this.m_resetAutoplace) {
+            this.m_resetAutoplace = false
+            this.resetAutoplace()
+        }
+
+        if (this.m_resetCrossBeams) {
+            this.m_resetCrossBeams = false
+            this.resetCrossBeams()
+        }
     }
 
     /** lay out only the changed range like C++ (false: the whole score, e.g. to compare the results) */

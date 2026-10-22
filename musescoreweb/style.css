@@ -783,6 +783,34 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); margi
 /* ---- dialogs ---- */
 
 dialog.confirm { width: min(420px, calc(100vw - 32px)); }
+
+/* the migration dialog (MigrationDialog.qml: 491 px wide, 590 px for scores older than 3.6.2) */
+dialog.migration { width: min(491px, calc(100vw - 32px)); padding: 0; }
+dialog.migration.pre362 { width: min(590px, calc(100vw - 32px)); }
+.migration-content { display: flex; flex-direction: column; gap: 16px; padding: 20px; }
+dialog.migration.pre362 .migration-content { gap: 24px; }
+.migration-content h2 { margin: 0 0 8px; font-size: 14px; }
+.migration-content p { margin: 0; }
+.migration-image {
+    display: grid;
+    place-items: center;
+    height: 178px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #f9f9f9;
+}
+.migration-image img { height: 158px; max-width: 100%; object-fit: contain; }
+.migration-options { display: flex; flex-direction: column; gap: 8px; }
+.migration-info { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+dialog.migration label.check { white-space: normal; }
+.migration-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border);
+}
 dialog.confirm p { margin: 0; color: var(--muted); }
 
 .dialog-buttons {

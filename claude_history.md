@@ -1049,6 +1049,9 @@
   MIDI export (the status bar then shows "(on ... off ...)" for shortened notes, as in MuseScore after a MIDI export).
   No mixer, MIDI input, playback setup dialog, ChangePart harmony channels; no
   WebAudioFont fallback (SpessaSynth works wherever AudioWorklet exists; without it there is no sound).
+  Presets: drum kits only for instruments with a drumset, melodic channels always bank 0 + the channel's program
+  (MuseScore 4's Fluid maps the instrument to a preset and ignores the channel's bank; 2.x pianos with the user bank
+  MSB 2/LSB 5 = 261 played as drums before). The sound mapping by instrument (fluidsynth/soundmapping.h) is not ported.
 
 ## 2026-10-22 — View modes (continuous views), fit to window, smooth panning, Space hand tool
 
@@ -1140,3 +1143,24 @@
   score. It is now a fixed `body::after` over the box of the drop area (viewer: the viewport; editor: the home screen
   or the score view), measured when the drag enters. The editor uses the viewer's dragover timer instead of counting
   dragenter/dragleave.
+
+### Migration of older scores (ProjectMigrator)
+
+- project/internal/projectmigrator.ts, mdlmigrator.ts, project/types/projecttypes.ts: port of ProjectMigrator and
+  MdlMigrator. For scores older than 4.0: Leland (migration-306-style-Leland.mss) and Edwin
+  (migration-306-style-Edwin.mss, in fonts/styles, loaded as engraving resources: engravingStyleResource()), applied
+  with Score.loadStyle(overlap) to the score and its parts; the new mapping of MDL percussion (repitched notes, the
+  drumsets of share/templates/Marching_*.drm, given by the app as `templateFile`); positions reset for scores older
+  than 3.0 (Score.setResetAutoplace -> resetAutoplace after the layout) and the cross staff beams of 1.x/2.x
+  (setResetCrossBeams -> resetCrossBeams, Beam.reset); without the fonts the style settings of #10499 are reset; the
+  meta tag mscVersion. All in one undoable command "Migrate project" (the score is modified, like in MuseScore).
+- Library: layoutScore(score, { migration, templateFile }) migrates between the first layout and the compatibility
+  conversions (NotationProject::doLoad); scoreMigrationType()/scoreAppVersion(); MigrationOptions/MigrationType.
+  Without options nothing is migrated (like MuseScore's converter, which the reference renders come from); the viewer
+  does not migrate.
+- New in the engraving port: Score.setStyle(style, overlap) and ChangeStyle's overlap, ChangeMetaText,
+  Score.resetStyleValue, Score.cmdResetAllPositions (no action yet), EngravingObject/EngravingItem.reset().
+- Editor: MuseScore's migration dialog (dialogs/MigrationDialog.tsx: the variants for scores before 3.6.2 with the
+  picture, the fonts and MDL percussion, and for 3.6.x with MDL percussion; "Don't ask again", OK). The answer is stored
+  per migration type like ProjectConfiguration (settings project.migration); closing the dialog does not open the
+  score. The e2e tests preset "Don't ask again" without migration (test/e2e/e2ehelpers.ts) except the dialog test.

@@ -9,6 +9,7 @@ import { clearRecentScores } from './actions/appactions'
 import { ViewModeControl } from './components/ViewModeControl'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { MenuBar } from './components/Menu'
+import { MigrationDialog } from './dialogs/MigrationDialog'
 import { AboutDialog } from './dialogs/AboutDialog'
 import { PreferencesDialog } from './dialogs/PreferencesDialog'
 import { SaveScoreDialog } from './dialogs/SaveScoreDialog'
@@ -33,14 +34,14 @@ function plainText(s: string): string {
 }
 
 /** "Do you want to save changes … before closing?" (ProjectActionsController::askAboutSavingScore) */
-function SaveChangesDialog(): React.JSX.Element {
+function SaveChangesDialog({ onClose }: { onClose: (answer: unknown) => void }): React.JSX.Element {
     const ref = useRef<HTMLDialogElement>(null)
     useEffect(() => {
         ref.current?.showModal()
     }, [])
     return (
         <dialog ref={ref} className="confirm" aria-labelledby="save-changes-title"
-            onClose={() => answerDialog(ref.current?.returnValue || 'cancel')}>
+            onClose={() => onClose(ref.current?.returnValue || 'cancel')}>
             <h2 id="save-changes-title">{saveChangesTitle()}</h2>
             <p>{qtrc('project', 'Your changes will be lost if you don’t save them.')}</p>
             <form method="dialog" className="dialog-buttons">
@@ -53,14 +54,14 @@ function SaveChangesDialog(): React.JSX.Element {
 }
 
 /** StartupScenario::restoreLastSession: a question with the buttons No and Yes */
-function RestoreSessionDialog(): React.JSX.Element {
+function RestoreSessionDialog({ onClose }: { onClose: (answer: unknown) => void }): React.JSX.Element {
     const ref = useRef<HTMLDialogElement>(null)
     useEffect(() => {
         ref.current?.showModal()
     }, [])
     return (
         <dialog ref={ref} className="confirm restore-session" aria-labelledby="restore-session-title"
-            onClose={() => answerDialog(ref.current?.returnValue === 'yes')}>
+            onClose={() => onClose(ref.current?.returnValue === 'yes')}>
             <h2 id="restore-session-title">{qtrc('appshell', 'The previous session quit unexpectedly.')}</h2>
             <p>{qtrc('appshell', 'Do you want to restore the session?')}</p>
             <form method="dialog" className="dialog-buttons">
@@ -104,6 +105,9 @@ export function App(): React.JSX.Element {
     useLanguage()
     useActions()
     const session = useSession()
+    // the answer of the shown question (answerDialog ignores the late close event of an earlier dialog)
+    const question = session.question
+    const answer = (a: unknown): void => answerDialog(a, question)
     const layout = useToolBarLayout()
     const scores = useScores()
     const chromeRef = useRef<HTMLDivElement>(null)
@@ -179,9 +183,12 @@ export function App(): React.JSX.Element {
             {session.newScoreDialog && <NewScoreDialog />}
             {session.dialog === 'preferences' && <PreferencesDialog onClose={() => showDialog(null)} />}
             {session.dialog === 'about' && <AboutDialog onClose={() => showDialog(null)} />}
-            {session.dialog === 'saveChanges' && <SaveChangesDialog />}
-            {session.dialog === 'saveAs' && <SaveScoreDialog name={session.saveAsName} onClose={answerDialog} />}
-            {session.dialog === 'restoreSession' && <RestoreSessionDialog />}
+            {session.dialog === 'saveChanges' && <SaveChangesDialog key={session.question} onClose={answer} />}
+            {session.dialog === 'saveAs' && <SaveScoreDialog key={session.question} name={session.saveAsName} onClose={answer} />}
+            {session.dialog === 'restoreSession' && <RestoreSessionDialog key={session.question} onClose={answer} />}
+            {session.dialog === 'migration' && session.migration && (
+                <MigrationDialog key={session.question} question={session.migration} onClose={answer} />
+            )}
             {session.dialog === 'clearRecent' && (
                 <ConfirmDialog
                     title={qtrc('appshell/menu/file', 'Clear recent')}
