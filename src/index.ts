@@ -327,7 +327,7 @@ const s_continuousPanels = new WeakMap<MasterScore, ContinuousPanel>()
  * The continuous view (horizontal): MuseScore's ContinuousPanel, the staff names, clefs, key and time signatures at the
  * left edge of the view once the beginning of the score is scrolled out of it. `left` is the x position of the left
  * edge of the view on the page (inches); the canvas shows the page from there (x = left at its left edge, y = 0 at its
- * top) at `dpi`. Returns the width of the panel in inches (0 if there is no panel).
+ * top) at `dpi`. The panel covers the whole height of the page. Returns its width in inches (0 if there is no panel).
  */
 export function drawContinuousPanel(score: MasterScore, ctx: Canvas2D, options: { dpi: number; left: number }): number {
     if (!score.lineMode() || !score.npages()) {
@@ -342,7 +342,7 @@ export function drawContinuousPanel(score: MasterScore, ctx: Canvas2D, options: 
     const left = options.left * DPI
     const provider = new CanvasPaintProvider(ctx, new Transform(scale, 0, 0, scale, -left * scale, 0))
     const painter = new Painter(provider, fontProvider(), 'continuous_panel')
-    return panel.paint(painter, { left }, { isPrinting: false }) ? panel.width() / DPI : 0
+    return panel.paint(painter, { left }, { isPrinting: false }) ? panel.backgroundWidth() / DPI : 0
 }
 
 /** the range selection rectangle (MuseScore's notation view paints it after the score) */

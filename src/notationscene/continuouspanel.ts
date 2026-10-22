@@ -6,6 +6,10 @@
  * Port of src/notationscene/qml/MuseScore/NotationScene/continuouspanel.h/.cpp: in the continuous view (horizontal),
  * the panel at the left edge of the view with the staff names, clefs, key and time signatures and the measure number
  * at the left edge of the view (once the beginning of the score is scrolled out of the view).
+ * Not like C++ (the web version's design): the panel starts with the system's header as at the beginning of the score
+ * (the instrument names and brackets of the system, instead of the names above the staves), the items have their
+ * normal colors, the background covers the whole height of the page (the view adds a shadow at its right edge) and
+ * the measure number is smaller, in a serif font.
  * The view (NotationViewContext) is given as the x position of its left edge on the page (xOffset / scaling) and
  * whether the beginning of the first measure is visible.
  */
@@ -42,8 +46,14 @@ export interface ContinuousPanelViewContext {
 export class ContinuousPanel {
     private m_width = 0
     private m_rect = new RectF()
+    private m_backgroundWidth = 0
 
     constructor(private m_score: Score) {}
+
+    /** not in C++: the width of the painted panel (page coordinates) */
+    backgroundWidth(): number {
+        return this.m_backgroundWidth
+    }
 
     /** the width of the panel (page coordinates) */
     width(): number {
@@ -149,7 +159,6 @@ export class ContinuousPanel {
 
         // The first pass serves to get the maximum width for each elements
 
-        let lineWidthName = 0
         let widthClef = 0
         let widthKeySig = 0
         let widthTimeSig = 0
@@ -161,10 +170,10 @@ export class ContinuousPanel {
         const measureNumberText = new Text(seg, TextStyleType.DEFAULT)
         measureNumberText.setParent(seg)
         measureNumberText.setFlag(ElementFlag.MOVABLE, false)
-        measureNumberText.setFamily('FreeSans')
+        measureNumberText.setFamily('FreeSerif')
+        measureNumberText.setSize(8)
         measureNumberText.setSizeIsSpatiumDependent(true)
 
-        const staffNameTexts: Text[] = []
         const clefs: Clef[] = []
         const keySigs: KeySig[] = []
         const timeSigs: TimeSig[] = []
@@ -178,31 +187,7 @@ export class ContinuousPanel {
             if (e.isStaffLines()) {
                 const staffIdx = e.staffIdx()
                 const currentStaff = score.staff(staffIdx)!
-                const instrument = currentStaff.part()!.instrument(tick)
 
-                // Staff name
-                const staffNamesLong = instrument.longNames()
-                let staffName = staffNamesLong.length === 0 ? '' : staffNamesLong[0].name()
-                if (!staffName) {
-                    const staffNamesShort = instrument.shortNames()
-                    staffName = staffNamesShort.length === 0 ? '' : staffNamesShort[0].name()
-                }
-
-                const nameText = new Text(seg, TextStyleType.DEFAULT)
-                nameText.setFlag(ElementFlag.MOVABLE, false)
-                nameText.setFamily('FreeSans')
-                nameText.setSizeIsSpatiumDependent(true)
-                nameText.setParent(seg)
-                nameText.setXmlText(staffName)
-                nameText.setTrack(e.track())
-                ScoreRenderer.layoutItem(nameText)
-                nameText.setPlainText(nameText.plainText())
-                ScoreRenderer.layoutItem(nameText)
-                staffNameTexts[staffIdx] = nameText
-
-                if (nameText.width() > lineWidthName && nameText.xmlText()) {
-                    lineWidthName = nameText.width()
-                }
 
                 // Clef
                 const clef = new Clef(seg)
@@ -267,14 +252,25 @@ export class ContinuousPanel {
         leftMarginTotal += keySigLeftMargin
         leftMarginTotal += timeSigLeftMargin
 
-        newWidth = widthClef + widthKeySig + widthTimeSig + leftMarginTotal + panelRightPadding
-        xPosMeasure -= offsetPanel
-
-        lineWidthName += spatium + clefLeftMargin + widthClef
-        if (newWidth < lineWidthName) {
-            newWidth = lineWidthName
-            oldWidth = 0
+        // the system header: the instrument names and brackets (left of the staves, which start at the system's left
+        // margin), with a padding at the left edge
+        const headerItems: EngravingItem[] = [...system.brackets()]
+        for (let i = 0; i < staffCount; ++i) {
+            const ss = system.staff(i)!
+            if (ss.show()) {
+                headerItems.push(...ss.instrumentNames)
+            }
         }
+        const staffStartX = system.pagePos().x() + system.leftMargin()
+        let headerLeft = staffStartX
+        for (const item of headerItems) {
+            if (item.visible() || showInvisible) {
+                headerLeft = Math.min(headerLeft, item.pageBoundingRect().left() - 0.5 * spatium)
+            }
+        }
+        const headerWidth = staffStartX - headerLeft
+        newWidth = headerWidth + widthClef + widthKeySig + widthTimeSig + leftMarginTotal + panelRightPadding
+        xPosMeasure -= offsetPanel
         if (oldWidth === 0) {
             oldWidth = newWidth
             this.m_width = newWidth
@@ -312,8 +308,9 @@ export class ContinuousPanel {
         const foregroundColor = Color.fromString('#ffffff')
         painter.setBrush(foregroundColor)
 
-        const bg = this.m_rect.clone()
-        bg.setWidth(widthClef + widthKeySig + widthTimeSig + leftMarginTotal + panelRightPadding)
+        // the whole height of the page
+        const bg = new RectF(0, 0, newWidth, page.height())
+        this.m_backgroundWidth = bg.width()
         painter.fillRect(bg, foregroundColor)
 
         const color = EngravingConfiguration.invisibleColor()
@@ -322,12 +319,27 @@ export class ContinuousPanel {
         measureNumberText.setXmlText(`#${currentMeasure.no() + 1}`)
         measureNumberText.setColor(color)
         ScoreRenderer.layoutText1(measureNumberText)
-        pos = new PointF(clefLeftMargin + widthClef, y + measureNumberText.height())
+        pos = new PointF(headerWidth + clefLeftMargin + widthClef, y + measureNumberText.height())
         painter.translate(pos)
         TDraw.drawItem(measureNumberText, painter, opt)
 
         pos = pos.plus(new PointF(offsetPanel, 0))
         painter.translate(pos.times(-1))
+
+        // the system header: its items drawn from the beginning of the system to the left edge of the panel
+        const headerOffset = new PointF(offsetPanel - headerLeft, 0)
+        const drawHeaderItem = (item: EngravingItem): void => {
+            if (!item.visible() && !showInvisible) {
+                return
+            }
+            const p = item.pagePos().plus(headerOffset)
+            painter.translate(p)
+            TDraw.drawItem(item, painter, opt)
+            painter.translate(p.times(-1))
+        }
+        for (const item of headerItems) {
+            drawHeaderItem(item)
+        }
 
         // This second pass draws the elements using already laid-out objects
         for (const e of el) {
@@ -340,38 +352,25 @@ export class ContinuousPanel {
                 const staffIdx = e.staffIdx()
                 const currentStaff = score.staff(staffIdx)!
 
-                pos = new PointF(offsetPanel, e.pagePos().y())
+                pos = new PointF(offsetPanel + headerWidth, e.pagePos().y())
                 painter.translate(pos)
 
                 // Staff lines
                 const newStaffLines = new StaffLines(seg.measure())
                 newStaffLines.setParent(seg.measure())
                 newStaffLines.setTrack(e.track())
-                TLayout.layoutForWidth(newStaffLines, bg.width(), new LayoutContext(newStaffLines.score()))
-                newStaffLines.setColor(color)
+                TLayout.layoutForWidth(newStaffLines, bg.width() - headerWidth, new LayoutContext(newStaffLines.score()))
                 TDraw.drawItem(newStaffLines, painter, opt)
 
                 // Barline
                 const barLine = barLines[staffIdx]
-                barLine.setColor(color)
                 TDraw.drawItem(barLine, painter, opt)
 
-                // Staff name
-                if (currentStaff.part()!.staff(0) === currentStaff) {
-                    pos = new PointF(clefLeftMargin + widthClef, -spatium * 2)
-                    painter.translate(pos)
-                    const staffNameText = staffNameTexts[staffIdx]
-                    staffNameText.setColor(color)
-                    TDraw.drawItem(staffNameText, painter, opt)
-
-                    painter.translate(pos.times(-1))
-                }
 
                 let posX = 0.0
 
                 // Clef
                 const clef = clefs[staffIdx]
-                clef.setColor(color)
                 posX += clefLeftMargin
                 const clefPos = new PointF(posX, clef.pos().y())
                 painter.translate(clefPos)
@@ -381,7 +380,6 @@ export class ContinuousPanel {
 
                 // Key signature
                 const keySig = keySigs[staffIdx]
-                keySig.setColor(color)
                 posX += keySigLeftMargin
                 const ksPos = new PointF(posX, 0.0)
                 painter.translate(ksPos)
@@ -392,7 +390,6 @@ export class ContinuousPanel {
 
                 // Time signature
                 const timeSig = timeSigs[staffIdx]
-                timeSig.setColor(color)
                 posX += timeSigLeftMargin
                 const tsPos = new PointF(posX, 0.0)
                 painter.translate(tsPos)

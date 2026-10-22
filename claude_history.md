@@ -1062,8 +1062,11 @@
 - Not in MuseScore: "Continuous view (fit to window)" = LayoutMode::SYSTEM with Score.reflowWidth (LayoutConfiguration
   loWidth()/pagePrintableWidth() use it); only section breaks start a new system (system/page breaks and system locks
   are ignored). The editor lays the score out again when the width of the view or the zoom changes (debounced).
-- notationscene/continuouspanel.ts: port of ContinuousPanel (staff names, clefs, key/time signatures, measure number
-  at the left edge of the horizontal view); the editor draws it on an overlay canvas that follows the scrolling.
+- notationscene/continuouspanel.ts: port of ContinuousPanel (clefs, key/time signatures, measure number at the left
+  edge of the horizontal view); the editor draws it on an overlay canvas that follows the scrolling. Own design (not
+  like C++): the system's header (instrument names and brackets as at the beginning of the score) instead of the names
+  above the staves, normal colors instead of grey, the background over the whole height of the page with a shadow at
+  its right edge (CSS), the measure number smaller (8 pt) in FreeSerif.
 - Editor: view mode control in the status bar (MuseScore's ViewModeControl; components/ViewModeControl.tsx), also in
   the page view toolbar and View > View mode; actions view-mode-page/-continuous/-single (MuseScore) and
   view-mode-fit-width; the mode is a view setting (persisted, for all scores, MuseScore keeps it per score). Continuous

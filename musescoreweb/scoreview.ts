@@ -926,9 +926,12 @@ export function setViewMode(mode: ViewMode): void {
 }
 
 // the continuous view (horizontal): the staff names, clefs, key and time signatures at the left edge of the view
+// (a box as wide as the panel, with a shadow at its right edge; the canvas in it is wider)
+const panelBox = document.createElement('div')
+panelBox.className = 'continuous-panel'
+panelBox.setAttribute('aria-hidden', 'true')
 const panelCanvas = document.createElement('canvas')
-panelCanvas.className = 'continuous-panel'
-panelCanvas.setAttribute('aria-hidden', 'true')
+panelBox.appendChild(panelCanvas)
 let panelFrame = 0
 
 function scheduleContinuousPanel(): void {
@@ -944,7 +947,7 @@ function scheduleContinuousPanel(): void {
 function updateContinuousPanel(): void {
     const el = pages[0]
     if (!score || !el || settings.viewMode !== 'continuous-horizontal') {
-        panelCanvas.remove()
+        panelBox.remove()
         return
     }
     const pr = el.getBoundingClientRect()
@@ -953,7 +956,7 @@ function updateContinuousPanel(): void {
     const leftCss = Math.max(0, vr.left - pr.left)
     const widthCss = Math.min(viewport.clientWidth / 2, pr.width - leftCss)
     if (widthCss <= 0) {
-        panelCanvas.remove()
+        panelBox.remove()
         return
     }
     const dpr = window.devicePixelRatio
@@ -961,12 +964,13 @@ function updateContinuousPanel(): void {
     panelCanvas.height = Math.round(pr.height * dpr)
     const width = drawContinuousPanel(score, panelCanvas.getContext('2d')!, { dpi: cssPerInch * dpr, left: leftCss / cssPerInch })
     if (!width) {
-        panelCanvas.remove()
+        panelBox.remove()
         return
     }
-    Object.assign(panelCanvas.style, { left: `${leftCss}px`, top: '0px', width: `${widthCss}px`, height: `${pr.height}px` })
-    if (panelCanvas.parentElement !== el) {
-        el.appendChild(panelCanvas)
+    Object.assign(panelCanvas.style, { left: '0px', top: '0px', width: `${widthCss}px`, height: `${pr.height}px` })
+    Object.assign(panelBox.style, { left: `${leftCss}px`, width: `${Math.min(widthCss, width * cssPerInch)}px`, height: `${pr.height}px` })
+    if (panelBox.parentElement !== el) {
+        el.appendChild(panelBox)
     }
 }
 

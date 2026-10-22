@@ -335,7 +335,15 @@ main.hand.dragging { cursor: grabbing; user-select: none; }
 
 .page canvas { position: absolute; display: block; }
 .page canvas.shadow-note { pointer-events: none; }
-.page canvas.continuous-panel { z-index: 1; pointer-events: none; }
+/* the continuous view (horizontal): the panel at the left edge of the view, set off by a shadow */
+.page .continuous-panel {
+    position: absolute;
+    top: 0;
+    z-index: 1;
+    overflow: hidden;
+    pointer-events: none;
+    box-shadow: 3px 0 6px -2px rgba(0, 0, 0, .25);
+}
 
 .page.placeholder { visibility: hidden; }
 
