@@ -72,8 +72,8 @@ src/
   index.ts              public library API (re-exports palette/instrumentsscene/inspector api.ts)
 fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore, Gonville/Gootville, Petaluma,
                         Finale Maestro/Broadway, MuseJazz, Edwin, FreeSerif/FreeSans, MScoreBC for figured bass) with their
-                        licenses, chord description files (chords/), fonts_figuredbass.xml, legacy default styles for old
-                        scores (styles/)
+                        licenses, chord description files (chords/), fonts_figuredbass.xml, harmony_to_diagram.xml (fret
+                        diagrams of chord symbols, generated), legacy default styles for old scores (styles/)
 tools/gen/              generators for tables derived from the C++ sources (re-run on MuseScore updates)
 tools/                  node scripts: render to PNG, compare with MuseScore output
 webviewer/              Vite web viewer app (plain DOM: page and continuous views; MuseScore icon font in webviewer/assets)
@@ -146,7 +146,7 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - `npm run compare:mscx` - diff writeMscx/saveMscz output (main .mscx, style, parts) against MuseScore's own re-save
   (`mscore -o out.mscx`, cached in compare-out/mscx/ref); EIDs are normalized
 - `npx tsx tools/gen/<gen-*.ts> MuseScore` - regenerate tables from the reference sources (symids, styledef,
-  property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates, scoreorders, soundmapping, uiactions [-> musescoreweb/actions])
+  property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates, scoreorders, soundmapping, harmonytodiagram [-> fonts], uiactions [-> musescoreweb/actions])
 
 ## Progress tracking
 

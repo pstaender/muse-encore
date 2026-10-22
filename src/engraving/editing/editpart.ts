@@ -5,20 +5,19 @@
  *
  * Port of src/engraving/editing/editpart.h/.cpp: the part undo commands and EditPart (the part and staff editing
  * functions of the Layout panel / NotationParts).
- * TODO(port): ChangePart, ChangeInstrumentLong/Short, ChangeDrumset, ChangePatch,
- * SetUserBankController and the EditPart functions that use them (replacePartInstrument, replaceInstrumentAtTick,
- * setPartSharpFlat, setInstrumentName, setInstrumentAbbreviature, setStaffType, replaceDrumset); appendLinkedStaff
+ * TODO(port): ChangeInstrumentLong/Short, ChangePatch, SetUserBankController and the EditPart functions that use
+ * them (setInstrumentName, setInstrumentAbbreviature, setStaffType, replaceDrumset); appendLinkedStaff
  * and setVoiceVisible (Excerpt::cloneStaff, excerpts); insertPart/replacePart from a template.
  */
 
-import { AutoOnOff, staff2track } from '../types/types'
+import { AutoOnOff, ElementType, PreferSharpFlat, staff2track } from '../types/types'
 import { Pid } from '../dom/property'
 import { Sid } from '../style/styledef'
 import { Factory } from '../dom/factory'
 import { KeyList } from '../dom/key'
 import { collectSystemObjects } from '../dom/utils'
 import { CommandType, UndoCommand } from './undo'
-import { AddSystemObjectStaff, RemoveSystemObjectStaff, SortStaves } from './editstaff'
+import { AddSystemObjectStaff, ChangeStaff, ChangeStaffType, RemoveSystemObjectStaff, SortStaves } from './editstaff'
 import { ChangeScoreOrder } from './editscoreproperties'
 import type { EngravingObject } from '../dom/engravingobject'
 import type { EngravingItem } from '../dom/engravingitem'
@@ -27,7 +26,13 @@ import type { Score } from '../dom/score'
 import type { ScoreOrder } from '../dom/scoreorder'
 import type { Staff } from '../dom/staff'
 import type { EditData } from './editdata'
-import type { Instrument } from '../dom/instrument'
+import { Instrument } from '../dom/instrument'
+import { Drumset } from '../dom/drumset'
+import { Fraction } from '../types/fraction'
+import { SegmentType } from '../dom/segment'
+import type { InstrumentChange } from '../dom/instrchange'
+import type { StaffType } from '../dom/stafftype'
+import { Transpose } from './transpose'
 import { StringData } from '../dom/stringdata'
 import { stringTuningsHooks, type StringTunings } from '../dom/stringtunings'
 import './edit'
@@ -138,10 +143,153 @@ stringTuningsHooks.changeStringData = (st: StringTunings, stringData: StringData
 }
 
 // ---------------------------------------------------------
+//   ChangePart
+// ---------------------------------------------------------
+
+export class ChangePart extends UndoCommand {
+    constructor(private part: Part, private instrument: Instrument, private partName: string) {
+        super()
+    }
+
+    override type(): CommandType { return CommandType.ChangePart }
+    override name(): string { return 'ChangePart' }
+    override objectItems(): EngravingObject[] { return [this.part] }
+
+    protected override flip(_ed: EditData | null): void {
+        const oi = this.part.instrument() //tick?
+        const s = this.part.partName()
+        this.part.setInstrument(this.instrument)
+        this.part.setPartName(this.partName)
+
+        this.part.updateHarmonyChannels(false)
+
+        const score = this.part.score()
+        score.masterScore().rebuildMidiMapping()
+        score.masterScore().setInstrumentsChanged(true)
+        score.masterScore().setPlaylistDirty()
+
+        // check if notes need to be updated
+        // true if changing into or away from TAB or from one TAB type to another
+
+        score.setLayoutAll()
+
+        this.partName = s
+        this.instrument = oi
+    }
+}
+
+// ---------------------------------------------------------
+//   ChangeDrumset
+// ---------------------------------------------------------
+
+export class ChangeDrumset extends UndoCommand {
+    private drumset: Drumset
+
+    constructor(private instrument: Instrument, d: Drumset, private part: Part) {
+        super()
+        this.drumset = d.clone()
+    }
+
+    override type(): CommandType { return CommandType.ChangeDrumset }
+    override name(): string { return 'ChangeDrumset' }
+
+    protected override flip(_ed: EditData | null): void {
+        const d = this.instrument.drumset() ? this.instrument.drumset()!.clone() : new Drumset()
+        this.instrument.setDrumset(this.drumset)
+        this.drumset = d
+
+        if (this.part.staves().length > 0) {
+            this.part.score().setLayoutRange(new Fraction(0, 1), this.part.score().endTick(), this.part.staves()[0].idx(),
+                this.part.staves()[this.part.staves().length - 1].idx())
+        }
+    }
+}
+
+/** Helper function to find InstrumentChange element at a given tick */
+function findInstrumentChange(score: Score, part: Part, tick: Fraction): InstrumentChange | null {
+    const segment = score.tick2segment(tick, true, SegmentType.ChordRest)
+    if (!segment) {
+        return null
+    }
+
+    const item = segment.findAnnotation(ElementType.INSTRUMENT_CHANGE, part.startTrack(), part.endTrack() - 1)
+    return item ? item as unknown as InstrumentChange : null
+}
+
+// ---------------------------------------------------------
 //   EditPart
 // ---------------------------------------------------------
 
 export class EditPart {
+    static replacePartInstrument(score: Score | null, part: Part | null, newInstrument: Instrument, newStaffType: StaffType | null,
+        partName: string): void {
+        if (!score || !part) {
+            return
+        }
+
+        // Change the part's instrument and name
+        const newPartName = !partName ? newInstrument.trackName() : partName
+        const instrument = new Instrument()
+        instrument.assign(newInstrument)
+        score.undo(new ChangePart(part, instrument, newPartName))
+
+        // Update clefs and staff type for all staves in the part
+        for (let staffIdx = 0; staffIdx < part.nstaves(); ++staffIdx) {
+            const staff = part.staves()[staffIdx]
+            if (!staff) {
+                continue
+            }
+
+            // Get current staff properties
+            const visible = staff.visible()
+            const currentClefType = staff.defaultClefType()
+            const userDist = staff.userDist()
+            const cutaway = staff.cutaway()
+            const hideSystemBarLine = staff.hideSystemBarLine()
+            const mergeMatchingRests = staff.mergeMatchingRests()
+            // TODO(port): reflectTranspositionInLinkedTab (ChangeStaff)
+
+            // Get new clef type from the new instrument
+            const newClefType = newInstrument.clefType(staffIdx)
+
+            // Only update staff if clef type changes
+            if (!currentClefType.equals(newClefType)) {
+                score.undo(new ChangeStaff(staff, visible, newClefType, userDist, cutaway, hideSystemBarLine, mergeMatchingRests))
+            }
+
+            // Apply new staff type if provided
+            if (newStaffType) {
+                score.undo(new ChangeStaffType(staff, newStaffType))
+            }
+        }
+    }
+
+    static replaceInstrumentAtTick(score: Score | null, part: Part | null, tick: Fraction, newInstrument: Instrument): boolean {
+        if (!score || !part) {
+            return false
+        }
+
+        const instrumentChange = findInstrumentChange(score, part, tick)
+        if (!instrumentChange) {
+            return false
+        }
+
+        instrumentChange.setInit(true)
+        instrumentChange.setupInstrument(newInstrument)
+        return true
+    }
+
+    static setPartSharpFlat(score: Score | null, part: Part | null, sharpFlat: PreferSharpFlat): void {
+        if (!score || !part) {
+            return
+        }
+
+        const oldTransposition = part.staff(0)!.transpose(new Fraction(0, 1)).clone()
+
+        part.undoChangeProperty(Pid.PREFER_SHARP_FLAT, sharpFlat)
+        Transpose.transpositionChanged(score, part, oldTransposition)
+    }
+
     static setPartVisible(score: Score | null, part: Part | null, visible: boolean): void {
         if (!score || !part) {
             return

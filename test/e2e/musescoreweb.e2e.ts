@@ -763,6 +763,55 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('replaces an instrument and adds an instrument change with the Select instrument dialog', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.click('#panel-tab-instrumentsPanel')
+        const soprano = '.layout-tree [data-type="part"][aria-label="Soprano"]'
+        const chooseClarinet = async (): Promise<void> => {
+            await page.waitForSelector('dialog.select-instrument[open]')
+            expect(await page.textContent('dialog.select-instrument h2')).toBe('Select instrument')
+            // only the families and the instruments (no "Your score" list)
+            expect(await page.locator('dialog.select-instrument .on-score').count()).toBe(0)
+            await page.fill('dialog.select-instrument .instruments input[type="search"]', 'clarinet')
+            await page.click('dialog.select-instrument .instruments [role="option"] .item-name >> text=/^Clarinet$/')
+            await page.click('dialog.select-instrument .dialog-buttons .primary')
+            await page.waitForSelector('dialog.select-instrument', { state: 'detached' })
+        }
+
+        // Layout panel: the instrument's settings, "Replace instrument"
+        await page.hover(soprano)
+        await page.click(`${soprano} .settings`)
+        await page.click('.layout-settings-popup .replace-instrument')
+        await chooseClarinet()
+        await page.waitForFunction(() => document.querySelector('.layout-tree [data-type="part"]')!.getAttribute('aria-label')!.includes('Clarinet'))
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForSelector(soprano)
+
+        // the instrument change of the Text palette asks for the instrument first; Cancel adds nothing
+        await page.click('#panel-tab-palettesPanel')
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+Home')
+        for (let i = 0; i < 8 && !(await page.textContent('#status'))!.startsWith('Note'); i++) {
+            await page.keyboard.press('ArrowRight')
+        }
+        await page.click('.palette-tree-item[data-palette-type="Text"] .palette-header')
+        const cell = '.palette-tree-item[data-palette-type="Text"] .palette-cell[aria-label="Instrument change"]'
+        await page.waitForSelector(cell)
+        await page.click(cell)
+        await page.waitForSelector('dialog.select-instrument[open]')
+        await page.click('dialog.select-instrument .dialog-buttons .secondary')
+        await page.waitForSelector('dialog.select-instrument', { state: 'detached' })
+        expect(await page.textContent('#status')).toMatch(/^Note/)
+        await page.click(cell)
+        await chooseClarinet()
+        await page.waitForFunction(() => /^Instrument change/.test(document.getElementById('status')!.textContent!))
+        expect(await page.textContent('#status')).toContain('To Clarinet')
+        await context.close()
+    }, 120000)
+
     it('edits the instruments in the Layout panel: hides a part, undoes, removes and adds instruments', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)

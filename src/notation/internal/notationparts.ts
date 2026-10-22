@@ -8,8 +8,8 @@
  * NotationInteraction); without an interaction (creating a score) the changes are applied directly.
  * The notifications (partList()/staffList() NotifyLists, partsChanged, ...) are not ported: the UI reloads the
  * Layout panel's tree after every change.
- * TODO(port): setPartSharpFlat, setInstrumentName, setInstrumentAbbreviature, setVoiceVisible, setStaffType,
- * setStaffConfig (other than the visibility), replacePart, replaceInstrument, replaceDrumset, appendLinkedStaff and
+ * TODO(port): setInstrumentName, setInstrumentAbbreviature, setVoiceVisible, setStaffType,
+ * setStaffConfig (other than the visibility), replacePart, replaceDrumset, appendLinkedStaff and
  * appendStaffLinkedToMaster (Excerpt::cloneStaff/cloneStaff2), insertPart/doInsertPart (parts from another score),
  * AddPartToExcerpt, EditSystemLocks::removeSystemLocksContainingMMRests (system locks)
  */
@@ -29,7 +29,9 @@ import { mtrc, qtrc } from '../../framework/global/translation'
 import type { Score } from '../../engraving/dom/score'
 import type { ScoreOrder } from '../../engraving/dom/scoreorder'
 import type { Staff } from '../../engraving/dom/staff'
-import type { PartInstrument, PartInstrumentList } from '../notationtypes'
+import { formatInstrumentTitle, isMainInstrumentForPart, type InstrumentKey, type PartInstrument, type PartInstrumentList } from '../notationtypes'
+import { Pid } from '../../engraving/dom/property'
+import { PreferSharpFlat } from '../../engraving/types/types'
 import type { NotationInteraction } from './notationinteraction'
 import '../../engraving/editing/edit'
 
@@ -153,6 +155,54 @@ export class NotationParts {
 
         if (visible) {
             // TODO(port): EditSystemLocks::removeSystemLocksContainingMMRests(score())
+        }
+
+        this.apply()
+    }
+
+    setPartSharpFlat(partId: string, sharpFlat: PreferSharpFlat): void {
+        const part = this.partModifiable(partId)
+        if (!part) {
+            return
+        }
+
+        if (part.getProperty(Pid.PREFER_SHARP_FLAT) === sharpFlat) {
+            return
+        }
+
+        const calcActionName = (sharpFlat: PreferSharpFlat): TranslatableString => {
+            switch (sharpFlat) {
+            case PreferSharpFlat.NONE: return new TranslatableString('undoableAction', 'Set sharps/flats no preference')
+            case PreferSharpFlat.FLATS: return new TranslatableString('undoableAction', 'Set prefer flats')
+            case PreferSharpFlat.SHARPS: return new TranslatableString('undoableAction', 'Set prefer sharps')
+            case PreferSharpFlat.AUTO: return new TranslatableString('undoableAction', 'Set sharps/flats automatic')
+            }
+            return new TranslatableString('undoableAction', 'Set sharps/flats preference')
+        }
+
+        this.startEdit(calcActionName(sharpFlat))
+
+        EditPart.setPartSharpFlat(this.score(), part, sharpFlat)
+
+        this.apply()
+    }
+
+    replaceInstrument(instrumentKey: InstrumentKey, newInstrument: Instrument, newStaffType: StaffType | null = null): void {
+        const part = this.partModifiable(instrumentKey.partId)
+        if (!part) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Replace instrument'))
+
+        if (isMainInstrumentForPart(instrumentKey, part)) {
+            const newInstrumentPartName = formatInstrumentTitle(newInstrument.trackName(), newInstrument.trait())
+            EditPart.replacePartInstrument(this.score(), part, newInstrument, newStaffType, newInstrumentPartName)
+        } else {
+            if (!EditPart.replaceInstrumentAtTick(this.score(), part, instrumentKey.tick, newInstrument)) {
+                this.rollback()
+                return
+            }
         }
 
         this.apply()

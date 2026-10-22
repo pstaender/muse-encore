@@ -5,9 +5,7 @@
  *
  * Port of src/palette/internal/palettecreator.h/.cpp: the default palettes and the master palette ("More").
  *
- * TODO(port): cells of elements not ported yet are left out: text articulations (handbells),
- * the chord diagrams of the fretboard
- * diagram palette (FretDiagram::updateDiagram needs the fret diagram patterns; only "Blank" is created).
+ * TODO(port): cells of elements not ported yet are left out: text articulations (handbells).
  */
 
 import { Fraction } from '../engraving/types/fraction'
@@ -1388,10 +1386,23 @@ export class PaletteCreator {
         sp.setDrawGrid(true)
         sp.setVisible(false)
 
-        const fret = make<FretDiagram>(ElementType.FRET_DIAGRAM, dummy().segment())
-        fret.clear()
-        sp.appendElement(fret, 'Blank')
-        // TODO(port): the diagrams of C, Cm, C7 ... B7 (FretDiagram::setHarmony + updateDiagram)
+        const fretboardDiagrams: readonly { harmony: string; userName: string }[] = [
+            { harmony: '', userName: 'Blank' },
+            ...['C', 'D', 'E', 'F', 'G', 'A', 'B'].flatMap(n => [n, `${n}m`, `${n}7`].map(h => ({ harmony: h, userName: h }))),
+        ]
+
+        for (const fretboardDiagram of fretboardDiagrams) {
+            const fret = make<FretDiagram>(ElementType.FRET_DIAGRAM, dummy().segment())
+
+            if (!fretboardDiagram.harmony) {
+                fret.clear()
+            } else {
+                fret.setHarmony(fretboardDiagram.harmony)
+                fret.updateDiagram(fretboardDiagram.harmony)
+            }
+
+            sp.appendElement(fret, fretboardDiagram.userName)
+        }
 
         if (!defaultPalette) {
             sp.appendActionIcon(ActionIconType.FFRAME, 'insert-fretframe', FRAME_MAG)

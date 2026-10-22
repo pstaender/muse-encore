@@ -654,6 +654,20 @@ export class Harmony extends TextBase {
         this.setPlainText(this.harmonyName())
     }
 
+    /** String representation of what the user sees on the score; used in the fret box */
+    displayText(): string {
+        let name = ''
+        for (const segment of this.ldata().renderItemList) {
+            if (segment instanceof TextSegment) {
+                name += segment.text().replaceAll('\uE87C', '/')
+            } else if (segment instanceof ChordSymbolParen) {
+                name += segment.parenItem.direction() === DirectionH.LEFT ? '(' : ')'
+            }
+        }
+
+        return name
+    }
+
     harmonyName(): string {
         let name = ''
         if (this.leftParen()) {
@@ -1032,11 +1046,22 @@ export class Harmony extends TextBase {
         case Pid.HARMONY_DO_NOT_STACK_MODIFIERS:
             this.m_doNotStackModifiers = !!v
             break
-        case Pid.TEXT:
+        case Pid.TEXT: {
+            const curText = this.xmlText()
             super.setProperty(pid, v)
             this.setHarmony(v as string)
-            // TODO(port): update fret diagrams / fret box
+            const newText = this.xmlText()
+            if (newText !== curText) {
+                const parent = this.explicitParent()
+                const fretDiagram = parent && parent.isFretDiagram() ? parent as unknown as FretDiagram : null
+                // C++ configuration()->autoUpdateFretboardDiagrams(): true by default
+                if (fretDiagram && !fretDiagram.isCustom(curText)) {
+                    fretDiagram.updateDiagram(this.plainText())
+                }
+                this.score().rebuildFretBox()
+            }
             break
+        }
         default:
             return super.setProperty(pid, v)
         }

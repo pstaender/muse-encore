@@ -377,6 +377,10 @@ export class Part extends EngravingObject {
             return this.m_hideWhenEmpty
         case Pid.HIDE_STAVES_WHEN_INDIVIDUALLY_EMPTY:
             return this.m_hideStavesWhenIndividuallyEmpty
+        case Pid.USE_DRUMSET:
+            return this.instrument().useDrumset()
+        case Pid.PREFER_SHARP_FLAT:
+            return this.preferSharpFlat()
         default:
             return undefined
         }
@@ -393,9 +397,16 @@ export class Part extends EngravingObject {
         case Pid.HIDE_STAVES_WHEN_INDIVIDUALLY_EMPTY:
             this.setHideStavesWhenIndividuallyEmpty(!!v)
             break
+        case Pid.USE_DRUMSET:
+            this.instrument().setUseDrumset(!!v)
+            break
+        case Pid.PREFER_SHARP_FLAT:
+            this.setPreferSharpFlat(v as PreferSharpFlat)
+            break
         default:
             return false
         }
+        this.score().setLayoutAll()
         return true
     }
 }

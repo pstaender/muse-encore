@@ -12,11 +12,16 @@ import type { PropertyValue } from '../types/propertyvalue'
 import { AlignH, ElementType, TextStyleType } from '../types/types'
 import { Sid } from '../style/styledef'
 import { ElementFlag, type EngravingItem } from './engravingitem'
-import type { FretDiagram } from './fret'
+import { FretDiagram } from './fret'
+import { HarmonyType, type Harmony } from './harmony'
+import { SegmentType } from './segment'
+import { AddFretDiagramToFretBox, RemoveFretDiagramFromFretBox } from '../editing/editfretboarddiagram'
 import type { ElementStyle, EngravingObject } from './engravingobject'
 import { MeasureBase } from './measurebase'
 import { Pid } from './property'
 import { Text } from './text'
+
+const FRET_BOX_DIAGRAMS_SEPARATOR = ','
 
 const boxStyle: ElementStyle = [
     { sid: Sid.systemFrameDistance, pid: Pid.TOP_GAP },
@@ -303,8 +308,6 @@ export class TBox extends VBox {
 // ---------------------------------------------------------
 //   FBox
 //   frame containing fret diagrams
-//   TODO(port): init() (rebuilding the diagrams from the chord symbols of the score; only needed when editing),
-//   diagrams order
 // ---------------------------------------------------------
 
 export class FBox extends VBox {
@@ -314,6 +317,10 @@ export class FBox extends VBox {
     private m_rowGap = new Spatium(0)
     private m_chordsPerRow = 0
     private m_contentAlignmentH = AlignH.HCENTER
+
+    private m_needsRebuild = false
+
+    private m_diagramsOrderInScore: string[] = []
 
     constructor(parent: EngravingObject | null) {
         super(parent, ElementType.FBOX)
@@ -342,6 +349,68 @@ export class FBox extends VBox {
         }
     }
 
+    /** rebuilds the diagrams from the chord symbols and fret diagrams of the score (through the undo stack) */
+    init(): void {
+        const oldDiagramsNames: string[] = []
+        const oldDiagrams: FretDiagram[] = []
+        for (const element of this.el()) {
+            const diagram = element as FretDiagram
+            oldDiagrams.push(diagram)
+            oldDiagramsNames.push(diagram.harmonyDisplayText())
+        }
+
+        const diagramsNamesInScore: string[] = []
+        const harmonyOrDiagramsInScore: EngravingItem[] = []
+        for (let segment = this.score().firstSegment(SegmentType.ChordRest); segment; segment = segment.next1(SegmentType.ChordRest)) {
+            for (const item of segment.annotations()) {
+                if (!item || !item.part()) {
+                    continue
+                }
+
+                if (item.isHarmony() && (item as Harmony).harmonyType() !== HarmonyType.STANDARD) {
+                    continue
+                }
+
+                if (!(item.isHarmony() || item.isFretDiagram())) {
+                    continue
+                }
+
+                const harmonyName = item.isHarmony() ? (item as Harmony).displayText()
+                    : item.isFretDiagram() ? (item as FretDiagram).harmonyDisplayText()
+                        : ''
+                if (!harmonyName || diagramsNamesInScore.includes(harmonyName)) {
+                    continue
+                }
+
+                harmonyOrDiagramsInScore.push(item)
+                diagramsNamesInScore.push(harmonyName)
+            }
+        }
+
+        this.m_diagramsOrderInScore = diagramsNamesInScore
+
+        for (let i = 0; i < oldDiagramsNames.length; ++i) {
+            const oldName = oldDiagramsNames[i]
+            if (!diagramsNamesInScore.includes(oldName)) {
+                this.score().undo(new RemoveFretDiagramFromFretBox(oldDiagrams[i]))
+            }
+        }
+
+        for (let i = 0; i < diagramsNamesInScore.length; ++i) {
+            const newName = diagramsNamesInScore[i]
+            if (!oldDiagramsNames.includes(newName)) {
+                const newDiagram = FretDiagram.makeFromHarmonyOrFretDiagram(harmonyOrDiagramsInScore[i])!
+                newDiagram.setParent(this)
+                const nameOfDiagramBeforeThis = i > 0 ? diagramsNamesInScore[i - 1] : ''
+                const idx = this.computeInsertionIdx(nameOfDiagramBeforeThis)
+                this.score().undo(new AddFretDiagramToFretBox(newDiagram, idx))
+            }
+        }
+    }
+
+    needsRebuild(): boolean { return this.m_needsRebuild }
+    setNeedsRebuild(v: boolean): void { this.m_needsRebuild = v }
+
     addAtIdx(fretDiagram: FretDiagram, idx: number): void {
         fretDiagram.setTrack(-1)
         fretDiagram.setFlag(ElementFlag.MOVABLE, false)
@@ -360,6 +429,47 @@ export class FBox extends VBox {
         } else {
             el.push(fretDiagram)
         }
+
+        fretDiagram.added()
+    }
+
+    /** -1 (C++ muse::nidx): append */
+    computeInsertionIdx(nameOfDiagramBeforeThis: string): number {
+        if (!nameOfDiagramBeforeThis) {
+            return 0
+        }
+
+        const el = this.el()
+        for (let i = 0; i < el.length; ++i) {
+            const fretDiagram = el[i] as FretDiagram
+            if (fretDiagram.harmonyDisplayText() === nameOfDiagramBeforeThis) {
+                return i + 1
+            }
+        }
+
+        return -1
+    }
+
+    undoReorderElements(newOrder: readonly string[]): void {
+        this.undoChangeProperty(Pid.FRET_FRAME_DIAGRAMS_ORDER, newOrder.join(FRET_BOX_DIAGRAMS_SEPARATOR))
+        this.triggerLayout()
+    }
+
+    reorderElements(newOrder: readonly string[]): void {
+        const pos = (e: EngravingItem): number => {
+            const i = newOrder.indexOf((e as FretDiagram).harmonyDisplayText())
+            return i < 0 ? newOrder.length : i
+        }
+        this.el().sort((a, b) => pos(a) - pos(b))
+    }
+
+    diagramsOrder(): string[] {
+        const result: string[] = []
+        for (const item of this.el()) {
+            result.push((item as FretDiagram).harmonyDisplayText())
+        }
+
+        return result
     }
 
     textScale(): number { return this.m_textScale }
@@ -383,6 +493,8 @@ export class FBox extends VBox {
             return this.m_chordsPerRow
         case Pid.FRET_FRAME_H_ALIGN:
             return this.m_contentAlignmentH
+        case Pid.FRET_FRAME_DIAGRAMS_ORDER:
+            return this.diagramsOrder().join(FRET_BOX_DIAGRAMS_SEPARATOR)
         case Pid.LEFT_MARGIN:
             return this.m_contentAlignmentH === AlignH.LEFT ? super.getProperty(propertyId) : undefined
         case Pid.RIGHT_MARGIN:
@@ -414,6 +526,9 @@ export class FBox extends VBox {
             this.resetProperty(Pid.LEFT_MARGIN)
             this.resetProperty(Pid.RIGHT_MARGIN)
             break
+        case Pid.FRET_FRAME_DIAGRAMS_ORDER:
+            this.reorderElements((val as string).split(FRET_BOX_DIAGRAMS_SEPARATOR))
+            break
         default:
             return super.setProperty(propertyId, val)
         }
@@ -432,6 +547,8 @@ export class FBox extends VBox {
             return 8
         case Pid.FRET_FRAME_H_ALIGN:
             return AlignH.HCENTER
+        case Pid.FRET_FRAME_DIAGRAMS_ORDER:
+            return this.m_diagramsOrderInScore.join(FRET_BOX_DIAGRAMS_SEPARATOR)
         case Pid.EXCLUDE_FROM_OTHER_PARTS:
             return true
         case Pid.APPEARANCE_LINKED_TO_MASTER:

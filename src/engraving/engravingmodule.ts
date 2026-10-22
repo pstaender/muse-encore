@@ -7,6 +7,7 @@
  * Only the fonts shipped in ./fonts are registered; the other SMuFL fonts fall back to Bravura/Leland.
  */
 
+import { FretDiagram } from './dom/fret'
 import { fontsDatabase } from './infrastructure/engravingcontext'
 import { engravingFonts } from './infrastructure/engravingfont'
 import { StaffType } from './dom/stafftype'
@@ -82,9 +83,11 @@ export async function initEngravingFonts(load: FontFileLoader): Promise<void> {
     const decoder = new TextDecoder()
     const toBytes = (d: ArrayBuffer | Uint8Array): Uint8Array => d instanceof Uint8Array ? d : new Uint8Array(d)
 
-    const [tabConfig, fbConfig] = await Promise.all([
+    const [tabConfig, fbConfig, harmonyToDiagram] = await Promise.all([
         load('fonts_tablature.xml'),
         load('fonts_figuredbass.xml'),
+        // FretDiagram's harmony to diagram data (C++ ":/data/harmony_to_diagram.xml"; tools/gen/gen-harmonytodiagram.ts)
+        load('harmony_to_diagram.xml'),
         ...CHORD_LIST_FILES.map(async (f) => registerChordListFile(f, toBytes(await load('chords/' + f)))),
         ...LEGACY_STYLE_FILES.map(async ([v, f]) => DefaultStyle.registerLegacyStyle(v, decoder.decode(toBytes(await load('styles/' + f))))),
         ...RESOURCE_STYLE_FILES.map(async (f) => s_resourceStyles.set(f, decoder.decode(toBytes(await load('styles/' + f))))),
@@ -100,6 +103,7 @@ export async function initEngravingFonts(load: FontFileLoader): Promise<void> {
     StaffType.readTabConfig(toBytes(tabConfig))
     // C++ EngravingModule::onInit -> FiguredBass::readConfigFile(String())
     FiguredBass.readConfigFile(toBytes(fbConfig as ArrayBuffer | Uint8Array))
+    FretDiagram.registerHarmonyToDiagramFile(toBytes(harmonyToDiagram as ArrayBuffer | Uint8Array))
 
     fdb.setDefaultTextFamily('Edwin')
     fdb.setDefaultSymbolFamily('Bravura')

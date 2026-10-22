@@ -8,16 +8,21 @@
  * NotationParts of the excerpt scores (without interaction; the master score's undo stack is locked meanwhile, so the
  * changes are recorded in the master command, like in C++).
  * TODO(port): appendStaff/appendLinkedStaff in the excerpts (appendStaffLinkedToMaster: Excerpt::cloneStaff2),
- * replaceInstrument, replaceDrumset; the part scores are not laid out after a change (Score::update: scoreList())
+ * replaceDrumset; replaceInstrument does not rename the part's excerpt (ChangeExcerptTitle, formatUniqueExcerptName);
+ * the part scores are not laid out after a change (Score::update: scoreList())
  */
 
 import { TranslatableString } from '../../framework/global/types/translatablestring'
 import { NotationParts } from './notationparts'
 import type { MasterScore } from '../../engraving/dom/masterscore'
-import type { Part } from '../../engraving/dom/part'
+import { Part } from '../../engraving/dom/part'
 import type { ScoreOrder } from '../../engraving/dom/scoreorder'
 import type { Staff } from '../../engraving/dom/staff'
-import type { PartInstrument, PartInstrumentList } from '../notationtypes'
+import type { InstrumentKey, PartInstrument, PartInstrumentList } from '../notationtypes'
+import type { Instrument } from '../../engraving/dom/instrument'
+import type { StaffType } from '../../engraving/dom/stafftype'
+import { Interval } from '../../engraving/dom/interval'
+import { Transpose } from '../../engraving/editing/transpose'
 import type { NotationInteraction } from './notationinteraction'
 import '../../engraving/editing/editexcerpt'
 
@@ -184,6 +189,29 @@ export class MasterNotationParts extends NotationParts {
         this.startGlobalEdit(new TranslatableString('undoableAction', 'Remove system object layer below the bottom staff'))
 
         super.moveSystemObjectLayerAboveBottomStaff()
+
+        this.endGlobalEdit()
+    }
+
+    override replaceInstrument(instrumentKey: InstrumentKey, newInstrument: Instrument, newStaffType: StaffType | null = null): void {
+        this.startGlobalEdit(new TranslatableString('undoableAction', 'Replace instrument'))
+
+        const part = this.partModifiable(instrumentKey.partId)
+
+        const oldTranspose = part ? part.instrument().transpose().clone() : new Interval(0, 0)
+
+        super.replaceInstrument(instrumentKey, newInstrument, newStaffType)
+
+        for (const parts of this.excerptsParts()) {
+            parts.replaceInstrument(instrumentKey, newInstrument, newStaffType)
+        }
+
+        // this also transposes all linked parts
+        if (part) {
+            Transpose.transpositionChangedAt(this.score(), part, Part.MAIN_INSTRUMENT_TICK, oldTranspose)
+        }
+
+        // TODO(port): rename the excerpt of the part (isMainInstrumentForPart: ChangeExcerptTitle)
 
         this.endGlobalEdit()
     }

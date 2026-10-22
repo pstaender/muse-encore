@@ -11,7 +11,9 @@ import { DurationType, Key, TextStyleType, TransposeDirection, TransposeMode } f
 import { TimeSigType } from '../engraving/dom/timesig'
 import { ScoreOrder } from '../engraving/dom/scoreorder'
 import { TupletBracketType, TupletNumberType } from '../engraving/dom/tuplet'
-import type { InstrumentTemplate } from '../engraving/dom/instrtemplate'
+import { TraitType, type InstrumentTemplate, type Trait } from '../engraving/dom/instrtemplate'
+import { Part } from '../engraving/dom/part'
+import { arg, qtrc } from '../framework/global/translation'
 
 export enum BracketsType {
     Brackets,
@@ -118,4 +120,32 @@ export interface TransposeOptions {
     needTransposeKeys: boolean
     needTransposeChordNames: boolean
     needTransposeDoubleSharpsFlats: boolean
+}
+
+export interface InstrumentKey {
+    instrumentId: string
+    partId: string
+    tick: Fraction
+}
+
+export function isMainInstrumentForPart(instrumentKey: InstrumentKey, part: Part): boolean {
+    return instrumentKey.instrumentId === part.instrument().id() && instrumentKey.tick.eq(Part.MAIN_INSTRUMENT_TICK)
+}
+
+/** C++ formatInstrumentTitle(instrumentName, trait) */
+export function formatInstrumentTitle(instrumentName: string, trait: Trait): string {
+    // Comments for translators start with //:
+    switch (trait.type) {
+    case TraitType.Tuning:
+        //: %1=tuning ("D"), %2=name ("Tin Whistle"). Example: "D Tin Whistle"
+        return arg(qtrc('notation', '%1 %2', 'Tuned instrument displayed in the UI'), trait.name, instrumentName)
+    case TraitType.Transposition:
+        //: %1=name ("Horn"), %2=transposition ("C alto"). Example: "Horn in C alto"
+        return arg(qtrc('notation', '%1 in %2', 'Transposing instrument displayed in the UI'), instrumentName, trait.name)
+    case TraitType.Course:
+        //: %1=name ("Tenor Lute"), %2=course/strings ("7-course"). Example: "Tenor Lute (7-course)"
+        return arg(qtrc('notation', '%1 (%2)', 'String instrument displayed in the UI'), instrumentName, trait.name)
+    default:
+        return instrumentName // Example: "Flute"
+    }
 }

@@ -111,4 +111,5 @@ button.layout-row-button:disabled { opacity: .5; cursor: default; }
 }
 
 .layout-settings-popup .field { display: flex; flex-direction: column; gap: 4px; }
+.layout-settings-popup .separator { margin: 0; border: 0; border-top: 1px solid var(--border); }
 .layout-settings-popup .field > span { color: var(--muted); }

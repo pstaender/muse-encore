@@ -1216,11 +1216,7 @@
 - Tests (test/transpose.test.ts): MuseScore's transpose_tests (undoTranspose, undoTransposeChordSymbols,
   undoDiatonicTranspose(ChordSymbols)), chordsymbol_tests testTranspose and keysig_tests preferSharpFlat with their
   reference files; the actions and the dialog API; e2e: the dialog with undo.
-- Not ported: transposing fretboard diagrams (only their chord symbol is transposed: FretDataChange,
-  FretDiagram::patternsFromHarmony/harmoniesFromPattern need share/.../harmony_to_diagram.xml, which the fret diagram
-  palette also needs), MsError::TRANSPOSE_NO_FRET_DIAGRAM, rebuildFretBox, setPlayNote; the callers of
-  transpositionChanged in the unported instrument editing (InstrumentChange::setupInstrument, replaceInstrument,
-  setPartSharpFlat, pasting instrument changes).
+- Not ported (then): fretboard diagrams and the callers of transpositionChanged; done below.
 - Known: after a layout change, a key signature segment with a key change in some staves keeps the generated system
   header key signatures of the other staves (removeSystemHeader keeps the segment because of the key change, the same
   code path as MuseScore); seen after undoing a transposition of Amazing_grace (measure 5) when the systems moved.
@@ -1233,3 +1229,44 @@
   F9/F7/F8) expands it, too; the state is kept in the settings (panels.collapsed), "Restore the default layout" expands.
 - e2e: the menu keyboard test moves the mouse away first (the pointer left over the Edit menu's first item made it the
   active one again after End).
+
+### Fretboard diagrams (harmony to diagram data) and the callers of transpositionChanged
+
+- fonts/harmony_to_diagram.xml (tools/gen/gen-harmonytodiagram.ts: MuseScore's data/harmony_to_diagram.xml without the
+  whitespace, 1.3 MB / 48 KB gzipped), loaded by initEngravingFonts (FretDiagram.registerHarmonyToDiagramFile) and read
+  on first use (rw/harmonytodiagramreader.ts). FretDiagram: createHarmonyMapKey, updateDiagram, applyDiagramPattern,
+  patternFromDiagram, harmoniesFromPattern, patternsFromHarmony, isCustom, setHarmony, undoFretClear, undoSetFret*,
+  linkedClone, makeFromHarmonyOrFretDiagram, harmonyDisplayText; a harmony without a name gets one from the pattern.
+  The harmonies of one pattern are in file order (C++: unordered_map order). Harmony.displayText; EngravingItem.custom.
+- editing/editfretboarddiagram.ts: FretUndoData, FretDataChange, FretDot, FretMarker, FretBarre, FretClear,
+  Add/RemoveFretDiagramFromFretBox. FBox: init (the diagrams of the score's chord symbols), needsRebuild (laid out in
+  BoxLayout.layoutFBox like C++), diagramsOrder/reorderElements (FRET_FRAME_DIAGRAMS_ORDER); Score.findFretBox/
+  rebuildFretBox (Segment add/remove of harmonies and fret diagrams, Harmony TEXT changes also update the diagram);
+  insertBox inits a new fret box. pitchspelling: enharmonicSpelling table, bestEnharmonicFit.
+- Transpose: transposeFretDiagram (FretDataChange / harmony from the diagram, findBestEnharmonicFit,
+  MsError::TRANSPOSE_NO_FRET_DIAGRAM), rebuildFretBox. Tests: transpose_tests undoTransposeFretDiagrams(ChordSymbols)
+  and the diatonic variants.
+- Palette: the fretboard diagrams C, Cm, C7 ... B7; the chord symbol of a diagram is not drawn in palette cells.
+- InstrumentChange.setupInstrument (clefs, key signatures for the instrument change, ChangeInstrument in linked scores,
+  transpositionChanged, "To %1"), keySigs/clefs; editing/editinstrumentchange.ts ChangeInstrument; ChordRest::drop of
+  instrument changes; undoAddElement of an instrument change (the previous instrument, transpositionChanged).
+- EditPart: ChangePart, ChangeDrumset, replacePartInstrument, replaceInstrumentAtTick, setPartSharpFlat; Part
+  properties USE_DRUMSET, PREFER_SHARP_FLAT. NotationParts.setPartSharpFlat/replaceInstrument,
+  MasterNotationParts.replaceInstrument (+ the part scores; the excerpt is not renamed: ChangeExcerptTitle not ported).
+  notationtypes: InstrumentKey, isMainInstrumentForPart, formatInstrumentTitle.
+- NotationInteraction.selectInstrument/cleanupDrumsetChanges: MuseScore opens its instrument dialog in the middle of
+  the command (blocking); here the instrument comes from a provider (library setSelectInstrumentProvider). Used by the
+  palette (apply, drop) and the action instrument-change-text (registered now). Library: replacePartInstrument,
+  changeInstrumentChange/selectedInstrumentChange, setPartSharpFlat.
+- Editor: MuseScore's "Select instrument" dialog (dialogs/SelectInstrumentDialog.tsx: InstrumentsDialog with
+  canSelectMultipleInstruments = false; ChooseInstrumentsPage `single`), opened before the command
+  (dialogs/instrumentchoice.ts withSelectedInstrument; a drop is replayed after the dialog); "Replace instrument" in the
+  Layout panel's instrument settings popup; the action change-instrument (no context menu in the score view yet).
+- Tests: test/instrumentchange.test.ts (MuseScore's instrumentchange_tests add/delete/change/copy with their reference
+  files, setupInstrument through the action, replace instrument, sharp/flat), palette fret diagrams; e2e: replace
+  instrument and an instrument change from the Text palette.
+- Not ported: the Staff/Part properties dialog (EditStaff: its transposition and sharp/flat settings), ChangePatch
+  (instrumentchange_tests testMixer), the score view's context menu.
+- Full screen: the collapsed chrome stays shown only for an open menu or popup ([aria-haspopup][aria-expanded=true]);
+  expanded sections (the panel collapse button, palette headers, inspector sections) kept the panels shown (webapps
+  e2e "collapses the toolbar in full screen"). The tempo and "Customize toolbar" buttons got aria-haspopup="dialog".

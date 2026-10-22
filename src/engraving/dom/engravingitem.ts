@@ -747,6 +747,10 @@ export abstract class EngravingItem extends EngravingObject {
 
     allowTimeAnchor(): boolean { return false }
 
+    custom(id: Pid): boolean {
+        return !propertyValueEquals(this.propertyDefault(id), this.getProperty(id))
+    }
+
     /** C++ clone() (copy constructor) */
     clone(): EngravingItem {
         return this.cloneObject()

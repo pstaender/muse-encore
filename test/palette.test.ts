@@ -58,6 +58,16 @@ describe('palettes', () => {
         expect(grace.map(c => c.action)).toEqual(['acciaccatura', 'appoggiatura', 'grace4', 'grace16', 'grace32', 'grace8after',
             'grace16after', 'grace32after'])
         expect(palettes.find(p => p.type === 'Layout')!.cells[0].icon).toBe(0xF483)
+
+        // the fretboard diagrams from MuseScore's harmony to diagram data
+        const frets = palettes.find(p => p.type === 'FretboardDiagram')!.cells
+        expect(frets.map(c => c.name)).toEqual(['Blank', 'C', 'Cm', 'C7', 'D', 'Dm', 'D7', 'E', 'Em', 'E7', 'F', 'Fm', 'F7', 'G',
+            'Gm', 'G7', 'A', 'Am', 'A7', 'B', 'Bm', 'B7'])
+        const c = paletteCellElement(frets[1].id) as unknown as { patternFromDiagram(): string; harmonyPlainText(): string }
+        expect(c.harmonyPlainText()).toBe('C')
+        expect(c.patternFromDiagram()).toBe('X[3-O][2-O]O[1-O]O')
+        const blank = paletteCellElement(frets[0].id) as unknown as { patternFromDiagram(): string }
+        expect(blank.patternFromDiagram()).toBe('------')
     })
 
     it('draws every cell of an element', () => {

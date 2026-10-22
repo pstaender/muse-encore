@@ -3,7 +3,7 @@
  * "Choose instruments" (MuseScore's ChooseInstrumentsPage.qml): families of a genre, the instruments of a family
  * (or the search results), and the instruments of the new score with their order.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
     COMMON_GENRE_ID, genreList, groupList, insertInstrument, instrumentList, orderList, sortInstruments, templateById,
     templateDescription, templateTitle, traitName, trackName, verifyOrder, type OrderChoice, type ScoreInstrument,
@@ -14,11 +14,20 @@ const ICON = { add: '', up: '', down: '', remove: '', search: '',
 
 let s_key = 0
 
-export function ChooseInstrumentsPage({ instruments, setInstruments, order, setOrder }: {
+/** canSelectMultipleInstruments = false (InstrumentsDialog "Select instrument"): only the families and instruments */
+export interface SingleInstrumentSelection {
+    /** the template id of the selected instrument (or null) */
+    onSelect: (templateId: string | null) => void
+    /** double click / Enter on an instrument */
+    onAccept: (templateId: string) => void
+}
+
+export function ChooseInstrumentsPage({ instruments, setInstruments, order, setOrder, single }: {
     instruments: ScoreInstrument[]
     setInstruments: (list: ScoreInstrument[]) => void
     order: OrderChoice
     setOrder: (order: OrderChoice) => void
+    single?: SingleInstrumentSelection
 }): React.JSX.Element {
     const language = useLanguage()
     const genres = useMemo(genreList, [language])
@@ -50,6 +59,10 @@ export function ChooseInstrumentsPage({ instruments, setInstruments, order, setO
     const add = (key: string | null = selected): void => {
         const id = key && templateOf(key)
         if (!id) {
+            return
+        }
+        if (single) {
+            single.onAccept(id)
             return
         }
         const item = { key: ++s_key, id, soloist: false }
@@ -88,12 +101,18 @@ export function ChooseInstrumentsPage({ instruments, setInstruments, order, setO
         setOrder(o)
     }
 
+    const selectedTemplateId = selectedInstrument ? templateOf(selectedInstrument.key) ?? null : null
+    useEffect(() => {
+        single?.onSelect(selectedTemplateId)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedTemplateId])
+
     const selectedTemplate = selectedInstrument
         ? templateById(selectedInstrument.templates[Math.min(traits[selectedInstrument.key] ?? 0, selectedInstrument.templates.length - 1)].id)
         : null
 
     return (
-        <div className="choose-instruments">
+        <div className={`choose-instruments${single ? ' single' : ''}`}>
             <section className="column families" aria-labelledby="families-title">
                 <h3 id="families-title">{qtrc('instruments', 'Family')}</h3>
                 <select aria-label={qtrc('instruments', 'Family')} value={searching ? 'ALL_INSTRUMENTS' : genreId} disabled={searching}
@@ -157,6 +176,7 @@ export function ChooseInstrumentsPage({ instruments, setInstruments, order, setO
                 <p className="description muted" aria-live="polite">{selectedTemplate ? templateDescription(selectedTemplate) : ''}</p>
             </section>
 
+            {!single && <>
             <div className="add-column">
                 <button className="icon" title={qtrc('instruments', 'Add selected instruments to score')} aria-label={qtrc('instruments', 'Add selected instruments to score')}
                     disabled={!selectedInstrument} onClick={() => add()}>{ICON.add}</button>
@@ -205,6 +225,7 @@ export function ChooseInstrumentsPage({ instruments, setInstruments, order, setO
                     <button className="icon" title={qtrc('instruments', 'Remove selected instruments from score')} aria-label={qtrc('instruments', 'Remove selected instruments from score')} disabled={selIdx < 0} onClick={remove}>{ICON.remove}</button>
                 </div>
             </section>
+            </>}
         </div>
     )
 }

@@ -936,6 +936,10 @@ dialog.new-score .dialog-buttons {
     height: 100%;
 }
 
+/* InstrumentsDialog "Select instrument" (canSelectMultipleInstruments = false: 600 px, families and instruments) */
+.choose-instruments.single { grid-template-columns: minmax(150px, 1fr) minmax(200px, 1.6fr); }
+dialog.select-instrument { width: min(600px, calc(100vw - 32px)); }
+
 .add-column { display: flex; align-items: center; }
 .add-column .icon { border: 1px solid var(--border); }
 .description { min-height: 3.6em; margin: 0; font-size: 12px; overflow: auto; }

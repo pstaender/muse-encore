@@ -50,8 +50,7 @@ describe.skipIf(!hasData)('transpose', () => {
         await initFonts()
     })
 
-    // transpose_tests.cpp: undoTransposeFretDiagrams(ChordSymbols) need the fret diagram patterns (TODO(port))
-    for (const name of ['undoTranspose', 'undoTransposeChordSymbols']) {
+    for (const name of ['undoTranspose', 'undoTransposeChordSymbols', 'undoTransposeFretDiagrams', 'undoTransposeFretDiagramsChordSymbols']) {
         it(`${name} (major second up, undo)`, () => {
             const score = open(`transpose_data/${name}.mscx`)
             const before = scoreHash(score)
@@ -67,7 +66,8 @@ describe.skipIf(!hasData)('transpose', () => {
         })
     }
 
-    for (const name of ['undoDiatonicTranspose', 'undoDiatonicTransposeChordSymbols']) {
+    for (const name of ['undoDiatonicTranspose', 'undoDiatonicTransposeChordSymbols', 'undoDiatonicTransposeFretDiagrams',
+        'undoDiatonicTransposeFretDiagramsChordSymbols']) {
         it(`${name} (diatonic fourth down, undo)`, () => {
             const score = open(`transpose_data/${name}.mscx`)
             transpose(score, TransposeMode.DIATONICALLY, TransposeDirection.DOWN, 3, true, false, false)

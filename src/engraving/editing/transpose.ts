@@ -4,13 +4,11 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/engraving/editing/transpose.h/.cpp
- * TODO(port): transposeFretDiagram only transposes the chord symbol of the diagram: the diagram itself (FretDataChange,
- * FretDiagram::patternsFromHarmony/harmoniesFromPattern, findBestEnharmonicFit) needs the harmony to diagram database
- * (share/.../harmony_to_diagram.xml); MScore::setError(TRANSPOSE_NO_FRET_DIAGRAM), Score::setPlayNote
+ * TODO(port): Score::setPlayNote
  */
 
 import {
-    ElementType, Key, PreferSharpFlat, StaffGroup, TransposeDirection, TransposeMode, VOICES, type staff_idx_t, type track_idx_t,
+    ElementType, Key, NoteSpellingType, PreferSharpFlat, StaffGroup, TransposeDirection, TransposeMode, VOICES, type staff_idx_t, type track_idx_t,
 } from '../types/types'
 import { Fraction } from '../types/fraction'
 import { itemFactories, type EngravingItem } from '../dom/engravingitem'
@@ -32,8 +30,12 @@ import { ChangeKeySig } from './editkeysig'
 import { CommandType, UndoCommand } from './undo'
 import {
     PITCH_DELTA_OCTAVE, STEP_DELTA_OCTAVE, TPC_DELTA_ENHARMONIC, TPC_DELTA_SEMITONE,
-    clampEnharmonic, clampKey, key2Tpc, step2tpcByKey, tpc2Key, tpc2step, tpc2stepByKey, tpcIsValid,
+    NoteCaseType, Tpc, bestEnharmonicFit, clampEnharmonic, clampKey, convertNote, key2Tpc, step2tpcByKey, tpc2Key, tpc2name, tpc2step,
+    tpc2stepByKey, tpcIsValid,
 } from '../dom/pitchspelling'
+import { MScore, MsError } from '../dom/mscore'
+import type { MStyle } from '../style/style'
+import { FretDataChange } from './editfretboarddiagram'
 import { Interval } from '../dom/interval'
 import type { Chord } from '../dom/chord'
 
@@ -559,23 +561,99 @@ export class Transpose {
                 Transpose.undoTransposeHarmony(score, h, hInterval, useDoubleSharpsFlats)
             }
         }
-        // TODO(port): score->rebuildFretBox()
+        score.rebuildFretBox()
     }
 
     private static transposeFretDiagram(diagram: FretDiagram, score: Score, interval: Interval, mode: TransposeMode,
         transposeInterval: number, trKeys: boolean, useDoubleSharpsFlats: boolean): void {
-        const harmony = diagram.harmony()
+        let harmony = diagram.harmony()
 
         if (harmony) {
             Transpose.transposeHarmony(harmony, score, interval, mode, transposeInterval, trKeys, useDoubleSharpsFlats)
 
-            // TODO(port): patternsFromHarmony(harmony->plainText()): undoFretClear() + MsError::TRANSPOSE_NO_FRET_DIAGRAM
-            // if there is no diagram, else score->undo(new FretDataChange(diagram, harmony->plainText())); rebuildFretBox()
+            const availableDiagrams = diagram.patternsFromHarmony(harmony.plainText())
+            if (!availableDiagrams.length) {
+                diagram.undoFretClear()
+                MScore.setError(MsError.TRANSPOSE_NO_FRET_DIAGRAM, true)
+                return
+            }
+            score.undo(new FretDataChange(diagram, harmony.plainText()))
+
+            score.rebuildFretBox()
             return
         }
 
-        // TODO(port): no chord symbol attached: create harmony from diagram (patternFromDiagram, harmoniesFromPattern,
-        // findBestEnharmonicFit), transpose it, then use the new harmony to update the fret diagram
+        // No chord symbol attached. Create harmony from diagram, transpose it, then use the new harmony to update the fret diagram
+        const pattern = diagram.patternFromDiagram()
+        const names = diagram.harmoniesFromPattern(pattern)
+        if (!names.length) {
+            diagram.undoFretClear()
+            MScore.setError(MsError.TRANSPOSE_NO_FRET_DIAGRAM, true)
+            return
+        }
+
+        let tick = new Fraction(0, 1)
+        const seg = diagram.segment()
+        if (seg) {
+            tick = seg.tick()
+        }
+        const key = !diagram.staff() ? Key.C : diagram.staff()!.key(tick)
+
+        const name = Transpose.findBestEnharmonicFit(names, key, score.style())
+
+        diagram.setHarmony(name)
+        harmony = diagram.harmony()
+        if (!harmony) {
+            return
+        }
+
+        // Transpose harmony without undo
+        const kv = harmony.staff()!.transpose(harmony.tick())
+        const iv = harmony.part()!.instrument(harmony.tick()).transpose()
+        const hInterval = new Interval(interval.diatonic - kv.diatonic + iv.diatonic, interval.chromatic - kv.chromatic + iv.chromatic)
+
+        for (const info of harmony.chords()) {
+            if (mode === TransposeMode.DIATONICALLY) {
+                info.setRootTpc(Transpose.transposeTpcDiatonicByKey(info.rootTpc(), transposeInterval, key, trKeys, useDoubleSharpsFlats))
+                info.setBassTpc(Transpose.transposeTpcDiatonicByKey(info.bassTpc(), transposeInterval, key, trKeys, useDoubleSharpsFlats))
+            } else {
+                info.setRootTpc(Transpose.transposeTpc(info.rootTpc(), hInterval, useDoubleSharpsFlats))
+                info.setBassTpc(Transpose.transposeTpc(info.bassTpc(), hInterval, useDoubleSharpsFlats))
+            }
+        }
+        harmony.setXmlText(harmony.harmonyName())
+
+        const availableDiagrams = diagram.patternsFromHarmony(harmony.plainText())
+        if (!availableDiagrams.length) {
+            diagram.undoFretClear()
+            MScore.setError(MsError.TRANSPOSE_NO_FRET_DIAGRAM, true)
+            return
+        }
+        score.undo(new FretDataChange(diagram, harmony.plainText()))
+
+        diagram.remove(harmony)
+
+        score.rebuildFretBox()
+    }
+
+    private static findBestEnharmonicFit(notes: readonly string[], key: Key, style: MStyle): string {
+        const tpcs: number[] = []
+        const harmonySpelling = style.styleV(Sid.chordSymbolSpelling) as NoteSpellingType
+        const harmonyCase = NoteCaseType.AUTO
+        for (const note of notes) {
+            const tpc = convertNote(note, harmonySpelling, harmonyCase).tpc
+            tpcs.push(tpc)
+        }
+
+        const tpc = bestEnharmonicFit(tpcs, key)
+
+        if (tpc === Tpc.TPC_INVALID) {
+            return notes[0]
+        }
+
+        const note = tpc2name(tpc, harmonySpelling, harmonyCase)
+
+        return note
     }
 
     /**

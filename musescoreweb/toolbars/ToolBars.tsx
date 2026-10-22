@@ -152,7 +152,7 @@ function NoteInputBar(): React.JSX.Element {
             <Separator />
             <ActionButtonAdd />
             <button ref={cogRef} className="tool-button" title={`${qtrc('notation', 'Customize toolbar')}: ${qtrc('notation', 'Show/hide toolbar buttons')}`}
-                aria-label={qtrc('notation', 'Customize toolbar')} aria-expanded={customize} onClick={() => setCustomize(!customize)}>
+                aria-label={qtrc('notation', 'Customize toolbar')} aria-haspopup="dialog" aria-expanded={customize} onClick={() => setCustomize(!customize)}>
                 <span className="tool-icon" aria-hidden="true">{ICON.cog}</span>
             </button>
             {customize && cogRef.current && <CustomisePopup anchor={cogRef.current} onClose={() => setCustomize(false)} />}

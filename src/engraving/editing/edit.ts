@@ -82,6 +82,7 @@ import type { Staff } from '../dom/staff'
 import type { TimeSig } from '../dom/timesig'
 import type { KeySig } from '../dom/keysig'
 import type { InstrumentChange } from '../dom/instrchange'
+import type { FBox } from '../dom/box'
 import { Text } from '../dom/text'
 import type { TextBase } from '../dom/textbase'
 import type { Spanner, SpannerSegment } from '../dom/spanner'
@@ -399,6 +400,27 @@ Score.prototype.undoAddElement = function (this: Score, element: EngravingItem, 
 
     // the remaining element types are added to the linked staves (C++: ostaff->staffList()); here this is only
     // the staff itself, so the element is added as it is
+    if (element.isInstrumentChange()) {
+        const nis = element as unknown as InstrumentChange
+        const s1 = nis.segment()
+        const tickStart = s1.tick()
+        const part = nis.part()!
+        const oldV = nis.staff()!.transpose(tickStart).clone()
+        // ws: instrument should not be changed here
+        const ch0 = nis.instrument().channel(0)
+        if (!nis.instrument().channels().length || ch0!.program() === -1) {
+            nis.setInstrument(ostaff!.part().instrument(s1.tick()))
+        }
+        this.doUndoAddElement(nis)
+        element.styleChanged()
+        // transpose root score; parts will follow
+        if (this.isMaster() && !nis.staff()!.transpose(tickStart).equals(oldV)) {
+            const i = part.instruments().upperBound(tickStart.ticks())
+            const tickEnd = i === part.instruments().size() ? new Fraction(-1, 1) : Fraction.fromTicks(part.instruments().keyAt(i))
+            Transpose.transpositionChanged(this, part, oldV, tickStart, tickEnd)
+        }
+        return
+    }
     this.doUndoAddElement(element)
     element.styleChanged()
 }
@@ -885,7 +907,9 @@ Score.prototype.insertBox = function (this: Score, type: ElementType, beforeMeas
     newMeasureBase.setPrev(beforeMeasure ? beforeMeasure.prev() : this.last())
     newMeasureBase.setSizeIsSpatiumDependent(!isTitleFrame)
 
-    // TODO(port): FBox::init()
+    if (type === ElementType.FBOX) {
+        (newMeasureBase as unknown as FBox).init()
+    }
 
     this.undo(new InsertMeasures(newMeasureBase, newMeasureBase))
 

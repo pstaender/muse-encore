@@ -15,6 +15,9 @@ import type { Box, FBox, HBox, TBox, VBox } from '../../dom/box'
 import type { FretDiagram } from '../../dom/fret'
 import type { LayoutContext } from './layoutcontext'
 import { TLayout } from './tlayout'
+import { HarmonyLayout } from './harmonylayout'
+import { SegmentType } from '../../dom/segment'
+import { HarmonyType, type Harmony } from '../../dom/harmony'
 
 export class BoxLayout {
     static layoutBox(item: Box, ctx: LayoutContext): void {
@@ -106,8 +109,50 @@ export class BoxLayout {
         }
     }
 
-    /** C++ FBox::needsRebuild()/init() are only used when editing (TODO(port)) */
     static layoutFBox(item: FBox, ctx: LayoutContext): void {
+        const score = item.score()
+
+        if (item.needsRebuild()) {
+            for (const element of item.el()) {
+                if (!element || !element.isFretDiagram()) {
+                    continue
+                }
+
+                const diagram = element as FretDiagram
+                //! NOTE: We need to layout the diagrams to get the harmony names to show in the UI
+                TLayout.layoutItem(diagram, ctx)
+                if (!diagram.visible()) {
+                    //! but we don't need to draw them, so let's add a skip
+                    diagram.mutldata().setIsSkipDraw(true)
+                    diagram.harmony()!.mutldata().setIsSkipDraw(true)
+                    continue
+                }
+            }
+
+            /// FBox::init requires all chord symbols in the score have valid ldata
+            /// Perform layout
+            for (let segment = score.firstSegment(SegmentType.ChordRest); segment; segment = segment.next1(SegmentType.ChordRest)) {
+                for (const segItem of segment.annotations()) {
+                    if (!segItem || !segItem.part()) {
+                        continue
+                    }
+                    if (!(segItem.isHarmony() || segItem.isFretDiagram())) {
+                        continue
+                    }
+
+                    const harmony = segItem.isHarmony() ? segItem as Harmony : (segItem as FretDiagram).harmony()
+                    if (!harmony || harmony.harmonyType() !== HarmonyType.STANDARD || harmony.ldata().isValid()) {
+                        continue
+                    }
+
+                    HarmonyLayout.layoutHarmony(harmony, ctx)
+                }
+            }
+
+            item.init()
+            item.setNeedsRebuild(false)
+        }
+
         const ldata = item.mutldata()
         ldata.setPos(new PointF())
 

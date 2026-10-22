@@ -25,11 +25,12 @@ import type { MenuItem } from '../../menus/appmenu'
 import { currentScore, scoreViewState, useScoreView } from '../../scoreview'
 import {
     addInstruments, addStaff, addSystemObjects, canEditParts, moveParts, moveStaves, moveSystemObjectLayerBottomStaff,
-    moveSystemObjects, removeParts, removeStaves, removeSystemObjects, scoreChanged, setPartVisible, setScoreOrder,
+    moveSystemObjects, removeParts, removeStaves, removeSystemObjects, replacePartInstrument, scoreChanged, setPartVisible, setScoreOrder,
     setStaffVisible,
 } from '../editbridge'
 import { setPanelOpen } from '../panels'
 import { InstrumentsDialog } from './InstrumentsDialog'
+import { askInstrument } from '../../dialogs/SelectInstrumentDialog'
 import './layoutpanel.css'
 
 const icon = (name: string): string => String.fromCodePoint(ICON_CODES[name])
@@ -292,7 +293,7 @@ function LayoutControlPanel({ model, editable }: { model: LayoutPanelTreeModel; 
     )
 }
 
-/** InstrumentSettingsPopup.qml (read-only: names of the part) */
+/** InstrumentSettingsPopup.qml (the names of the part are read-only here) and its "Replace instrument" button */
 function InstrumentSettingsPopup({ item, anchor, onClose }: { item: AbstractLayoutPanelTreeItem; anchor: DOMRect; onClose: () => void }): React.JSX.Element {
     const names = layoutPanelPartNames(item)
     const ref = useRef<HTMLDivElement>(null)
@@ -327,6 +328,20 @@ function InstrumentSettingsPopup({ item, anchor, onClose }: { item: AbstractLayo
                 <span>{qtrc('layoutpanel/instrumentsettingspopup', 'Abbreviated name')}</span>
                 <input type="text" readOnly value={names?.abbreviature ?? ''} />
             </label>
+            {names && <>
+                <hr className="separator" />
+                <button type="button" className="secondary replace-instrument" onClick={() => {
+                    // PartTreeItem::replaceInstrument (SelectInstrumentsScenario::selectInstrument)
+                    const partId = item.id()
+                    onClose()
+                    void askInstrument().then(templateId => {
+                        const score = currentScore()
+                        if (templateId && score && replacePartInstrument(score, partId, templateId)) {
+                            scoreChanged()
+                        }
+                    })
+                }}>{qtrc('layoutpanel/instrumentsettingspopup', 'Replace instrument')}</button>
+            </>}
         </div>
     )
 }

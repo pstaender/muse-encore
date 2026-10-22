@@ -14,7 +14,11 @@ import { SvgGlyphDefs, SvgPaintProvider } from './framework/draw/svgpaintprovide
 import { imageCache } from './framework/draw/imagecache'
 import { PointF, RectF } from './framework/draw/types/geometry'
 import { Fraction } from './engraving/types/fraction'
-import { DPI, DurationType, Key } from './engraving/types/types'
+import { DPI, DurationType, Key, PreferSharpFlat } from './engraving/types/types'
+import { Instrument } from './engraving/dom/instrument'
+import { StaffType } from './engraving/dom/stafftype'
+import { Part } from './engraving/dom/part'
+import type { InstrumentChange } from './engraving/dom/instrchange'
 import { TimeSigType } from './engraving/dom/timesig'
 import { ScoreOrder } from './engraving/dom/scoreorder'
 import {
@@ -37,6 +41,7 @@ import { ContinuousPanel } from './notationscene/continuouspanel'
 import { LayoutMode } from './engraving/dom/score'
 import { ScoreRenderer } from './engraving/rendering/score/scorerenderer'
 import { Paint } from './engraving/rendering/score/paint'
+import { setSelectInstrumentProvider as setInteractionSelectInstrumentProvider } from './notation/internal/notationinteraction'
 import { NotationInteraction } from './notation/internal/notationinteraction'
 import { NotationAccessibility } from './notation/internal/notationaccessibility'
 import { NotationViewInputController } from './notationscene/notationviewinputcontroller'
@@ -806,6 +811,18 @@ export interface TransposeSelectionInfo {
     hasChordNames: boolean
 }
 
+/**
+ * The instrument of an instrument change that is added (a palette cell or Add > Text > Instrument change): MuseScore
+ * asks for it with its select instrument dialog while the command runs; here the provider returns the id of the
+ * chosen instrument template (asked for before the command), or null to cancel adding the instrument change.
+ */
+export function setSelectInstrumentProvider(provider: (() => string | null) | null): void {
+    setInteractionSelectInstrumentProvider(provider ? () => {
+        const id = provider()
+        return id ? searchTemplate(id) : null
+    } : null)
+}
+
 /** prepares the selection for the Transpose dialog: selects the whole score if nothing is selected */
 export function prepareTransposeSelection(score: MasterScore): TransposeSelectionInfo {
     const interaction = notationState(score).interaction
@@ -1461,6 +1478,48 @@ function runPartsCommand(score: MasterScore, cmd: (parts: MasterNotationParts) =
     const size = stack.size()
     cmd(notationParts(score))
     return stack.currentIndex() !== index || stack.size() !== size
+}
+
+/**
+ * "Replace instrument" of the Layout panel (PartTreeItem::replaceInstrument): the part gets the instrument of the
+ * template (and its staff type), transposing the notes, key signatures and chord symbols for a new transposition.
+ */
+export function replacePartInstrument(score: MasterScore, partId: string, templateId: string): boolean {
+    const part = score.parts().find(p => p.id() === partId)
+    const templ = searchTemplate(templateId)
+    if (!part || !templ) {
+        return false
+    }
+    const instrument = Instrument.fromTemplate(templ)
+    const staffType = templ.staffTypePreset ?? StaffType.getDefaultPreset(templ.staffGroup)
+    return runPartsCommand(score, p => p.replaceInstrument(
+        { partId, instrumentId: part.instrument().id(), tick: Part.MAIN_INSTRUMENT_TICK }, instrument, staffType))
+}
+
+/** the selected instrument change (the element of the action "change-instrument"), null if none */
+export function selectedInstrumentChange(score: MasterScore): { partId: string; instrumentId: string; tick: number } | null {
+    const element = score.selection().element()
+    if (!element || !element.isInstrumentChange()) {
+        return null
+    }
+    const ic = element as unknown as InstrumentChange
+    return { partId: ic.part()!.id(), instrumentId: ic.instrument().id(), tick: ic.tick().ticks() }
+}
+
+/** "Select instrument…" of an instrument change (InstrumentsActionsController::changeInstrument) */
+export function changeInstrumentChange(score: MasterScore, templateId: string): boolean {
+    const key = selectedInstrumentChange(score)
+    const templ = searchTemplate(templateId)
+    if (!key || !templ) {
+        return false
+    }
+    return runPartsCommand(score, p => p.replaceInstrument(
+        { partId: key.partId, instrumentId: key.instrumentId, tick: Fraction.fromTicks(key.tick) }, Instrument.fromTemplate(templ)))
+}
+
+/** "Prefer sharps/flats" of a part (INotationParts::setPartSharpFlat): 0 none, 1 sharps, 2 flats, 3 auto */
+export function setPartSharpFlat(score: MasterScore, partId: string, sharpFlat: PreferSharpFlat): boolean {
+    return runPartsCommand(score, p => p.setPartSharpFlat(partId, sharpFlat))
 }
 
 /** shows or hides a part (INotationParts::setPartVisible); ids are Part.id() */

@@ -603,6 +603,9 @@ export class Segment extends EngravingItem {
             break
         case ElementType.HARMONY:
         case ElementType.FRET_DIAGRAM:
+            this.score().rebuildFretBox()
+            this.m_annotations.push(el)
+            break
         case ElementType.TEMPO_TEXT:
         case ElementType.DYNAMIC:
         case ElementType.EXPRESSION:
@@ -768,6 +771,11 @@ export class Segment extends EngravingItem {
             break
         case ElementType.HARP_DIAGRAM:
             el.part()!.removeHarpDiagram(el as unknown as HarpPedalDiagram)
+            this.removeAnnotation(el)
+            break
+        case ElementType.HARMONY:
+        case ElementType.FRET_DIAGRAM:
+            this.score().rebuildFretBox()
             this.removeAnnotation(el)
             break
         default:

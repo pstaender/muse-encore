@@ -108,6 +108,10 @@ import type { SymId } from '../../engraving/types/symid'
 import { ArticulationsUpdateMode, flipArticulations, splitArticulations } from '../../engraving/dom/articulation'
 import { PlacementV, type TransposeDirection } from '../../engraving/types/types'
 import { Transpose } from '../../engraving/editing/transpose'
+import { ChangeDrumset } from '../../engraving/editing/editpart'
+import { Instrument } from '../../engraving/dom/instrument'
+import type { InstrumentChange } from '../../engraving/dom/instrchange'
+import type { InstrumentTemplate } from '../../engraving/dom/instrtemplate'
 import type { TransposeOptions } from '../notationtypes'
 
 /** C++ NotationInteraction::ShadowNoteParams */
@@ -145,6 +149,13 @@ function activeCr(score: Score): ChordRest | null {
         }
     }
     return cr
+}
+
+let s_selectInstrumentProvider: (() => InstrumentTemplate | null) | null = null
+
+/** the instrument of an added instrument change (MuseScore's select instrument dialog); see selectInstrument() */
+export function setSelectInstrumentProvider(provider: (() => InstrumentTemplate | null) | null): void {
+    s_selectInstrumentProvider = provider
 }
 
 export class NotationInteraction {
@@ -923,6 +934,55 @@ export class NotationInteraction {
 
     changeAccidental(accidental: AccidentalType): void {
         this.execute(() => this.score().changeAccidental(accidental), new TranslatableString('undoableAction', 'Add accidental'))
+    }
+
+    /**
+     * C++ selectInstrument(): MuseScore asks for the new instrument with its instrument dialog (synchronously); here
+     * the instrument comes from the select instrument provider (setSelectInstrumentProvider), e.g. the instrument the
+     * app asked for before the command. Without one (or null) the instrument change is not added.
+     */
+    selectInstrument(instrumentChange: InstrumentChange | null): boolean {
+        if (!instrumentChange) {
+            return false
+        }
+
+        const templ = s_selectInstrumentProvider ? s_selectInstrumentProvider() : null
+        if (!templ) {
+            return false
+        }
+
+        const newInstrument = Instrument.fromTemplate(templ)
+        instrumentChange.setInit(true)
+        instrumentChange.setupInstrument(newInstrument)
+
+        if (newInstrument.useDrumset()) {
+            this.cleanupDrumsetChanges(instrumentChange)
+        }
+
+        return true
+    }
+
+    private cleanupDrumsetChanges(instrumentChange: InstrumentChange | null): void {
+        const part = instrumentChange ? instrumentChange.part() : null
+        const newInstrument = instrumentChange ? instrumentChange.instrument() : null
+        if (!part || !newInstrument) {
+            return
+        }
+
+        for (const otherInst of part.instruments().values()) {
+            if (!otherInst || otherInst === newInstrument) {
+                continue
+            }
+
+            // If the following conditional is true, it means that we're trying to change to a drumset that already exists for this part. Due to the fact
+            // that we don't create new tracks for identical instruments in a given part, the knock-on effect is that the new drumset won't have a chance
+            // to load a MuseSampler patch (see usage of shouldLoadDrumset in PlaybackController). The following logic resolves this by copying the patch
+            // from the existing drumset into the new one...
+            if (otherInst.drumset() && newInstrument.id() === otherInst.id()) {
+                this.score().undo(new ChangeDrumset(newInstrument, otherInst.drumset()!, part))
+                return
+            }
+        }
     }
 
     transpose(options: TransposeOptions): boolean {
@@ -2078,8 +2138,15 @@ export class NotationInteraction {
 
             const el = target.drop(dropData)
 
-            // TODO(port): instrument changes (selectInstrument), voice assignment (setInitialTrackAndVoiceAssignment),
-            // fretboard diagrams (doFinishAddFretboardDiagram)
+            if (el && el.isInstrumentChange()) {
+                if (!this.selectInstrument(el as unknown as InstrumentChange)) {
+                    this.rollback()
+                    return
+                }
+            }
+
+            // TODO(port): voice assignment (setInitialTrackAndVoiceAssignment), fretboard diagrams
+            // (doFinishAddFretboardDiagram)
 
             if (el && !score.inputState().noteEntryMode()) {
                 this.selectAndStartEditIfNeeded(el)
@@ -2514,7 +2581,12 @@ export class NotationInteraction {
 
         const dropElement = el.drop(edd.ed)
 
-        // TODO(port): instrument changes (selectInstrument: the instrument dialog)
+        if (dropElement && dropElement.isInstrumentChange()) {
+            if (!this.selectInstrument(dropElement as unknown as InstrumentChange)) {
+                this.rollback()
+                return true // Really?
+            }
+        }
 
         if (dropElement) {
             if (!this.score().noteEntryMode()) {
@@ -3699,7 +3771,10 @@ export class NotationInteraction {
         }
 
         if (text.isInstrumentChange()) {
-            // TODO(port): selectInstrument (the instruments dialog chooses the new instrument)
+            if (!this.selectInstrument(text as unknown as InstrumentChange)) {
+                this.rollback()
+                return
+            }
         }
 
         // TODO(port): setInitialTrackAndVoiceAssignment (voice assignment of texts)

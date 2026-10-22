@@ -955,7 +955,7 @@ export class NotationActionController {
             ['staff-text', TextStyleType.STAFF],
             ['expression-text', TextStyleType.EXPRESSION],
             ['rehearsalmark-text', TextStyleType.REHEARSAL_MARK],
-            // TODO(port): instrument-change-text (the instruments dialog)
+            ['instrument-change-text', TextStyleType.INSTRUMENT_CHANGE],
             ['sticking-text', TextStyleType.STICKING],
             ['fingering-text', TextStyleType.FINGERING],
             ['chord-text', TextStyleType.HARMONY_A],

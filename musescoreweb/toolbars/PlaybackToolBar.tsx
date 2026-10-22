@@ -203,7 +203,7 @@ function TempoButton(): React.JSX.Element {
     const ref = useRef<HTMLButtonElement>(null)
     return (
         <>
-            <button ref={ref} className="tool-button with-title tempo-button" title={qtrc('playback', 'Speed')} aria-expanded={open}
+            <button ref={ref} className="tool-button with-title tempo-button" title={qtrc('playback', 'Speed')} aria-haspopup="dialog" aria-expanded={open}
                 aria-label={`${qtrc('playback', 'Speed')}: ${st.tempo}`} onClick={() => setOpen(!open)}>
                 <span className="tempo-note" aria-hidden="true">{CROTCHET}</span>
                 <span className="tempo-value">{` = ${st.tempo}`}</span>

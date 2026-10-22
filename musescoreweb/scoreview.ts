@@ -6,6 +6,7 @@
  * Keyboard shortcuts follow MuseScore Studio (src/app/configs/data/shortcuts.xml) where they make sense.
  */
 /// <reference types="vite/client" />
+import { isInstrumentChangeSymbol, withSelectedInstrument } from './dialogs/instrumentchoice'
 import { useSyncExternalStore } from 'react'
 import {
     clearSelection, drawPage, drawPageSvg, setCanLayoutIcons, hasSelection, initEngravingFonts, isModified, isTwoSided, moveSelection,
@@ -1451,7 +1452,23 @@ viewport.addEventListener('drop', (e) => {
     e.stopPropagation()
     const ev = dragEvent(e)
     dropActive = false
+    const symbol = dragData()?.symbol ?? ''
     setDragData(null)
+    if (ev && isInstrumentChangeSymbol(symbol)) {
+        // the instrument is chosen first (NotationInteraction::selectInstrument), then the drop is done again
+        viewDragLeave(score)
+        repaintPages()
+        const target = score
+        void withSelectedInstrument(() => {
+            if (score === target && viewDragEnter(target, symbol)) {
+                viewDragMove(target, ev)
+                if (viewDrop(target, ev)) {
+                    scoreChanged(false)
+                }
+            }
+        })
+        return
+    }
     if (ev && viewDrop(score, ev)) {
         scoreChanged(false)
     } else {
@@ -1864,8 +1881,8 @@ function showEdge(edge: Edge, autoHideMs = 0): void {
 function hideEdge(edge: Edge): void {
     clearTimeout(edges[edge].timer)
     const el = edges[edge].el
-    if (el && (el.matches(':hover') || el.matches(':has(:focus-visible)') || el.matches(':has([aria-expanded="true"])'))) {
-        return // pointer on it, keyboard navigation or an open menu in it
+    if (el && (el.matches(':hover') || el.matches(':has(:focus-visible)') || el.matches(':has([aria-haspopup][aria-expanded="true"])'))) {
+        return // pointer on it, keyboard navigation or an open menu/popup in it (not an expanded section)
     }
     document.body.classList.remove(EDGE_CLASS[edge])
 }

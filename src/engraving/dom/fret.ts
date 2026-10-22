@@ -4,13 +4,14 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/engraving/dom/fret.h/.cpp
- * TODO(port): editing, harmony <-> diagram pattern matching (harmony_to_diagram.xml), fret boxes
+ * The harmony to diagram data (data/harmony_to_diagram.xml, in fonts/) is registered by initEngravingFonts and read on
+ * first use like in C++.
  */
 
 import { Font, FontType } from '../../framework/draw/types/font'
 import type { PainterPath } from '../../framework/draw/types/painterpath'
-import type { PointF } from '../../framework/draw/types/geometry'
-import { Align, AlignH, AlignV, ElementType, FontStyle, Orientation, type track_idx_t } from '../types/types'
+import { PointF } from '../../framework/draw/types/geometry'
+import { Align, AlignH, AlignV, ElementType, FontStyle, NoteSpellingType, Orientation, type track_idx_t } from '../types/types'
 import { P_TYPE, type PropertyValue } from '../types/propertyvalue'
 import { Sid } from '../style/styledef'
 import { ElementFlag, EngravingItem, LayoutData } from './engravingitem'
@@ -18,6 +19,17 @@ import type { ElementStyle, EngravingObject } from './engravingobject'
 import type { Harmony } from './harmony'
 import { Pid, PropertyFlags, propertyType } from './property'
 import type { Segment } from './segment'
+import { NoteCaseType, Tpc, convertNote, tpcIsValid } from './pitchspelling'
+import { ParsedChord, type ChordList } from './chordlist'
+import { XmlReader } from '../rw/xmlreader'
+import { HarmonyToDiagramReader } from '../rw/harmonytodiagramreader'
+import { ReadContext } from '../rw/read460/readcontext'
+import { TRead } from '../rw/read460/tread'
+import { Factory } from './factory'
+import { scoreDummy } from '../compat/dummyelement'
+import { Link } from '../editing/addremoveelement'
+import { isPaletteScore } from './palettescore'
+import { FretClear, FretBarre as FretBarreCmd, FretDot as FretDotCmd, FretMarker as FretMarkerCmd } from '../editing/editfretboarddiagram'
 
 export enum FretDotType {
     NORMAL = 0,
@@ -125,6 +137,101 @@ export class FretDiagramLayoutData extends LayoutData {
     fretText = ''
 }
 
+/** C++ DiagramInfo */
+export interface DiagramInfo {
+    harmonyName: string
+    diagramXml: string
+    diagramPattern: string
+}
+
+/** C++ HarmonyMapKey (the std::map key as a string) */
+function harmonyMapKey(keys: number, rootTpc: number, bassTpc: number): string {
+    return `${keys}:${rootTpc}:${bassTpc}`
+}
+
+const s_harmonyToDiagramMap = new Map<string, DiagramInfo[]>()
+/** in the order of the file (C++: the order of an unordered_map) */
+const s_diagramPatternToHarmoniesMap = new Map<string, string[]>()
+let s_harmonyToDiagramFile: Uint8Array | string | null = null
+
+/** C++ String::simplified() */
+function simplified(s: string): string {
+    return s.trim().replace(/\s+/g, ' ')
+}
+
+function createHarmonyMapKey(harmony: string, spellingType: NoteSpellingType, cl: ChordList | null): string {
+    let s = harmony
+    const { tpc: rootTpc, idx } = convertNote(s, spellingType, NoteCaseType.AUTO)
+
+    let bassTpc: number = Tpc.TPC_INVALID
+    const slash = s.lastIndexOf('/')
+    if (slash !== -1) {
+        const bs = simplified(s.substring(slash + 1))
+        s = simplified(s.substring(idx, slash))
+        bassTpc = convertNote(bs, spellingType, NoteCaseType.AUTO).tpc
+
+        if (!tpcIsValid(bassTpc)) {
+            // if what follows after slash is not (just) a TPC
+            // then reassemble chord and try to parse with the slash
+            s = s + '/' + bs
+        }
+    } else {
+        s = s.substring(idx)
+    }
+
+    const chord = new ParsedChord()
+    chord.parse(s, cl) // C++: LOGE() << "Error parse " << harmony
+
+    const keys = chord.keys()
+
+    return harmonyMapKey(keys, rootTpc, bassTpc)
+}
+
+function resolveDiagram(diagrams: readonly DiagramInfo[]): DiagramInfo {
+    const isSimpler = (a: DiagramInfo, b: DiagramInfo): boolean => {
+        const harmonyNameA = a.harmonyName
+        const harmonyNameB = b.harmonyName
+
+        if (harmonyNameA.length !== harmonyNameB.length) {
+            return harmonyNameA.length < harmonyNameB.length
+        }
+
+        return harmonyNameA < harmonyNameB
+    }
+
+    let result = diagrams[0]
+    for (let i = 1; i < diagrams.length; ++i) {
+        if (!isSimpler(result, diagrams[i])) {
+            result = diagrams[i]
+        }
+    }
+
+    return result
+}
+
+/** the state of a diagram that the fret undo commands restore (C++ FretUndoData) */
+export interface FretDiagramData {
+    barres: Map<number, FretBarre>
+    markers: Map<number, FretMarker>
+    dots: Map<number, FretDot[]>
+    strings: number
+    frets: number
+    fretOffset: number
+    maxFrets: number
+    showNut: boolean
+    orientation: Orientation
+    userMag: number
+    showFingering: boolean
+}
+
+function cloneBarres(m: Map<number, FretBarre>): Map<number, FretBarre> {
+    return new Map([...m].map(([k, v]) => [k, v.clone()]))
+}
+
+function cloneDots(m: Map<number, FretDot[]>): Map<number, FretDot[]> {
+    return new Map([...m].map(([k, v]) => [k, v.map(d => d.clone())]))
+}
+
 /** iterate a C++ std::map<int, T> in key order */
 function sortedEntries<T>(m: Map<number, T>): [number, T][] {
     return [...m.entries()].sort((a, b) => a[0] - b[0])
@@ -191,6 +298,40 @@ export class FretDiagram extends EngravingItem {
             return null
         }
         return parent as unknown as Segment
+    }
+
+    /** C++ linkedClone() */
+    override linkedClone(): EngravingItem {
+        const e = this.clone()
+        e.setAutoplace(true)
+        if (this.m_harmony) {
+            const newHarmony = this.m_harmony.linkedClone()
+            e.add(newHarmony)
+        }
+        this.score().undo(new Link(e, this))
+        return e
+    }
+
+    updateDiagram(harmonyName: string): void {
+        const availableDiagrams = this.patternsFromHarmony(harmonyName)
+        if (!availableDiagrams.length) {
+            return
+        }
+
+        const diagramXml = resolveDiagram(availableDiagrams).diagramXml
+
+        if (!diagramXml) {
+            return
+        }
+
+        this.clear()
+
+        const ctx = new ReadContext(this.score())
+        const reader = new XmlReader(diagramXml)
+
+        TRead.readFretDiagram(this, reader, ctx)
+
+        this.triggerLayout()
     }
 
     mainWidth(): number {
@@ -337,6 +478,28 @@ export class FretDiagram extends EngravingItem {
         }
     }
 
+    undoSetFretDot(string: number, fret: number, add = true, dtype = FretDotType.NORMAL): void {
+        for (const e of this.linkList()) {
+            const fd = e as FretDiagram
+            fd.score().undo(new FretDotCmd(fd, string, fret, add, dtype))
+        }
+    }
+
+    undoSetFretMarker(string: number, mtype: FretMarkerType): void {
+        for (const e of this.linkList()) {
+            const fd = e as FretDiagram
+            fd.score().undo(new FretMarkerCmd(fd, string, mtype))
+        }
+    }
+
+    /** add refers to using multiple dots per string when adding dots automatically */
+    undoSetFretBarre(string: number, fret: number, add = false): void {
+        for (const e of this.linkList()) {
+            const fd = e as FretDiagram
+            fd.score().undo(new FretBarreCmd(fd, string, fret, add))
+        }
+    }
+
     private removeBarre(f: number): void {
         this.m_barres.delete(f)
     }
@@ -466,6 +629,371 @@ export class FretDiagram extends EngravingItem {
     harmony(): Harmony | null { return this.m_harmony }
 
     harmonyPlainText(): string { return this.m_harmony ? this.m_harmony.plainText() : '' }
+    harmonyDisplayText(): string { return this.m_harmony ? this.m_harmony.displayText() : '' }
+
+    /**
+     * Pattern format: one token per string: X = cross marker, O = circle marker, - = nothing, or the dots in brackets
+     * [{fret}-{type},...] with the types O (normal), X (cross), S (square), T (triangle), e.g. [1-X,2-O,3-S].
+     * Barre chords follow after ';', in the format: B{fret}[{start}-{end}], e.g. B1[0-5] = barre on fret 1 from
+     * string 0 to 5
+     */
+    static applyDiagramPattern(diagram: FretDiagram, pattern: string): void {
+        diagram.clear()
+
+        const parts = pattern.split(';')
+        if (!parts.length) {
+            return
+        }
+
+        const mainPart = parts[0]
+        const stringTokens: string[] = []
+
+        for (let i = 0; i < mainPart.length;) {
+            if (mainPart[i] === '[') {
+                const rb = mainPart.indexOf(']', i)
+                if (rb !== -1) {
+                    stringTokens.push(mainPart.substring(i, rb + 1))
+                    i = rb + 1
+                    continue
+                }
+            }
+            stringTokens.push(mainPart.substring(i, i + 1))
+            ++i
+        }
+
+        const stringCount = stringTokens.length
+        diagram.setStrings(stringCount)
+        diagram.setFrets(4)
+        diagram.setPropertyFlags(Pid.FRET_STRINGS, PropertyFlags.UNSTYLED)
+        diagram.setPropertyFlags(Pid.FRET_FRETS, PropertyFlags.UNSTYLED)
+
+        let offset = 0
+
+        for (let i = 0; i < stringCount; ++i) {
+            const token = stringTokens[i]
+
+            if (token === '-') {
+                continue
+            }
+
+            if (token.startsWith('[') && token.endsWith(']')) {
+                // Example: [1-O,2-X,3-S]
+                const inner = token.substring(1, token.length - 1)
+                const pairs = inner.split(',')
+
+                for (const p of pairs) {
+                    const dash = p.indexOf('-')
+                    if (dash > 0) {
+                        const fret = parseInt(p.substring(0, dash), 10) || 0
+                        const typeChar = p.substring(dash + 1, dash + 2)
+                        let dt: FretDotType
+
+                        switch (typeChar) {
+                        case 'X': dt = FretDotType.CROSS
+                            break
+                        case 'O': dt = FretDotType.NORMAL
+                            break
+                        case 'S': dt = FretDotType.SQUARE
+                            break
+                        case 'T': dt = FretDotType.TRIANGLE
+                            break
+                        default: dt = FretDotType.NORMAL
+                            break
+                        }
+
+                        diagram.setDot(i, fret - offset, true, dt)
+                        if (fret - 3 > 0 && offset < fret - 3) {
+                            offset = fret - 3
+                        }
+                    }
+                }
+            } else if (token === 'X') {
+                diagram.setMarker(i, FretMarkerType.CROSS)
+            } else if (token === 'O') {
+                diagram.setMarker(i, FretMarkerType.CIRCLE)
+            }
+        }
+
+        if (offset > 0) {
+            diagram.setFretOffset(offset)
+        }
+
+        for (let i = 1; i < parts.length; ++i) {
+            const barrePart = parts[i]
+            if (!barrePart.startsWith('B')) {
+                continue
+            }
+
+            const lb = barrePart.indexOf('[')
+            const rb = barrePart.indexOf(']')
+            if (lb < 2 || rb < lb) {
+                continue
+            }
+
+            const fret = parseInt(barrePart.substring(1, lb), 10) || 0
+            if (fret <= 0) {
+                continue
+            }
+
+            const range = barrePart.substring(lb + 1, rb)
+            const dash = range.indexOf('-')
+            if (dash > 0) {
+                const start = parseInt(range.substring(0, dash), 10) || 0
+                const end = parseInt(range.substring(dash + 1), 10) || 0
+                if (start >= 0 && end >= start && end < stringCount) {
+                    diagram.setBarre(start, end, fret - offset)
+                }
+            }
+        }
+    }
+
+    patternFromDiagram(): string {
+        const diagramStrings = this.strings()
+        const offset = this.fretOffset()
+
+        const patternParts: string[] = []
+
+        for (let i = 0; i < diagramStrings; ++i) {
+            const fretMarker = this.marker(i)
+
+            if (fretMarker.mtype === FretMarkerType.CROSS) {
+                patternParts.push('X')
+                continue
+            } else if (fretMarker.mtype === FretMarkerType.CIRCLE) {
+                patternParts.push('O')
+                continue
+            }
+
+            const dots = this.m_dots.get(i)
+            const dotList: FretDot[] = []
+            if (dots) {
+                for (const dot of dots) {
+                    if (!dot.isPartOfSlurBarre) { // Don't write dot if part of slur barré
+                        dotList.push(dot)
+                    }
+                }
+            }
+
+            if (dotList.length) {
+                const dotDescriptions: string[] = []
+                for (const dot of dots!) {
+                    if (dot.isPartOfSlurBarre) {
+                        continue
+                    }
+
+                    const actualFret = dot.fret + offset
+                    let typeChar = 'O'
+
+                    switch (dot.dtype) {
+                    case FretDotType.NORMAL: typeChar = 'O'
+                        break
+                    case FretDotType.CROSS: typeChar = 'X'
+                        break
+                    case FretDotType.SQUARE: typeChar = 'S'
+                        break
+                    case FretDotType.TRIANGLE: typeChar = 'T'
+                        break
+                    default: break
+                    }
+
+                    dotDescriptions.push(`${actualFret}-${typeChar}`)
+                }
+
+                patternParts.push('[' + dotDescriptions.join(',') + ']')
+            } else {
+                patternParts.push('-')
+            }
+        }
+
+        let pattern = patternParts.join('')
+
+        const barreParts: string[] = []
+        for (const [fret, b] of this.barres()) {
+            if (!b.exists()) {
+                continue
+            }
+
+            const adjustedFret = fret + offset
+            const start = b.startString
+            const end = (b.endString !== -1) ? b.endString : diagramStrings - 1
+
+            barreParts.push(`B${adjustedFret}[${start}-${end}]`)
+        }
+
+        if (barreParts.length) {
+            pattern += ';' + barreParts.join(';')
+        }
+
+        return pattern
+    }
+
+    harmoniesFromPattern(pattern: string): string[] {
+        if (!s_diagramPatternToHarmoniesMap.size) {
+            this.readHarmonyToDiagramFile()
+        }
+        return [...(s_diagramPatternToHarmoniesMap.get(pattern) ?? [])]
+    }
+
+    patternsFromHarmony(harmonyName: string): DiagramInfo[] {
+        if (!s_harmonyToDiagramMap.size) {
+            this.readHarmonyToDiagramFile()
+        }
+
+        const spellingType = this.style().styleV(Sid.chordSymbolSpelling) as NoteSpellingType
+        const key = createHarmonyMapKey(harmonyName, spellingType, this.score().chordList())
+
+        return [...(s_harmonyToDiagramMap.get(key) ?? [])]
+    }
+
+    undoFretClear(): void {
+        for (const e of this.linkList()) {
+            const fd = e as FretDiagram
+            fd.score().undo(new FretClear(fd))
+        }
+    }
+
+    /** if this is being done by the user, use undoSetHarmony instead */
+    setHarmony(harmonyText: string): void {
+        if (!this.m_harmony) {
+            const h = Factory.createItem(ElementType.HARMONY, scoreDummy(this.score()).segment()) as Harmony
+            this.add(h)
+        }
+
+        this.m_harmony!.setHarmony(harmonyText)
+        this.m_harmony!.setXmlText(this.m_harmony!.harmonyName())
+        this.triggerLayout()
+    }
+
+    /** C++ FretUndoData(FretDiagram*) */
+    fretUndoData(): FretDiagramData {
+        return {
+            barres: cloneBarres(this.m_barres), markers: new Map(this.m_markers), dots: cloneDots(this.m_dots),
+            strings: this.m_strings, frets: this.m_frets, fretOffset: this.m_fretOffset, maxFrets: this.m_maxFrets,
+            showNut: this.m_showNut, orientation: this.m_orientation, userMag: this.m_userMag,
+            showFingering: this.m_showFingering,
+        }
+    }
+
+    /** C++ FretUndoData::updateDiagram(): resets every fret diagram property of the changed diagram */
+    restoreFretUndoData(d: FretDiagramData): void {
+        this.m_barres = cloneBarres(d.barres)
+        this.m_markers = new Map(d.markers)
+        this.m_dots = cloneDots(d.dots)
+
+        this.m_strings = d.strings
+        this.m_frets = d.frets
+        this.m_fretOffset = d.fretOffset
+        this.m_maxFrets = d.maxFrets
+        this.m_showNut = d.showNut
+        this.m_orientation = d.orientation
+
+        this.m_userMag = d.userMag
+
+        this.m_showFingering = d.showFingering
+    }
+
+    static makeFromHarmonyOrFretDiagram(harmonyOrFretDiagram: EngravingItem): FretDiagram | null {
+        let fretDiagram: FretDiagram | null = null
+
+        if (harmonyOrFretDiagram.isHarmony() && !harmonyOrFretDiagram.parentItem()!.isFretDiagram()) {
+            const harmony = (harmonyOrFretDiagram as Harmony).clone() as Harmony
+
+            fretDiagram = Factory.createItem(ElementType.FRET_DIAGRAM, scoreDummy(harmonyOrFretDiagram.score()).segment()) as FretDiagram
+
+            fretDiagram.updateDiagram(harmony.plainText())
+
+            fretDiagram.add(harmony)
+        } else if (harmonyOrFretDiagram.isHarmony() && harmonyOrFretDiagram.parentItem()!.isFretDiagram()) {
+            fretDiagram = (harmonyOrFretDiagram.parentItem() as FretDiagram).clone() as FretDiagram
+        } else if (harmonyOrFretDiagram.isFretDiagram()) {
+            const diagram = (harmonyOrFretDiagram as FretDiagram).clone() as FretDiagram
+            fretDiagram = diagram
+            diagram.setOffset(new PointF())
+            if (!diagram.harmony()) {
+                //! generate from diagram and add harmony
+                diagram.add(Factory.createItem(ElementType.HARMONY, scoreDummy(harmonyOrFretDiagram.score()).segment())!)
+            }
+        }
+
+        return fretDiagram
+    }
+
+    isCustom(harmonyNameForCompare: string): boolean {
+        if (!harmonyNameForCompare) {
+            return false
+        }
+
+        const props = [Pid.FRET_STRINGS, Pid.FRET_FRETS, Pid.FRET_NUT, Pid.FRET_FINGERING]
+
+        for (const pid of props) {
+            if (pid === Pid.FRET_FINGERING) {
+                if (this.custom(Pid.FRET_SHOW_FINGERINGS)) {
+                    return true
+                }
+            } else if (this.custom(pid)) {
+                return true
+            }
+        }
+
+        if (!s_harmonyToDiagramMap.size) {
+            this.readHarmonyToDiagramFile()
+        }
+
+        const spellingType = this.style().styleV(Sid.chordSymbolSpelling) as NoteSpellingType
+        const key = createHarmonyMapKey(harmonyNameForCompare, spellingType, this.score().chordList())
+
+        const availableDiagrams = s_harmonyToDiagramMap.get(key) ?? []
+        if (!availableDiagrams.length) {
+            return true
+        }
+
+        const currentPattern = this.patternFromDiagram()
+
+        for (const diagram of availableDiagrams) {
+            if (diagram.diagramPattern === currentPattern) {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    /** the content of harmony_to_diagram.xml (C++ HARMONY_TO_DIAGRAM_FILE_PATH, ":/data/harmony_to_diagram.xml") */
+    static registerHarmonyToDiagramFile(data: Uint8Array | string): void {
+        s_harmonyToDiagramFile = data
+        s_harmonyToDiagramMap.clear()
+        s_diagramPatternToHarmoniesMap.clear()
+    }
+
+    private readHarmonyToDiagramFile(): void {
+        if (!s_harmonyToDiagramFile) {
+            return // C++: LOGE() << file.errorString()
+        }
+
+        const reader = new XmlReader(s_harmonyToDiagramFile)
+
+        const harmonyToDiagramMap = HarmonyToDiagramReader.read(reader)
+
+        const chordList = this.score().chordList()
+        const spellingType = NoteSpellingType.STANDARD
+
+        for (const [key, value] of harmonyToDiagramMap) {
+            const mapKey = createHarmonyMapKey(key, spellingType, chordList)
+
+            let diagrams = s_harmonyToDiagramMap.get(mapKey)
+            if (!diagrams) {
+                diagrams = []
+                s_harmonyToDiagramMap.set(mapKey, diagrams)
+            }
+            diagrams.push({ harmonyName: key, diagramXml: value.xml, diagramPattern: value.pattern })
+            let names = s_diagramPatternToHarmoniesMap.get(value.pattern)
+            if (!names) {
+                names = []
+                s_diagramPatternToHarmoniesMap.set(value.pattern, names)
+            }
+            names.push(key)
+        }
+    }
 
     override add(e: EngravingItem): void {
         e.setParent(this)
@@ -474,11 +1002,25 @@ export class FretDiagram extends EngravingItem {
 
             this.m_harmony.setTrack(this.track())
 
-            // TODO(port): harmony from the diagram pattern (harmony_to_diagram.xml) if the harmony has no name
+            if (!this.m_harmony.harmonyName()) {
+                if (!s_diagramPatternToHarmoniesMap.size) {
+                    this.readHarmonyToDiagramFile()
+                }
+
+                const pattern = this.patternFromDiagram()
+                if (pattern) {
+                    const matchedHarmonies = s_diagramPatternToHarmoniesMap.get(pattern) ?? []
+                    if (matchedHarmonies.length) {
+                        this.m_harmony.setHarmony(matchedHarmonies[0])
+                    }
+                }
+            }
 
             this.m_harmony.resetProperty(Pid.OFFSET)
             this.m_harmony.setProperty(Pid.ALIGN, new Align(AlignH.HCENTER, AlignV.BASELINE))
             this.m_harmony.setPropertyFlags(Pid.ALIGN, PropertyFlags.UNSTYLED)
+
+            e.added()
         } else {
             super.add(e)
         }
@@ -487,6 +1029,7 @@ export class FretDiagram extends EngravingItem {
     override remove(e: EngravingItem): void {
         if (e === this.m_harmony) {
             this.m_harmony = null
+            e.removed()
         } else {
             super.remove(e)
         }
@@ -496,7 +1039,7 @@ export class FretDiagram extends EngravingItem {
         func(this)
 
         // don't display harmony in palette
-        if (this.m_harmony) {
+        if (this.m_harmony && !isPaletteScore(this.score())) {
             func(this.m_harmony)
         }
     }

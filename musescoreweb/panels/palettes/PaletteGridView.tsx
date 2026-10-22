@@ -23,6 +23,7 @@ import type { MenuItem } from '../../menus/appmenu'
 import { currentScore } from '../../scoreview'
 import { applyPaletteElement, canApplyPaletteElement, scoreChanged } from '../editbridge'
 import { askRemove, openPaletteDialog } from './PaletteDialogs'
+import { withSelectedInstrument } from '../../dialogs/instrumentchoice'
 import { setCurrentCell, usePalettesState } from './palettestate'
 
 /** the text color of the theme: PaletteConfiguration::elementsColor (ui.theme.fontPrimaryColor) */
@@ -56,6 +57,15 @@ export function applyPaletteCell(cellId: string, modifiers: { shift: boolean; ct
     setCurrentCell(cellId)
     if (!score || !element || !canApplyPaletteElement(score)) {
         return false
+    }
+    if (element.isInstrumentChange()) {
+        // the instrument of the instrument change is chosen first (NotationInteraction::selectInstrument)
+        void withSelectedInstrument(() => {
+            if (applyPaletteElement(score, element, modifiers)) {
+                scoreChanged()
+            }
+        })
+        return true
     }
     if (applyPaletteElement(score, element, modifiers)) {
         scoreChanged()

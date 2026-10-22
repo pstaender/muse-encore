@@ -6,6 +6,8 @@
  * Port of src/engraving/dom/chordrest.h/.cpp
  */
 
+import type { InstrumentChange } from './instrchange'
+import { Instrument } from './instrument'
 import type { HarpPedalDiagram } from './harppedaldiagram'
 import type { RehearsalMark } from './rehearsalmark'
 import { PointF } from '../../framework/draw/types/geometry'
@@ -398,7 +400,30 @@ export abstract class ChordRest extends DurationElement {
             return e
         }
 
-        // TODO(port): INSTRUMENT_CHANGE, FIGURED_BASS, ACTION_ICON (beam modes)
+        case ElementType.INSTRUMENT_CHANGE:
+            if (this.part()!.instruments().has(this.tick().ticks())) {
+                // C++ LOGD() << "InstrumentChange already exists at tick = " << tick().ticks()
+                return null
+            } else {
+                const ic = e as unknown as InstrumentChange
+                ic.setParent(this.segment())
+                ic.setTrack(trackZeroVoice(this.track()))
+
+                const prevInstr = this.part()!.instrument(this.tick())
+                const instr = new Instrument()
+                instr.assign(ic.instrument())
+
+                // temporarily set previous instrument, for correct transposition calculation
+                ic.setInstrument(prevInstr)
+                this.score().undoAddElement(ic)
+
+                if (!fromPalette) {
+                    ic.setupInstrument(instr)
+                }
+                return e
+            }
+
+        // TODO(port): FIGURED_BASS, ACTION_ICON (beam modes)
 
         case ElementType.KEYSIG: {
             if (data.modifiers & KeyboardModifier.ControlModifier) {

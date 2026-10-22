@@ -7,6 +7,7 @@
  * hooks; the editing commands are in ../editing; no playback)
  */
 
+import type { FBox } from './box'
 import type { SystemDivider, SystemDividerType } from './systemdivider'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
@@ -2002,6 +2003,28 @@ export class Score extends EngravingObject {
     measures(): MeasureBaseList { return this.m_measures }
     first(): MeasureBase | null { return this.m_measures.first() }
     last(): MeasureBase | null { return this.m_measures.last() }
+
+    /** C++ Score::findFretBox() (edit.cpp) */
+    findFretBox(): FBox | null {
+        for (let measure = this.first(); measure; measure = measure.next()) {
+            if (measure.isFBox()) {
+                return measure as unknown as FBox
+            }
+        }
+
+        return null
+    }
+
+    /** C++ Score::rebuildFretBox() (edit.cpp) */
+    rebuildFretBox(): void {
+        const fretBox = this.findFretBox()
+        if (!fretBox) {
+            return
+        }
+
+        fretBox.setNeedsRebuild(true)
+        fretBox.triggerLayout()
+    }
 
     firstMeasure(): Measure | null {
         let mb = this.m_measures.first()

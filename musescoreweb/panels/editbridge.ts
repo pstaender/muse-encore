@@ -127,6 +127,11 @@ export function setScoreOrder(score: MasterScore, orderId: string): boolean {
     return lib.setScoreOrder(score, orderId)
 }
 
+/** "Replace instrument" (INotationParts::replaceInstrument): the part gets the instrument of the template */
+export function replacePartInstrument(score: MasterScore, partId: string, templateId: string): boolean {
+    return lib.replacePartInstrument(score, partId, templateId)
+}
+
 /** INotationParts::setParts with the result of the instruments dialog (instrument template ids appended) */
 export function addInstruments(score: MasterScore, instrumentIds: readonly string[]): boolean {
     return lib.addInstruments(score, instrumentIds)
