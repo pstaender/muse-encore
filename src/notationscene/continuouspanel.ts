@@ -292,8 +292,26 @@ export class ContinuousPanel {
                 headerLeft = Math.min(headerLeft, item.pageBoundingRect().left() - 0.5 * spatium)
             }
         }
+        // The measure number: above the topmost staff whose number is in the view
+        const staffLines = el.filter(e => e.isStaffLines() && (e.visible() || showInvisible)).map(e => e as StaffLines)
+        let numberStaff = staffLines[staffLines.length - 1]
+        measureNumberText.setXmlText(`${currentMeasure.no() + 1}`)
+        for (const sl of staffLines) {
+            measureNumberText.setTrack(sl.staffIdx() * VOICES)
+            MeasureNumberLayout.layoutMeasureNumberBase(measureNumberText)
+            if (sl.pagePos().y() + measureNumberText.pos().y() + measureNumberText.ldata().bbox().top() >= ctx.top) {
+                numberStaff = sl
+                break
+            }
+        }
+        measureNumberText.setTrack(numberStaff.staffIdx() * VOICES)
+        MeasureNumberLayout.layoutMeasureNumberBase(measureNumberText)
+
         const headerWidth = staffStartX - headerLeft
         newWidth = headerWidth + widthClef + widthKeySig + widthTimeSig + leftMarginTotal + panelRightPadding
+        // not in C++: the measure number is right-aligned in the panel (many digits must not be cut off at the left edge)
+        const numberWidth = measureNumberText.ldata().bbox().width()
+        newWidth = Math.max(newWidth, numberWidth + spatium)
         xPosMeasure -= offsetPanel
         if (oldWidth === 0) {
             oldWidth = newWidth
@@ -317,21 +335,6 @@ export class ContinuousPanel {
         this.m_rect = new RectF(0, y, this.m_width, height)
 
         //====================
-
-        // Draw measure number: above the topmost staff whose number is in the view
-        const staffLines = el.filter(e => e.isStaffLines() && (e.visible() || showInvisible)).map(e => e as StaffLines)
-        let numberStaff = staffLines[staffLines.length - 1]
-        measureNumberText.setXmlText(`${currentMeasure.no() + 1}`)
-        for (const sl of staffLines) {
-            measureNumberText.setTrack(sl.staffIdx() * VOICES)
-            MeasureNumberLayout.layoutMeasureNumberBase(measureNumberText)
-            if (sl.pagePos().y() + measureNumberText.pos().y() + measureNumberText.ldata().bbox().top() >= ctx.top) {
-                numberStaff = sl
-                break
-            }
-        }
-        measureNumberText.setTrack(numberStaff.staffIdx() * VOICES)
-        MeasureNumberLayout.layoutMeasureNumberBase(measureNumberText)
 
         const key = [currentMeasure.no(), currentMeasure.tick().toString(), this.m_width, newWidth, numberStaff.staffIdx(),
             staffLines.length].join('|')
@@ -359,7 +362,7 @@ export class ContinuousPanel {
         this.m_backgroundWidth = bg.width()
         painter.fillRect(bg, foregroundColor)
 
-        pos = new PointF(headerWidth + clefLeftMargin + widthClef - measureNumberText.ldata().bbox().left(),
+        pos = new PointF(newWidth - 0.5 * spatium - measureNumberText.ldata().bbox().right(),
             numberStaff.pagePos().y()).plus(measureNumberText.pos())
         painter.translate(pos)
         TDraw.drawItem(measureNumberText, painter, opt)

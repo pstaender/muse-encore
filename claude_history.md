@@ -1128,3 +1128,8 @@
 - Changing the view mode (editor and viewer) greys out the score with a spinner until the new layout is shown; the
   state is set at once and the layout starts after it was painted (two frames), since no animation runs while the
   layout blocks the page. Input to the view is blocked meanwhile (inert); a later switch replaces a pending one.
+
+### Continuous panel: right-aligned measure number
+
+- The panel's measure number is right-aligned at the panel's right edge (was left-aligned after the clef column, so
+  numbers with several digits were cut off), and the panel is widened if the number would not fit.
