@@ -325,13 +325,17 @@ const s_continuousPanels = new WeakMap<MasterScore, ContinuousPanel>()
 
 /**
  * The continuous view (horizontal): MuseScore's ContinuousPanel, the staff names, clefs, key and time signatures at the
- * left edge of the view once the beginning of the score is scrolled out of it. `left` is the x position of the left
- * edge of the view on the page (inches); the canvas shows the page from there (x = left at its left edge, y = 0 at its
- * top) at `dpi`. The panel covers the whole height of the page. Returns its width in inches (0 if there is no panel).
+ * left edge of the view once the beginning of the score is scrolled out of it. `left` and `top` are the position of the
+ * top left corner of the view on the page (inches; the measure number is shown above the topmost staff whose number is
+ * in the view); the canvas shows the page from x = left at its left edge (y = 0 at its top) at `dpi`. The panel covers
+ * the whole height of the page. Returns null if there is no panel, else its width in inches and the key of its
+ * contents: with the key of the contents the canvas shows (`shownKey`), nothing is painted if they are unchanged
+ * (`painted` false). The contents don't depend on `left` otherwise.
  */
-export function drawContinuousPanel(score: MasterScore, ctx: Canvas2D, options: { dpi: number; left: number }): number {
+export function drawContinuousPanel(score: MasterScore, ctx: Canvas2D,
+    options: { dpi: number; left: number; top?: number; shownKey?: string }): { width: number; key: string; painted: boolean } | null {
     if (!score.lineMode() || !score.npages()) {
-        return 0
+        return null
     }
     let panel = s_continuousPanels.get(score)
     if (!panel) {
@@ -342,7 +346,11 @@ export function drawContinuousPanel(score: MasterScore, ctx: Canvas2D, options: 
     const left = options.left * DPI
     const provider = new CanvasPaintProvider(ctx, new Transform(scale, 0, 0, scale, -left * scale, 0))
     const painter = new Painter(provider, fontProvider(), 'continuous_panel')
-    return panel.paint(painter, { left }, { isPrinting: false }) ? panel.backgroundWidth() / DPI : 0
+    const shownKey = options.shownKey
+    if (!panel.paint(painter, { left, top: (options.top ?? 0) * DPI, shownKey }, { isPrinting: false })) {
+        return null
+    }
+    return { width: panel.backgroundWidth() / DPI, key: panel.key(), painted: panel.key() !== shownKey }
 }
 
 /** the range selection rectangle (MuseScore's notation view paints it after the score) */

@@ -1,5 +1,14 @@
 # MuseScore Web
 
+**Live demo: [pstaender.github.io/musescoreweb](https://pstaender.github.io/musescoreweb/)**
+
+[<kbd> <br> Run the MuseScore Web editor right now in your browser <br> </kbd>][Editor]
+&nbsp;
+[<kbd> <br> Run the MuseScore Web viewer right now in your browser <br> </kbd>][Viewer]
+
+[Editor]: https://pstaender.github.io/musescoreweb/editor/
+[Viewer]: https://pstaender.github.io/musescoreweb/viewer/
+
 A port of [MuseScore Studio](https://github.com/musescore/MuseScore)'s source code from C++ to TypeScript, to create a
 web-native version of MuseScore that runs entirely in the browser. The engraving engine is translated file by file
 and keeps the structure, class and method names of the original, so that `.mscz`/`.mscx` files are laid out and

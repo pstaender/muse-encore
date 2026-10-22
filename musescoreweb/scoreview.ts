@@ -516,7 +516,7 @@ function scheduleRender(delay: number): void {
 // images of the score are decoded asynchronously: draw the pages again when one is available
 onImageDecoded(() => {
     for (const el of pages) {
-        delete el.querySelector('canvas')!.dataset.dpi
+        delete el.querySelector<HTMLCanvasElement>(':scope > canvas')!.dataset.dpi
     }
     scheduleRender(0)
 })
@@ -532,7 +532,7 @@ function renderPage(el: HTMLDivElement, cssDpi: number): void {
     const dpi = cssDpi * dpr
     const fullW = s.width * dpi
     const fullH = s.height * dpi
-    const c = el.querySelector('canvas')!
+    const c = el.querySelector<HTMLCanvasElement>(':scope > canvas')!
     const d = c.dataset
     const sameDpi = d.dpi === dpi.toFixed(4)
 
@@ -926,13 +926,15 @@ export function setViewMode(mode: ViewMode): void {
 }
 
 // the continuous view (horizontal): the staff names, clefs, key and time signatures at the left edge of the view
-// (a box as wide as the panel, with a shadow at its right edge; the canvas in it is wider)
+// (a box as wide as the panel, with a shadow at its right edge; the canvas in it is wider). The box is sticky at the left
+// edge of the view (CSS), so it doesn't lag behind the scrolling; its contents are repainted only when they change.
 const panelBox = document.createElement('div')
 panelBox.className = 'continuous-panel'
 panelBox.setAttribute('aria-hidden', 'true')
 const panelCanvas = document.createElement('canvas')
 panelBox.appendChild(panelCanvas)
 let panelFrame = 0
+let panelShownKey = ''
 
 function scheduleContinuousPanel(): void {
     if (!panelFrame) {
@@ -943,34 +945,47 @@ function scheduleContinuousPanel(): void {
     }
 }
 
+function hideContinuousPanel(): void {
+    panelBox.remove()
+    panelShownKey = ''
+}
+
 /** C++ AbstractNotationPaintView::paint: m_continuousPanel->paint() after the score, at the left edge of the view */
 function updateContinuousPanel(): void {
     const el = pages[0]
     if (!score || !el || settings.viewMode !== 'continuous-horizontal') {
-        panelBox.remove()
+        hideContinuousPanel()
         return
     }
     const pr = el.getBoundingClientRect()
     const vr = viewport.getBoundingClientRect()
     const cssPerInch = pr.width / pageSize(score, 0).width
     const leftCss = Math.max(0, vr.left - pr.left)
-    const widthCss = Math.min(viewport.clientWidth / 2, pr.width - leftCss)
-    if (widthCss <= 0) {
-        panelBox.remove()
-        return
-    }
+    const topCss = Math.max(0, vr.top - pr.top)
+    const widthCss = Math.ceil(viewport.clientWidth / 2)
     const dpr = window.devicePixelRatio
-    panelCanvas.width = Math.round(widthCss * dpr)
-    panelCanvas.height = Math.round(pr.height * dpr)
-    const width = drawContinuousPanel(score, panelCanvas.getContext('2d')!, { dpi: cssPerInch * dpr, left: leftCss / cssPerInch })
-    if (!width) {
-        panelBox.remove()
+    const w = Math.round(widthCss * dpr)
+    const h = Math.round(pr.height * dpr)
+    // the canvas keeps its contents unless its size, the zoom or the score changed
+    const viewKey = `${viewState.scoreVersion}|${w}x${h}|${cssPerInch.toFixed(4)}|`
+    if (panelCanvas.width !== w || panelCanvas.height !== h) {
+        panelCanvas.width = w
+        panelCanvas.height = h
+        panelShownKey = ''
+    }
+    const ctx = panelCanvas.getContext('2d')!
+    const shownKey = panelShownKey.startsWith(viewKey) ? panelShownKey.slice(viewKey.length) : undefined
+    // paints only if the contents changed (over the old ones: the panel's background covers the visible part)
+    const result = drawContinuousPanel(score, ctx, { dpi: cssPerInch * dpr, left: leftCss / cssPerInch, top: topCss / cssPerInch, shownKey })
+    if (!result) {
+        hideContinuousPanel()
         return
     }
-    Object.assign(panelCanvas.style, { left: '0px', top: '0px', width: `${widthCss}px`, height: `${pr.height}px` })
-    Object.assign(panelBox.style, { left: `${leftCss}px`, width: `${Math.min(widthCss, width * cssPerInch)}px`, height: `${pr.height}px` })
+    panelShownKey = viewKey + result.key
+    Object.assign(panelCanvas.style, { width: `${widthCss}px`, height: `${pr.height}px` })
+    Object.assign(panelBox.style, { width: `${Math.min(widthCss, result.width * cssPerInch)}px`, height: `${pr.height}px` })
     if (panelBox.parentElement !== el) {
-        el.appendChild(panelBox)
+        el.prepend(panelBox)
     }
 }
 
@@ -1145,7 +1160,7 @@ export function selectionChanged(scrollIntoView = false): void {
         return
     }
     for (const el of pages) {
-        delete el.querySelector('canvas')!.dataset.dpi
+        delete el.querySelector<HTMLCanvasElement>(':scope > canvas')!.dataset.dpi
     }
     scheduleRender(0)
     publish({ selection: hasSelection(score) ? selectionInfo(score) : '', selectionVersion: viewState.selectionVersion + 1 })
@@ -1338,7 +1353,7 @@ function repaintPages(): void {
     repaintFrame = requestAnimationFrame(() => {
         repaintFrame = 0
         for (const el of pages) {
-            delete el.querySelector('canvas')!.dataset.dpi
+            delete el.querySelector<HTMLCanvasElement>(':scope > canvas')!.dataset.dpi
         }
         renderVisible()
     })

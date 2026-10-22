@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Builds the viewer and the editor and publishes them on GitHub Pages:
+# https://pstaender.github.io/musescoreweb/ (landing page), .../viewer/ and .../editor/
+name: GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the editor bundles MuseScore's templates, translations and soundfont from the submodule
+          submodules: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build the viewer
+        run: npx vite build webviewer --base=/${{ github.event.repository.name }}/viewer/ --outDir ../_site/viewer
+      - name: Build the editor
+        run: npx vite build musescoreweb --base=/${{ github.event.repository.name }}/editor/ --outDir ../_site/editor
+      - name: Landing page
+        run: cp .github/pages/index.html _site/ && touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

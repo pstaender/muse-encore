@@ -1090,3 +1090,14 @@
   partial layout after an edit and a full layout (partial skylines, like MuseScore); the auto pan does not leave room
   for the continuous panel (C++ adjusts the view rect by the panel width).
 
+
+### Continuous panel: speed, measure number; GitHub Pages
+
+- The continuous panel is sticky (CSS `position: sticky` in the page; `.page` has `overflow: clip` so it is not a scroll
+  container): the browser keeps it at the left edge while scrolling, no lag behind the score. Its contents are painted
+  only when they change (ContinuousPanel.key(): measure, widths, the staff of the number); the staff lines at its
+  position come from the system's measures instead of scanning all items of the page (that made it judder).
+- The measure number is a MeasureNumber (the score's measure number style: font, size, color, offset), above the topmost
+  staff whose number is in the view (drawContinuousPanel takes the view's top). Softer, wider shadow.
+- .github/workflows/pages.yml builds the viewer and the editor (with the submodule: templates, translations, soundfont)
+  for https://pstaender.github.io/musescoreweb/ (viewer/, editor/, landing page .github/pages/index.html); README links.

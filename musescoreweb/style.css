@@ -328,21 +328,24 @@ main.hand.dragging { cursor: grabbing; user-select: none; }
 .page {
     position: relative;
     flex-shrink: 0;
-    overflow: hidden;
+    /* clip, not hidden: the page must not be a scroll container (the sticky continuous panel) */
+    overflow: clip;
     background: #fff;
     box-shadow: var(--page-shadow);
 }
 
 .page canvas { position: absolute; display: block; }
+.page .continuous-panel canvas { left: 0; top: 0; }
 .page canvas.shadow-note { pointer-events: none; }
-/* the continuous view (horizontal): the panel at the left edge of the view, set off by a shadow */
+/* the continuous view (horizontal): the panel at the left edge of the view (sticky: the browser keeps it there while
+   scrolling), set off by a soft shadow */
 .page .continuous-panel {
-    position: absolute;
-    top: 0;
+    position: sticky;
+    left: 0;
     z-index: 1;
     overflow: hidden;
     pointer-events: none;
-    box-shadow: 3px 0 6px -2px rgba(0, 0, 0, .25);
+    box-shadow: 6px 0 18px -6px rgba(0, 0, 0, .3);
 }
 
 .page.placeholder { visibility: hidden; }

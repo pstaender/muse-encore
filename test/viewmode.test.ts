@@ -105,11 +105,18 @@ describe.skipIf(!hasSubmodule)('view modes', () => {
         const score = await openScore(`${DEMOS}/Reunion.mscz`)
         const canvas = createCanvas(300, 400)
         const ctx = canvas.getContext('2d') as never
-        expect(drawContinuousPanel(score, ctx, { dpi: 50, left: 10 })).toBe(0) // page view
+        expect(drawContinuousPanel(score, ctx, { dpi: 50, left: 10 })).toBe(null) // page view
         setViewMode(score, 'continuous-horizontal')
-        expect(drawContinuousPanel(score, ctx, { dpi: 50, left: 0 })).toBe(0) // the beginning is visible
-        const w = drawContinuousPanel(score, ctx, { dpi: 50, left: 20 })
-        expect(w).toBeGreaterThan(0.3)
-        expect(w).toBeLessThan(3)
+        expect(drawContinuousPanel(score, ctx, { dpi: 50, left: 0 })).toBe(null) // the beginning is visible
+        // the panel looks at the measure at its right edge: the first paint finds its width
+        drawContinuousPanel(score, ctx, { dpi: 50, left: 20 })
+        const panel = drawContinuousPanel(score, ctx, { dpi: 50, left: 20 })!
+        expect(panel.width).toBeGreaterThan(0.3)
+        expect(panel.width).toBeLessThan(3)
+        expect(panel.painted).toBe(true)
+        // unchanged contents (also a bit further in the same measure) are not painted again
+        expect(drawContinuousPanel(score, ctx, { dpi: 50, left: 20.0001, shownKey: panel.key })).toMatchObject({ key: panel.key, painted: false })
+        // another measure
+        expect(drawContinuousPanel(score, ctx, { dpi: 50, left: 25, shownKey: panel.key })!.painted).toBe(true)
     })
 })
