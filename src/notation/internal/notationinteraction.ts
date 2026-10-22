@@ -13,6 +13,10 @@
  * Score::nextElement/prevElement), moveStringSelection, anchor lines, drop of dragged palette items / mime data.
  */
 
+import '../../engraving/editing/spell'
+import { SplitJoinMeasure } from '../../engraving/editing/splitjoinmeasure'
+import { HDuration, Voicing } from '../../engraving/dom/realizedharmony'
+import { Prefer } from '../../engraving/dom/pitchspelling'
 import { EditTimeTickAnchors, MoveElementAnchors } from '../../engraving/dom/anchors'
 import type { MuseScoreView } from '../../engraving/editing/mscoreview'
 import type { SoundFlag } from '../../engraving/dom/soundflag'
@@ -4546,6 +4550,182 @@ export class NotationInteraction {
         }
 
         this.notifyAboutSelectionChangedIfNeed()
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   Tools menu (split/join measures, voices, explode/implode, chord symbols, slashes, spelling, ...)
+    // ---------------------------------------------------------------------------------
+
+    splitSelectedMeasure(): void {
+        let selectedElement = this.score().selection().element()
+        if (!selectedElement) {
+            return
+        }
+
+        if (!selectedElement.isNote() && !selectedElement.isRest()) {
+            return
+        }
+
+        if (selectedElement.isNote()) {
+            selectedElement = (selectedElement as unknown as Note).chord()
+        }
+
+        const chordRest = selectedElement as unknown as ChordRest
+
+        this.startEdit(new TranslatableString('undoableAction', 'Split measure'))
+        SplitJoinMeasure.splitMeasure(this.score().masterScore(), chordRest.tick())
+        this.apply()
+
+        this.checkAndShowError()
+    }
+
+    joinSelectedMeasures(): void {
+        if (!this.score().selection().isRange()) {
+            return
+        }
+
+        const measureRange = this.score().selection().measureRange()!
+
+        this.startEdit(new TranslatableString('undoableAction', 'Join measures'))
+        SplitJoinMeasure.joinMeasures(this.score().masterScore(), measureRange.m1.tick(), measureRange.m2!.tick())
+        this.apply()
+
+        this.checkAndShowError()
+    }
+
+    swapVoices(voiceIndex1: voice_idx_t, voiceIndex2: voice_idx_t): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        if (voiceIndex1 === voiceIndex2) {
+            return
+        }
+
+        if (voiceIndex1 < 0 || voiceIndex1 >= VOICES || voiceIndex2 < 0 || voiceIndex2 >= VOICES) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Swap voices'))
+        this.score().cmdExchangeVoice(voiceIndex1, voiceIndex2)
+        this.apply()
+    }
+
+    explodeSelectedStaff(): void {
+        if (!this.score().selection().isRange()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Explode'))
+        if (this.score().cmdExplode()) {
+            this.apply()
+        } else {
+            this.rollback()
+        }
+
+        this.checkAndShowError()
+    }
+
+    implodeSelectedStaff(): void {
+        if (!this.score().selection().isRange()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Implode'))
+        if (this.score().cmdImplode()) {
+            this.apply()
+        } else {
+            this.rollback()
+        }
+
+        this.checkAndShowError()
+    }
+
+    realizeSelectedChordSymbols(literal = true, voicing: Voicing = Voicing.INVALID, durationType: HDuration = HDuration.INVALID): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Realize chord symbols'))
+        this.score().cmdRealizeChordSymbols(literal, voicing, durationType)
+        this.apply()
+    }
+
+    removeSelectedRange(): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Delete range'))
+        this.score().cmdTimeDelete()
+        this.apply()
+    }
+
+    removeEmptyTrailingMeasures(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Remove empty trailing measures'))
+        this.score().cmdRemoveEmptyTrailingMeasures()
+        this.apply()
+    }
+
+    fillSelectionWithSlashes(): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Fill with slashes'))
+        this.score().cmdSlashFill()
+        this.apply()
+    }
+
+    replaceSelectedNotesWithSlashes(): void {
+        if (this.score().selection().isNone()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Toggle rhythmic slash notation'))
+        this.score().cmdSlashRhythm()
+        this.apply()
+    }
+
+    changeEnharmonicSpelling(both: boolean): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Change enharmonic spelling'))
+        this.score().changeEnharmonicSpelling(both)
+        this.apply()
+    }
+
+    spellPitches(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Optimize enharmonic spelling'))
+        this.score().spell()
+        this.apply()
+    }
+
+    spellPitchesWithSharps(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Respell pitches with sharps'))
+        this.score().spellWithSharpsOrFlats(Prefer.SHARPS)
+        this.apply()
+    }
+
+    spellPitchesWithFlats(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Respell pitches with flats'))
+        this.score().spellWithSharpsOrFlats(Prefer.FLATS)
+        this.apply()
+    }
+
+    regroupNotesAndRests(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Regroup rhythms'))
+        this.score().cmdResetNoteAndRestGroupings()
+        this.apply()
+    }
+
+    resequenceRehearsalMarks(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Resequence rehearsal marks'))
+        this.score().cmdResequenceRehearsalMarks()
+        this.apply()
+    }
+
+    copyLyrics(): void {
+        const text = this.score().extractLyrics()
+        clipboard().setText(text)
     }
 
     addFretboardDiagram(): void {

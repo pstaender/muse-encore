@@ -17,6 +17,7 @@ import { SelectInstrumentHost } from './dialogs/SelectInstrumentDialog'
 import { EditStaffHost } from './dialogs/EditStaffDialog'
 import { SelectDialogHost } from './dialogs/SelectDialog'
 import { TupletDialogHost } from './dialogs/TupletDialog'
+import { RealizeChordSymbolsDialogHost } from './dialogs/RealizeChordSymbolsDialog'
 import { SelectMeasuresCountDialogHost } from './dialogs/SelectMeasuresCountDialog'
 import { ScoreContextMenuHost } from './components/ScoreContextMenu'
 import { PreferencesDialog } from './dialogs/PreferencesDialog'
@@ -198,6 +199,7 @@ export function App(): React.JSX.Element {
             <EditStaffHost />
             <SelectDialogHost />
             <TupletDialogHost />
+            <RealizeChordSymbolsDialogHost />
             <SelectMeasuresCountDialogHost />
             <ScoreContextMenuHost />
             <SelectInstrumentHost />

@@ -849,6 +849,32 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('runs the tools of the Tools menu (Explode, Realize chord symbols dialog)', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+a') // select all
+        await page.click('.menubar > button:has-text("Tools")')
+        for (const title of ['Explode', 'Implode', 'Remove selected range', 'Fill with slashes', 'Regroup rhythms']) {
+            expect(await page.getAttribute(`.menu-popup .menu-item:has-text("${title}")`, 'aria-disabled')).toBe('false')
+        }
+        await page.click('.menu-popup .menu-item:has-text("Fill with slashes")')
+        await page.waitForFunction(() => document.getElementById('title')!.textContent!.startsWith('*'))
+
+        // Realize chord symbols: the dialog of the selected chord symbols
+        await page.click('.menubar > button:has-text("Tools")')
+        await page.click('.menu-popup .menu-item:has-text("Realize chord symbols")')
+        await page.waitForSelector('dialog.realize-dialog[open]')
+        expect(await page.textContent('dialog.realize-dialog h2')).toBe('Realize chord symbols')
+        expect(await page.isDisabled('dialog.realize-dialog select >> nth=0')).toBe(true) // not overridden
+        await page.check('dialog.realize-dialog legend input[type="checkbox"]')
+        expect(await page.isDisabled('dialog.realize-dialog select >> nth=0')).toBe(false)
+        await page.click('dialog.realize-dialog .dialog-buttons .secondary >> nth=1') // Cancel
+        await page.waitForSelector('dialog.realize-dialog', { state: 'detached' })
+        await context.close()
+    }, 120000)
+
     it('adds measures with the number dialog and a tuplet with the tuplet dialog (Add menu)', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)

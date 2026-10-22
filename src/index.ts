@@ -31,6 +31,10 @@ import { Sid } from './engraving/style/styledef'
 import { fontProvider } from './engraving/infrastructure/engravingcontext'
 import { MscLoader, loadScore as loadMasterScore } from './engraving/rw/mscloader'
 import { SelectDialog, SelectNoteDialog } from './notationscene/selectdialog'
+import { NoteSpellingType } from './engraving/types/types'
+import type { Harmony } from './engraving/dom/harmony'
+import { NoteCaseType, tpc2name, tpc2pitch } from './engraving/dom/pitchspelling'
+import { HDuration, Voicing } from './engraving/dom/realizedharmony'
 import { TupletBracketType, TupletNumberType } from './engraving/dom/tuplet'
 import { AddBoxesTarget } from './notation/notationtypes'
 import { TupletOptions } from './notation/notationtypes'
@@ -836,6 +840,54 @@ export function addMeasures(score: MasterScore, count: number, target: AddBoxesT
     return true
 }
 export { AddBoxesTarget, BoxType } from './notation/notationtypes'
+
+/** a selected chord symbol of the Realize chord symbols dialog (RealizeHarmonyDialog::setChordList) */
+export interface RealizableChordSymbol {
+    id: number
+    name: string
+    /** the intervals from the root (semitones) */
+    intervals: string
+    /** the root and the note names */
+    noteNames: string
+}
+
+/** the selected chord symbols that can be realized (MuseScore's RealizeHarmonyDialog lists them) */
+export function realizableChordSymbols(score: MasterScore): RealizableChordSymbol[] {
+    const res: RealizableChordSymbol[] = []
+    for (const e of score.selection().elements()) {
+        if (!e.isHarmony()) {
+            continue
+        }
+        const h = e as unknown as Harmony
+        if (!h.isRealizable()) {
+            continue
+        }
+        const rootTpc = h.rootTpc()
+        let intervals = ''
+        let noteNames = tpc2name(rootTpc, NoteSpellingType.STANDARD, NoteCaseType.AUTO)
+        for (const [pitch, tpc] of h.getRealizedHarmony().notes()) {
+            intervals += String((pitch - tpc2pitch(rootTpc)) % 128 % 12) + ' '
+            noteNames += ', ' + tpc2name(tpc, NoteSpellingType.STANDARD, NoteCaseType.AUTO)
+        }
+        res.push({ id: h.id(), name: h.harmonyName(), intervals, noteNames })
+    }
+    return res
+}
+
+/**
+ * RealizeHarmonyDialog::accept: realizes the selected chord symbols into notes (one undo step). Without options the
+ * voicing and duration of each chord symbol are used ("Override with custom options" unchecked).
+ */
+export function realizeChordSymbols(score: MasterScore, options: { literal: boolean; voicing: Voicing; duration: HDuration } | null): boolean {
+    const interaction = notationState(score).interaction
+    if (score.selection().isNone()) {
+        return false
+    }
+    interaction.realizeSelectedChordSymbols(options ? options.literal : true, options ? options.voicing : Voicing.INVALID,
+        options ? options.duration : HDuration.INVALID)
+    return true
+}
+export { Voicing, HDuration } from './engraving/dom/realizedharmony'
 
 /** the action tuplet-dialog ("Other…" of the tuplets) can be used: a note or rest is selected */
 export function canAddCustomTuplet(score: MasterScore): boolean {

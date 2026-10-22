@@ -1287,6 +1287,18 @@ dialog.edit-staff .icon-button, dialog.edit-string-data .icon-button {
     font-family: "MusescoreIcon"; font-size: 16px; min-width: 32px;
 }
 
+dialog.realize-dialog { width: min(520px, calc(100vw - 32px)); }
+dialog.realize-dialog form { text-align: left; display: flex; flex-direction: column; gap: 12px; }
+dialog.realize-dialog .chord-list { display: flex; gap: 12px; flex-wrap: wrap; }
+dialog.realize-dialog .chord-names { font-weight: 600; }
+dialog.realize-dialog .groupbox {
+    border: 1px solid var(--border); border-radius: 6px; margin: 0; padding: 8px 12px 12px; min-width: 0;
+    display: flex; flex-direction: column; gap: 8px;
+}
+dialog.realize-dialog .field-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+dialog.realize-dialog .chord-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+dialog.realize-dialog .chord-table th, dialog.realize-dialog .chord-table td { border: 1px solid var(--border); padding: 2px 6px; }
+dialog.realize-dialog .dialog-buttons .spacer { flex: 1; }
 dialog.tuplet-dialog { width: min(420px, calc(100vw - 32px)); }
 dialog.tuplet-dialog form { text-align: left; display: flex; flex-direction: column; gap: 12px; }
 dialog.tuplet-dialog .groupbox {

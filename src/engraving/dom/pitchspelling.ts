@@ -643,7 +643,7 @@ export function absStep2pitchByKey(step: number, key: Key): number {
 }
 
 /** C++ enharmonicSpelling[15][34]: the penalty of a tpc (line of fifths, bb..##) in a key (Cb..C#) */
-const ENHARMONIC_SPELLING: readonly (readonly number[])[] = [
+export const ENHARMONIC_SPELLING: readonly (readonly number[])[] = [
     [1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
     [1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
     [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],

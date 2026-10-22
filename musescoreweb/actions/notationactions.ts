@@ -5,7 +5,7 @@
  */
 import {
     changeInstrumentChange, executeAction, isTextEditingAction, selectedInstrumentChange, isActionChecked as isScoreActionChecked, isActionEnabled as isScoreActionEnabled, isCheckableAction,
-    notationActionCodes,
+    notationActionCodes, clipboardContents,
 } from '../../src/index'
 import { currentScore, scoreChanged, scoreViewState } from '../scoreview'
 import { session } from '../session'
@@ -34,6 +34,10 @@ export function registerNotationActions(): void {
                 }
                 if (executeAction(score, code)) {
                     scoreChanged()
+                    if (code === 'copy-lyrics-to-clipboard') {
+                        // NotationInteraction::copyLyrics sets the text of the (system) clipboard
+                        void navigator.clipboard?.writeText(clipboardContents()['text/plain'] ?? '').catch(() => {})
+                    }
                 }
             },
             enabled: () => {

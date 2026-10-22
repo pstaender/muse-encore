@@ -22,6 +22,7 @@ import { isPanelOpen, onPanelsChanged, togglePanel } from '../panels/panels'
 import { canOpenStaffProperties, openStaffProperties } from '../dialogs/EditStaffDialog'
 import { openSelectDialog } from '../dialogs/SelectDialog'
 import { openTupletDialog } from '../dialogs/TupletDialog'
+import { openRealizeChordSymbolsDialog } from '../dialogs/RealizeChordSymbolsDialog'
 import { openSelectMeasuresCountDialog } from '../dialogs/SelectMeasuresCountDialog'
 import { AddBoxesTarget, canAddCustomTuplet, hasSelection } from '../../src/index'
 import { currentScore } from '../scoreview'
@@ -58,6 +59,8 @@ export function registerAppActions(): void {
     // NotationActionController::openStaffProperties
     registerAction('staff-properties', { run: openStaffProperties, enabled: () => scoreShown() && canOpenStaffProperties(), context: 'notation' })
     // NotationActionController::openSelectionMoreOptions (enabled with a selection like C++ hasSelection)
+    // NotationActionController::openRealizeChordSymbolsDialog
+    registerAction('realize-chord-symbols', { run: openRealizeChordSymbolsDialog, enabled: scoreShown, context: 'notation' })
     // NotationActionController::openTupletOtherDialog (enabled with a selected note or rest)
     registerAction('tuplet-dialog', {
         run: openTupletDialog,

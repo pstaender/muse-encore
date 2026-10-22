@@ -3013,9 +3013,12 @@ Score.prototype.deleteItem = function (this: Score, el: EngravingItem | null): v
         this.cmdDeleteTuplet(el as unknown as Tuplet, true)
         break
 
-    case ElementType.MEASURE:
-        // TODO(port): undoRemoveMeasures, undoInsertTime with negative length
+    case ElementType.MEASURE: {
+        const m = el as unknown as Measure
+        this.undoRemoveMeasures(m, m)
+        this.undoInsertTime(m.tick(), m.endTick().minus(m.tick()).neg())
         break
+    }
 
     case ElementType.BRACKET:
         // TODO(port): undoRemoveBracket
@@ -6260,3 +6263,901 @@ Score.prototype.cmdFullMeasureRest = function (this: Score): void {
         this.deselectAll()
     }
 }
+
+import { SplitJoinMeasure } from './splitjoinmeasure'
+import { Spanner as SpannerClass } from '../dom/spanner'
+import { SelState as DeleteSelState } from '../dom/select'
+import { trackZeroVoice as deleteTrackZeroVoice } from '../types/types'
+
+// =====================================================================================================================
+//   Deleting measures and time (edit.cpp: deleteMeasures, reconnectSlurs, cmdTimeDelete, doTimeDelete,
+//   checkTimeDelete, doTimeDeleteForMeasure) and Score::firstTrailingMeasure (score.cpp)
+// =====================================================================================================================
+
+declare module '../dom/score' {
+    interface Score {
+        deleteMeasures(mbStart: MeasureBase, mbEnd: MeasureBase, preserveTies?: boolean): void
+        reconnectSlurs(mbStart: MeasureBase, mbEnd: MeasureBase): void
+        /** delete time by decreasing measure length if partial measures are selected */
+        cmdTimeDelete(): void
+        doTimeDelete(startSegment: Segment, endSegment: Segment | null): void
+        checkTimeDelete(startSegment: Segment, endSegment: Segment | null): boolean
+        doTimeDeleteForMeasure(m: Measure, startSegment: Segment, f: Fraction): void
+        /** C++ firstTrailingMeasure(ChordRest** cr): the first of the empty measures at the end of the score */
+        firstTrailingMeasure(cr?: { v: ChordRest } | null): Measure | null
+        /** (score.cpp) */
+        appendMeasures(n: number): void
+    }
+}
+
+Score.prototype.appendMeasures = function (this: Score, n: number): void {
+    const options = new InsertMeasureOptions()
+    options.createEmptyMeasures = false
+
+    for (let i = 0; i < n; ++i) {
+        this.insertMeasure(ElementType.MEASURE, null, options)
+    }
+}
+
+const CR_TYPE = SegmentType.ChordRest
+
+Score.prototype.deleteMeasures = function (this: Score, mbStart: MeasureBase, mbEnd: MeasureBase, preserveTies = false): void {
+    this.select(null, SelectType.SINGLE, 0)
+
+    if (mbEnd.isMeasure()) {
+        const mbEndMeasure = mbEnd as Measure
+        if (mbEndMeasure.isMMRest()) {
+            mbEnd = mbEndMeasure.mmRestLast()!
+        }
+    }
+
+    if (!preserveTies) {
+        // we're not preserving slurs and ties where they are, so the endpoints need to be either
+        // moved or the slur has to be deleted
+        this.reconnectSlurs(mbStart, mbEnd)
+    }
+
+    // get the last deleted timesig & keysig in order to restore after deletion
+    const lastDeletedTimeSigs = new Map<staff_idx_t, TimeSig>()
+
+    for (let mb: MeasureBase | null = mbEnd; mb; mb = mb.prev()) {
+        if (mb.isMeasure()) {
+            const m = mb as Measure
+            const sts = m.findSegment(SegmentType.TimeSig, m.tick())
+
+            if (sts) {
+                for (let staffIdx = 0; staffIdx < this.nstaves(); ++staffIdx) {
+                    if (!lastDeletedTimeSigs.has(staffIdx)) {
+                        const ts = sts.element(staffIdx * VOICES) as unknown as TimeSig | null
+                        if (ts) {
+                            lastDeletedTimeSigs.set(staffIdx, ts)
+                        }
+                    }
+                }
+            }
+
+            if (lastDeletedTimeSigs.size === this.nstaves()) {
+                break
+            }
+        }
+        if (mb === mbStart) {
+            break
+        }
+    }
+
+    const lastDeletedKeySigEvents: KeySigEvent[] = []
+
+    for (const staff of this.staves()) {
+        const kse = staff.keySigEvent(mbEnd.tick())
+        lastDeletedKeySigEvents.push(kse)
+    }
+
+    const startTick = mbStart.tick()
+    const endTick = mbEnd.tick()
+
+    for (const score of [this as Score]) { // TODO(port): scoreList() (excerpts)
+        const startMeasure = score.tick2measure(startTick)!
+        const endMeasure = score.tick2measure(endTick)!
+
+        score.undoRemoveMeasures(startMeasure, endMeasure, preserveTies)
+
+        // adjust views: C++ MuseScoreView::adjustCanvasPosition (the app shows the selection)
+
+        // insert correct timesig after deletion
+        const mBeforeSel = startMeasure.prevMeasure()
+        const mAfterSel = mBeforeSel ? mBeforeSel.nextMeasure() : score.firstMeasure()
+        if (mAfterSel) {
+            let s = mAfterSel.findSegment(SegmentType.TimeSig, mAfterSel.tick())
+
+            for (let staffIdx = 0; staffIdx < score.nstaves(); ++staffIdx) {
+                if (s && s.element(staffIdx * VOICES)) {
+                    continue
+                }
+
+                const lastDeletedForThisStaff = lastDeletedTimeSigs.get(staffIdx) ?? null
+                if (!lastDeletedForThisStaff) {
+                    continue
+                }
+
+                if (mBeforeSel) {
+                    const staff = this.staff(staffIdx)
+                    if (!staff) {
+                        continue
+                    }
+
+                    const timeSig = staff.timeSig(mBeforeSel.tick())
+                    if (!timeSig || timeSig.sig().eq(lastDeletedForThisStaff.sig())) {
+                        continue
+                    }
+                }
+
+                if (!s) {
+                    s = mAfterSel.undoGetSegment(SegmentType.TimeSig, mAfterSel.tick())
+                }
+
+                const nts = Factory.createItem(ElementType.TIMESIG, s) as unknown as TimeSig
+                nts.setTrack(staffIdx * VOICES)
+                nts.setParent(s)
+                nts.setFrom(lastDeletedForThisStaff)
+                nts.setStretch(nts.sig().div(mAfterSel.timesig()))
+                score.undoAddElement(nts)
+            }
+        }
+
+        // insert correct keysig if necessary
+        if (mAfterSel && !mBeforeSel) {
+            const s = mAfterSel.undoGetSegment(SegmentType.KeySig, mAfterSel.tick())
+
+            let userCustomizedKeySig = false
+            for (const e of s.elist()) {
+                if (e && e.isKeySig() && !e.generated()) {
+                    userCustomizedKeySig = true
+                    break
+                }
+            }
+            if (userCustomizedKeySig) {
+                continue
+            }
+
+            const concertPitch = score.style().styleB(Sid.concertPitch)
+            for (const staff of score.staves()) {
+                const part = staff.part()!
+                const instrument = part.instrument(new Fraction(0, 1))
+                let nkse = new KeySigEvent()
+                const staffIdx = staff.idx()
+
+                if (instrument.useDrumset()) {
+                    nkse.setConcertKey(Key.C)
+                    nkse.setCustom(true)
+                    nkse.setMode(KeyMode.NONE)
+                } else {
+                    nkse = lastDeletedKeySigEvents[staffIdx].clone()
+                    if (!concertPitch && !nkse.isAtonal()) {
+                        const v = instrument.transpose().clone()
+                        v.flip()
+                        nkse.setKey(Transpose.transposeKey(nkse.concertKey(), v, part.preferSharpFlat()))
+                    }
+                }
+
+                let nks = s.element(staff2track(staffIdx)) as unknown as KeySig | null
+                if (!nks) {
+                    nks = Factory.createItem(ElementType.KEYSIG, s) as unknown as KeySig
+                    nks.setParent(s)
+                    nks.setTrack(staffIdx * VOICES)
+                    nks.setKeySigEvent(nkse)
+                    score.undoAddElement(nks)
+                } else {
+                    nks.setGenerated(false)
+                    nks.setKeySigEvent(nkse)
+                    staff.setKey(mAfterSel.tick(), nkse)
+                }
+            }
+        }
+    }
+
+    this.undoInsertTime(mbStart.tick(), mbEnd.endTick().minus(mbStart.tick()).neg())
+    this.inputState().setSegment(null) // invalidate position
+}
+
+Score.prototype.reconnectSlurs = function (this: Score, mbStart: MeasureBase, mbEnd: MeasureBase): void {
+    // Reconnect or remove slurs that intersect with these deleted measures
+    const sTick = mbStart.tick()
+    const eTick = mbEnd.tick()
+    for (const sp of this.spannerMap().findOverlapping(sTick.ticks(), eTick.ticks())) {
+        if (!sp.isSlur()) {
+            continue
+        }
+        const cr1 = sp.startCR()
+        const cr2 = sp.endCR()
+        if (!cr1 || !cr2) {
+            // this is an invalid slur
+            continue
+        }
+        let m: MeasureBase | null = mbStart
+        let adjust1 = false
+        let adjust2 = false
+        const measure1 = cr1.measure()
+        const measure2 = cr2.measure()
+        do {
+            adjust1 = adjust1 ? true : (measure1 as MeasureBase | null) === m
+            adjust2 = adjust2 ? true : (measure2 as MeasureBase | null) === m
+            if (m === mbEnd) {
+                break
+            } else {
+                m = m!.next()
+            }
+        } while (m && !(adjust1 && adjust2))
+        if (adjust1 && adjust2) {
+            // if both endpoints of this slur are inside this deleted range, remove the slur.
+            this.undoRemoveElement(sp)
+            continue
+        } else if (adjust1) {
+            // endpoint 1 is in deleted range. move endpoint forward to first non-deleted CR after range
+            const mNext = mbEnd.next() && mbEnd.next()!.isMeasure() ? mbEnd.next() as Measure : null
+            if (!mNext) {
+                this.undoRemoveElement(sp)
+                continue
+            }
+            let firstAvailableCr: ChordRest | null = null
+            // search for last cr in this voice
+            let seg = mNext.first(SegmentType.ChordRest)
+            const spTrack = sp.track()
+            const spEndCr = sp.endCR()!
+            const spEndCrTick = spEndCr.tick()
+            while (seg) {
+                firstAvailableCr = seg.cr(spTrack)
+                if (!firstAvailableCr || !firstAvailableCr.isChord()) {
+                    seg = seg.next(SegmentType.ChordRest)
+                    continue
+                }
+                const gracesBefore = (firstAvailableCr as unknown as Chord).graceNotesBefore().chords()
+                if (firstAvailableCr.tick().gt(spEndCrTick)) {
+                    // we would create a negative-length slur. remove it entirely.
+                    this.undoRemoveElement(sp)
+                    break
+                } else if (spEndCr === firstAvailableCr) {
+                    // this would be a zero-length slur, but a possibility exists that this cr has grace after
+                    if (gracesBefore.length === 0) {
+                        this.undoRemoveElement(sp)
+                        break
+                    }
+                }
+                if (gracesBefore.length) {
+                    firstAvailableCr = gracesBefore[0]
+                }
+                const newSp = sp.clone() as Spanner
+                newSp.setStartElement(firstAvailableCr)
+                newSp.setTick(firstAvailableCr.tick())
+                this.undoChangeElement(sp, newSp)
+                break
+            }
+        } else if (adjust2) {
+            // endpoint 2 is in deleted range. move endpoint backward to last non-deleted CR before range
+            const mPrev = mbStart.prev() && mbStart.prev()!.isMeasure() ? mbStart.prev() as Measure : null
+            if (!mPrev) {
+                this.undoRemoveElement(sp)
+                continue
+            }
+            let firstAvailableCr: ChordRest | null = null
+            // search for last cr in this voice
+            let seg = mPrev.last()
+            if (seg && seg.segmentType() !== SegmentType.ChordRest) {
+                seg = seg.prev(SegmentType.ChordRest)
+            }
+            const spStartCr = sp.startCR()!
+            const spStartCrTick = spStartCr.tick()
+            while (seg) {
+                firstAvailableCr = seg.cr(sp.track2())
+                if (!firstAvailableCr || !firstAvailableCr.isChord()) {
+                    seg = seg.prev(SegmentType.ChordRest)
+                    continue
+                }
+                const gracesAfter = (firstAvailableCr as unknown as Chord).graceNotesAfter().chords()
+                if (firstAvailableCr.tick().lt(spStartCrTick)) {
+                    // we would create a negative-length slur. remove it entirely.
+                    this.undoRemoveElement(sp)
+                    break
+                } else if (spStartCr === firstAvailableCr) {
+                    // this would be a zero-length slur, but a possibility exists that this cr has grace after
+                    if (gracesAfter.length === 0) {
+                        this.undoRemoveElement(sp)
+                        break
+                    }
+                }
+                if (gracesAfter.length) {
+                    firstAvailableCr = gracesAfter[gracesAfter.length - 1]
+                }
+                const newSp = sp.clone() as Spanner
+                newSp.setEndElement(firstAvailableCr)
+                newSp.setTick2(firstAvailableCr.tick())
+                this.undoChangeElement(sp, newSp)
+                break
+            }
+        } else {
+            // both of the endpoints are outside of the deleted range. there is no reason to change or delete anything
+        }
+    }
+}
+
+Score.prototype.checkTimeDelete = function (this: Score, startSegment: Segment, endSegment: Segment | null): boolean {
+    let startMeasure = startSegment.measure()
+    let endMeasure: Measure
+
+    if (endSegment) {
+        endMeasure = endSegment.prev() ? endSegment.measure() : endSegment.measure().prevMeasure()!
+    } else {
+        endMeasure = this.lastMeasure()!
+    }
+
+    const endTick = endSegment ? endSegment.tick() : endMeasure.endTick()
+    let tick = startSegment.tick()
+    let etick = startMeasure === endMeasure ? endTick : startMeasure.endTick()
+
+    // check for MeasureRepeat
+    const startsAtBeginningOfMeasure = tick.eq(startMeasure.tick())
+    const endsAtEndOfMeasure = endTick.eq(endMeasure.endTick())
+    for (let staffIdx = 0; staffIdx < this.nstaves(); ++staffIdx) {
+        if ((startMeasure.isMeasureRepeatGroup(staffIdx) && !startsAtBeginningOfMeasure)
+            || (endMeasure.isMeasureRepeatGroup(staffIdx) && !endsAtEndOfMeasure)
+            || startMeasure.isMeasureRepeatGroupWithPrevM(staffIdx)
+            || endMeasure.isMeasureRepeatGroupWithNextM(staffIdx)) {
+            MScore.setError(MsError.CANNOT_REMOVE_TIME_MEASURE_REPEAT)
+            return false
+        }
+    }
+
+    let canDeleteTime = true
+    while (canDeleteTime) {
+        for (let track = 0; canDeleteTime && track < this.nstaves() * VOICES; ++track) {
+            if (startMeasure.hasVoice(track)) {
+                const fs = startMeasure.first(CR_TYPE)
+                for (let s = fs; s; s = s.next(CR_TYPE)) {
+                    if (s.element(track)) {
+                        const cr = s.element(track) as unknown as ChordRest
+                        const t = cr.tuplet()
+                        const de: DurationElement = t ? t : cr
+                        const f = de.tick().plus(de.actualTicks())
+                        const cetick = f
+                        if (cetick.le(tick)) {
+                            continue
+                        }
+                        if (de.tick().ge(etick)) {
+                            break
+                        }
+                        if (t && (t.tick().lt(tick) || cetick.gt(etick))) {
+                            canDeleteTime = false
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        if (startMeasure === endMeasure) {
+            break
+        }
+        startMeasure = endMeasure
+        tick = startMeasure.tick()
+        etick = endTick
+    }
+    if (!canDeleteTime) {
+        MScore.setError(MsError.CANNOT_REMOVE_TIME_TUPLET)
+        return false
+    }
+    return true
+}
+
+Score.prototype.cmdTimeDelete = function (this: Score): void {
+    const e = this.selection().element()
+
+    if (e && e.isBarLine() && (e as unknown as BarLine).segment().isEndBarLineType()) {
+        const m = (e as unknown as BarLine).segment().measure()
+        const next = m.nextMeasure()
+        if (next) {
+            SplitJoinMeasure.joinMeasures(this.masterScore(), m.tick(), next.tick())
+        }
+        return
+    }
+
+    let startSegment: Segment | null = null
+    let endSegment: Segment | null = null
+
+    if (this.selection().state() !== DeleteSelState.RANGE) {
+        if (!e) {
+            return
+        }
+
+        let cr: ChordRest | null = null
+        if (e.isNote()) {
+            cr = (e as unknown as Note).chord()
+        } else if (e.isChordRest()) {
+            cr = e as unknown as ChordRest
+        } else {
+            return
+        }
+
+        startSegment = cr.segment()
+        const endTick = cr.endTick()
+        endSegment = this.tick2measure(endTick)!.findSegment(CR_TYPE, endTick)
+    } else {
+        startSegment = this.selection().startSegment()
+        endSegment = this.selection().endSegment()
+    }
+
+    // TODO(port): parts (!isMaster(): the time is deleted in the master score)
+    this.doTimeDelete(startSegment!, endSegment)
+
+    if (this.noteEntryMode()) {
+        let currentSegment = endSegment
+        let cr: ChordRest | null = null
+        const is = this.inputState()
+        if (!currentSegment && this.lastMeasureMM()) {
+            // deleted to end of score - get last cr on current track
+            currentSegment = this.lastMeasureMM()!.last()
+            if (currentSegment) {
+                cr = currentSegment.nextChordRest(is.track(), true)
+                if (cr) {
+                    currentSegment = cr.segment()
+                }
+            }
+        }
+        if (!currentSegment) {
+            // no cr found - append a new measure
+            this.appendMeasures(1)
+            currentSegment = this.lastMeasureMM()!.first(SegmentType.ChordRest)
+        }
+        is.setSegment(currentSegment)
+        cr = is.cr()
+        if (cr) {
+            if (cr.isChord()) {
+                this.select((cr as unknown as Chord).upNote(), SelectType.SINGLE)
+            } else {
+                this.select(cr, SelectType.SINGLE)
+            }
+        } else {
+            // could not find cr to select,
+            // may be that there is a "hole" in the current track
+            this.deselectAll()
+        }
+    } else {
+        this.deselectAll()
+    }
+}
+
+Score.prototype.doTimeDelete = function (this: Score, startSegment: Segment, endSegment: Segment | null): void {
+    if (!this.checkTimeDelete(startSegment, endSegment)) {
+        return
+    }
+
+    let mbStart: MeasureBase = startSegment.measure()
+    if (mbStart.isMeasure() && (mbStart as Measure).isMMRest()) {
+        mbStart = (mbStart as Measure).mmRestFirst()!
+    }
+    let mbEnd: MeasureBase
+
+    if (endSegment) {
+        mbEnd = endSegment.prev(SegmentType.ChordRest) ? endSegment.measure() : endSegment.measure().prevMeasure()!
+    } else {
+        mbEnd = this.lastMeasure()!
+    }
+
+    let endTick = endSegment ? endSegment.tick() : mbEnd.endTick()
+
+    for (;;) {
+        if (!mbStart.tick().eq(startSegment.tick())) {
+            const tick = startSegment.tick()
+            let len: Fraction
+            if (mbEnd === mbStart) {
+                len = endTick.minus(tick)
+            } else {
+                len = mbStart.endTick().minus(tick)
+            }
+            this.doTimeDeleteForMeasure(mbStart as Measure, startSegment, len)
+            if (mbStart === mbEnd) {
+                break
+            }
+            mbStart = mbStart.next()!
+        }
+        endTick = endSegment ? endSegment.tick() : mbEnd.endTick()
+        if (!mbEnd.endTick().eq(endTick)) {
+            const len = endTick.minus(mbEnd.tick())
+            this.doTimeDeleteForMeasure(mbEnd as Measure, (mbEnd as Measure).first()!, len)
+            if (mbStart === mbEnd) {
+                break
+            }
+            mbEnd = mbEnd.prev()!
+        }
+        this.deleteMeasures(mbStart, mbEnd)
+        break
+    }
+}
+
+Score.prototype.doTimeDeleteForMeasure = function (this: Score, m: Measure, startSegment: Segment, f: Fraction): void {
+    if (f.isZero()) {
+        return
+    }
+
+    const tick = startSegment.rtick()
+    const len = f
+    const etick = tick.plus(len)
+
+    const fs = m.first(CR_TYPE)
+
+    for (let track = 0; track < this.nstaves() * VOICES; ++track) {
+        if (m.hasVoice(track)) {
+            for (let s = fs; s; s = s.next(CR_TYPE)) {
+                if (s.element(track)) {
+                    const cr = s.element(track) as unknown as ChordRest
+                    const cetick = cr.rtick().plus(cr.actualTicks())
+
+                    if (cetick.le(tick)) {
+                        continue
+                    }
+                    if (s.rtick().ge(etick)) {
+                        break
+                    }
+
+                    if (cr.isFullMeasureRest()) {
+                        if (cr.rtick().ge(tick)) {
+                            // Move full-measure rest from the deleted area
+                            this.undoRemoveElement(cr)
+                            const newCR = cr.clone() as ChordRest
+                            newCR.setTicks(cr.ticks().minus(f))
+                            this.undoAddCR(newCR, m, m.tick().plus(etick))
+                        } else {
+                            cr.undoChangeProperty(Pid.DURATION, cr.ticks().minus(f))
+                        }
+                    } else if (s.rtick().ge(tick) && cetick.le(etick)) {
+                        // inside deleted area
+                        this.undoRemoveElement(cr)
+                    } else if (s.rtick().ge(tick)) {
+                        // running out
+                        const ff = cetick.minus(etick)
+                        this.undoRemoveElement(cr)
+                        this.createCRSequence(ff, cr, tick.plus(len))
+                    } else if (s.rtick().lt(tick) && cetick.le(etick)) {
+                        // running in
+                        const f1 = tick.minus(s.rtick())
+                        this.changeCRlen(cr, f1, false)
+                    } else {
+                        // running in/out
+                        const f1 = cr.ticks().minus(f)
+                        this.changeCRlen(cr, f1, false)
+                    }
+                }
+            }
+        }
+    }
+    const abstick = startSegment.tick()
+    this.undoInsertTime(abstick, len.neg())
+
+    const emptySegments: Segment[] = []
+
+    for (const score of [this.masterScore() as Score]) { // TODO(port): scoreList() (excerpts)
+        const localMeasure = score.tick2measure(abstick)!
+
+        this.undo(new InsertTime(score, abstick, len.neg()))
+
+        let updatedTick = tick
+        for (let s = localMeasure.first(CR_TYPE); s; s = s.next()) {
+            if (s.rtick().lt(etick) || s.rtick().eq(updatedTick)) {
+                continue
+            }
+
+            s.undoChangeProperty(Pid.TICK, updatedTick)
+            updatedTick = updatedTick.plus(s.ticks())
+
+            if (score.isMaster()) {
+                if (s.isChordRestType() && !s.hasElements()) {
+                    emptySegments.push(s)
+                }
+            }
+        }
+
+        this.undo(new ChangeMeasureLen(localMeasure, localMeasure.ticks().minus(f)))
+    }
+
+    for (const s of emptySegments) {
+        const ns = s.next(CR_TYPE)
+        if (ns) {
+            // Move annotations from the empty segment.
+            // TODO: do we need to preserve annotations at all?
+            // Maybe only some types (Tempo etc.)?
+            const annotations = [...s.annotations()] // make a copy since we alter the list
+            for (const a of annotations) {
+                const a1 = a.clone()
+                a1.setParent(ns)
+                this.undoRemoveElement(a)
+                this.undoAddElement(a1)
+            }
+        }
+    }
+}
+
+Score.prototype.firstTrailingMeasure = function (this: Score, cr: { v: ChordRest } | null = null): Measure | null {
+    let firstMeasure: Measure | null = null
+    let m = this.lastMeasure()
+
+    if (!cr) {
+        // No active selection: prepare first empty trailing measure of entire score
+        while (m && m.isEmpty(nidx)) {
+            firstMeasure = m
+            m = m.prevMeasure()
+        }
+    } else {
+        // Active selection: select full measure rest of active staff's empty trailing measure
+        let tempCR: ChordRest | null
+        while (m && (tempCR = m.first()!.nextChordRest(deleteTrackZeroVoice(cr.v.track()), false)) && tempCR.isFullMeasureRest()) {
+            cr.v = tempCR
+            firstMeasure = m
+            m = m.prevMeasure()
+        }
+    }
+
+    return firstMeasure
+}
+
+// =====================================================================================================================
+//   Score::cloneVoice (edit.cpp): copies a voice (exchange voices, explode, implode)
+// =====================================================================================================================
+
+declare module '../dom/score' {
+    interface Score {
+        cloneVoice(strack: track_idx_t, dtrack: track_idx_t, sf: Segment, lTick: Fraction, link?: boolean, spanner?: boolean): void
+    }
+}
+
+Score.prototype.cloneVoice = function (this: Score, strack: track_idx_t, dtrack: track_idx_t, sf: Segment, lTick: Fraction,
+    link = true, spanner = true): void {
+    const start = sf.tick()
+    const tieMap = new Map<Tie, Tie>()
+    const tupletMap = new Map<Tuplet, Tuplet>() // tuplets cannot cross measure boundaries
+    const score = sf.score()
+    let tremolo: TremoloTwoChord | null = null
+
+    for (let oseg: Segment | null = sf; oseg && oseg.tick().lt(lTick); oseg = oseg.next1()) {
+        let ns: Segment | null = null // create segment later, on demand
+        const dm = this.tick2measure(oseg.tick())!
+
+        const oe = oseg.element(strack)
+
+        if (oe && !oe.generated() && oe.isChordRest()) {
+            // If we want to maintain the link (exchange voice) create a linked clone
+            // If we want new, unlinked elements (implode/explode) create a clone
+            const ne = link ? oe.linkedClone() : oe.clone()
+            ne.setTrack(dtrack)
+
+            //Don't clone gaps to a first voice
+            if (!(ne.track() % VOICES) && ne.isRest()) {
+                (ne as unknown as Rest).setGap(false)
+            }
+
+            ne.setScore(this)
+            const ocr = oe as unknown as ChordRest
+            const ncr = ne as unknown as ChordRest
+
+            //Handle beams
+            if (ocr.beam() && ocr.beam()!.elements().length && ocr.beam()!.elements()[0] === ocr) {
+                const nb = ocr.beam()!.clone() as Beam
+                nb.clear()
+                nb.setTrack(dtrack)
+                nb.setScore(this)
+                nb.add(ncr)
+                ncr.setBeam(nb)
+            }
+
+            // clone Tuplets
+            let ot = ocr.tuplet()
+            if (ot) {
+                ot.setTrack(strack)
+                let nt = tupletMap.get(ot) ?? null
+                if (!nt) {
+                    nt = (link ? ot.linkedClone() : ot.clone()) as Tuplet
+                    nt.setTrack(dtrack)
+                    nt.setParent(dm)
+                    tupletMap.set(ot, nt)
+
+                    let nt1 = nt
+                    while (ot.tuplet()) {
+                        let nt2 = tupletMap.get(ot.tuplet()!) ?? null
+                        if (!nt2) {
+                            nt2 = (link ? ot.tuplet()!.linkedClone() : ot.tuplet()!.clone()) as Tuplet
+                            nt2.setTrack(dtrack)
+                            nt2.setParent(dm)
+                            tupletMap.set(ot.tuplet()!, nt2)
+                        }
+                        nt2.add(nt1)
+                        nt1.setTuplet(nt2)
+                        ot = ot.tuplet()!
+                        nt1 = nt2
+                    }
+                }
+                nt.add(ncr)
+                ncr.setTuplet(nt)
+            }
+
+            // clone additional settings
+            if (oe.isRest()) {
+                const ore = ocr as unknown as Rest
+                // If we would clone a full measure rest just don't clone this rest
+                if (ore.isFullMeasureRest() && (dtrack % VOICES)) {
+                    continue
+                }
+            }
+
+            const cloneChord = (oldChord: Chord, newChord: Chord): void => {
+                const n = oldChord.notes().length
+                for (let i = 0; i < n; ++i) {
+                    const on = oldChord.notes()[i]
+                    const nn = newChord.notes()[i]
+                    const idx = track2staff(dtrack)
+                    const tick = oseg!.tick()
+                    const v = this.staff(idx) ? this.staff(idx)!.transpose(tick).clone() : new Interval()
+                    nn.setTpc1(on.tpc1())
+                    if (v.isZero()) {
+                        nn.setTpc2(on.tpc1())
+                    } else {
+                        v.flip()
+                        nn.setTpc2(Transpose.transposeTpc(nn.tpc1(), v, true))
+                    }
+
+                    if (on.tieFor()) {
+                        const tie = (link ? on.tieFor()!.linkedClone() : on.tieFor()!.clone()) as Tie
+                        tie.setScore(this)
+                        nn.setTieFor(tie)
+                        tie.setStartNote(nn)
+                        tie.setTrack(nn.track())
+                        tie.setEndNote(nn)
+                        tieMap.set(on.tieFor()!, tie)
+                    }
+                    if (on.tieBack()) {
+                        const tie = tieMap.get(on.tieBack()!)
+                        if (tie) {
+                            nn.setTieBack(tie)
+                            tie.setEndNote(nn)
+                        }
+                    }
+                    // add back spanners (going back from end to start spanner element
+                    // makes sure the 'other' spanner anchor element is already set up)
+                    // 'on' is the old spanner end note and 'nn' is the new spanner end note
+                    for (const oldSp of on.spannerBack()) {
+                        const newStart = SpannerClass.startElementFromSpanner(oldSp, nn)
+                        if (newStart) {
+                            const newSp = (link ? oldSp.linkedClone() : oldSp.clone()) as Spanner
+                            newSp.setNoteSpan(newStart, nn)
+                            this.addElement(newSp)
+                        }
+                    }
+                }
+                // two note tremolo
+                const tr = oldChord.tremoloTwoChord()
+                if (tr) {
+                    if (oldChord === tr.chord1()) {
+                        tremolo = (link ? tr.linkedClone() : tr.clone()) as TremoloTwoChord
+                        tremolo.setScore(newChord.score())
+                        tremolo.setParent(newChord)
+                        tremolo.setTrack(newChord.track())
+                        tremolo.setChords(newChord, null)
+                        newChord.setTremoloTwoChord(tremolo)
+                    } else if (oldChord === tr.chord2()) {
+                        if (tremolo) {
+                            tremolo.setChords(tremolo.chord1(), newChord)
+                            newChord.setTremoloTwoChord(tremolo)
+                        }
+                    }
+                }
+            }
+            if (oe.isChord()) {
+                cloneChord(ocr as unknown as Chord, ncr as unknown as Chord)
+                const ograces = (ocr as unknown as Chord).graceNotes()
+                const ngraces = (ncr as unknown as Chord).graceNotes()
+                for (let i = 0; i < ograces.length; ++i) {
+                    cloneChord(ograces[i], ngraces[i])
+                }
+            }
+
+            // Add element
+            if (link) {
+                // To segment to avoid adding to all linked staves (exchange voice)
+                if (!ns) {
+                    ns = dm.getSegment(oseg.segmentType(), oseg.tick())
+                }
+                ns.add(ne)
+            } else {
+                // To score, to add to all linked staves (implode/explode)
+                this.undoAddCR(ncr, dm, oseg.tick())
+            }
+        }
+        const tst = dm.segments().firstCRSegment()
+        if (strack % VOICES && !(dtrack % VOICES) && (!tst || !tst.element(dtrack))) {
+            const rest = Factory.createItem(ElementType.REST, this) as unknown as Rest
+            rest.setTicks(dm.ticks())
+            rest.setDurationType(new TDuration(DurationType.V_MEASURE))
+            rest.setTrack(dtrack)
+            if (link) {
+                const segment = dm.getSegment(SegmentType.ChordRest, dm.tick())
+                segment.add(rest)
+            } else {
+                this.undoAddCR(rest, dm, dm.tick())
+            }
+        }
+
+        const annotations = [...oseg.annotations()]
+        for (const annotation of annotations) {
+            if (!annotation.elementAppliesToTrack(strack)) {
+                continue
+            }
+
+            // If we want to maintain the link (exchange voice) create a linked clone
+            // If we want new, unlinked elements (implode/explode) create a clone
+            const newAnnotation = link ? annotation.linkedClone() : annotation.clone()
+            newAnnotation.setTrack(dtrack)
+
+            // Add element
+            if (link) {
+                // To segment to avoid adding to all linked staves (exchange voice)
+                if (!ns) {
+                    ns = dm.getSegment(oseg.segmentType(), oseg.tick())
+                }
+                ns.add(newAnnotation)
+            } else {
+                // To score, to add to all linked staves (implode/explode)
+                this.doUndoAddElement(newAnnotation)
+            }
+        }
+    }
+
+    if (spanner) {
+        // Find and add corresponding slurs and hairpins
+        const SPANNERS_TO_COPY = [ElementType.SLUR, ElementType.HAMMER_ON_PULL_OFF, ElementType.HAIRPIN]
+        const spanners = score.spannerMap().findOverlapping(start.ticks(), lTick.ticks())
+        for (const sp of spanners) {
+            const spStart = sp.tick()
+            const spEnd = spStart.plus(sp.ticks())
+
+            if (SPANNERS_TO_COPY.includes(sp.type()) && (spStart.ge(start) && spEnd.lt(lTick))) {
+                if (!sp.elementAppliesToTrack(strack)) {
+                    continue
+                }
+                const nsp = (link ? sp.linkedClone() : sp.clone()) as Spanner
+
+                nsp.setScore(this)
+                nsp.setParent(null)
+                nsp.setTrack(dtrack)
+                nsp.setTrack2(dtrack)
+
+                // set start/end element for slur
+                const cr1 = sp.startCR()
+                const cr2 = sp.endCR()
+
+                nsp.setStartElement(null)
+                nsp.setEndElement(null)
+                if (cr1 && cr1.links()) {
+                    for (const e of cr1.links()!) {
+                        const cr = e as unknown as ChordRest
+                        if (cr === cr1) {
+                            continue
+                        }
+                        if (cr.score() === this && cr.tick().eq(nsp.tick()) && cr.track() === dtrack) {
+                            nsp.setStartElement(cr)
+                            break
+                        }
+                    }
+                }
+                if (cr2 && cr2.links()) {
+                    for (const e of cr2.links()!) {
+                        const cr = e as unknown as ChordRest
+                        if (cr === cr2) {
+                            continue
+                        }
+                        if (cr.score() === this && cr.tick().eq(nsp.tick2()) && cr.track() === dtrack) {
+                            nsp.setEndElement(cr)
+                            break
+                        }
+                    }
+                }
+                this.doUndoAddElement(nsp)
+            }
+        }
+    }
+}
+

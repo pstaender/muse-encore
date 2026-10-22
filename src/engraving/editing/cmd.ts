@@ -2883,3 +2883,958 @@ Score.prototype.cmdAddGrace = function (this: Score, graceType: GraceNoteType, d
 // FiguredBass::regenerateText calls score()->startCmd()/endCmd() (dom -> editing)
 figuredBassHooks.startCmd = (score, name) => (score as Score).startCmd(name)
 figuredBassHooks.endCmd = (score) => (score as Score).endCmd()
+
+// =====================================================================================================================
+//   Tools (cmd.cpp): cmdExplode, cmdImplode
+// =====================================================================================================================
+
+import { CloneVoice } from './editvoicing'
+import { XmlReader as ToolsXmlReader } from '../rw/xmlreader'
+
+declare module '../dom/score' {
+    interface Score {
+        /** explodes contents of top selected staff into subsequent staves */
+        cmdExplode(): boolean
+        /** implodes contents of selected staves into top staff; for single staff, merge voices */
+        cmdImplode(): boolean
+    }
+}
+
+Score.prototype.cmdExplode = function (this: Score): boolean {
+    const srcStaff = this.selection().staffStart()
+    let lastStaff = this.selection().staffEnd()
+    const srcTrack = srcStaff * VOICES
+
+    // reset selection to top staff only
+    // force complete measures
+    let startSegment = this.selection().startSegment()!
+    let endSegment = this.selection().endSegment()
+    const startMeasure = startSegment.measure()
+    let endMeasure: Measure
+    if (!endSegment) {
+        endMeasure = this.lastMeasure()!
+    } else if (endSegment.tick().eq(endSegment.measure().tick())) {
+        endMeasure = endSegment.measure().prevMeasure() ? endSegment.measure().prevMeasure()! : this.firstMeasure()!
+    } else {
+        endMeasure = endSegment.measure()
+    }
+
+    const lTick = endMeasure.endTick()
+    let voice = false
+
+    for (let m: Measure | null = startMeasure; m && !m.tick().eq(lTick); m = m.nextMeasure()) {
+        if (m.hasVoices(srcStaff)) {
+            voice = true
+            break
+        }
+    }
+    if (!voice) {
+        // force complete measures
+        this.deselectAll()
+        this.select(startMeasure, SelectType.RANGE, srcStaff)
+        this.select(endMeasure, SelectType.RANGE, srcStaff)
+        startSegment = this.selection().startSegment()!
+        endSegment = this.selection().endSegment()
+        if (srcStaff === lastStaff - 1) {
+            // only one staff was selected up front - determine number of staves
+            // loop through all chords looking for maximum number of notes
+            let n = 0
+            for (let s: Segment | null = startSegment; s && s !== endSegment; s = s.next1()) {
+                const e = s.element(srcTrack)
+                if (e && e.isChord()) {
+                    const c = e as unknown as Chord
+                    n = Math.max(n, c.notes().length)
+                    for (const graceChord of c.graceNotes()) {
+                        n = Math.max(n, graceChord.notes().length)
+                    }
+                }
+            }
+            lastStaff = Math.min(this.nstaves(), srcStaff + n)
+        }
+
+        // Check that all source and dest measures have the same time stretch - allows explode within a local time signature,
+        // but don't yet support it between differing local time signatures.
+        let timeStretch = new Fraction(1, 0)
+        for (let m: Measure | null = startMeasure; m && m.tick().le(endMeasure.tick()); m = m.nextMeasure()) {
+            for (let staffIdx = srcStaff; staffIdx < lastStaff; ++staffIdx) {
+                const mTimeStretch = this.staff(staffIdx)!.timeStretch(m.tick())
+                if (!timeStretch.isValid()) {
+                    timeStretch = mTimeStretch
+                } else if (!timeStretch.eq(mTimeStretch)) {
+                    MScore.setError(MsError.CANNOT_EXPLODE_IMPLODE_LOCAL_TIMESIG)
+                    return false
+                }
+            }
+        }
+
+        const mimeData = this.selection().mimeData()
+        // copy to all destination staves
+        const firstCRSegment = startMeasure.tick2segment(startMeasure.tick())!
+        for (let i = 1; srcStaff + i < lastStaff; ++i) {
+            const track = (srcStaff + i) * VOICES
+            const cr = firstCRSegment.element(track) as unknown as ChordRest | null
+            if (cr) {
+                const e = new ToolsXmlReader(mimeData)
+                this.pasteStaff(e, cr.segment(), cr.staffIdx())
+            }
+        }
+
+        const doExplode = (c: Chord, lastStaff: number, srcStaff: number, i: number): void => {
+            const notes = [...c.notes()]
+            const nnotes = notes.length
+            // keep note "i" from top, which is backwards from nnotes - 1
+            // reuse notes if there are more instruments than notes
+            const stavesPerNote = Math.max(Math.trunc((lastStaff - srcStaff) / nnotes), 1)
+            const keepIndex = Math.max(nnotes - 1 - Math.trunc(i / stavesPerNote), 0)
+            const keepNote = c.notes()[keepIndex]
+            for (const n of notes) {
+                if (n !== keepNote) {
+                    this.undoRemoveElement(n)
+                }
+            }
+        }
+
+        // loop through each staff removing all but one note from each chord
+        for (let i = 0; srcStaff + i < lastStaff; ++i) {
+            const track = (srcStaff + i) * VOICES
+            for (let s: Segment | null = startSegment; s && s !== endSegment; s = s.next1()) {
+                const e = s.element(track)
+                if (e && e.isChord()) {
+                    const c = e as unknown as Chord // chord, laststaff, srcstaff
+                    doExplode(c, lastStaff, srcStaff, i)
+                    for (const graceChord of c.graceNotes()) {
+                        doExplode(graceChord, lastStaff, srcStaff, i)
+                    }
+                }
+            }
+        }
+    } else {
+        const sTracks: track_idx_t[] = []
+        const dTracks: track_idx_t[] = []
+        if (srcStaff === lastStaff - 1) {
+            lastStaff = Math.min(this.nstaves(), srcStaff + VOICES)
+        }
+
+        for (let i = 0; i < VOICES; i++) {
+            sTracks[i] = nidx
+            dTracks[i] = nidx
+        }
+        let full = 0
+
+        for (let seg: Segment | null = startSegment; seg && seg.tick().lt(lTick); seg = seg.next1()) {
+            for (let i = srcTrack; i < srcTrack + VOICES && full !== VOICES; i++) {
+                let t = true
+                for (let j = 0; j < VOICES; j++) {
+                    if (i === sTracks[j]) {
+                        t = false
+                        break
+                    }
+                }
+
+                if (!seg.measure().hasVoice(i) || seg.measure().isOnlyRests(i) || !t) {
+                    continue
+                }
+                sTracks[full] = i
+
+                for (let j = srcTrack + full * VOICES; j < lastStaff * VOICES; j++) {
+                    if (i === j) {
+                        dTracks[full] = j
+                        break
+                    }
+                    for (let m: Measure | null = seg.measure(); m && m.tick().lt(lTick); m = m.nextMeasure()) {
+                        if (!m.hasVoice(j) || (m.hasVoice(j) && m.isOnlyRests(j))) {
+                            dTracks[full] = j
+                        } else {
+                            dTracks[full] = nidx
+                            break
+                        }
+                    }
+                    if (dTracks[full] !== nidx) {
+                        break
+                    }
+                }
+                full++
+            }
+        }
+
+        if (full <= 0) {
+            return false
+        }
+        lastStaff = track2staff(dTracks[full - 1]) + 1
+
+        // Check that all source and dest measures have the same time stretch - allows explode within a local time signature,
+        // but don't yet support it between differing local time signatures.
+        let timeStretch = new Fraction(1, 0)
+        for (let m: Measure | null = startMeasure; m && m.tick().le(endMeasure.tick()); m = m.nextMeasure()) {
+            for (let staffIdx = srcStaff; staffIdx < lastStaff; ++staffIdx) {
+                const mTimeStretch = this.staff(staffIdx)!.timeStretch(m.tick())
+                if (!timeStretch.isValid()) {
+                    timeStretch = mTimeStretch
+                } else if (!timeStretch.eq(mTimeStretch)) {
+                    MScore.setError(MsError.CANNOT_EXPLODE_IMPLODE_LOCAL_TIMESIG)
+                    return false
+                }
+            }
+        }
+
+        for (let i = srcTrack, j = 0; i < lastStaff * VOICES && j < VOICES; i += VOICES, j++) {
+            const strack = sTracks[j % VOICES]
+            const dtrack = dTracks[j % VOICES]
+            if (strack !== nidx && strack !== dtrack && dtrack !== nidx) {
+                this.undo(new CloneVoice(startSegment, lTick, startSegment, strack, dtrack, nidx, false))
+            }
+        }
+    }
+
+    // select exploded region
+    this.deselectAll()
+    this.select(startMeasure, SelectType.RANGE, srcStaff)
+    this.select(endMeasure, SelectType.RANGE, lastStaff - 1)
+
+    return true
+}
+
+Score.prototype.cmdImplode = function (this: Score): boolean {
+    const dstStaff = this.selection().staffStart()
+    const endStaff = this.selection().staffEnd()
+    const dstTrack = dstStaff * VOICES
+    const startTrack = dstStaff * VOICES
+    const endTrack = endStaff * VOICES
+    const startSegment = this.selection().startSegment()!
+    const endSegment = this.selection().endSegment()
+    const startMeasure = startSegment.measure()
+    const endMeasure = endSegment ? endSegment.measure() : this.lastMeasure()!
+    const startTick = startSegment.tick()
+    const endTick = endSegment ? endSegment.tick() : this.lastMeasure()!.endTick()
+
+    // Check that all source and dest measures have the same time stretch - allows implode within a local time signature,
+    // but don't yet support it between differing local time signatures.
+    let timeStretch = new Fraction(1, 0)
+    for (let m: Measure | null = startMeasure; m && m.tick().le(endMeasure.tick()); m = m.nextMeasure()) {
+        for (let staffIdx = dstStaff; staffIdx < endStaff; ++staffIdx) {
+            const mTimeStretch = this.staff(staffIdx)!.timeStretch(m.tick())
+            if (!timeStretch.isValid()) {
+                timeStretch = mTimeStretch
+            } else if (!timeStretch.eq(mTimeStretch)) {
+                MScore.setError(MsError.CANNOT_EXPLODE_IMPLODE_LOCAL_TIMESIG)
+                return false
+            }
+        }
+    }
+
+    // if single staff selected, combine voices
+    // otherwise combine staves
+    if (dstStaff === endStaff - 1) {
+        // loop through segments adding notes to chord on top staff
+        for (let s: Segment | null = startSegment; s && s !== endSegment; s = s.next1()) {
+            if (!s.isChordRestType()) {
+                continue
+            }
+            const dst = s.element(dstTrack)
+            if (dst && dst.isChord()) {
+                const dstChord = dst as unknown as Chord
+                // see if we are tying in to this chord
+                let tied: Chord | null = null
+                for (const n of dstChord.notes()) {
+                    if (n.tieBackNonPartial()) {
+                        tied = n.tieBack()!.startNote()!.chord()
+                        break
+                    }
+                }
+                // loop through each subsequent staff (or track within staff)
+                // looking for notes to add
+                for (let srcTrack = startTrack + 1; srcTrack < endTrack; srcTrack++) {
+                    const src = s.element(srcTrack)
+                    if (src && src.isChord()) {
+                        const srcChord = src as unknown as Chord
+                        // when combining voices, skip if not same duration
+                        if (!srcChord.ticks().eq(dstChord.ticks())) {
+                            continue
+                        }
+                        // add notes
+                        for (const n of [...srcChord.notes()]) {
+                            const nv = new NoteVal(n.pitch())
+                            nv.tpc1 = n.tpc1()
+                            // skip duplicates
+                            if (dstChord.findNote(nv.pitch)) {
+                                continue
+                            }
+                            const forceAccidental = !!n.accidental() && n.accidental()!.role() === AccidentalRole.USER
+                            const nn = this.addNote(dstChord, nv, forceAccidental)
+                            // move articulations
+                            for (const artic of [...srcChord.articulations()]) {
+                                if (dstChord.hasArticulation(artic)) {
+                                    continue
+                                }
+                                this.undoChangeParent(artic, dstChord, dstChord.staffIdx())
+                            }
+                            // add tie to this note if original chord was tied
+                            if (tied) {
+                                // find note to tie to
+                                for (const tn of tied.notes()) {
+                                    if (nn.pitch() === tn.pitch() && nn.tpc() === tn.tpc() && !tn.tieFor()) {
+                                        // found note to tie
+                                        const tie = Factory.createItem(ElementType.TIE, scoreDummy(this)) as Tie
+                                        tie.setStartNote(tn)
+                                        tie.setEndNote(nn)
+                                        tie.setTick(tie.startNote()!.tick())
+                                        tie.setTick2(tie.endNote()!.tick())
+                                        tie.setTrack(tn.track())
+                                        this.undoAddElement(tie)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // delete chordrest from source track if possible
+                    if (src && src.voice()) {
+                        this.undoRemoveElement(src)
+                    }
+                }
+            } else if (dst) {
+                // TODO - use first voice that actually has a note and implode remaining voices on it?
+                // see https://musescore.org/en/node/174111
+                // destination track has something, but it isn't a chord
+                // remove rests from other voices if in "voice mode"
+                for (let i = 1; i < VOICES; ++i) {
+                    const e = s.element(dstTrack + i)
+                    if (e && e.isRest()) {
+                        this.undoRemoveElement(e)
+                    }
+                }
+            }
+        }
+        // delete orphaned spanners (TODO: figure out solution to reconnect orphaned spanners to their cloned notes)
+        this.checkSpanner(startTick, endTick)
+    } else {
+        const tracks: track_idx_t[] = []
+        for (let i = 0; i < VOICES; i++) {
+            tracks[i] = nidx
+        }
+        let full = 0
+
+        // identify tracks to combine, storing the source track numbers in tracks[]
+        // first four non-empty tracks to win
+        for (let track = startTrack; track < endTrack && full < VOICES; ++track) {
+            let m: Measure | null = startMeasure
+            do {
+                if (m!.hasVoice(track) && !m!.isOnlyRests(track)) {
+                    tracks[full++] = track
+                    break
+                }
+            } while ((m !== endMeasure) && (m = m!.nextMeasure()))
+        }
+
+        // clone source tracks into destination
+        for (let i = dstTrack; i < dstTrack + VOICES; i++) {
+            const strack = tracks[i % VOICES]
+            if (strack !== nidx && strack !== i) {
+                this.undo(new CloneVoice(startSegment, endTick, startSegment, strack, i, i, false))
+            }
+        }
+    }
+
+    // select destination staff only
+    this.deselectAll()
+    this.select(startMeasure, SelectType.RANGE, dstStaff)
+    this.select(endMeasure, SelectType.RANGE, dstStaff)
+
+    return true
+}
+
+// =====================================================================================================================
+//   Tools (cmd.cpp): cmdSlashFill, cmdSlashRhythm, cmdResetNoteAndRestGroupings, cmdResequenceRehearsalMarks,
+//   cmdRemoveEmptyTrailingMeasures
+// =====================================================================================================================
+
+import { Position as ToolsPosition } from '../dom/score'
+import type { RehearsalMark } from '../dom/rehearsalmark'
+import type { Rest as ToolsRest } from '../dom/rest'
+import { NoteType as ToolsNoteType } from '../dom/chordrest'
+
+declare module '../dom/score' {
+    interface Score {
+        /** fills selected region with slashes */
+        cmdSlashFill(): void
+        /** converts rhythms in selected region to slashes */
+        cmdSlashRhythm(): void
+        cmdResetNoteAndRestGroupings(): void
+        cmdResequenceRehearsalMarks(): void
+        cmdRemoveEmptyTrailingMeasures(): void
+    }
+}
+
+Score.prototype.cmdSlashFill = function (this: Score): void {
+    const startStaff = this.selection().staffStart()
+    const endStaff = this.selection().staffEnd()
+    let startSegment = this.selection().startSegment()
+    if (!startSegment) { // empty score?
+        return
+    }
+
+    let endSegment = this.selection().endSegment()
+
+    // operate on measures underlying mmrests
+    if (startSegment && startSegment.measure() && startSegment.measure().isMMRest()) {
+        startSegment = startSegment.measure().mmRestFirst()!.first()
+    }
+    if (endSegment && endSegment.measure() && endSegment.measure().isMMRest()) {
+        endSegment = endSegment.measure().mmRestLast()!.last()
+    }
+
+    const endTick = endSegment ? endSegment.tick() : this.lastSegment()!.tick().plus(Fraction.eps())
+    let firstSlash: Chord | null = null
+    let lastSlash: Chord | null = null
+
+    // loop through staves in selection
+    for (let staffIdx = startStaff; staffIdx < endStaff; ++staffIdx) {
+        const track = staffIdx * VOICES
+        let voice = nidx
+        // loop through segments adding slashes on each beat
+        for (let s: Segment | null = startSegment; s && s.tick().lt(endTick); s = s.next1()) {
+            if (s.segmentType() !== SegmentType.ChordRest) {
+                continue
+            }
+            // determine beat type based on time signature
+            const d = s.measure().timesig().denominator()
+            const n = (d > 4 && s.measure().timesig().numerator() % 3 === 0) ? 3 : 1
+            const f = new Fraction(n, d)
+            // skip over any leading segments before next (first) beat
+            if (s.rtick().ticks() % f.ticks()) {
+                continue
+            }
+            // determine voice to use - first available voice for this measure / staff
+            if (voice === nidx || s.rtick().isZero()) {
+                const needGap: boolean[] = []
+                for (voice = 0; voice < VOICES; ++voice) {
+                    needGap[voice] = false
+                    const cr = s.element(track + voice) as unknown as ChordRest | null
+                    // no chordrest == treat as ordinary rest for purpose of determining availability of voice
+                    // but also, we will need to make a gap for this voice if we do end up choosing it
+                    if (!cr) {
+                        needGap[voice] = true
+                    } else if (cr.isChord()) {
+                        // chord == keep looking for an available voice
+                        continue
+                    } else if (cr.durationType().type() === DurationType.V_MEASURE) {
+                        // full measure rest == OK to use voice
+                        break
+                    }
+                    // no chordrest or ordinary rest == OK to use voice
+                    // if there are nothing but rests for duration of measure / selection
+                    let ok = true
+                    for (let ns = s.next(SegmentType.ChordRest); ns && ns !== endSegment; ns = ns.next(SegmentType.ChordRest)) {
+                        const ncr = ns.element(track + voice) as unknown as ChordRest | null
+                        if (ncr && ncr.isChord()) {
+                            ok = false
+                            break
+                        }
+                    }
+                    if (ok) {
+                        break
+                    }
+                }
+                // no available voices, just use voice 0
+                if (voice === VOICES) {
+                    voice = 0
+                }
+                // no cr was found in segment for this voice, so make gap
+                if (needGap[voice]) {
+                    this.makeGapVoice(s, track + voice, f, s.tick())
+                }
+            }
+            // construct note
+            let line = 0
+            let error = false
+            let nv: NoteVal | null = new NoteVal()
+            const staff = this.staff(staffIdx)!
+            if (staff.staffType(s.tick()).group() === StaffGroup.TAB) {
+                line = Math.trunc(staff.lines(s.tick()) / 2)
+            } else {
+                line = staff.middleLine(s.tick()) // staff(staffIdx)->lines() - 1;
+            }
+            if (staff.staffType(s.tick()).group() === StaffGroup.PERCUSSION) {
+                nv.pitch = 0
+                nv.headGroup = NoteHeadGroup.HEAD_SLASH
+            } else {
+                const p = new ToolsPosition()
+                p.segment = s
+                p.staffIdx = staffIdx
+                p.line = line
+                p.fret = -1 // INVALID_FRET_INDEX
+                this.inputState().setRest(false) // needed for tab
+                nv = this.noteValForPosition(p, AccidentalType.NONE)
+                error = !nv
+            }
+            if (error) {
+                continue
+            }
+            // insert & turn into slash
+            s = this.setNoteRest(s, track + voice, nv!, f)!
+            const c = s.element(track + voice) as unknown as Chord | null
+            if (c && c.isChord()) {
+                if (c.links()) {
+                    for (const e of c.links()!) {
+                        const lc = e as unknown as Chord
+                        lc.setSlash(true, true)
+                    }
+                } else {
+                    c.setSlash(true, true)
+                }
+            }
+            lastSlash = c
+            if (!firstSlash) {
+                firstSlash = c
+            }
+        }
+    }
+
+    // re-select the slashes
+    this.deselectAll()
+    if (firstSlash && lastSlash) {
+        this.select(firstSlash, SelectType.RANGE)
+        this.select(lastSlash, SelectType.RANGE)
+    }
+}
+
+Score.prototype.cmdSlashRhythm = function (this: Score): void {
+    const chords = new Set<Chord>()
+    // loop through all notes in selection
+    for (const e of [...this.selection().elements()]) {
+        if (e.voice() >= 2 && e.isRest()) {
+            const r = e as unknown as ToolsRest
+            if (r.links()) {
+                for (const se of r.links()!) {
+                    const lr = se as unknown as ToolsRest
+                    lr.setAccent(!lr.accent())
+                }
+            } else {
+                r.setAccent(!r.accent())
+            }
+            continue
+        } else if (e.isNote()) {
+            const n = e as unknown as Note
+            if (n.noteType() !== ToolsNoteType.NORMAL) {
+                continue
+            }
+            const c = n.chord()
+            // check for duplicates (chords with multiple notes)
+            if (chords.has(c)) {
+                continue
+            }
+            chords.add(c)
+            // toggle slash setting
+            c.setSlash(!c.slash(), false)
+        }
+    }
+}
+
+Score.prototype.cmdResetNoteAndRestGroupings = function (this: Score): void {
+    const noSelection = this.selection().isNone()
+    if (noSelection) {
+        this.cmdSelectAll()
+    } else if (!this.selection().isRange()) {
+        return // no system or staff selected
+    }
+
+    // save selection values because selection changes during grouping
+    const sTick = this.selection().tickStart()
+    const eTick = this.selection().tickEnd()
+    const sStaff = this.selection().staffStart()
+    const eStaff = this.selection().staffEnd()
+
+    for (let staff = sStaff; staff < eStaff; staff++) {
+        const sTrack = staff * VOICES
+        const eTrack = sTrack + VOICES
+        for (let track = sTrack; track < eTrack; track++) {
+            if (this.selectionFilter().canSelectVoice(track)) {
+                this.regroupNotesAndRests(sTick, eTick, track)
+            }
+        }
+    }
+
+    if (noSelection) {
+        this.deselectAll()
+        return
+    }
+
+    // Reset selection to original selection
+    this.selection().setRangeTicks(sTick, eTick, sStaff, eStaff)
+    this.selection().updateSelectedElements()
+}
+
+Score.prototype.cmdResequenceRehearsalMarks = function (this: Score): void {
+    const noSelection = !this.selection().isRange()
+
+    if (noSelection) {
+        this.cmdSelectAll()
+    } else if (!this.selection().isRange()) {
+        return
+    }
+
+    let last: RehearsalMark | null = null
+    for (let s = this.selection().startSegment(); s && s !== this.selection().endSegment(); s = s.next1()) {
+        for (const e of s.annotations()) {
+            if (e.type() === ElementType.REHEARSAL_MARK) {
+                const rm = e as unknown as RehearsalMark
+                if (rm.isTopSystemObject()) {
+                    if (last) {
+                        const rmText = this.nextRehearsalMarkText(last, rm)
+                        for (const le of rm.linkList()) {
+                            le.undoChangeProperty(Pid.TEXT, rmText)
+                        }
+                    }
+                    last = rm
+                }
+            }
+        }
+    }
+
+    if (noSelection) {
+        this.deselectAll()
+    }
+}
+
+Score.prototype.cmdRemoveEmptyTrailingMeasures = function (this: Score): void {
+    const mScore = this.masterScore()
+    const beginMeasure = mScore.firstTrailingMeasure()
+    if (beginMeasure) {
+        mScore.deleteMeasures(beginMeasure, mScore.lastMeasure()!)
+    }
+}
+
+// =====================================================================================================================
+//   Score::lyrics, extractLyrics (score.cpp): "Copy lyrics to clipboard"
+// =====================================================================================================================
+
+import type { Lyrics as ToolsLyrics } from '../dom/lyrics'
+import { LyricsSyllabic as ToolsLyricsSyllabic } from '../types/types'
+
+declare module '../dom/score' {
+    interface Score {
+        /** the lyrics of the score in reading order (repeats expanded, verse by verse) */
+        lyrics(): ToolsLyrics[]
+        extractLyrics(): string
+    }
+}
+
+function lyricsOfVerse(cr: ChordRest, verse: number): ToolsLyrics | null {
+    for (const l of cr.lyrics()) {
+        if (l.verse() === verse) {
+            return l
+        }
+    }
+    return null
+}
+
+Score.prototype.lyrics = function (this: Score): ToolsLyrics[] {
+    const result: ToolsLyrics[] = []
+    this.masterScore().setExpandRepeats(true)
+    const st = SegmentType.ChordRest
+    for (let track = 0; track < this.ntracks(); track++) {
+        let maxLyrics = 1
+        for (let m = this.firstMeasure(); m; m = m.nextMeasure()) {
+            m.setPlaybackCount(0)
+        }
+        // follow the repeat segments
+        const rlist = this.repeatList()
+        for (const rs of rlist) {
+            const startTick = Fraction.fromTicks(rs.tick)
+            const endTick = Fraction.fromTicks(rs.endTick())
+            for (let m = this.tick2measure(startTick); m; m = m.nextMeasure()) {
+                const playCount = m.playbackCount()
+                for (let seg = m.first(st); seg; seg = seg.next(st)) {
+                    const cr = seg.element(track) as unknown as ChordRest | null
+                    if (!cr || cr.lyrics().length === 0) {
+                        continue
+                    }
+                    if (cr.lyrics().length > maxLyrics) {
+                        maxLyrics = cr.lyrics().length
+                    }
+                    if (playCount > cr.lyrics().length) {
+                        continue
+                    }
+                    const l = lyricsOfVerse(cr, playCount)
+                    if (!l) {
+                        continue
+                    }
+                    result.push(l)
+                }
+                m.setPlaybackCount(m.playbackCount() + 1)
+                if (m.endTick().ge(endTick)) {
+                    break
+                }
+            }
+        }
+        // consider remaining lyrics
+        for (let lyricsNumber = 0; lyricsNumber < maxLyrics; lyricsNumber++) {
+            for (let m = this.firstMeasure(); m; m = m.nextMeasure()) {
+                const playCount = m.playbackCount()
+                if (lyricsNumber < playCount) {
+                    continue
+                }
+                for (let seg = m.first(st); seg; seg = seg.next(st)) {
+                    const cr = seg.element(track) as unknown as ChordRest | null
+                    if (!cr || cr.lyrics().length === 0) {
+                        continue
+                    }
+                    if (cr.lyrics().length > maxLyrics) {
+                        maxLyrics = cr.lyrics().length
+                    }
+                    if (lyricsNumber > cr.lyrics().length) {
+                        continue
+                    }
+                    const l = lyricsOfVerse(cr, lyricsNumber)
+                    if (!l) {
+                        continue
+                    }
+                    result.push(l)
+                }
+            }
+        }
+    }
+    return result
+}
+
+Score.prototype.extractLyrics = function (this: Score): string {
+    let result = ''
+    const list = this.lyrics()
+    for (const l of list) {
+        const lyric = l.plainText().trim()
+        const ls = l.syllabic()
+        if (ls === ToolsLyricsSyllabic.SINGLE || ls === ToolsLyricsSyllabic.END) {
+            result += lyric + ' '
+        } else if (ls === ToolsLyricsSyllabic.BEGIN || ls === ToolsLyricsSyllabic.MIDDLE) {
+            result += lyric
+        }
+    }
+    return result.trim()
+}
+
+// =====================================================================================================================
+//   Realize chord symbols (cmd.cpp: setChord, cmdRealizeChordSymbols)
+// =====================================================================================================================
+
+import { HDuration, Voicing } from '../dom/realizedharmony'
+import { toDurationList as realizeDurationList } from '../dom/durationtype'
+import type { Harmony as RealizeHarmony } from '../dom/harmony'
+import type { Tuplet as RealizeTuplet } from '../dom/tuplet'
+
+declare module '../dom/score' {
+    interface Score {
+        /**
+         * Realize selected chord symbols into notes on the staff. If a voicing and duration type are specified, the
+         * harmony voicing settings will be overridden by the passed parameters. Otherwise, the settings set on the
+         * harmony object will be used.
+         */
+        cmdRealizeChordSymbols(literal?: boolean, voicing?: Voicing, durationType?: HDuration): void
+    }
+}
+
+/** 'dur' is in local (stretched) time; returns the segment of the last created chord */
+function setChord(score: Score, segment: Segment, track: track_idx_t, chordTemplate: Chord, dur: Fraction): Segment {
+    let tick = segment.tick()
+    let nr: Chord | null = null // current added chord used so we can select the last added chord and so we can apply ties
+    const tie: (Tie | null)[] = chordTemplate.notes().map(() => null) // keep pointer to a tie for each note in the chord in case we need to tie notes
+    let cr = segment.element(track) as unknown as ChordRest | null // chord rest under the segment for the specified track
+
+    let addTie = false
+
+    let measure: Measure | null = null
+    // keep creating chords and tieing them until we created the full duration asked for (dur)
+    for (;;) {
+        if (track % VOICES) {
+            score.expandVoice(segment, track)
+        }
+
+        const t: RealizeTuplet | null = cr ? cr.tuplet() : null
+        let tDur = segment.ticks()
+        let seg = segment.next()
+
+        // we need to get a correct subduration so that makeGap can function properly
+        // since makeGap() takes "normal" duration rather than actual length
+        while (seg) {
+            if (seg.segmentType() === SegmentType.ChordRest) {
+                // design choice made to keep multiple notes across a tuplet as tied single notes rather than combining them
+                // since it's arguably more readable, but the other code is still here (commented)
+                const testCr = seg.element(track) as unknown as ChordRest | null
+
+                if (testCr && testCr.tuplet()) { // stop on tuplet
+                    break
+                }
+                tDur = tDur.plus(seg.ticks())
+            }
+            if (tDur.ge(dur)) { // do not go further than the duration asked for
+                tDur = dur
+                break
+            }
+            seg = seg.next() // iterate only across measure (hence usage of next() rather than next1())
+        }
+        if (t) {
+            tDur = tDur.times(t.ratio()) // scale by tuplet ratio to get "normal" length rather than actual length when dealing with tuplets
+        }
+        // the returned gap ends at the measure boundary or at tuplet end
+        const dd = score.makeGap(segment, track, tDur, t)
+
+        if (dd.isZero()) {
+            break // cannot get gap
+        }
+
+        measure = segment.measure()
+        const dl = realizeDurationList(dd, true)
+        const n = dl.length
+        // add chord, tieing when necessary within measure
+        for (let i = 0; i < n; ++i) {
+            const d = dl[i]
+
+            // create new chord from template and add it
+            const chord = chordTemplate.clone() as Chord // Factory::copyChord
+            nr = chord
+
+            chord.setTrack(track)
+            chord.setDurationType(d)
+            chord.setTicks(d.fraction())
+            chord.setTuplet(t)
+            score.undoAddCR(chord, measure, tick)
+            // if there is something to tie, complete tie backwards
+            // and add the tie to score
+            const notes = [...chord.notes()]
+            if (addTie) {
+                for (let j = 0; j < notes.length; ++j) {
+                    tie[j]!.setEndNote(notes[j])
+                    notes[j].setTieBack(tie[j])
+                    score.undoAddElement(tie[j]!)
+                }
+                addTie = false
+            }
+            // if we're not the last element in the duration list,
+            // set tie forward
+            if (i + 1 < n) {
+                for (let j = 0; j < notes.length; ++j) {
+                    tie[j] = Factory.createItem(ElementType.TIE, scoreDummy(score)) as Tie
+                    tie[j]!.setStartNote(notes[j])
+                    tie[j]!.setTick(tie[j]!.startNote()!.tick())
+                    tie[j]!.setTrack(track)
+                    notes[j].setTieFor(tie[j])
+                    addTie = true
+                }
+            }
+            // TODO(port): score->setPlayChord(true) (the realized chord is played after the command)
+            segment = chord.segment()
+            tick = tick.plus(chord.actualTicks())
+        }
+
+        // subtract the duration already realized and move on
+        if (t) {
+            dur = dur.minus(dd.div(t.ratio()))
+        } else {
+            dur = dur.minus(dd)
+        }
+        // we are done when there is no duration left to realize
+        if (dur.isZero()) {
+            break
+        }
+
+        // go to next segment unless we are at the score (which means we will just be done there)
+        const nseg = score.tick2segment(tick, false, SegmentType.ChordRest)
+        if (!nseg) {
+            break // reached end of score
+        }
+
+        // it is possible that the next measure's ticks have not been computed yet. compute them now
+        if (nseg.ticks().isZero()) {
+            nseg.measure().computeTicks()
+        }
+
+        segment = nseg
+
+        cr = segment.element(track) as unknown as ChordRest | null
+
+        if (!cr) {
+            if (track % VOICES) {
+                cr = score.addRest(segment, track, new TDuration(DurationType.V_MEASURE), null)
+            } else {
+                break // no rest in voice 0
+            }
+        }
+        //
+        //  Note does not fit on current measure, create Tie to
+        //  next part of note
+        const notes = nr!.notes()
+        for (let i = 0; i < notes.length; ++i) {
+            tie[i] = Factory.createItem(ElementType.TIE, scoreDummy(score)) as Tie
+            tie[i]!.setStartNote(notes[i])
+            tie[i]!.setTick(tie[i]!.startNote()!.tick())
+            tie[i]!.setTrack(notes[i].track())
+            notes[i].setTieFor(tie[i])
+        }
+    }
+    if (tie.length) {
+        score.connectTies()
+    }
+    if (nr) {
+        score.select(nr, SelectType.SINGLE, 0)
+    }
+    return segment
+}
+
+Score.prototype.cmdRealizeChordSymbols = function (this: Score, literal = true, voicing: Voicing = Voicing.INVALID,
+    durationType: HDuration = HDuration.INVALID): void {
+    // Create copy, because setChord selects newly created chord and thus
+    // modifies selection().elements() while we're iterating over it
+    const elist = [...this.selection().elements()]
+
+    for (const e of elist) {
+        if (!e.isHarmony()) {
+            continue
+        }
+        const h = e as unknown as RealizeHarmony
+        if (!h.isRealizable()) {
+            continue
+        }
+        const r = h.getRealizedHarmony()
+        let seg = (h.explicitParent()!.isSegment() ? h.explicitParent() : h.explicitParent()!.explicitParent()) as unknown as Segment
+        const tick = seg.tick()
+        const duration = r.getActualDuration(tick.ticks(), durationType).times(h.staff()!.timeStretch(tick))
+        const concertPitch = this.style().styleB(Sid.concertPitch)
+
+        const chord = Factory.createItem(ElementType.CHORD, scoreDummy(this).segment()) as Chord // chord template
+        chord.setTrack(h.track()) // set track so notes have a track to sit on
+
+        // create chord from notes
+        let notes: readonly [number, number][]
+        if (voicing === Voicing.INVALID || durationType === HDuration.INVALID) {
+            notes = r.notes() // no override, just use notes from realize harmony
+        } else {
+            // generate notes list based on overridden settings
+            let offset = 0
+            const interval = h.staff()!.part()!.instrument(h.tick()).transpose()
+            if (!concertPitch) {
+                offset = interval.chromatic
+            }
+            notes = r.generateNotes(h.rootTpc(), h.bassTpc(), literal, voicing, offset)
+        }
+
+        for (const [pitch, tpc] of notes) {
+            const note = Factory.createItem(ElementType.NOTE, chord) as Note
+            const nval = new NoteVal()
+            nval.pitch = pitch
+            if (concertPitch) {
+                nval.tpc1 = tpc
+            } else {
+                nval.tpc2 = tpc
+            }
+            chord.add(note) // add note first to set track and such
+            note.setNval(nval, tick)
+        }
+
+        if (!seg.isChordRestType()) {
+            const newCrSeg = seg.measure().undoGetSegment(SegmentType.ChordRest, seg.tick())
+            newCrSeg.setTicks(seg.ticks())
+            seg = newCrSeg
+        }
+
+        setChord(this, seg, h.track(), chord, duration) // add chord using template
+    }
+}
+

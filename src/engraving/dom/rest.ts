@@ -444,6 +444,20 @@ export class Rest extends ChordRest {
         const voice = arg(mtrc('engraving', 'Voice: %1'), this.track() % VOICES + 1)
         return arg(mtrc('engraving', '%1; Duration: %2; %3'), this.translatedTypeUserName(), this.durationUserName(), voice)
     }
+
+    /** a rest of voice 3 or 4 as accent of slash notation: small and moved out of the way */
+    setAccent(flag: boolean): void {
+        this.undoChangeProperty(Pid.SMALL, flag)
+        if (this.voice() % 2 === 0) {
+            if (flag) {
+                let yOffset = -this.ldata().bbox().bottom()
+                if (this.durationType().ge(new TDuration(DurationType.V_HALF))) {
+                    yOffset -= this.staff()!.spatium(this.tick()) * 0.5
+                }
+                this.mutldata().moveY(yOffset)
+            }
+        }
+    }
 }
 
 tupletFactories.createRest = (parent: EngravingObject) => new Rest(parent)

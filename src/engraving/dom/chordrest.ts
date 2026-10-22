@@ -6,6 +6,7 @@
  * Port of src/engraving/dom/chordrest.h/.cpp
  */
 
+import type { MasterScore } from './masterscore'
 import type { InstrumentChange } from './instrchange'
 import { Instrument } from './instrument'
 import type { HarpPedalDiagram } from './harppedaldiagram'
@@ -49,6 +50,9 @@ export enum CrossMeasure {
     FIRST,
     SECOND,
 }
+
+/** set by editing/splitjoinmeasure.ts (C++ calls SplitJoinMeasure::splitMeasure; avoids a circular import) */
+export const chordRestEditHooks: { splitMeasure?: (masterScore: MasterScore, tick: Fraction) => void } = {}
 
 export enum NoteType {
     NORMAL = 0,
@@ -276,7 +280,7 @@ export abstract class ChordRest extends DurationElement {
 
     override drop(data: EditData): EngravingItem | null {
         const e = data.dropElement!
-        const m = this.segment().measure()
+        let m = this.segment().measure()
         const fromPalette = e.track() === nidx
         switch (e.type()) {
         case ElementType.BREATH: {
@@ -298,7 +302,12 @@ export abstract class ChordRest extends DurationElement {
             const bl = e as unknown as BarLine
             const barLineTick = bl.barLineType() === BarLineType.START_REPEAT ? this.tick() : this.endTick()
 
-            // TODO(port): Ctrl: SplitJoinMeasure::splitMeasure (split the measure at the barline)
+            if (data.control()) {
+                chordRestEditHooks.splitMeasure!(this.masterScore(), barLineTick)
+                m = this.score().tick2measure(this.tick())!
+                // consume the ControlModifier flag
+                data.modifiers &= ~KeyboardModifier.ControlModifier
+            }
 
             if (barLineTick.eq(m.tick()) || barLineTick.eq(m.endTick())) {
                 return m.drop(data)

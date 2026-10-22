@@ -263,6 +263,29 @@ export class NotationActionController {
 
         this.registerAction('add-fretboard-diagram', () => this.interaction().addFretboardDiagram())
 
+        // the Tools menu (realize-chord-symbols, openRealizeChordSymbolsDialog, is registered by the app)
+        this.registerAction('split-measure', () => this.interaction().splitSelectedMeasure())
+        this.registerAction('join-measures', () => this.interaction().joinSelectedMeasures())
+        for (const [code, v1, v2] of [
+            ['voice-x12', 0, 1], ['voice-x13', 0, 2], ['voice-x14', 0, 3], ['voice-x23', 1, 2], ['voice-x24', 1, 3], ['voice-x34', 2, 3],
+        ] as const) {
+            this.registerAction(code, () => this.interaction().swapVoices(v1, v2))
+        }
+        this.registerAction('explode', () => this.interaction().explodeSelectedStaff())
+        this.registerAction('implode', () => this.interaction().implodeSelectedStaff())
+        this.registerAction('time-delete', () => this.interaction().removeSelectedRange())
+        this.registerAction('del-empty-measures', () => this.interaction().removeEmptyTrailingMeasures())
+        this.registerAction('slash-fill', () => this.interaction().fillSelectionWithSlashes())
+        this.registerAction('slash-rhythm', () => this.interaction().replaceSelectedNotesWithSlashes())
+        this.registerAction('pitch-spell', () => this.interaction().spellPitches())
+        this.registerAction('pitch-spell-sharps', () => this.interaction().spellPitchesWithSharps())
+        this.registerAction('pitch-spell-flats', () => this.interaction().spellPitchesWithFlats())
+        this.registerAction('reset-groupings', () => this.interaction().regroupNotesAndRests())
+        this.registerAction('resequence-rehearsal-marks', () => this.interaction().resequenceRehearsalMarks())
+        this.registerAction('copy-lyrics-to-clipboard', () => this.interaction().copyLyrics())
+        this.registerAction('enh-both', () => this.interaction().changeEnharmonicSpelling(true))
+        this.registerAction('enh-current', () => this.interaction().changeEnharmonicSpelling(false))
+
         // select-dialog (openSelectionMoreOptions) is registered by the app, which shows the dialogs (createSelectDialog)
         this.registerAction('first-element', () => this.withPlayMode(PlayMode.PlayChord, () => this.interaction().selectFirstElement(false)))
         this.registerAction('last-element', () => this.withPlayMode(PlayMode.PlayChord, () => this.interaction().selectLastElement()))

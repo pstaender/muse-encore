@@ -117,4 +117,58 @@ describe.skipIf(!hasData)('insert measures (MuseScore measure tests)', () => {
         insertMeasure(score, score.firstMeasure())
         expectRef(score, 'measure-5-ref.mscx')
     })
+
+    // delete measures (cmdTimeDelete of a selected measure)
+    for (const [name, which, layoutAfter] of [
+        ['spanner_A', 1, true], ['spanner_B', 2, false], ['spanner_C', 2, false], ['spanner_D', 2, false],
+    ] as const) {
+        it(name, () => {
+            const file = { spanner_A: 'measure-6', spanner_B: 'measure-7', spanner_C: 'measure-8', spanner_D: 'measure-9' }[name]
+            const score = open(`${file}.mscx`)
+            score.select(nthMeasure(score, which))
+            score.startCmd(TranslatableString.untranslatable('Engraving measure tests'))
+            score.cmdTimeDelete()
+            score.endCmd()
+            if (layoutAfter) {
+                layoutScore(score)
+            }
+            expectRef(score, `${file}-ref.mscx`)
+        })
+    }
+
+    it('deleteLast', () => {
+        const score = open('measure-10.mscx')
+        score.select(score.lastMeasure())
+        score.startCmd(TranslatableString.untranslatable('Engraving measure tests'))
+        score.cmdTimeDelete()
+        score.endCmd()
+        expectRef(score, 'measure-10-ref.mscx')
+    })
+})
+
+const SPANNERS = `${ROOT}MuseScore/src/engraving/tests/spanners_data/`
+
+describe.skipIf(!existsSync(SPANNERS))('delete measures with lyrics lines (MuseScore spanners tests)', () => {
+    beforeAll(async () => {
+        await initFonts()
+    })
+
+    for (const [name, file] of [
+        ['spanners09', 'lyricsline02'], ['spanners10', 'lyricsline03'], ['spanners11', 'lyricsline04'], ['spanners12', 'lyricsline05'],
+    ]) {
+        it(name, () => {
+            const score = loadScore(readFileSync(`${SPANNERS}${file}.mscx`))
+            layoutScore(score)
+            // delete the second measure
+            score.startCmd(TranslatableString.untranslatable('Engraving spanners tests'))
+            score.select(nthMeasure(score, 2))
+            score.cmdTimeDelete()
+            score.endCmd()
+            expect(staves(writeMscx(score))).toBe(staves(readFileSync(`${SPANNERS}${file}-ref.mscx`, 'utf8')))
+            // undo
+            score.undoRedo(true, null)
+            layoutScore(score) // measure needs to be renumbered
+            expect(staves(writeMscx(score))).toBe(staves(readFileSync(`${SPANNERS}${file}.mscx`, 'utf8')))
+        })
+    }
 })

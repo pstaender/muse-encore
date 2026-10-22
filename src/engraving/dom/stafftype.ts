@@ -1034,6 +1034,19 @@ export class StaffTypeList {
     uniqueStaffType(): boolean { return this.m_staffTypeChanges.empty() }
     isStaffTypeStartFrom(tick: Fraction): boolean { return this.m_staffTypeChanges.has(tick.ticks()) }
 
+    /** the start and end tick of the staff type at tick (end -1: to the end of the score) */
+    staffTypeRange(tick: Fraction): [number, number] {
+        if (tick.negative()) {
+            return [-1, -1]
+        }
+
+        const i = this.m_staffTypeChanges.upperBound(tick.ticks())
+        const end = i === this.m_staffTypeChanges.size() ? -1 : this.m_staffTypeChanges.keyAt(i)
+        const start = i === 0 ? 0 : this.m_staffTypeChanges.keyAt(i - 1)
+
+        return [start, end]
+    }
+
     staffType(tick: Fraction): StaffType {
         if (tick.negative()) {
             return new StaffType()

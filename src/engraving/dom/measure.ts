@@ -1569,10 +1569,11 @@ export class Measure extends MeasureBase {
     }
 
     measureRepeatCount(staffIdx: staff_idx_t): number {
-        return staffIdx < this.m_mstaves.length ? this.m_mstaves[staffIdx].measureRepeatCount() : 0
+        // (nidx is -1 here, SIZE_MAX in C++)
+        return staffIdx >= 0 && staffIdx < this.m_mstaves.length ? this.m_mstaves[staffIdx].measureRepeatCount() : 0
     }
     setMeasureRepeatCount(n: number, staffIdx: staff_idx_t): void {
-        if (staffIdx < this.m_mstaves.length) {
+        if (staffIdx >= 0 && staffIdx < this.m_mstaves.length) {
             this.m_mstaves[staffIdx].setMeasureRepeatCount(n)
         }
     }

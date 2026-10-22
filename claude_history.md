@@ -1366,3 +1366,22 @@
   nextChordNote/prevChordNote); the key edits get the view callbacks (changeEditElement) like the drags.
 - Tests: drag.test.ts keyboard tests (chord symbol Shift+Right/Left with undo, anchors shown while Shift is held,
   hairpin end moved with Shift+arrows).
+
+### Tools menu
+- All entries of MuseScore's Tools menu work (Transpose was already there): Explode/Implode (Score::cmdExplode/
+  cmdImplode with the CloneVoice command and Score::cloneVoice), Realize chord symbols (cmdRealizeChordSymbols with
+  setChord; dialogs/RealizeChordSymbolsDialog.tsx = RealizeHarmonyDialog with VoicingSelect; library
+  realizableChordSymbols/realizeChordSymbols), Voices (swap: cmdExchangeVoice), Measures > Split/Join
+  (editing/splitjoinmeasure.ts = SplitJoinMeasure; also the Ctrl drop of a barline on a chord/rest splits the measure),
+  Remove selected range (cmdTimeDelete, doTimeDelete, checkTimeDelete, doTimeDeleteForMeasure; deleteMeasures and
+  reconnectSlurs; deleteItem of a measure), Fill with slashes / Toggle rhythmic slash notation (cmdSlashFill,
+  cmdSlashRhythm, Chord.setSlash, Rest.setAccent), Respell pitches with sharps/flats, enharmonic spelling
+  (editing/spell.ts: spell, spellNotelist with the spelling window, spellWithSharpsOrFlats, changeEnharmonicSpelling,
+  Note.undoSetTpc), Regroup rhythms (cmdResetNoteAndRestGroupings), Resequence rehearsal marks, Copy lyrics to clipboard
+  (Score.lyrics/extractLyrics; the app writes the text to the system clipboard), Remove empty trailing measures
+  (firstTrailingMeasure). Helpers: EngravingItem.elementAppliesToTrack, Spanner.startElementFromSpanner,
+  StaffTypeList/Staff.staffTypeRange, Score.appendMeasures; Measure.measureRepeatCount(nidx) is 0 (nidx is -1 here).
+  TODO(port): scoreList() (excerpts) in the measure/time commands, cmdTimeDelete in parts, setPlayChord.
+- Tests: test/tools.test.ts (MuseScore's implodeexplode, tools, join, split, rhythmicgrouping and chord symbol realize
+  tests with their reference files; actions), measure.test.ts (measure_tests spanner_A-D, deleteLast; spanners_tests
+  09-12: deleting measures with lyrics lines, undo); e2e: Tools menu.

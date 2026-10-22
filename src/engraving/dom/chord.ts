@@ -16,6 +16,7 @@ import type { PropertyValue } from '../types/propertyvalue'
 import {
     AccidentalRole, AutoOnOff, BeamMode, DirectionV, DurationType, ElementType, GuitarBendType, StaffGroup, TremoloChordType, TremoloType,
     type staff_idx_t, type track_idx_t,
+    NoteHeadGroup, VOICES,
 } from '../types/types'
 import { Sid } from '../style/styledef'
 import { EngravingItem, ElementFlag, itemFactories } from './engravingitem'
@@ -1774,6 +1775,93 @@ export class Chord extends ChordRest {
             p.rightParen().scanElements(func)
         }
         super.scanElements(func)
+    }
+
+    /** slash notation: the chord as a slash on the middle line (stemless if asked), or back to normal */
+    setSlash(flag: boolean, stemless: boolean): void {
+        let line = 0
+        let head = NoteHeadGroup.HEAD_SLASH
+
+        if (!flag) {
+            // restore to normal
+            this.undoChangeProperty(Pid.NO_STEM, false)
+            this.undoChangeProperty(Pid.SMALL, false)
+            this.undoChangeProperty(Pid.OFFSET, new PointF())
+            for (const n of this.m_notes) {
+                n.undoChangeProperty(Pid.HEAD_GROUP, NoteHeadGroup.HEAD_NORMAL)
+                n.undoChangeProperty(Pid.FIXED, false)
+                n.undoChangeProperty(Pid.FIXED_LINE, 0)
+                n.undoChangeProperty(Pid.PLAY, true)
+                n.undoChangeProperty(Pid.VISIBLE, true)
+                for (const dot of n.dots()) {
+                    dot.undoChangeProperty(Pid.VISIBLE, true)
+                }
+                if (this.staff()!.isDrumStaff(this.tick())) {
+                    const ds = this.part()!.instrument(this.tick()).drumset()
+                    const pitch = n.pitch()
+                    if (ds && ds.isValid(pitch)) {
+                        this.undoChangeProperty(Pid.STEM_DIRECTION, ds.stemDirection(pitch))
+                        n.undoChangeProperty(Pid.HEAD_GROUP, ds.noteHead(pitch))
+                    }
+                }
+            }
+            return
+        }
+
+        // make stemless if asked
+        if (stemless) {
+            this.undoChangeProperty(Pid.NO_STEM, true)
+            this.undoChangeProperty(Pid.BEAM_MODE, BeamMode.NONE)
+        }
+
+        const staffType = this.staffType()!
+
+        // voice-dependent attributes - line, size, offset, head
+        if (this.track() % VOICES < 2) {
+            // use middle line
+            line = staffType.middleLine()
+            this.undoChangeProperty(Pid.STEM_DIRECTION, DirectionV.DOWN)
+        } else {
+            // set small
+            this.undoChangeProperty(Pid.SMALL, true)
+            // set outside the staff
+            let y = 0.0
+            if (this.track() % 2) {
+                line = staffType.bottomLine() + 1
+                y = 0.5 * this.spatium()
+                this.undoChangeProperty(Pid.STEM_DIRECTION, DirectionV.DOWN)
+            } else {
+                line = -1
+                if (!staffType.isDrumStaff()) {
+                    y = -0.5 * this.spatium()
+                }
+                this.undoChangeProperty(Pid.STEM_DIRECTION, DirectionV.UP)
+            }
+            // for non-drum staves, add an additional offset
+            // for drum staves, no offset, but use normal head
+            if (!staffType.isDrumStaff()) {
+                // undoChangeProperty(Pid::OFFSET, PointF(0.0, y));
+                this.mutldata().moveY(y)
+            } else {
+                head = NoteHeadGroup.HEAD_NORMAL
+            }
+        }
+
+        const ns = this.m_notes.length
+        for (let i = 0; i < ns; ++i) {
+            const n = this.m_notes[i]
+            n.undoChangeProperty(Pid.HEAD_GROUP, head)
+            n.undoChangeProperty(Pid.FIXED, true)
+            n.undoChangeProperty(Pid.FIXED_LINE, line)
+            n.undoChangeProperty(Pid.PLAY, false)
+            // hide all but first notehead
+            if (i) {
+                n.undoChangeProperty(Pid.VISIBLE, false)
+                for (const dot of n.dots()) {
+                    dot.undoChangeProperty(Pid.VISIBLE, false)
+                }
+            }
+        }
     }
 }
 

@@ -792,6 +792,38 @@ export abstract class EngravingItem extends EngravingObject {
 
     hasVoiceAssignmentProperties(): boolean { return false }
 
+    /** the element (an annotation with a voice assignment) applies to refTrack */
+    elementAppliesToTrack(refTrack: track_idx_t): boolean {
+        if (!this.hasVoiceAssignmentProperties()) {
+            return refTrack === this.track()
+        }
+        const voiceAssignment = this.getProperty(Pid.VOICE_ASSIGNMENT) as VoiceAssignment
+
+        return EngravingItem.elementAppliesToTrackStatic(this.track(), refTrack, voiceAssignment, this.part())
+    }
+
+    /** C++ static elementAppliesToTrack(elementTrack, refTrack, voiceAssignment, part) (renamed: no overloads in TS) */
+    static elementAppliesToTrackStatic(elementTrack: track_idx_t, refTrack: track_idx_t, voiceAssignment: VoiceAssignment,
+        part: Part | null): boolean {
+        if (voiceAssignment === VoiceAssignment.CURRENT_VOICE_ONLY && elementTrack === refTrack) {
+            return true
+        }
+
+        if (voiceAssignment === VoiceAssignment.ALL_VOICE_IN_STAFF && track2staff(elementTrack) === track2staff(refTrack)) {
+            return true
+        }
+
+        if (!part) {
+            return false
+        }
+
+        if (voiceAssignment === VoiceAssignment.ALL_VOICE_IN_INSTRUMENT && (part.startTrack() <= refTrack
+            && part.endTrack() - 1 >= refTrack)) {
+            return true
+        }
+        return false
+    }
+
     appliesToAllVoicesInInstrument(): boolean {
         return this.hasVoiceAssignmentProperties()
                && (this.getProperty(Pid.VOICE_ASSIGNMENT) as VoiceAssignment) === VoiceAssignment.ALL_VOICE_IN_INSTRUMENT

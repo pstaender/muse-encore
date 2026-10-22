@@ -459,6 +459,7 @@ export class Staff extends EngravingItem {
     }
 
     isStaffTypeStartFrom(tick: Fraction): boolean { return this.m_staffTypeList.isStaffTypeStartFrom(tick) }
+    staffTypeRange(tick: Fraction): [number, number] { return this.m_staffTypeList.staffTypeRange(tick) }
     removeStaffType(tick: Fraction): void { this.m_staffTypeList.removeStaffType(tick) }
 
     /** C++ Staff::init(const InstrumentTemplate*, const StaffType*, int) */
