@@ -16,7 +16,7 @@ import {
     // copy/paste, text editing, drag
     CLIPBOARD_FORMATS, clipboardContents, executeAction, isActionEnabled, isDragging, setClipboardContents, setClipboardImage, textEditingInfo,
     viewInputText, viewKeyPress, viewMouseDoubleClick, viewMouseMove, viewMousePress, viewMouseRelease, viewResetTripleClick,
-    viewShortcutOverride, type ViewKeyEvent, type ViewPointerEvent,
+    viewKeyRelease, viewShortcutOverride, type ViewKeyEvent, type ViewPointerEvent,
     // drag and drop of palette cells onto the score
     viewDragEnter, viewDragLeave, viewDragMove, viewDrop, type OutgoingElementDrag, type ViewDragEvent,
 } from '../src/index'
@@ -1887,6 +1887,10 @@ document.addEventListener('keyup', (e) => {
     if (e.key === ' ') {
         releaseSpace()
     }
+    if (e.key === 'Shift' && score && e.target === viewport) {
+        viewKeyRelease(score, viewKey(e))
+        scoreChanged(false)
+    }
 })
 window.addEventListener('blur', releaseSpace)
 viewport.addEventListener('pointerup', endDrag)
@@ -2036,6 +2040,12 @@ document.addEventListener('keydown', (e) => {
     if (e.target === viewport && viewShortcutOverride(score, viewKey(e))) {
         // the selected or edited element takes the key (MuseScore's shortcutOverrideEvent / keyPressEvent)
         e.preventDefault()
+        viewKeyPress(score, viewKey(e))
+        scoreChanged(false)
+        return
+    }
+    if (e.target === viewport && key === 'Shift' && !e.repeat) {
+        // C++ keyPressEvent: Shift shows the time tick anchors of the selected element (Shift+Left/Right moves it)
         viewKeyPress(score, viewKey(e))
         scoreChanged(false)
         return

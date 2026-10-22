@@ -16,7 +16,10 @@ import type { SlurSegment } from '../src/engraving/dom/slur'
 import { Grip } from '../src/engraving/editing/editdata'
 import { drawPageSvg } from '../src/index'
 import { readFileSync } from 'node:fs'
-import { layoutScore, loadScore, viewDragEnter, viewDragMove, viewDrop } from '../src/index'
+import {
+    layoutScore, loadScore, viewDragEnter, viewDragMove, viewDrop, viewKeyPress, viewKeyRelease, viewShortcutOverride,
+    type ViewKeyEvent,
+} from '../src/index'
 import type { Fraction } from '../src/engraving/types/fraction'
 import { DEMOS, ROOT, hasSubmodule, initFonts, openScore, scoreHash as hashWithSelection } from './helpers'
 
@@ -315,5 +318,91 @@ describe.skipIf(!hasSubmodule)('drag: moving elements to other beats (MoveElemen
         expect(line.tick().eq(t1)).toBe(true)
         expect(line.tick2().eq(t2)).toBe(true)
         expect(scoreHash(score)).toBe(before)
+    })
+})
+
+describe.skipIf(!hasSubmodule)('keyboard: moving elements to other beats (Shift+Left/Right, LineSegment::edit)', () => {
+    beforeAll(async () => {
+        await initFonts()
+    })
+
+    function open(): MasterScore {
+        const score = loadScore(readFileSync(`${CHORDSYMBOL_DATA}realize.mscx`))
+        layoutScore(score)
+        return score
+    }
+
+    const key = (k: string, mods: Partial<ViewKeyEvent> = {}): ViewKeyEvent =>
+        ({ key: k, code: '', shift: false, ctrl: false, alt: false, meta: false, ...mods })
+
+    /** like the app: the view takes the key (shortcutOverrideEvent), then keyPressEvent */
+    function press(score: MasterScore, e: ViewKeyEvent): boolean {
+        if (!viewShortcutOverride(score, e)) {
+            return false
+        }
+        viewKeyPress(score, e)
+        return true
+    }
+
+    it('Shift+Right/Left moves a selected chord symbol to the next/previous beat (undoable); holding Shift shows the anchors', () => {
+        const score = open()
+        const h = firstHarmony(score)
+        const tick0 = h.tick()
+        const before = scoreHash(score) // (deselects)
+        score.select(h)
+
+        // Shift alone shows the time tick anchors of the selected element, releasing it hides them
+        viewKeyPress(score, key('Shift', { shift: true }))
+        expect(score.showAnchors().staffIdx).toBe(h.staffIdx())
+        viewKeyRelease(score, key('Shift'))
+        expect(score.showAnchors().staffIdx).toBe(-1)
+
+        expect(press(score, key('ArrowRight', { shift: true }))).toBe(true)
+        const tick1 = h.tick()
+        expect(tick1.gt(tick0)).toBe(true)
+        expect(press(score, key('ArrowRight', { shift: true }))).toBe(true)
+        expect(h.tick().gt(tick1)).toBe(true)
+        expect(press(score, key('ArrowLeft', { shift: true }))).toBe(true)
+        expect(h.tick().eq(tick1)).toBe(true)
+        undo(score)
+        undo(score)
+        undo(score)
+        expect(h.tick().eq(tick0)).toBe(true)
+        expect(scoreHash(score)).toBe(before)
+
+        // without Shift the arrow keys are not anchor editing (they move the selection)
+        score.select(h)
+        expect(viewShortcutOverride(score, key('ArrowRight'))).toBe(false)
+    })
+
+    it('Shift+Right/Left on a hairpin in edit mode moves its end (and with the start grip its start)', () => {
+        const score = open()
+        const m1 = score.firstMeasure()!
+        score.select(m1, SelectType.RANGE, 0)
+        expect(executeAction(score, 'add-hairpin')).toBe(true)
+        let seg: EngravingItem | null = null
+        score.scanElements(e => {
+            if (!seg && e.isHairpinSegment()) {
+                seg = e
+            }
+        })
+        const hs = seg! as EngravingItem
+        const line = (hs as unknown as { spanner(): { tick(): Fraction; tick2(): Fraction } }).spanner()
+        const t1 = line.tick()
+        const t2 = line.tick2()
+        // a click selects the hairpin and starts editing it (its grips)
+        const c = hs.canvasBoundingRect().center()
+        viewMousePress(score, pointer(score, c.x(), c.y()))
+        viewMouseRelease(score, pointer(score, c.x(), c.y(), { buttons: 0 }))
+        expect(score.selection().element()).toBe(hs)
+
+        expect(press(score, key('ArrowRight', { shift: true }))).toBe(true)
+        expect(line.tick().eq(t1)).toBe(true)
+        expect(line.tick2().gt(t2)).toBe(true)
+        expect(press(score, key('ArrowLeft', { shift: true }))).toBe(true)
+        expect(line.tick2().eq(t2)).toBe(true)
+        undo(score)
+        undo(score)
+        expect(line.tick2().eq(t2)).toBe(true)
     })
 })

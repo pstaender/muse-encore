@@ -1347,8 +1347,6 @@
 - LineSegment.rebaseAnchors (hairpins, ottavas, ... dragged or their start/end grips dragged snap to segments; Ctrl
   keeps them): findSegmentForGrip, rebaseAnchor, rebaseOffsetsOnAnchorChanged, undoMoveStartEndAndSnappedItems,
   SLine.undoMoveStart/undoMoveEnd; the drag EditData gets the view callbacks (changeEditElement).
-  TODO(port): LineSegment::edit with Shift+arrows (findNewAnchorSegmentForLine), NotationInteraction
-  updateTimeTickAnchors/moveElementAnchors key handling.
 - The edit overlays (anchor lines, grips, range frame) are sized in view pixels: DrawPageOptions.pixelRatio (the app
   passes devicePixelRatio), before they were half as large on HiDPI screens.
 - Editor: the Ctrl+Shift (Cmd+Shift) outgoing drag can be dropped onto the score (a copy, like MuseScore's QDrag onto
@@ -1356,3 +1354,15 @@
   and toolbars) close on a click outside of them, Escape and window blur; a click on the menu's own button toggles it.
 - Tests: drag tests (snapping of a chord symbol, Ctrl keeps the anchor, hairpin drag, Ctrl+Shift copy); e2e: closing
   the context menu.
+
+### Moving anchors with the keyboard
+- Shift+Left/Right (Alt: anchor to the end of the previous beat where allowed) moves a selected element that can be
+  anchored to beats (texts, chord symbols, fret diagrams, dynamics, ...): NotationViewInputController
+  isAnchorEditingEvent/shortcutOverrideEvent/keyPressEvent -> NotationInteraction.moveElementAnchors
+  (MoveElementAnchors.moveElementAnchors, "Move element anchors"). Holding Shift shows the time tick anchors
+  (updateTimeTickAnchors on Shift press/release; library viewKeyRelease, the app forwards Shift keydown/keyup).
+- LineSegment.isEditAllowed/edit: Shift+arrows (Home/End, Ctrl: by measure) move the start or end of a line in edit
+  mode (segment, note and measure anchored lines; MoveElementAnchors.findNewAnchorSegmentForLine, utils
+  nextChordNote/prevChordNote); the key edits get the view callbacks (changeEditElement) like the drags.
+- Tests: drag.test.ts keyboard tests (chord symbol Shift+Right/Left with undo, anchors shown while Shift is held,
+  hairpin end moved with Shift+arrows).

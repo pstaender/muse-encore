@@ -13,6 +13,8 @@
  * Score::nextElement/prevElement), moveStringSelection, anchor lines, drop of dragged palette items / mime data.
  */
 
+import { EditTimeTickAnchors, MoveElementAnchors } from '../../engraving/dom/anchors'
+import type { MuseScoreView } from '../../engraving/editing/mscoreview'
 import type { SoundFlag } from '../../engraving/dom/soundflag'
 import { LineF, PointF, RectF } from '../../framework/draw/types/geometry'
 import { DirectionV, DurationType, ElementType, LayoutBreakType, VOICES, nidx, type staff_idx_t, type track_idx_t, type voice_idx_t } from '../../engraving/types/types'
@@ -2276,10 +2278,7 @@ export class NotationInteraction {
 
         const edd: ElementDropData = { ed: new EditData(), dropTarget: null, dropRect: new RectF() }
         // C++ EditData(&m_scoreCallbacks): ScoreCallbacks forwards the view callbacks to the interaction
-        edd.ed.view = {
-            setDropRectangle: (rect) => this.setDropRect(rect),
-            setDropTarget: (item) => this.setDropTarget(item, false),
-        }
+        edd.ed.view = this.scoreCallbacks()
         this.m_dropData = edd
 
         const e = new XmlReader(edata)
@@ -3619,8 +3618,14 @@ export class NotationInteraction {
             this.m_editData.curGrip = this.m_editData.element.defaultGrip()
         }
 
+        // C++ m_editData = EditData(&m_scoreCallbacks)
+        this.m_editData.view ??= this.scoreCallbacks()
+
         let accepted = false
         if (this.handleKeyPress(event)) {
+            if (this.isGripEditStarted()) {
+                this.updateGripAnchorLines()
+            }
             accepted = true
         }
 
@@ -3628,6 +3633,49 @@ export class NotationInteraction {
             this.notifyAboutTextEditingChanged()
         }
         return accepted
+    }
+
+    /** C++ m_scoreCallbacks (ScoreCallbacks): the view callbacks of EditData::view() */
+    private scoreCallbacks(): MuseScoreView {
+        return {
+            setDropRectangle: (rect) => this.setDropRect(rect),
+            setDropTarget: (item) => this.setDropTarget(item, false),
+            changeEditElement: (e) => this.changeEditElement(e),
+        }
+    }
+
+    /**
+     * C++ updateTimeTickAnchors(QKeyEvent*) (keyPress: event->type() == KeyPress): the anchors are shown while Shift is
+     * held with an anchorable selection
+     */
+    updateTimeTickAnchors(keyPress: boolean): void {
+        const selectedElement = this.score().selection().element()
+        if (selectedElement && selectedElement.allowTimeAnchor() && keyPress && !this.isTextEditingStarted()) {
+            EditTimeTickAnchors.updateAnchors(selectedElement)
+            this.updateDragAnchorLines()
+        } else {
+            this.score().hideAnchors()
+            this.resetAnchorLines()
+        }
+
+        this.score().update()
+        this.notifyAboutNotationChanged()
+    }
+
+    /** C++ moveElementAnchors(QKeyEvent*): Shift(+Alt)+Left/Right moves the selected element to another beat */
+    moveElementAnchors(event: NotationKeyEvent): void {
+        const element = this.score().selection().element()
+        if (!element) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Move element anchors'))
+
+        MoveElementAnchors.moveElementAnchors(element, event.key, event.modifiers)
+
+        this.apply()
+
+        this.updateDragAnchorLines()
     }
 
     endEditElement(): void {
@@ -5051,11 +5099,7 @@ export class NotationInteraction {
 
     drag(fromPos: PointF, toPos: PointF, mode: DragMode, modifiers = 0): void {
         // C++ m_dragData.ed = EditData(&m_scoreCallbacks): the view callbacks of the dragged items
-        this.m_dragData.ed.view ??= {
-            setDropRectangle: (rect) => this.setDropRect(rect),
-            setDropTarget: (item) => this.setDropTarget(item, false),
-            changeEditElement: (e) => this.changeEditElement(e),
-        }
+        this.m_dragData.ed.view ??= this.scoreCallbacks()
         if (this.m_dragData.beginMove.isNull()) {
             this.m_dragData.beginMove = fromPos.clone()
             this.m_dragData.ed.pos = fromPos.clone()

@@ -5,7 +5,6 @@
  *
  * Port of src/engraving/dom/line.h/.cpp
  *
- * TODO(port): editing: moving the start/end with Shift+arrows (LineSegment::edit, findNewAnchorSegmentForLine)
  */
 
 import { Color } from '../../framework/draw/types/color'
@@ -13,7 +12,8 @@ import { LineF, PointF, type RectF } from '../../framework/draw/types/geometry'
 import { Spatium } from '../types/dimension'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
-import { ElementType, LineType, PlacementV, track2staff } from '../types/types'
+import { ElementType, LineType, PlacementV, SpannerSegmentType, track2staff } from '../types/types'
+import { nextChordNote, prevChordNote } from './utils'
 import { Sid } from '../style/styledef'
 import { Grip, KeyboardKey, KeyboardModifier, type EditData } from '../editing/editdata'
 import { EditTimeTickAnchors, MoveElementAnchors } from './anchors'
@@ -110,6 +110,185 @@ export abstract class LineSegment extends SpannerSegment {
         EditTimeTickAnchors.updateAnchors(this)
 
         this.triggerLayout()
+    }
+
+    override isEditAllowed(ed: EditData): boolean {
+        return (ed.modifiers & KeyboardModifier.ShiftModifier) !== 0
+    }
+
+    /** Shift+arrows (Home/End) move the start or end of the line; returns true if the event is accepted */
+    override edit(ed: EditData): boolean {
+        const moveStart = ed.curGrip === Grip.START
+        const moveEnd = ed.curGrip === Grip.END || ed.curGrip === Grip.MIDDLE
+
+        const st = this.spannerSegmentType() // may change later
+        const l = this.line()
+
+        if (!this.isEditAllowed(ed)) {
+            return false
+        }
+
+        switch (l.anchor()) {
+        case SpannerAnchor.SEGMENT: {
+            let s1 = this.spanner()!.startSegment()
+            let s2 = this.spanner()!.endSegment()
+            // check for line going to end of score
+            if (this.spanner()!.tick2().ge(this.score().lastSegment()!.tick())) {
+                // endSegment calculated above will be the last chord/rest of score
+                // but that is not correct - it should be an imaginary note *after* the end of the score
+                // best we can do is set s2 to lastSegment (probably the end barline)
+                s2 = this.score().lastSegment()
+            }
+            if (!s1 && !s2) {
+                return true
+            }
+            if (moveStart) {
+                s1 = MoveElementAnchors.findNewAnchorSegmentForLine(this, ed, s1!)
+            } else {
+                s2 = MoveElementAnchors.findNewAnchorSegmentForLine(this, ed, s2!)
+            }
+            if (!s1 || !s2 || s1.tick().ge(s2.tick())) {
+                return true
+            }
+
+            this.undoMoveStartEndAndSnappedItems(ed, moveStart, moveEnd, s1, s2)
+
+            EditTimeTickAnchors.updateAnchors(this)
+            break
+        }
+        case SpannerAnchor.NOTE: {
+            let note1 = l.startElement() as unknown as Note | null
+            let note2 = l.endElement() as unknown as Note | null
+            const oldNote1 = note1
+            const oldNote2 = note2
+            if (!note1 && !note2) {
+                return true // accept the event without doing anything
+            }
+
+            switch (ed.key) {
+            case KeyboardKey.Key_Left:
+                if (moveStart) {
+                    note1 = prevChordNote(note1!)
+                } else if (moveEnd) {
+                    note2 = prevChordNote(note2!)
+                }
+                break
+            case KeyboardKey.Key_Right:
+                if (moveStart) {
+                    note1 = nextChordNote(note1!)
+                } else if (moveEnd) {
+                    note2 = nextChordNote(note2!)
+                }
+                break
+            case KeyboardKey.Key_Up:
+                if (moveStart) {
+                    note1 = this.score().upAlt(note1!) as unknown as Note | null
+                } else if (moveEnd) {
+                    note2 = this.score().upAlt(note2!) as unknown as Note | null
+                }
+                break
+            case KeyboardKey.Key_Down:
+                if (moveStart) {
+                    note1 = this.score().downAlt(note1!) as unknown as Note | null
+                } else if (moveEnd) {
+                    note2 = this.score().downAlt(note2!) as unknown as Note | null
+                }
+                break
+            default:
+                return true
+            }
+
+            // check prevChordNote() and nextchordNote() didn't return null
+            // OR Score::upAlt() and Score::downAlt() didn't return non-Note (notably rests)
+            // OR spanner duration is > 0
+            // OR note1 and note2 didn't end up in different instruments
+            // if this is the case, accepts the event and return without doing nothing
+            if (!note1 || !note2
+                || !note1.isNote() || !note2.isNote()
+                || note1.chord().tick().ge(note2.chord().tick())
+                || note1.chord().staff()!.part()!.instrument(note1.chord().tick())
+                !== note2.chord().staff()!.part()!.instrument(note2.chord().tick())) {
+                return true
+            }
+            if (note1 !== oldNote1 || note2 !== oldNote2) {
+                this.score().undoChangeSpannerElements(this.spanner()!, note1, note2)
+            }
+            break
+        }
+        case SpannerAnchor.MEASURE:
+        case SpannerAnchor.CHORD: {
+            let m1 = l.startMeasure()!
+            let m2 = l.endMeasure()!
+
+            if (ed.key === KeyboardKey.Key_Left) {
+                if (moveStart) {
+                    if (m1.prevMeasure()) {
+                        m1 = m1.prevMeasure()!
+                    }
+                } else if (moveEnd) {
+                    const m = m2.prevMeasure()
+                    if (m) {
+                        m2 = m
+                    }
+                }
+            } else if (ed.key === KeyboardKey.Key_Right) {
+                if (moveStart) {
+                    if (m1.nextMeasure()) {
+                        m1 = m1.nextMeasure()!
+                    }
+                } else if (moveEnd) {
+                    if (m2.nextMeasure()) {
+                        m2 = m2.nextMeasure()!
+                    }
+                }
+            } else if (ed.key === KeyboardKey.Key_Home) {
+                if (moveStart) {
+                    m1 = m1.system()!.firstMeasure()!
+                } else if (moveEnd) {
+                    m2 = m2.system()!.firstMeasure()!
+                }
+            } else if (ed.key === KeyboardKey.Key_End) {
+                if (moveStart) {
+                    m1 = m1.system()!.lastMeasure()!
+                } else if (moveEnd) {
+                    m2 = m2.system()!.lastMeasure()!
+                }
+            }
+            if (m1.tick().gt(m2.tick())) {
+                return true
+            }
+            if (l.startElement() !== (m1 as unknown)) {
+                this.spanner()!.undoChangeProperty(Pid.SPANNER_TICK, m1.tick())
+                this.spanner()!.undoChangeProperty(Pid.SPANNER_TICKS, m2.endTick().minus(m1.tick()))
+            } else if (l.endElement() !== (m2 as unknown)) {
+                this.spanner()!.undoChangeProperty(Pid.SPANNER_TICKS, m2.endTick().minus(m1.tick()))
+            }
+            break
+        }
+        }
+        this.triggerLayout()
+        // recompute segment list, segment type may change
+        scoreRendererHooks.layoutItem!(l)
+
+        let nls: LineSegment | null = null
+        if (st === SpannerSegmentType.SINGLE) {
+            if (moveStart) {
+                nls = l.frontSegment() as LineSegment | null
+            } else if (moveEnd) {
+                nls = l.backSegment() as LineSegment | null
+            }
+        } else if (st === SpannerSegmentType.BEGIN) {
+            nls = l.frontSegment() as LineSegment | null
+        } else if (st === SpannerSegmentType.END) {
+            nls = l.backSegment() as LineSegment | null
+        }
+
+        if (nls && nls !== this) {
+            ed.view?.changeEditElement?.(nls)
+        }
+
+        this.triggerLayout()
+        return true
     }
 
     findSegmentForGrip(grip: Grip, pos: PointF): Segment | null {

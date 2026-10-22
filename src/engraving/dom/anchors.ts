@@ -5,7 +5,6 @@
  *
  * Port of src/engraving/dom/anchors.h/.cpp: the time tick anchors (shown while an element is edited or dragged),
  * EditTimeTickAnchors and MoveElementAnchors (moving elements to other segments by dragging and with the keyboard).
- * TODO(port): findNewAnchorSegmentForLine (lines moved with the keyboard)
  */
 
 import { ElementType, VOICES, VoiceAssignment, staff2track, type staff_idx_t, type voice_idx_t } from '../types/types'
@@ -23,7 +22,7 @@ import type { Staff } from './staff'
 import type { FiguredBass } from './figuredbass'
 import type { SpannerSegment } from './spanner'
 import type { TextLineBaseSegment } from './textlinebase'
-import type { SLine } from './line'
+import type { LineSegment, SLine } from './line'
 
 /** set by rendering/score/scorerenderer.ts (C++ calls MeasureLayout::layoutTimeTickAnchors directly) */
 export const anchorsLayoutHooks: { layoutTimeTickAnchors?: (measure: Measure) => void } = {}
@@ -308,6 +307,72 @@ export class MoveElementAnchors {
         }
 
         return dragPositionToSegment(element.canvasPos(), newMeasure, element.staffIdx(), null, 0.5, true)
+    }
+
+    static findNewAnchorSegmentForLine(lineSegment: LineSegment, ed: EditData, curSeg: Segment): Segment | null {
+        const line = lineSegment.line()
+        const score = lineSegment.score()
+        if (!line.allowTimeAnchor()) {
+            if (ed.key === KeyboardKey.Key_Left) {
+                return curSeg.prev1WithElemsOnStaff(lineSegment.staffIdx())
+            }
+            if (ed.key === KeyboardKey.Key_Right) {
+                let lastCRSegInScore = score.lastSegment()
+                while (lastCRSegInScore && !lastCRSegInScore.isChordRestType()) {
+                    lastCRSegInScore = lastCRSegInScore.prev1(SegmentType.ChordRest)
+                }
+                if (curSeg === lastCRSegInScore && curSeg === line.endSegment()) {
+                    // If we reach this point, it means that the line in question does not accept time anchors
+                    // and that the line's end segment is the last CR segment in the score. Trying to use
+                    // next1WithElemsOnStaff won't do anything from here, but the last segment in the score is
+                    // still a valid new anchor segment for this line (see also LineSegment::edit)...
+                    return score.lastSegment()
+                }
+                return curSeg.next1WithElemsOnStaff(lineSegment.staffIdx())
+            }
+        }
+
+        switch (ed.key) {
+        case KeyboardKey.Key_Left: {
+            if (ed.modifiers & KeyboardModifier.ControlModifier) {
+                const m = curSeg.rtick().isZero() ? curSeg.measure().prevMeasure() : curSeg.measure()
+                return m ? m.findFirstR(SegmentType.ChordRest, new Fraction(0, 1)) : null
+            }
+            return MoveElementAnchors.findNewAnchorableSegment(curSeg, /*forward*/ false)
+        }
+        case KeyboardKey.Key_Right: {
+            if (ed.modifiers & KeyboardModifier.ControlModifier) {
+                const measure = curSeg.measure().nextMeasure()
+                if (measure) {
+                    return measure.findFirstR(SegmentType.ChordRest, new Fraction(0, 1))
+                } else {
+                    const m = score.lastMeasure()!
+                    EditTimeTickAnchors.updateAnchorsInMeasure(m, lineSegment.staffIdx())
+                    return m.getChordRestOrTimeTickSegment(m.endTick())
+                }
+            }
+            return MoveElementAnchors.findNewAnchorableSegment(curSeg, /*forward*/ true)
+        }
+        case KeyboardKey.Key_Home: {
+            let m = curSeg.measure().system()!.firstMeasure()!
+            if (curSeg.rtick().isZero() && m === curSeg.measure() && m.prevMeasure()) {
+                m = m.prevMeasure()!.system()!.firstMeasure()!
+            }
+            return m.findFirstR(SegmentType.ChordRest, new Fraction(0, 1))
+        }
+        case KeyboardKey.Key_End: {
+            const measure = curSeg.measure().system()!.lastMeasure()!.nextMeasure()
+            if (measure) {
+                return measure.findFirstR(SegmentType.ChordRest, new Fraction(0, 1))
+            } else {
+                const m = score.lastMeasure()!
+                EditTimeTickAnchors.updateAnchorsInMeasure(m, lineSegment.staffIdx())
+                return m.getChordRestOrTimeTickSegment(m.endTick())
+            }
+        }
+        }
+
+        return null
     }
 
     /** C++ moveSegment(EngravingItem*, bool forward) (renamed: no overloads in TS) */

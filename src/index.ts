@@ -2020,6 +2020,11 @@ export function viewKeyPress(score: MasterScore, e: ViewKeyEvent): boolean {
     return notationState(score).controller.keyPressEvent(notationKeyEvent(e))
 }
 
+/** C++ keyReleaseEvent: releasing Shift hides the time tick anchors shown while it is held */
+export function viewKeyRelease(score: MasterScore, e: ViewKeyEvent): void {
+    notationState(score).controller.keyReleaseEvent(notationKeyEvent(e))
+}
+
 /** C++ inputMethodEvent: text typed into the edited text (commit), or the preedit string of an input method composition */
 export function viewInputText(score: MasterScore, commit: string, preedit = ''): void {
     notationState(score).controller.inputMethodEvent(commit, preedit)

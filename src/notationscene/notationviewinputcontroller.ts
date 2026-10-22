@@ -26,7 +26,7 @@ import { PointF as PointFValue } from '../framework/draw/types/geometry'
 import { ElementType } from '../engraving/types/types'
 import { SelectTextType } from '../engraving/dom/textbase'
 import { NoteEntryMethod } from '../engraving/dom/input'
-import { KeyboardKey, MouseButton } from '../engraving/editing/editdata'
+import { KeyboardKey, KeyboardModifier, MouseButton } from '../engraving/editing/editdata'
 import { DragMode, type HitElementContext, type NotationKeyEvent } from '../notation/internal/notationinteraction'
 import type { Note } from '../engraving/dom/note'
 
@@ -912,8 +912,20 @@ export class NotationViewInputController {
             return interaction.isEditAllowed(event)
         }
 
-        // TODO(port): anchor editing (Shift+Left/Right), percussion shortcuts
+        if (this.isAnchorEditingEvent(event)) {
+            return true
+        }
+
+        // TODO(port): percussion shortcuts (tryPercussionShortcut)
         return false
+    }
+
+    /** Shift(+Alt)+Left/Right with a selected element that can be anchored to beats */
+    isAnchorEditingEvent(event: NotationKeyEvent): boolean {
+        const anchorEditingKeyCombo = (event.key === KeyboardKey.Key_Left || event.key === KeyboardKey.Key_Right)
+            && (event.modifiers & KeyboardModifier.ShiftModifier) !== 0
+        const selectedItem = this.viewInteraction().score().selection().element()
+        return !!selectedItem && selectedItem.allowTimeAnchor() && anchorEditingKeyCombo
     }
 
     /** C++ keyPressEvent; returns true if the key was handled */
@@ -927,9 +939,29 @@ export class NotationViewInputController {
             }
             return true
         } else if (interaction.isEditingElement()) {
-            return interaction.editElement(event)
+            const accepted = interaction.editElement(event)
+            if (event.key === KeyboardKey.Key_Shift) {
+                interaction.updateTimeTickAnchors(true)
+            }
+            return accepted
+        } else if (event.key === KeyboardKey.Key_Shift) {
+            interaction.updateTimeTickAnchors(true)
+            return false
+        } else if (this.isAnchorEditingEvent(event)) {
+            interaction.moveElementAnchors(event)
+            return true
         }
         return false
+    }
+
+    /** C++ keyReleaseEvent: releasing Shift hides the anchors */
+    keyReleaseEvent(event: NotationKeyEvent): void {
+        if (event.key !== KeyboardKey.Key_Shift) {
+            return
+        }
+
+        this.viewInteraction().editElement(event)
+        this.viewInteraction().updateTimeTickAnchors(false)
     }
 
     /** C++ inputMethodEvent: committed text or the preedit string of a composition */

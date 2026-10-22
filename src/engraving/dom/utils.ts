@@ -1147,3 +1147,53 @@ export function segmentOrChordRestSegmentAtSameTick(segment: Segment): Segment {
 
     return segment
 }
+
+export function nextChordNote(note: Note): Note | null {
+    const track = note.track()
+    const fromTrack = Math.floor(track / VOICES) * VOICES
+    const toTrack = fromTrack + VOICES
+    // TODO : limit to same instrument, not simply to same staff!
+    let seg = note.chord().segment()!.nextCR(track, true)
+    while (seg) {
+        let targetElement = seg.element(track)
+        // if a chord exists in the same track, return its top note
+        if (targetElement && targetElement.isChord()) {
+            return (targetElement as unknown as Chord).upNote()
+        }
+        // if not, return topmost chord in track range
+        for (let i = fromTrack; i < toTrack; i++) {
+            targetElement = seg.element(i)
+            if (targetElement && targetElement.isChord()) {
+                return (targetElement as unknown as Chord).upNote()
+            }
+        }
+        seg = seg.nextCR(track, true)
+    }
+    return null
+}
+
+export function prevChordNote(note: Note): Note | null {
+    const track = note.track()
+    const fromTrack = Math.floor(track / VOICES) * VOICES
+    const toTrack = fromTrack + VOICES
+    // TODO : limit to same instrument, not simply to same staff!
+    let seg = note.chord().segment()!.prev1()
+    while (seg) {
+        if (seg.segmentType() === SegmentType.ChordRest) {
+            let targetElement = seg.element(track)
+            // if a chord exists in the same track, return its top note
+            if (targetElement && targetElement.isChord()) {
+                return (targetElement as unknown as Chord).upNote()
+            }
+            // if not, return topmost chord in track range
+            for (let i = fromTrack; i < toTrack; i++) {
+                targetElement = seg.element(i)
+                if (targetElement && targetElement.isChord()) {
+                    return (targetElement as unknown as Chord).upNote()
+                }
+            }
+        }
+        seg = seg.prev1()
+    }
+    return null
+}
