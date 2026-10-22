@@ -32,7 +32,7 @@ function isEnabled(it: MenuItem): boolean {
 }
 
 /** a menu at a position; submenus open beside their item */
-export function MenuPopup({ items, anchor, placement, onClose, onLeft, onRight, initialFocus = 'first', label }: {
+export function MenuPopup({ items, anchor, placement, onClose, onLeft, onRight, initialFocus = 'first', label, isSubmenu = false }: {
     items: MenuItem[]
     anchor: DOMRect
     placement: 'below' | 'right'
@@ -43,6 +43,8 @@ export function MenuPopup({ items, anchor, placement, onClose, onLeft, onRight, 
     onRight?: () => void
     initialFocus?: 'first' | 'last' | 'none'
     label: string
+    /** a submenu (closed with its parent menu) */
+    isSubmenu?: boolean
 }): React.JSX.Element {
     useActions()
     useLanguage()
@@ -88,6 +90,40 @@ export function MenuPopup({ items, anchor, placement, onClose, onLeft, onRight, 
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
+
+    // like MuseScore's popups: a click outside of the menu (and its submenus), Escape with the focus outside of the menu
+    // or leaving the window closes it. A click on the menu's own button is left to the button (it toggles the menu).
+    const closeRef = useRef(onClose)
+    closeRef.current = onClose
+    useEffect(() => {
+        if (isSubmenu) {
+            return
+        }
+        const onPointerDown = (e: PointerEvent): void => {
+            const t = e.target instanceof Element ? e.target : null
+            if (!t?.closest('.menu-popup, [aria-haspopup][aria-expanded="true"]')) {
+                closeRef.current(false)
+            }
+        }
+        const onKeyDown = (e: KeyboardEvent): void => {
+            // with the focus in the menu, its own key handling closes it (or the open submenu)
+            if (e.key === 'Escape' && !document.activeElement?.closest('.menu-popup')) {
+                e.preventDefault()
+                e.stopPropagation()
+                closeRef.current(true)
+            }
+        }
+        const onBlur = (): void => closeRef.current(false)
+        // capture: the score view captures the pointer and handles Escape itself
+        document.addEventListener('pointerdown', onPointerDown, true)
+        document.addEventListener('keydown', onKeyDown, true)
+        window.addEventListener('blur', onBlur)
+        return () => {
+            document.removeEventListener('pointerdown', onPointerDown, true)
+            document.removeEventListener('keydown', onKeyDown, true)
+            window.removeEventListener('blur', onBlur)
+        }
+    }, [isSubmenu])
 
     useEffect(() => {
         if (active >= 0) {
@@ -208,7 +244,7 @@ export function MenuPopup({ items, anchor, placement, onClose, onLeft, onRight, 
             })}
             {subItem?.kind === 'menu' && itemRefs.current[sub!.index] && (
                 <MenuPopup items={menuItems(subItem)} anchor={itemRefs.current[sub!.index]!.getBoundingClientRect()} placement="right"
-                    label={itemTitle(subItem)} initialFocus={sub!.focus}
+                    label={itemTitle(subItem)} initialFocus={sub!.focus} isSubmenu
                     onClose={(back) => { setSub(null); onClose(back) }}
                     onLeft={() => {
                         const i = sub!.index

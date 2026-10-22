@@ -916,6 +916,24 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.mouse.click(5, 5) // outside of the score view
         await page.waitForSelector('.menu-popup', { state: 'detached' })
 
+        // the same for the menus of the side panels (here: the menu of a palette)
+        const header = '.palette-tree-item[data-palette-type="Clef"] .palette-header'
+        const menuButton = '.palette-tree-item[data-palette-type="Clef"] .palette-menu-button'
+        const openPaletteMenu = async (): Promise<void> => {
+            await page.hover(header)
+            await page.click(menuButton)
+            await page.waitForSelector('.menu-popup')
+        }
+        await openPaletteMenu()
+        await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.9) // the score
+        await page.waitForSelector('.menu-popup', { state: 'detached' })
+        await openPaletteMenu()
+        await page.keyboard.press('Escape')
+        await page.waitForSelector('.menu-popup', { state: 'detached' })
+        await openPaletteMenu()
+        await page.click(menuButton) // the menu button closes its menu (and does not open it again)
+        await page.waitForSelector('.menu-popup', { state: 'detached' })
+
         await openSelectMenu()
         await page.click('.menu-popup >> nth=1 >> .menu-item:has-text("Similar") >> nth=0')
         await page.waitForFunction(() => document.getElementById('status')!.textContent === 'List selection')

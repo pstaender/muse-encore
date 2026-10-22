@@ -1352,6 +1352,7 @@
 - The edit overlays (anchor lines, grips, range frame) are sized in view pixels: DrawPageOptions.pixelRatio (the app
   passes devicePixelRatio), before they were half as large on HiDPI screens.
 - Editor: the Ctrl+Shift (Cmd+Shift) outgoing drag can be dropped onto the score (a copy, like MuseScore's QDrag onto
-  the view), not only onto palettes. The score's context menu closes on a click outside of it, Escape and window blur.
+  the view), not only onto palettes. All popup menus (MenuPopup: the score's context menu, the menus of the side panels
+  and toolbars) close on a click outside of them, Escape and window blur; a click on the menu's own button toggles it.
 - Tests: drag tests (snapping of a chord symbol, Ctrl keeps the anchor, hairpin drag, Ctrl+Shift copy); e2e: closing
   the context menu.
