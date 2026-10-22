@@ -26,7 +26,8 @@ import { Pid } from './property'
 import type { Measure } from './measure'
 import type { ChordRest } from './chordrest'
 import type { Chord } from './chord'
-import { moveDownWhenAddingStaves, searchTieNote } from './utils'
+import { ShowAnchors } from './showanchors'
+import { dragPositionToMeasure, dragPositionToSegment, moveDownWhenAddingStaves, searchTieNote } from './utils'
 import type { Staff } from './staff'
 import type { Part } from './part'
 import type { System } from './system'
@@ -203,7 +204,11 @@ function roundTempo(bps: number): number {
 export const scoreDummyHooks: { system?: (score: Score) => System } = {}
 
 /** C++ renderer()->layoutScore(): set by rendering/score/scorerenderer.ts */
-export const scoreRendererHooks: { layoutScore?: (score: Score, st: Fraction, et: Fraction) => void } = {}
+export const scoreRendererHooks: {
+    layoutScore?: (score: Score, st: Fraction, et: Fraction) => void
+    /** C++ renderer()->layoutItem(item) */
+    layoutItem?: (item: EngravingItem) => void
+} = {}
 
 export class Score extends EngravingObject {
     protected m_style: MStyle
@@ -246,6 +251,7 @@ export class Score extends EngravingObject {
     private m_selection: Selection
     private m_selectionFilter = new SelectionFilter()
     private m_selectionChanged = false // C++ m_updateState.selectionChanged
+    private m_showAnchors = new ShowAnchors()
     private m_is = new InputState()
     private m_shadowNote: ShadowNote | null = null
     protected m_updatesLocked = false
@@ -495,6 +501,21 @@ export class Score extends EngravingObject {
     selectionFilter(): SelectionFilter { return this.m_selectionFilter }
     selectionEmpty(): boolean { return this.m_selection.staffStart() === this.m_selection.staffEnd() }
     selectionChanged(): boolean { return this.m_selectionChanged }
+
+    /** C++ dragPosition(pos, &staffIdx, &seg, spacingFactor, allowTimeAnchor): the staff and segment at pos */
+    dragPosition(pos: PointF, staffIdx: staff_idx_t, seg: Segment | null, spacingFactor: number,
+        allowTimeAnchor: boolean): { staffIdx: staff_idx_t; seg: Segment | null } {
+        const r = dragPositionToMeasure(pos, this, null, staffIdx, spacingFactor)
+        if (!r) {
+            return { staffIdx, seg }
+        }
+
+        return { staffIdx: r.staffIdx, seg: dragPositionToSegment(pos, r.measure, r.staffIdx, seg, spacingFactor, allowTimeAnchor) ?? seg }
+    }
+
+    hideAnchors(): void { this.m_showAnchors.reset() }
+    setShowAnchors(showAnchors: ShowAnchors): void { this.m_showAnchors = showAnchors }
+    showAnchors(): ShowAnchors { return this.m_showAnchors }
     setSelectionChanged(val: boolean): void { this.m_selectionChanged = val }
     deselectAll(): void { this.m_selection.deselectAll() }
     updateSelection(): void { this.m_selection.update() }

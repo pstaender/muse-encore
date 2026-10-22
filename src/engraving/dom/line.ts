@@ -5,17 +5,19 @@
  *
  * Port of src/engraving/dom/line.h/.cpp
  *
- * TODO(port): editing: rebasing anchors when a grip or the line is dragged (rebaseAnchors, MoveElementAnchors),
- * moving the start/end with Shift+arrows (LineSegment::edit), the time tick anchors
+ * TODO(port): editing: moving the start/end with Shift+arrows (LineSegment::edit, findNewAnchorSegmentForLine)
  */
 
 import { Color } from '../../framework/draw/types/color'
 import { LineF, PointF, type RectF } from '../../framework/draw/types/geometry'
 import { Spatium } from '../types/dimension'
+import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
-import { ElementType, LineType, PlacementV } from '../types/types'
+import { ElementType, LineType, PlacementV, track2staff } from '../types/types'
 import { Sid } from '../style/styledef'
-import { Grip, KeyboardModifier, type EditData } from '../editing/editdata'
+import { Grip, KeyboardKey, KeyboardModifier, type EditData } from '../editing/editdata'
+import { EditTimeTickAnchors, MoveElementAnchors } from './anchors'
+import { scoreRendererHooks } from './score'
 import { ElementFlag } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
 import { Pid, PropertyFlags } from './property'
@@ -68,7 +70,8 @@ export abstract class LineSegment extends SpannerSegment {
         if (ed.modifiers & KeyboardModifier.AltModifier) {
             this.setAutoplace(false)
         }
-        // TODO(port): EditTimeTickAnchors::updateAnchors(this)
+
+        EditTimeTickAnchors.updateAnchors(this)
     }
 
     override dragGrip(ed: EditData): void {
@@ -83,10 +86,11 @@ export abstract class LineSegment extends SpannerSegment {
             if (this.isStyled(Pid.OFFSET)) {
                 this.setPropertyFlags(Pid.OFFSET, PropertyFlags.UNSTYLED)
             }
-            // TODO(port): rebaseAnchors(ed, ed.curGrip)
+            this.rebaseAnchors(ed, ed.curGrip)
             break
         case Grip.END: // Resize the end of element (right grip)
             this.m_offset2 = this.m_offset2.plus(deltaResize)
+            this.rebaseAnchors(ed, ed.curGrip)
             break
         case Grip.MIDDLE: { // Move the element (middle grip)
             // Only for moving, no y limitation
@@ -95,6 +99,7 @@ export abstract class LineSegment extends SpannerSegment {
             if (this.isStyled(Pid.OFFSET)) {
                 this.setPropertyFlags(Pid.OFFSET, PropertyFlags.UNSTYLED)
             }
+            this.rebaseAnchors(ed, ed.curGrip)
             break
         }
         default:
@@ -102,7 +107,279 @@ export abstract class LineSegment extends SpannerSegment {
         }
         // TODO(port): note anchored lines: changing the end note (ed.view()->elementNear)
 
+        EditTimeTickAnchors.updateAnchors(this)
+
         this.triggerLayout()
+    }
+
+    findSegmentForGrip(grip: Grip, pos: PointF): Segment | null {
+        if (grip !== Grip.START && grip !== Grip.END) {
+            return null
+        }
+
+        const l = this.line()
+        const left = grip === Grip.START
+
+        const oldStaffIndex = left ? this.staffIdx() : track2staff(l.effectiveTrack2())
+
+        const spacingFactor = 0.5 // defines the point where canvas is divided between segments, systems etc.
+
+        let sys = this.system()
+        const foundSystems = this.score().searchSystem(pos, sys, spacingFactor)
+
+        if (foundSystems.length && !foundSystems.includes(sys!) && foundSystems[0].staves().length) {
+            sys = foundSystems[0]
+        }
+
+        if (!sys) {
+            return null
+        }
+
+        // Restrict searching segment to the correct staff
+        pos = new PointF(pos.x(), sys.staffCanvasYpage(oldStaffIndex))
+
+        // don't prefer any segment while searching line position
+        const seg = this.score().dragPosition(pos, oldStaffIndex, null, spacingFactor, this.allowTimeAnchor()).seg
+
+        // Lines that don't allow time anchors can anchor to the last segment in the score (see also LineSegment::findNewAnchorSegment)
+        if (seg && !this.allowTimeAnchor() && grip === Grip.END) {
+            const last = this.score().lastSegment()!
+            const lastSegIsClosest = Math.abs(last.canvasX() - pos.x()) < Math.abs(seg.canvasX() - pos.x())
+            if (lastSegIsClosest) {
+                return last
+            }
+        }
+
+        return seg
+    }
+
+    static lastSegmentEndTick(seg: Segment, s: Spanner): Fraction {
+        return seg.tick().plus(seg.ticksInStaff(track2staff(s.effectiveTrack2())))
+    }
+
+    /**
+     * If system has changed, returns the new line segment (may appear to be reused this segment), otherwise returns
+     * null.
+     */
+    rebaseAnchor(grip: Grip, newSeg: Segment | null): LineSegment | null {
+        switch (grip) {
+        case Grip.START:
+            if (!this.isSingleBeginType()) {
+                return null
+            }
+            break
+        case Grip.END:
+            if (!this.isSingleEndType()) {
+                return null
+            }
+            break
+        default:
+            return null
+        }
+
+        const l = this.line()
+        const left = grip === Grip.START
+        const oldSeg = left ? l.startSegment() : l.endSegment()
+        const oldLineSegSystem = this.system()
+        const oldSpannerSystem = oldSeg ? oldSeg.measure().system() : null
+
+        if (!newSeg || oldSeg === newSeg) {
+            return null
+        }
+
+        const newSegTick = newSeg.tick()
+        let startTick = left ? newSegTick : l.tick()
+        let endTick = left ? l.tick2() : (newSegTick.eq(startTick) ? newSegTick.plus(newSeg.ticks()) : newSegTick)
+
+        if (endTick.le(startTick)) {
+            if (left) {
+                endTick = LineSegment.lastSegmentEndTick(newSeg, l)
+            } else {
+                startTick = newSeg.tick()
+            }
+        }
+
+        let anchorChanged = false
+
+        const oldPos = this.line().linePos(grip).pos
+
+        if (!l.tick().eq(startTick)) {
+            l.undoChangeProperty(Pid.SPANNER_TICK, startTick)
+            anchorChanged = true
+        }
+
+        const ticksLength = endTick.minus(startTick)
+        if (!ticksLength.eq(l.ticks())) {
+            l.undoChangeProperty(Pid.SPANNER_TICKS, ticksLength)
+            anchorChanged = true
+        }
+
+        const newTickSeg = left ? l.startSegment() : l.endSegment()
+        const newSpannerSystem = newTickSeg ? newTickSeg.measure().system() : null
+
+        if ((oldLineSegSystem && newSeg.system() !== oldLineSegSystem) || oldSpannerSystem !== newSpannerSystem) {
+            scoreRendererHooks.layoutItem!(l)
+            return l.segmentsEmpty() ? null : left ? l.frontSegment() as LineSegment : l.backSegment() as LineSegment
+        } else if (anchorChanged) {
+            this.rebaseOffsetsOnAnchorChanged(grip, oldPos)
+        }
+
+        return null
+    }
+
+    rebaseOffsetsOnAnchorChanged(grip: Grip, oldPos: PointF): void {
+        const newPos = this.line().linePos(grip).pos
+        const delta = oldPos.minus(newPos)
+        if (grip === Grip.START) {
+            this.setOffset(this.offset().plus(delta))
+            this.m_offset2 = this.m_offset2.minus(delta)
+            this.setOffsetChanged(true)
+        } else {
+            this.m_offset2 = this.m_offset2.plus(delta)
+        }
+    }
+
+    rebaseAnchors(ed: EditData, grip: Grip): void {
+        if (this.line().anchor() !== SpannerAnchor.SEGMENT) {
+            return
+        }
+
+        // don't change anchors on keyboard adjustment or if Ctrl is pressed
+        // (Ctrl+Left/Right is handled elsewhere!)
+        if (ed.key === KeyboardKey.Key_Left || ed.key === KeyboardKey.Key_Right || ed.key === KeyboardKey.Key_Up
+            || ed.key === KeyboardKey.Key_Down || (ed.modifiers & KeyboardModifier.ControlModifier)) {
+            return
+        }
+
+        const startSeg = this.line().startSegment()
+        const endSeg = this.line().endSegment()
+        const xDistanceFromStartSegment = startSeg && startSeg.system() === this.system()
+            ? (startSeg.x() + startSeg.measure().x()) - this.ldata().pos().x() : 0.0
+        const xDistanceFromEndSegment = endSeg && endSeg.system() === this.system()
+            ? (endSeg.x() + endSeg.measure().x()) - (this.ldata().pos().x() + this.ipos2().x()) : 0.0
+
+        switch (grip) {
+        case Grip.START:
+        case Grip.END: {
+            const left = grip === Grip.START
+
+            if (left && !this.isSingleBeginType()) {
+                return
+            }
+            if (!left && !this.isSingleEndType()) {
+                return
+            }
+
+            // Find an appropriate segment to bind from actual mouse
+            // position. This allows changing systems while dragging
+            // while not setting line position to something
+            // inappropriate.
+            const seg = this.findSegmentForGrip(grip, ed.pos
+                .plus(left ? new PointF(xDistanceFromStartSegment, 0.0) : new PointF(xDistanceFromEndSegment, 0.0)))
+            const newLineSegment = this.rebaseAnchor(grip, seg)
+
+            if (newLineSegment) {
+                // If new line segment is not the same as this one,
+                // switch to dragging that new segment.
+                if (newLineSegment !== this) {
+                    // Reset offset for the old line segment
+                    if (left) {
+                        this.m_offset2.setX(this.m_offset2.x() - this.offset().x())
+                        this.setOffset(new PointF())
+                    } else {
+                        this.setUserOff2(new PointF())
+                    }
+
+                    // Switch to dragging the new line segment
+                    ed.view?.changeEditElement?.(newLineSegment)
+                }
+
+                // Set offset for the new line segment for grip to appear under the mouse cursor
+                const { pos: lp, system: sys } = this.line().linePos(grip)
+                const xoff = ed.pos.minus(sys!.canvasPos()).x() - lp.x() // sys->mapFromCanvas(ed.pos)
+
+                if (left) {
+                    newLineSegment.setOffset(new PointF(xoff, newLineSegment.offset().y()))
+                    newLineSegment.setUserOff2(new PointF(-xoff, 0.0))
+                } else {
+                    newLineSegment.setUserXoffset2(xoff)
+                }
+            }
+            break
+        }
+        case Grip.MIDDLE: {
+            if (!this.isSingleType()) {
+                return
+            }
+
+            const sys = this.system()
+            if (!sys) {
+                return
+            }
+
+            const l = this.line()
+
+            // If dragging middle grip (or the entire hairpin), mouse position
+            // does not directly correspond to any sensible position, so use
+            // actual line coordinates instead. This method doesn't allow for
+            // system changes, but that seems OK when dragging the entire line:
+            // the line will just push away other systems according to autoplacement
+            // rules if necessary.
+            let cpos = this.canvasPos()
+            cpos = new PointF(cpos.x(), sys.staffCanvasYpage(l.staffIdx())) // prevent cross-system move
+
+            const seg1 = this.findSegmentForGrip(Grip.START, cpos.plus(new PointF(xDistanceFromStartSegment, 0.0)))
+            const seg2 = this.findSegmentForGrip(Grip.END, cpos.plus(this.pos2()).plus(new PointF(xDistanceFromEndSegment, 0.0)))
+
+            if (!(seg1 && seg2 && seg1.system() === seg2.system() && seg1.system() === sys)) {
+                return
+            }
+
+            const oldStartPos = this.line().linePos(Grip.START).pos
+            const oldEndPos = this.line().linePos(Grip.END).pos
+
+            this.undoMoveStartEndAndSnappedItems(ed, true, true, seg1, seg2)
+
+            this.rebaseOffsetsOnAnchorChanged(Grip.START, oldStartPos)
+            this.rebaseOffsetsOnAnchorChanged(Grip.END, oldEndPos)
+            break
+        }
+        default:
+            break
+        }
+    }
+
+    undoMoveStartEndAndSnappedItems(ed: EditData, moveStart: boolean, moveEnd: boolean, s1: Segment, s2: Segment): void {
+        const moveSnapped = !(ed.modifiers & KeyboardModifier.AltModifier)
+        const thisLine = this.line()
+        if (moveStart) {
+            const tickDiff = s1.tick().minus(thisLine.tick())
+            const itemSnappedBefore = this.ldata().itemSnappedBefore()
+            if (itemSnappedBefore && moveSnapped) {
+                if (itemSnappedBefore.isTextBase()) {
+                    MoveElementAnchors.moveSegment(itemSnappedBefore, s1, tickDiff)
+                } else if (itemSnappedBefore.isLineSegment()) {
+                    (itemSnappedBefore as LineSegment).line().undoMoveEnd(tickDiff)
+                    thisLine.undoMoveStart(tickDiff)
+                }
+            } else {
+                thisLine.undoMoveStart(tickDiff)
+            }
+        }
+        if (moveEnd) {
+            const tickDiff = s2.tick().minus(thisLine.tick2())
+            const itemSnappedAfter = thisLine.backSegment()!.ldata().itemSnappedAfter()
+            if (itemSnappedAfter && moveSnapped) {
+                if (itemSnappedAfter.isTextBase()) {
+                    MoveElementAnchors.moveSegment(itemSnappedAfter, s2, tickDiff)
+                } else if (itemSnappedAfter.isLineSegment()) {
+                    (itemSnappedAfter as LineSegment).line().undoMoveStart(tickDiff)
+                    thisLine.undoMoveEnd(tickDiff)
+                }
+            } else {
+                thisLine.undoMoveEnd(tickDiff)
+            }
+        }
     }
 
     /** C++ leftAnchorPosition(systemPositionY): page coordinates */
@@ -207,7 +484,7 @@ export abstract class LineSegment extends SpannerSegment {
             this.setPropertyFlags(Pid.OFFSET, PropertyFlags.UNSTYLED)
         }
 
-        // TODO(port): rebaseAnchors(ed, Grip::MIDDLE)
+        this.rebaseAnchors(ed, Grip.MIDDLE)
 
         return this.canvasBoundingRect()
     }
@@ -453,5 +730,28 @@ export abstract class SLine extends Spanner {
             return target.notes()[endNoteIdx]
         }
         return null
+    }
+
+    undoMoveStart(tickDiff: Fraction): void {
+        const newTick = this.tick().plus(tickDiff)
+        if (newTick.ge(new Fraction(0, 1))) {
+            this.undoChangeProperty(Pid.SPANNER_TICK, newTick)
+        }
+        const newDuration = this.ticks().minus(tickDiff)
+        if (newDuration.gt(new Fraction(0, 1))) {
+            this.undoChangeProperty(Pid.SPANNER_TICKS, newDuration)
+        }
+    }
+
+    undoMoveEnd(tickDiff: Fraction): void {
+        const newDuration = this.ticks().plus(tickDiff)
+        if (newDuration.gt(new Fraction(0, 1))) {
+            this.undoChangeProperty(Pid.SPANNER_TICKS, newDuration)
+        } else {
+            const newTick = this.tick().plus(tickDiff)
+            if (newTick.ge(new Fraction(0, 1))) {
+                this.undoChangeProperty(Pid.SPANNER_TICK, this.tick().plus(tickDiff))
+            }
+        }
     }
 }

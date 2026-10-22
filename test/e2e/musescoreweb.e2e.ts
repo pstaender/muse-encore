@@ -901,6 +901,21 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
             await page.hover('.menu-popup .menu-item:has-text("Select")')
             await page.waitForSelector('.menu-popup >> nth=1')
         }
+        // Escape and a click outside close the context menu
+        const openMenu = async (): Promise<void> => {
+            await page.mouse.click(box.x + box.width * 0.22, box.y + box.height * 0.155, { button: 'right' })
+            await page.waitForSelector('.menu-popup')
+        }
+        await openMenu()
+        await page.keyboard.press('Escape')
+        await page.waitForSelector('.menu-popup', { state: 'detached' })
+        await openMenu()
+        await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.9)
+        await page.waitForSelector('.menu-popup', { state: 'detached' })
+        await openMenu()
+        await page.mouse.click(5, 5) // outside of the score view
+        await page.waitForSelector('.menu-popup', { state: 'detached' })
+
         await openSelectMenu()
         await page.click('.menu-popup >> nth=1 >> .menu-item:has-text("Similar") >> nth=0')
         await page.waitForFunction(() => document.getElementById('status')!.textContent === 'List selection')

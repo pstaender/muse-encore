@@ -75,6 +75,7 @@ import type { Parenthesis } from '../../dom/parenthesis'
 import { FretDotType, FretMarkerType, type FretDiagram } from '../../dom/fret'
 import { AlignmentFlag } from '../../../framework/draw/types/drawtypes'
 import { EngravingConfiguration } from '../../internal/engravingconfiguration'
+import { DrawRegion, type TimeTickAnchor } from '../../dom/anchors'
 import type { TrillSegment } from '../../dom/trill'
 import type { Ambitus } from '../../dom/ambitus'
 import type { BagpipeEmbellishment } from '../../dom/bagpembell'
@@ -91,6 +92,36 @@ import type { ChordLine } from '../../dom/chordline'
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
 export class TDraw {
+    static drawTimeTickAnchor(item: TimeTickAnchor, painter: Painter, opt: PaintOptions): void {
+        if (opt.isPrinting) {
+            return
+        }
+
+        const drawRegion = item.drawRegion()
+
+        if (drawRegion === DrawRegion.OUT_OF_RANGE) {
+            return
+        }
+
+        const voiceColor = EngravingConfiguration.selectionColor(item.voiceIdx()) // C++ configuration()->voiceColor()
+
+        const TINT_MAIN_DARKER = 0.45
+        const TINT_MAIN_LIGHTER = 0.55
+        const TINT_EXTENDED_DARKER = 0.75
+        const TINT_EXTENDED_LIGHTER = 0.85
+
+        const tint = drawRegion === DrawRegion.MAIN_REGION
+            ? item.ldata().darker() ? TINT_MAIN_DARKER : TINT_MAIN_LIGHTER
+            : item.ldata().darker() ? TINT_EXTENDED_DARKER : TINT_EXTENDED_LIGHTER
+
+        voiceColor.applyTint(tint)
+
+        painter.setBrush(new Brush(voiceColor, BrushStyle.SolidPattern))
+        painter.setNoPen()
+
+        painter.drawRect(item.ldata().bbox())
+    }
+
     static drawItem(item: EngravingItem, painter: Painter, opt: PaintOptions): void {
         switch (item.type()) {
         case ElementType.ACCIDENTAL: TDraw.drawAccidental(item as Accidental, painter, opt)
@@ -253,6 +284,8 @@ export class TDraw {
         case ElementType.BEND: TDraw.drawBend(item as Bend, painter, opt)
             break
         case ElementType.SOUND_FLAG: TDraw.drawSoundFlag(item as SoundFlag, painter, opt)
+            break
+        case ElementType.TIME_TICK_ANCHOR: TDraw.drawTimeTickAnchor(item as TimeTickAnchor, painter, opt)
             break
         default:
             // PAGE, SYSTEM, MEASURE, SEGMENT, CHORD, ... and types not ported yet

@@ -1742,7 +1742,7 @@ export abstract class EngravingItem extends EngravingObject {
             this.score().undoPropertyChangedItem(this, id, v, f === PropertyFlags.STYLED ? PropertyFlags.UNSTYLED : f)
             this.setGenerated(false)
         }
-        // TODO(port): score()->hideAnchors() (time tick anchors shown while dragging)
+        this.score().hideAnchors()
     }
 
     /** anchor lines displayed while dragging element in canvas coordinates */
@@ -1843,11 +1843,11 @@ export abstract class EngravingItem extends EngravingObject {
         if (changed) {
             this.undoChangeProperty(Pid.GENERATED, false)
         }
-        // TODO(port): score()->hideAnchors()
+        this.score().hideAnchors()
     }
 
     endEdit(_ed: EditData): void {
-        // TODO(port): score()->hideAnchors()
+        this.score().hideAnchors()
     }
 
     editCut(_ed: EditData): void {}

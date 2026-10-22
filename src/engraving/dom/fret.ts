@@ -8,9 +8,11 @@
  * first use like in C++.
  */
 
+import { MoveElementAnchors } from './anchors'
 import { Font, FontType } from '../../framework/draw/types/font'
 import type { PainterPath } from '../../framework/draw/types/painterpath'
-import { LineF, PointF } from '../../framework/draw/types/geometry'
+import { LineF, PointF, type RectF } from '../../framework/draw/types/geometry'
+import type { EditData } from '../editing/editdata'
 import { Align, AlignH, AlignV, ElementType, FontStyle, NoteSpellingType, Orientation, type track_idx_t } from '../types/types'
 import { P_TYPE, type PropertyValue } from '../types/propertyvalue'
 import { Sid } from '../style/styledef'
@@ -1157,5 +1159,13 @@ export class FretDiagram extends EngravingItem {
 
     override dragAnchorLines(): LineF[] {
         return this.genericDragAnchorLines()
+    }
+
+    override drag(ed: EditData): RectF {
+        const result = super.drag(ed)
+
+        MoveElementAnchors.moveElementAnchorsOnDrag(this, ed)
+
+        return result
     }
 }

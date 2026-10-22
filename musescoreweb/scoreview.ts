@@ -589,7 +589,7 @@ function renderPage(el: HTMLDivElement, cssDpi: number): void {
     c.style.width = `${w / fullW * 100}%`
     c.style.height = `${h / fullH * 100}%`
     // like MuseScore's notation view (not printing): selection colors, the range frame, frames, invisible items grey
-    drawPage(score!, idx, c.getContext('2d')!, { dpi, region, printing: false })
+    drawPage(score!, idx, c.getContext('2d')!, { dpi, region, printing: false, pixelRatio: dpr })
     Object.assign(d, { dpi: dpi.toFixed(4), tile: region ? '1' : '0', x: String(x), y: String(y), w: String(w), h: String(h) })
 }
 
@@ -1316,7 +1316,7 @@ viewport.addEventListener('pointermove', (e) => {
         startOutgoingDrag(r.outgoingDrag)
     }
     if (outgoing) {
-        moveOutgoingDrag(e.clientX, e.clientY)
+        moveOutgoingDrag(e)
     } else if (r.moveCanvas) {
         // move the canvas with the pointer (like the hand tool)
         viewport.scrollLeft -= e.clientX - mouse.lastX
@@ -1358,7 +1358,8 @@ viewport.addEventListener('dblclick', (e) => {
     afterViewInput(true)
 })
 
-// the context menu is not ported: a right click only selects (in note input mode it removes a note, see below)
+// the browser's context menu is replaced by the score's context menu (below; in note input mode a right click removes
+// a note)
 viewport.addEventListener('contextmenu', (e) => {
     if (score && !noteInputState(score).active) {
         e.preventDefault()
@@ -1485,31 +1486,57 @@ document.addEventListener('dragend', () => {
 })
 
 // ---------------------------------------------------------------------------------
-//   an element dragged out of the score (Shift+Ctrl+drag: NotationInteraction::startOutgoingDragElement) onto a palette:
-//   the pointer stays captured by the view, the element under it gets ELEMENT_DROP_EVENT at the end
+//   an element dragged out of the score (Shift+Ctrl+drag: NotationInteraction::startOutgoingDragElement, MuseScore's
+//   QDrag): dropped onto the score it is copied there (the view's dropEvent, like a palette cell), dropped onto a
+//   palette it is added to it. The pointer stays captured by the view; the element under it at the end gets
+//   ELEMENT_DROP_EVENT.
 // ---------------------------------------------------------------------------------
 
-let outgoing: { drag: OutgoingElementDrag; ghost: HTMLElement; over: Element | null } | null = null
+let outgoing: { drag: OutgoingElementDrag; ghost: HTMLElement; over: Element | null; overScore: boolean } | null = null
 
 function startOutgoingDrag(drag: OutgoingElementDrag): void {
     const ghost = document.createElement('div')
     ghost.className = 'outgoing-drag-ghost'
     ghost.textContent = drag.name
     document.body.appendChild(ghost)
-    outgoing = { drag, ghost, over: null }
+    outgoing = { drag, ghost, over: null, overScore: false }
 }
 
-function moveOutgoingDrag(clientX: number, clientY: number): void {
-    if (!outgoing) {
+function outgoingDragEvent(e: PointerEvent): ViewDragEvent | null {
+    const target = document.elementFromPoint(e.clientX, e.clientY)
+    if (!target || !viewport.contains(target)) {
+        return null
+    }
+    const pt = pagePointAt(e.clientX, e.clientY)
+    return pt ? { page: pt.page, x: pt.x, y: pt.y, shift: e.shiftKey, ctrl: isMacPlatform ? e.metaKey : e.ctrlKey, alt: e.altKey } : null
+}
+
+function moveOutgoingDrag(e: PointerEvent): void {
+    if (!outgoing || !score) {
         return
     }
-    outgoing.ghost.style.left = `${clientX + 12}px`
-    outgoing.ghost.style.top = `${clientY + 12}px`
-    const grid = document.elementFromPoint(clientX, clientY)?.closest('[data-palette-grid]') ?? null
+    outgoing.ghost.style.left = `${e.clientX + 12}px`
+    outgoing.ghost.style.top = `${e.clientY + 12}px`
+    const grid = document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-palette-grid]') ?? null
     if (grid !== outgoing.over) {
         outgoing.over?.classList.remove('drop-active')
         grid?.classList.add('drop-active')
         outgoing.over = grid
+    }
+    // over the score: the drop target is highlighted (NotationViewInputController::dragMoveEvent)
+    const ev = outgoingDragEvent(e)
+    if (ev) {
+        if (!outgoing.overScore) {
+            outgoing.overScore = viewDragEnter(score, outgoing.drag.mimeData)
+        }
+        if (outgoing.overScore) {
+            viewDragMove(score, ev)
+            repaintPages()
+        }
+    } else if (outgoing.overScore) {
+        outgoing.overScore = false
+        viewDragLeave(score)
+        repaintPages()
     }
 }
 
@@ -1517,10 +1544,20 @@ function endOutgoingDrag(e: PointerEvent | null): void {
     if (!outgoing) {
         return
     }
-    const { drag, ghost, over } = outgoing
+    const { drag, ghost, over, overScore } = outgoing
     outgoing = null
     ghost.remove()
     over?.classList.remove('drop-active')
+    if (overScore && score) {
+        const ev = e ? outgoingDragEvent(e) : null
+        if (ev && viewDrop(score, ev)) {
+            scoreChanged(false)
+        } else {
+            viewDragLeave(score)
+            repaintPages()
+        }
+        return
+    }
     const target = e ? document.elementFromPoint(e.clientX, e.clientY) : null
     if (e && target && !viewport.contains(target)) {
         const detail: ElementDropDetail = { mimeData: drag.mimeData, clientX: e.clientX, clientY: e.clientY }

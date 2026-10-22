@@ -15,7 +15,10 @@ import type { EngravingItem } from '../src/engraving/dom/engravingitem'
 import type { SlurSegment } from '../src/engraving/dom/slur'
 import { Grip } from '../src/engraving/editing/editdata'
 import { drawPageSvg } from '../src/index'
-import { DEMOS, hasSubmodule, openScore, scoreHash as hashWithSelection } from './helpers'
+import { readFileSync } from 'node:fs'
+import { layoutScore, loadScore, viewDragEnter, viewDragMove, viewDrop } from '../src/index'
+import type { Fraction } from '../src/engraving/types/fraction'
+import { DEMOS, ROOT, hasSubmodule, initFonts, openScore, scoreHash as hashWithSelection } from './helpers'
 
 function scoreHash(score: MasterScore): string {
     score.select(null)
@@ -201,5 +204,116 @@ describe.skipIf(!hasSubmodule)('drag', () => {
         expect(scoreHash(score)).toBe(after)
         undo(score)
         executeAction(score, 'action://notation/cancel')
+    })
+})
+
+const CHORDSYMBOL_DATA = `${ROOT}MuseScore/src/engraving/tests/chordsymbol_data/`
+
+/** the first chord symbol of the score */
+function firstHarmony(score: MasterScore): EngravingItem {
+    for (let s = score.firstSegment(SegmentType.ChordRest); s; s = s.next1(SegmentType.ChordRest)) {
+        const h = s.annotations().find(a => a.isHarmony())
+        if (h) {
+            return h
+        }
+    }
+    throw new Error('no chord symbol')
+}
+
+describe.skipIf(!hasSubmodule)('drag: moving elements to other beats (MoveElementAnchors, LineSegment::rebaseAnchors)', () => {
+    beforeAll(async () => {
+        await initFonts()
+    })
+
+    function open(): MasterScore {
+        const score = loadScore(readFileSync(`${CHORDSYMBOL_DATA}realize.mscx`))
+        layoutScore(score)
+        return score
+    }
+
+    it('a dragged chord symbol snaps to the beat under it; Ctrl (Cmd) keeps the anchor; undoable', () => {
+        const score = open()
+        const h = firstHarmony(score)
+        const tick0 = h.tick()
+        const measure = h.findMeasure()!
+        const before = scoreHash(score)
+
+        // a measure to the right: the chord symbol is now anchored to a later beat (or the next measure)
+        dragItem(score, h, measure.width(), 0)
+        expect(h.tick().gt(tick0)).toBe(true)
+        expect(h.explicitParent()!.isSegment()).toBe(true)
+        undo(score)
+        expect(h.tick().eq(tick0)).toBe(true)
+        expect(scoreHash(score)).toBe(before)
+
+        // with Ctrl the chord symbol keeps its anchor and only gets an offset
+        score.select(null)
+        dragItem(score, h, measure.width(), 0, { ctrl: true })
+        expect(h.tick().eq(tick0)).toBe(true)
+        expect(h.offset().x()).toBeGreaterThan(measure.width() / 2)
+        undo(score)
+        expect(scoreHash(score)).toBe(before)
+    })
+
+    it('Ctrl+Shift drag copies a chord symbol to the chord or rest it is dropped on (outgoing drag + view drop)', () => {
+        const score = open()
+        const h = firstHarmony(score)
+        const count = (): number => {
+            let n = 0
+            score.scanElements(e => {
+                if (e.isHarmony()) {
+                    n++
+                }
+            })
+            return n
+        }
+        const n0 = count()
+        const c = h.canvasBoundingRect().center()
+        const sp = score.style().spatium()
+        viewMousePress(score, pointer(score, c.x(), c.y(), { ctrl: true, shift: true }))
+        const r = viewMouseMove(score, pointer(score, c.x() + 2 * sp, c.y(), { ctrl: true, shift: true }))
+        expect(r.outgoingDrag).not.toBeNull()
+        expect(r.outgoingDrag!.type).toBe('Harmony')
+
+        // dropped onto the first chord or rest of the third measure
+        const m3 = score.firstMeasure()!.nextMeasure()!.nextMeasure()!
+        const cr = m3.first(SegmentType.ChordRest)!.element(0)!
+        const target = cr.isChord() ? (cr as unknown as Chord).upNote() : cr
+        const tc = target.canvasBoundingRect().center()
+        const ev = pointer(score, tc.x(), tc.y())
+        expect(viewDragEnter(score, r.outgoingDrag!.mimeData)).toBe(true)
+        expect(viewDragMove(score, ev)).toBe(true)
+        expect(viewDrop(score, ev)).toBe(true)
+        viewMouseRelease(score, pointer(score, tc.x(), tc.y(), { buttons: 0 }))
+        expect(count()).toBe(n0 + 1)
+        expect(m3.first(SegmentType.ChordRest)!.annotations().some(a => a.isHarmony())).toBe(true)
+        undo(score)
+        expect(count()).toBe(n0)
+    })
+
+    it('a dragged hairpin moves its start and end to the segments under it', () => {
+        const score = open()
+        const m1 = score.firstMeasure()!
+        score.select(m1, SelectType.RANGE, 0)
+        expect(executeAction(score, 'add-hairpin')).toBe(true)
+        let seg: EngravingItem | null = null
+        score.scanElements(e => {
+            if (!seg && e.isHairpinSegment()) {
+                seg = e
+            }
+        })
+        const hs = seg! as EngravingItem
+        const line = (hs as unknown as { spanner(): { tick(): Fraction; tick2(): Fraction } }).spanner()
+        const t1 = line.tick()
+        const t2 = line.tick2()
+        score.select(hs)
+        const before = scoreHash(score)
+        dragItem(score, hs, m1.width(), 0)
+        expect(line.tick().gt(t1)).toBe(true)
+        expect(line.tick2().gt(t2)).toBe(true)
+        undo(score)
+        expect(line.tick().eq(t1)).toBe(true)
+        expect(line.tick2().eq(t2)).toBe(true)
+        expect(scoreHash(score)).toBe(before)
     })
 })

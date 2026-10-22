@@ -1335,3 +1335,23 @@
   TODO(port): Arpeggio grip anchor lines (arpeggio grips are not ported).
 - Tests: test/addmenu.test.ts, test/measure.test.ts, drag test of the anchor lines; e2e: Add > Measures > Insert at end
   of score… and Add > Tuplets > Other….
+
+### Snapping while dragging, Ctrl+Shift drag copy, overlay sizes, closing the context menu
+- MoveElementAnchors (anchors.ts): moveElementAnchorsOnDrag (TextBase and FretDiagram drag: chord symbols, staff/system
+  text, dynamics, expressions, rehearsal marks, ... move to the segment under them; Ctrl/Cmd or Shift keeps the anchor),
+  moveSegment (harmony/fret diagram, figured bass, snapped items), moveElementAnchors (keyboard; not wired to keys yet),
+  rebaseOffsetOnMoveSegment. EditTimeTickAnchors.updateAnchors(item) / updateAnchorsInMeasure; ShowAnchors
+  (showanchors.ts) with Score.showAnchors/setShowAnchors/hideAnchors; TimeTickAnchor drawRegion/voiceIdx and its
+  drawing (TDraw, the alternating "darker" flag of MeasureLayout::layoutTimeTickAnchors). utils dragPositionToMeasure/
+  dragPositionToSegment, Score.dragPosition, scoreRendererHooks.layoutItem.
+- LineSegment.rebaseAnchors (hairpins, ottavas, ... dragged or their start/end grips dragged snap to segments; Ctrl
+  keeps them): findSegmentForGrip, rebaseAnchor, rebaseOffsetsOnAnchorChanged, undoMoveStartEndAndSnappedItems,
+  SLine.undoMoveStart/undoMoveEnd; the drag EditData gets the view callbacks (changeEditElement).
+  TODO(port): LineSegment::edit with Shift+arrows (findNewAnchorSegmentForLine), NotationInteraction
+  updateTimeTickAnchors/moveElementAnchors key handling.
+- The edit overlays (anchor lines, grips, range frame) are sized in view pixels: DrawPageOptions.pixelRatio (the app
+  passes devicePixelRatio), before they were half as large on HiDPI screens.
+- Editor: the Ctrl+Shift (Cmd+Shift) outgoing drag can be dropped onto the score (a copy, like MuseScore's QDrag onto
+  the view), not only onto palettes. The score's context menu closes on a click outside of it, Escape and window blur.
+- Tests: drag tests (snapping of a chord symbol, Ctrl keeps the anchor, hairpin drag, Ctrl+Shift copy); e2e: closing
+  the context menu.

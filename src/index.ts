@@ -333,6 +333,11 @@ export interface DrawPageOptions {
      * then has the size of the region. Used to draw sharp tiles at high zoom without a huge page bitmap.
      */
     region?: { x: number; y: number; width: number; height: number }
+    /**
+     * device pixels per view pixel (window.devicePixelRatio when `dpi` includes it; default 1): the edit overlays
+     * (grips, anchor lines, range frame) have sizes in view pixels like the logical pixels of MuseScore's notation view
+     */
+    pixelRatio?: number
 }
 
 /**
@@ -389,7 +394,8 @@ export function drawPage(score: MasterScore, pageIdx: number, ctx: Canvas2D, opt
         frameRect,
     })
     if (!isPrinting) {
-        drawSelectionRange(score, pageIdx, painter, scale)
+        // C++ currentScaling(painter): the view's logical pixels per score unit
+        drawSelectionRange(score, pageIdx, painter, scale / (options.pixelRatio ?? 1))
     }
 }
 

@@ -2648,7 +2648,7 @@ export class NotationInteraction {
 
     /** C++ Copied from ScoreView::dragLeaveEvent */
     endDrop(): void {
-        // TODO(port): score()->hideAnchors() (time tick anchors)
+        this.score().hideAnchors()
         this.score().setUpdateAll()
         this.setDropTarget(null, /*notify=*/ false)
         this.resetDropData()
@@ -5050,6 +5050,12 @@ export class NotationInteraction {
     }
 
     drag(fromPos: PointF, toPos: PointF, mode: DragMode, modifiers = 0): void {
+        // C++ m_dragData.ed = EditData(&m_scoreCallbacks): the view callbacks of the dragged items
+        this.m_dragData.ed.view ??= {
+            setDropRectangle: (rect) => this.setDropRect(rect),
+            setDropTarget: (item) => this.setDropTarget(item, false),
+            changeEditElement: (e) => this.changeEditElement(e),
+        }
         if (this.m_dragData.beginMove.isNull()) {
             this.m_dragData.beginMove = fromPos.clone()
             this.m_dragData.ed.pos = fromPos.clone()

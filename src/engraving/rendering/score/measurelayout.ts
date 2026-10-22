@@ -9,6 +9,7 @@
  * MM rest ranges, practice mode, time tick anchors
  */
 
+import type { TimeTickAnchor } from '../../dom/anchors'
 import { LineF, PointF, type ScaleF } from '../../../framework/draw/types/geometry'
 import { Fraction } from '../../types/fraction'
 import {
@@ -2462,6 +2463,7 @@ export class MeasureLayout {
     }
 
     static layoutTimeTickAnchors(m: Measure, ctx: LayoutContext): void {
+        let darker = true
         for (let segment = m.first(); segment; segment = segment.next()) {
             if (!segment.isTimeTickType()) {
                 continue
@@ -2498,9 +2500,10 @@ export class MeasureLayout {
             for (const item of segment.elist()) {
                 if (item) {
                     TLayout.layoutItem(item, ctx)
-                    // C++ also sets the alternating "darker" flag for drawing in edit mode
+                    ;(item as TimeTickAnchor).mutldata().setDarker(darker)
                 }
             }
+            darker = !darker
         }
     }
 

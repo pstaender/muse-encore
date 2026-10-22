@@ -9,6 +9,7 @@
  * insert/remove, drag, accessibility) is not.
  */
 
+import { MoveElementAnchors } from './anchors'
 import { XmlReader } from '../rw/xmlreader'
 import { Color } from '../../framework/draw/types/color'
 import { Font, FontType } from '../../framework/draw/types/font'
@@ -2340,7 +2341,9 @@ export abstract class TextBase extends EngravingItem {
 
     override drag(ed: EditData): RectF {
         const result = super.drag(ed)
-        // TODO(port): MoveElementAnchors::moveElementAnchorsOnDrag (time tick anchors)
+
+        MoveElementAnchors.moveElementAnchorsOnDrag(this, ed)
+
         return result
     }
 

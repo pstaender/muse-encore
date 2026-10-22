@@ -70,6 +70,7 @@ export class ScoreRenderer {
 }
 
 scoreRendererHooks.layoutScore = (score, st, et) => ScoreRenderer.layoutScore(score, st, et)
+scoreRendererHooks.layoutItem = (e) => ScoreRenderer.layoutItem(e)
 chordRestRenderer.layoutBeam1 = (b) => ScoreRenderer.layoutBeam1(b)
 chordRestRenderer.layoutStem = (c) => ScoreRenderer.layoutStem(c)
 textBaseRenderer.layoutText1 = (t, base) => ScoreRenderer.layoutText1(t, base)

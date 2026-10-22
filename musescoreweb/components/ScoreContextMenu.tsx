@@ -3,7 +3,7 @@
  * The score's context menu (MuseScore's NotationView contextMenuLoader with NotationContextMenuModel): opened by a
  * right click on the score (outside of note input) at the pointer, with the library's items for the clicked element.
  */
-import { useSyncExternalStore } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { contextMenuItems, type ContextMenuItem, type MasterScore } from '../../src/index'
 import type { MenuItem } from '../menus/appmenu'
 import { MenuPopup } from './Menu'
@@ -42,6 +42,38 @@ export function ScoreContextMenuHost(): React.JSX.Element | null {
         listeners.add(listener)
         return () => listeners.delete(listener)
     }, () => s_menu)
+
+    // like MuseScore's popups: a click outside of the menu (and its submenus) or Escape closes it
+    useEffect(() => {
+        if (!menu) {
+            return
+        }
+        const onPointerDown = (e: PointerEvent): void => {
+            if (!(e.target instanceof Element && e.target.closest('.menu-popup'))) {
+                setMenu(null)
+            }
+        }
+        const onKeyDown = (e: KeyboardEvent): void => {
+            // with the focus in the menu, its own key handling closes it (or the open submenu)
+            if (e.key === 'Escape' && !document.activeElement?.closest('.menu-popup')) {
+                e.preventDefault()
+                e.stopPropagation()
+                setMenu(null)
+                document.getElementById('viewport')?.focus({ preventScroll: true })
+            }
+        }
+        const onBlur = (): void => setMenu(null)
+        // capture: the score view captures the pointer and handles Escape itself
+        document.addEventListener('pointerdown', onPointerDown, true)
+        document.addEventListener('keydown', onKeyDown, true)
+        window.addEventListener('blur', onBlur)
+        return () => {
+            document.removeEventListener('pointerdown', onPointerDown, true)
+            document.removeEventListener('keydown', onKeyDown, true)
+            window.removeEventListener('blur', onBlur)
+        }
+    }, [menu])
+
     if (!menu) {
         return null
     }

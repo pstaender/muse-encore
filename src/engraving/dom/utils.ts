@@ -7,6 +7,7 @@
  */
 
 import { Fraction } from '../types/fraction'
+import type { PointF } from '../../framework/draw/types/geometry'
 import { SymId, type SymIdList } from '../types/symid'
 import {
     AccidentalVal, ClefType, ElementType, Key, TimeSigPlacement, TimeSigStyle, VOICES, nidx, type staff_idx_t, type track_idx_t,
@@ -1097,4 +1098,52 @@ export function formatUniqueExcerptName(baseName: string, allExcerptLowerNames: 
     }
 
     return result
+}
+
+/** the measure and staff at the drag position (canvas coordinates); null if there is none */
+export function dragPositionToMeasure(pos: PointF, score: Score, measure: Measure | null, staffIdx: staff_idx_t,
+    spacingFactor: number): { measure: Measure; staffIdx: staff_idx_t } | null {
+    const preferredSystem = measure ? measure.system() : null
+
+    const m = score.searchMeasure(pos, preferredSystem, spacingFactor)
+    if (!m) {
+        return null
+    }
+
+    const system = m.system()!
+    const y = pos.y() - system.canvasPos().y()
+    const i = system.searchStaff(y, staffIdx, spacingFactor)
+    if (!score.staff(i)) {
+        return null
+    }
+
+    return { measure: m, staffIdx: i }
+}
+
+/** the segment at the drag position (canvas coordinates) in the measure; null if there is none */
+export function dragPositionToSegment(pos: PointF, measure: Measure, staffIdx: staff_idx_t, segment: Segment | null,
+    spacingFactor: number, allowTimeAnchor: boolean): Segment | null {
+    const strack = staffIdx * VOICES
+    const etrack = strack + VOICES
+
+    const x = pos.x() - measure.canvasPos().x()
+    const st = allowTimeAnchor ? CHORD_REST_OR_TIME_TICK_TYPE : SegmentType.ChordRest
+    const s = measure.searchSegment(x, st, strack, etrack, segment, spacingFactor)
+    if (!s) {
+        return null
+    }
+
+    return segmentOrChordRestSegmentAtSameTick(s)
+}
+
+export function segmentOrChordRestSegmentAtSameTick(segment: Segment): Segment {
+    // If TimeTick and ChordRest segments are at the same tick, prefer ChordRest
+    if (segment.isTimeTickType() && segment.measure()) {
+        const crSegAtSameTick = segment.measure().findSegmentR(SegmentType.ChordRest, segment.rtick())
+        if (crSegAtSameTick) {
+            return crSegAtSameTick
+        }
+    }
+
+    return segment
 }
