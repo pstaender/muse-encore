@@ -54,6 +54,7 @@ const SETTINGS_ITEMS: MenuItem[] = [
     { kind: 'action', code: 'play-chord-symbols' },
     { kind: 'action', code: 'toggle-hear-playback-when-editing' },
     { kind: 'action', code: 'pan' },
+    { kind: 'action', code: 'smooth-pan' },
     { kind: 'action', code: 'countin' },
     { kind: 'separator' },
     { kind: 'action', code: 'loop-in' },

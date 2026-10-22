@@ -206,6 +206,7 @@ export class Score extends EngravingObject {
     protected m_fileDivision = 480
     protected m_pageNumberOffset = 0
     protected m_layoutMode = LayoutMode.PAGE
+    protected m_reflowWidth = 0
     protected m_showInvisible = true
     protected m_showUnprintable = true
     protected m_showFrames = true
@@ -299,6 +300,14 @@ export class Score extends EngravingObject {
     linearMode(): boolean { return this.m_layoutMode === LayoutMode.LINE || this.m_layoutMode === LayoutMode.HORIZONTAL_FIXED }
     floatMode(): boolean { return this.m_layoutMode === LayoutMode.FLOAT }
     pageMode(): boolean { return this.m_layoutMode === LayoutMode.PAGE }
+
+    /**
+     * Not in MuseScore: the page width (in pixels) of the "fit to window" view, a continuous vertical view
+     * (LayoutMode.SYSTEM) whose systems are as wide as the window and ignore the system and page breaks;
+     * 0 = the normal vertical view (page width of the style, with breaks)
+     */
+    reflowWidth(): number { return this.m_reflowWidth }
+    setReflowWidth(w: number): void { this.m_reflowWidth = w }
 
     isShowInvisible(): boolean { return this.m_showInvisible }
     setShowInvisible(v: boolean): void { this.m_showInvisible = v }

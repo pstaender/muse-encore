@@ -2,16 +2,21 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Preferences (MuseScore's PreferencesDialog.qml): pages in a side bar; for now "General" with the language,
  * "Save & publish" with the auto save (SaveAndPublishPreferencesPage.qml: AutoSaveSection) and "Note input" with the
- * note preview (NoteInputPreferencesPage.qml: NotePreviewSection; there is no MIDI input).
+ * note preview (NoteInputPreferencesPage.qml: NotePreviewSection; there is no MIDI input) and "Web version" with the
+ * settings of the web version (not in MuseScore).
  */
 import { useEffect, useRef, useState } from 'react'
-import { currentLanguage, languageList, qtrc, setLanguage, useLanguage } from '../i18n'
+import { SPACE_PAN_PLAY_SHORTCUT, formatShortcut } from '../actions/actions'
+import { ICON_CODES } from '../actions/uiactiondata'
+import { arg, currentLanguage, languageList, qtrc, setLanguage, useLanguage, webtr } from '../i18n'
 import { updateSettings, useSettings } from '../settings'
 
-const PAGES = [
-    { id: 'general', title: 'General', icon: '' }, // SETTINGS_COG
-    { id: 'cloud', title: 'Save & publish', icon: '' }, // CLOUD_FILE
-] as const
+const PAGES: readonly { id: string; title: string; icon: number; web?: boolean }[] = [
+    { id: 'general', title: 'General', icon: ICON_CODES.SETTINGS_COG },
+    { id: 'cloud', title: 'Save & publish', icon: ICON_CODES.CLOUD_FILE },
+    { id: 'note-input', title: 'Note input', icon: ICON_CODES.EDIT },
+    { id: 'web', title: 'Web version', icon: ICON_CODES.GLOBE, web: true },
+]
 
 function GeneralPage(): React.JSX.Element {
     useLanguage()
@@ -115,6 +120,26 @@ function NoteInputPage(): React.JSX.Element {
     )
 }
 
+/** the settings of the web version (not in MuseScore) */
+function WebVersionPage(): React.JSX.Element {
+    useLanguage()
+    const { web } = useSettings()
+    return (
+        <section className="preferences-section" aria-labelledby="pref-web">
+            <h3 id="pref-web">{webtr('Web version')}</h3>
+            <label className="check">
+                <input type="checkbox" checked={web.spacePan} onChange={e => updateSettings('web', { spacePan: e.target.checked })} />
+                {webtr('Hold Space and drag to move the score')}
+            </label>
+            <p className="muted hint">
+                {arg(webtr('Playback then starts and stops with %1.'), formatShortcut(SPACE_PAN_PLAY_SHORTCUT))}
+                {' '}
+                {webtr('Otherwise Space starts and stops playback and the middle mouse button moves the score.')}
+            </p>
+        </section>
+    )
+}
+
 export function PreferencesDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
     useLanguage()
     const ref = useRef<HTMLDialogElement>(null)
@@ -133,8 +158,8 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }): React.J
                     {PAGES.map(p => (
                         <li key={p.id} role="tab" aria-selected={page === p.id} tabIndex={0} onClick={() => setPage(p.id)}
                             onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPage(p.id) } }}>
-                            <span className="icon-glyph" aria-hidden="true">{p.icon}</span>
-                            {qtrc('preferences', p.title)}
+                            <span className="icon-glyph" aria-hidden="true">{String.fromCodePoint(p.icon)}</span>
+                            {p.web ? webtr(p.title) : qtrc('preferences', p.title)}
                         </li>
                     ))}
                 </ul>
@@ -142,6 +167,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }): React.J
                     {page === 'general' && <GeneralPage />}
                     {page === 'cloud' && <SaveAndPublishPage />}
                     {page === 'note-input' && <NoteInputPage />}
+                    {page === 'web' && <WebVersionPage />}
                 </div>
             </div>
             <form method="dialog" className="dialog-buttons">

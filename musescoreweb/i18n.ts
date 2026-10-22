@@ -2,13 +2,15 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * The UI language: MuseScore's own translations (vite-plugin-locales.ts) behind the library's translator
  * (muse::qtrc), so the app and the engraving use MuseScore's strings and contexts. Like MuseScore, the strings
- * in the code are the English source texts.
+ * in the code are the English source texts. Strings of the web version that MuseScore does not have are translated
+ * in locales/webstrings.json (webtr).
  */
 import { useSyncExternalStore } from 'react'
 import { LANGUAGES, loaders } from 'virtual:musescore-locales'
 import { arg, qtrc, setTranslator } from '../src/index'
 import type { TrString } from './actions/uiactiondata'
 import { settings, updateSettings } from './settings'
+import WEB_STRINGS from './locales/webstrings.json'
 
 export { qtrc, arg }
 
@@ -118,10 +120,22 @@ export function onLanguageChanged(listener: () => void): void {
     listeners.add(listener)
 }
 
-/** a generated translatable string with its arguments (TranslatableString::translated) */
+/**
+ * A string of the web version that MuseScore does not have: its translation from locales/webstrings.json
+ * ({ "English text": { "<language code>": "translation" } }; by the language, else its base language), else the text
+ */
+export function webtr(text: string): string {
+    const t = (WEB_STRINGS as Record<string, Record<string, string> | undefined>)[text]
+    if (!t || current === 'en') {
+        return text
+    }
+    return t[current] ?? t[current.split(/[_@]/)[0]] ?? text
+}
+
+/** a generated translatable string with its arguments (TranslatableString::translated); no context: webtr() */
 export function trString(s: TrString): string {
     const [context, key, disambiguation, args] = s
-    const text = context === null ? key : qtrc(context, key, disambiguation ?? '')
+    const text = context === null ? webtr(key) : qtrc(context, key, disambiguation ?? '')
     return args?.length ? arg(text, ...args.map(trString)) : text
 }
 

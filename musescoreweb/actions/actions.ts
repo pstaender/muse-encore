@@ -7,6 +7,7 @@
 import { useSyncExternalStore } from 'react'
 import { stripMnemonic, trString } from '../i18n'
 import { SHORTCUTS, SHORTCUTS_MAC, UI_ACTIONS, type TrString, type UiActionData } from './uiactiondata'
+import { onSettingsChanged, settings } from '../settings'
 
 export interface ActionHandler {
     run: () => void
@@ -100,8 +101,31 @@ export function useActions(): number {
 //   shortcuts (Qt key sequences: "Ctrl+Shift+N"; on macOS "Ctrl" is Command and "Meta" is Control)
 // ---------------------------------------------------------------------------------
 
-export function shortcuts(code: string): readonly string[] {
+/**
+ * The Space key: "Hold Space and drag to move the score" (settings web.spacePan, not in MuseScore) takes Space from
+ * the "play" action, which gets the key of "pause-and-select" (Ctrl+Space, on macOS Option+Space) instead
+ */
+export const SPACE_PAN_PLAY_SHORTCUT = isMac ? 'Alt+Space' : 'Ctrl+Space'
+
+function shortcutTable(): Record<string, readonly string[]> {
     const table = isMac ? SHORTCUTS_MAC : SHORTCUTS
+    if (!settings().web.spacePan) {
+        return table
+    }
+    return { ...table, play: [SPACE_PAN_PLAY_SHORTCUT], 'pause-and-select': [] }
+}
+
+let s_spacePan = settings().web.spacePan
+onSettingsChanged(() => {
+    if (settings().web.spacePan !== s_spacePan) {
+        s_spacePan = settings().web.spacePan
+        s_index = null
+        actionsChanged() // the shortcuts in the menus and tooltips
+    }
+})
+
+export function shortcuts(code: string): readonly string[] {
+    const table = shortcutTable()
     // the notation's copy/cut/paste are MuseScore's standard keys of action://copy etc. (shown in the menus; the
     // keys themselves are the browser's copy/cut/paste events, see scoreview.ts)
     return table[code] ?? (/^action:\/\/notation\/(copy|cut|paste)$/.test(code) ? table[code.replace('notation/', '')] ?? [] : [])
@@ -157,7 +181,7 @@ function matches(c: KeyCombo, e: KeyboardEvent): boolean {
 let s_index: { code: string; combo: KeyCombo }[] | null = null
 
 function shortcutIndex(): { code: string; combo: KeyCombo }[] {
-    s_index ??= Object.entries(isMac ? SHORTCUTS_MAC : SHORTCUTS).flatMap(([code, seqs]) =>
+    s_index ??= Object.entries(shortcutTable()).flatMap(([code, seqs]) =>
         seqs.map(parseSequence).filter((c): c is KeyCombo => !!c).map(combo => ({ code, combo })))
     return s_index
 }

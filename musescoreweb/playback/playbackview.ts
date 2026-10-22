@@ -2,13 +2,14 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * The playback in the score view (MuseScore's AbstractNotationPaintView: the playback cursor and the loop markers):
  * the cursor (the vertical line at the play position, PlaybackCursor) while playing, moved each frame; the view follows
- * it ("Pan score automatically": adjustCanvasPosition; paused for 2 s when the user moves the view); the markers of
+ * it ("Pan score automatically": adjustCanvasPosition; paused for 2 s when the user moves the view; in the continuous view
+ * (horizontal) with "Smooth panning" the score moves under the cursor in the middle of the view); the markers of
  * the loop boundaries (LoopMarker) while the loop is on. Both are elements on the page elements (in percent of the
  * page, so they follow the zoom).
  */
 import { loopMarkers, playbackCursorBounds, pageSystemCount } from '../../src/index'
 import { settings } from '../settings'
-import { adjustViewToRect, currentScore, onPagesBuilt, onScoreViewChanged, onUserMovedView, pageElement, pageInches, scoreViewState } from '../scoreview'
+import { adjustViewToRect, centerViewOnRect, currentScore, onPagesBuilt, onScoreViewChanged, onUserMovedView, pageElement, pageInches, scoreViewState } from '../scoreview'
 import { onPlaybackPosition, onPlaybackStateChanged, playbackState } from './playbackcontroller'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -60,7 +61,11 @@ function movePlaybackCursor(tick: number, playing: boolean): void {
     }
     cursor.hidden = false
 
-    if (settings().playback.pan && s_autoScrollEnabled) {
+    const pb = settings().playback
+    if (pb.pan && pb.smoothPan && scoreViewState().viewMode === 'continuous-horizontal' && centerViewOnRect(b.page, b)) {
+        return
+    }
+    if (pb.pan && s_autoScrollEnabled) {
         // needAdjustCanvasVerticallyWhilePlayback: vertically if the cursor is not in the view or the page has more systems
         const r = cursor.getBoundingClientRect()
         const vr = document.getElementById('viewport')!.getBoundingClientRect()

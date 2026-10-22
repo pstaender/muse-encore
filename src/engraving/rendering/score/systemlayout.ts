@@ -300,7 +300,7 @@ export class SystemLayout {
 
         let curSysWidth = 0.0
         let layoutSystemMinWidth = 0.0
-        const targetSystemWidth = ctx.conf().styleD(Sid.pagePrintableWidth) * DPI
+        const targetSystemWidth = ctx.conf().pagePrintableWidth()
         system.setWidth(targetSystemWidth)
 
         // save state of measure
@@ -312,8 +312,8 @@ export class SystemLayout {
         prevMeasureState.curHeader = ctx.state().curMeasure()!.header()
         prevMeasureState.curTrailer = ctx.state().curMeasure()!.trailer()
 
-        const systemLock = ctx.conf().viewMode() === LayoutMode.PAGE || ctx.conf().viewMode() === LayoutMode.SYSTEM
-            ? ctx.dom().systemLocks().lockStartingAt(ctx.state().curMeasure()!) : null
+        const systemLock = (ctx.conf().viewMode() === LayoutMode.PAGE || ctx.conf().viewMode() === LayoutMode.SYSTEM)
+            && !ctx.conf().reflowWidth() ? ctx.dom().systemLocks().lockStartingAt(ctx.state().curMeasure()!) : null
 
         while (ctx.state().curMeasure()) { // collect measure for system
             const curMB = ctx.mutState().curMeasure()!
@@ -422,8 +422,9 @@ export class SystemLayout {
             switch (ctx.conf().viewMode()) {
             case LayoutMode.PAGE:
             case LayoutMode.SYSTEM:
-                lineBreak = mb.pageBreak() || mb.lineBreak() || mb.sectionBreak() || mb.isEndOfSystemLock()
-                            || (!!next && next.isStartOfSystemLock())
+                // not in C++: the "fit to window" view (reflowWidth) only keeps the section breaks
+                lineBreak = (!ctx.conf().reflowWidth() && (mb.pageBreak() || mb.lineBreak())) || mb.sectionBreak()
+                            || mb.isEndOfSystemLock() || (!!next && next.isStartOfSystemLock())
                 break
             case LayoutMode.FLOAT:
             case LayoutMode.LINE:

@@ -335,6 +335,7 @@ main.hand.dragging { cursor: grabbing; user-select: none; }
 
 .page canvas { position: absolute; display: block; }
 .page canvas.shadow-note { pointer-events: none; }
+.page canvas.continuous-panel { z-index: 1; pointer-events: none; }
 
 .page.placeholder { visibility: hidden; }
 
@@ -463,6 +464,24 @@ body.fullscreen.panels-shown .side-chrome { transform: none; }
 }
 
 .statusbar.error { color: #d33; }
+.statusbar #status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.statusbar-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 22px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    cursor: pointer;
+}
+.statusbar-button:hover, .statusbar-button[aria-expanded="true"] { background: var(--hover, rgba(127, 127, 127, .15)); }
+
+/* the continuous views: one long page without page border (NotationPainting::isPaintPageBorder) */
+#pages.continuous .page { box-shadow: none; }
 
 /* ---- help dialog ---- */
 

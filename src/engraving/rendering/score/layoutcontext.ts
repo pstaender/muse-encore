@@ -72,7 +72,18 @@ export class LayoutConfiguration {
     defaultSpatium(): number { return this.style().defaultSpatium() }
     point(sp: Spatium): number { return sp.val() * this.spatium() }
     magS(mag: number): number { return mag * (this.spatium() / this.defaultSpatium()) }
-    loWidth(): number { return this.styleD(Sid.pageWidth) * DPI }
+    loWidth(): number { return this.reflowWidth() || this.styleD(Sid.pageWidth) * DPI }
+    /** not in C++ (style pagePrintableWidth): the printable width in pixels, see reflowWidth() */
+    pagePrintableWidth(): number {
+        const w = this.reflowWidth()
+        if (w) {
+            const margins = (this.styleD(Sid.pageWidth) - this.styleD(Sid.pagePrintableWidth)) * DPI
+            return Math.max(w - margins, this.styleMM(Sid.minMeasureWidth) * 2)
+        }
+        return this.styleD(Sid.pagePrintableWidth) * DPI
+    }
+    /** not in C++: Score.reflowWidth() in the vertical view (the "fit to window" view), 0 otherwise */
+    reflowWidth(): number { return this.isMode(LayoutMode.SYSTEM) ? this.m_score.reflowWidth() : 0 }
     loHeight(): number { return this.styleD(Sid.pageHeight) * DPI }
     firstSystemIndent(): boolean { return this.styleB(Sid.enableIndentationOnFirstSystem) }
 }

@@ -4,8 +4,6 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/engraving/rendering/score/scorelayout.h/.cpp and scorepageviewlayout.h/.cpp
- *
- * TODO(port): horizontal (LINE) and vertical (SYSTEM) view layouts
  */
 
 import { Fraction } from '../../types/fraction'
@@ -20,6 +18,8 @@ import { SystemLayout } from './systemlayout'
 import { PageLayout } from './pagelayout'
 import { HeaderFooterLayout } from './headerfooterlayout'
 import { TLayout } from './tlayout'
+import { ScoreHorizontalViewLayout } from './scorehorizontalviewlayout'
+import { ScoreVerticalViewLayout } from './scoreverticalviewlayout'
 
 export class ScoreLayout {
     static layoutRange(score: Score, st: Fraction, et: Fraction): void {
@@ -49,9 +49,12 @@ export class ScoreLayout {
         case LayoutMode.FLOAT:
             ScorePageViewLayout.layoutPageView(score, ctx, stick, etick)
             break
-        default:
-            // TODO(port): ScoreHorizontalViewLayout / ScoreVerticalViewLayout
-            ScorePageViewLayout.layoutPageView(score, ctx, stick, etick)
+        case LayoutMode.LINE:
+        case LayoutMode.HORIZONTAL_FIXED:
+            ScoreHorizontalViewLayout.layoutHorizontalView(score, ctx, stick, etick)
+            break
+        case LayoutMode.SYSTEM:
+            ScoreVerticalViewLayout.layoutVerticalView(score, ctx, stick, etick)
             break
         }
 

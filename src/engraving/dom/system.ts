@@ -371,10 +371,22 @@ export class System extends EngravingItem {
     }
 
     topDistance(staffIdx: staff_idx_t, s: SkylineLine): number {
+        // in continuous view, we only build a partial skyline for performance reasons
+        // this means we cannot expect the minDistance calculation to produce meaningful results
+        // so just give up on autoplace for spanners in continuous view
+        // (or any other calculations that rely on this value)
+        // (EngravingConfiguration::minDistanceForPartialSkylineCalculated() is false)
+        if (this.score().lineMode()) {
+            return 0.0
+        }
         return s.minDistance(this.staff(staffIdx)!.skyline().north())
     }
 
     bottomDistance(staffIdx: staff_idx_t, s: SkylineLine): number {
+        // see note on topDistance() above
+        if (this.score().lineMode()) {
+            return 0.0
+        }
         return this.staff(staffIdx)!.skyline().south().minDistance(s)
     }
 

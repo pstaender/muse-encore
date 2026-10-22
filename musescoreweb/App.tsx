@@ -6,6 +6,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { actionsChanged, registerAction, useActions } from './actions/actions'
 import { clearRecentScores } from './actions/appactions'
+import { ViewModeControl } from './components/ViewModeControl'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { MenuBar } from './components/Menu'
 import { AboutDialog } from './dialogs/AboutDialog'
@@ -75,6 +76,7 @@ function StatusBar(): React.JSX.Element {
     return (
         <footer className={`statusbar${v.statusError ? ' error' : ''}`}>
             <span id="status" aria-live="polite">{v.selection ? plainText(v.selection) : v.status}</span>
+            <ViewModeControl />
         </footer>
     )
 }

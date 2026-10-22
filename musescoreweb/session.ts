@@ -6,7 +6,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import {
-    createScore, drawPage, endTextEditing, isModified, layoutScore, loadScore, markSaved, markUnsaved, pageCount, pageSize, saveMscz,
+    createScore, drawPage, endTextEditing, isModified, layoutScore, loadScore, markSaved, markUnsaved, pageCount, pageFormatSize, pageSize, saveMscz, viewMode,
     scoreTitle, type MasterScore, type NewScoreOptions,
 } from '../src/index'
 import {
@@ -129,20 +129,27 @@ export function answerDialog(answer: unknown): void {
 
 const UNTITLED = 'Untitled score' // NotationProject::scoreDefaultTitle
 
-/** a small picture of the first page for the home screen */
+/**
+ * a small picture of the first page for the home screen; in the continuous views the beginning of their page
+ * in the proportions of the page format
+ */
 function makeThumbnail(score: MasterScore): Promise<Blob | undefined> {
-    const size = pageSize(score, 0)
+    const size = viewMode(score) === 'page' ? pageSize(score, 0) : pageFormatSize(score)
     const width = 360
-    const dpi = width / size.width
+    const dpi = width / Math.min(size.width, pageSize(score, 0).width)
     const c = document.createElement('canvas')
     c.width = width
-    c.height = Math.round(size.height * dpi)
-    drawPage(score, 0, c.getContext('2d')!, { dpi })
+    c.height = Math.round(size.height * width / size.width)
+    const ctx = c.getContext('2d')!
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, c.width, c.height)
+    drawPage(score, 0, ctx, { dpi, region: { x: 0, y: 0, width: c.width, height: c.height } })
     return new Promise(resolve => c.toBlob(b => resolve(b ?? undefined), 'image/webp', 0.85))
 }
 
+/** `aspect` is the one of the page format (also in the continuous views, which have one long page) */
 function entryInfo(score: MasterScore): Pick<ScoreEntry, 'title' | 'composer' | 'pages' | 'aspect'> {
-    const size = pageSize(score, 0)
+    const size = pageFormatSize(score)
     return {
         title: scoreTitle(score),
         composer: score.metaTag('composer') || '',

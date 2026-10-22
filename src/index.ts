@@ -30,6 +30,8 @@ import { MscSaver } from './engraving/rw/mscsaver'
 import { Writer } from './engraving/rw/write/writer'
 import { EngravingCompat } from './engraving/compat/engravingcompat'
 import { MasterScore } from './engraving/dom/masterscore'
+import { ContinuousPanel } from './notationscene/continuouspanel'
+import { LayoutMode } from './engraving/dom/score'
 import { ScoreRenderer } from './engraving/rendering/score/scorerenderer'
 import { Paint } from './engraving/rendering/score/paint'
 import { NotationInteraction } from './notation/internal/notationinteraction'
@@ -149,6 +151,47 @@ export function layoutScore(score: MasterScore): void {
 
 const s_compatDone = new WeakSet<MasterScore>()
 
+/**
+ * The view modes of MuseScore's notation view (NotationPainting::setViewMode) plus 'fit-width' (not in MuseScore):
+ * - 'page': page view
+ * - 'continuous-horizontal': continuous view (horizontal), one system on one page (LayoutMode::LINE)
+ * - 'continuous-vertical': continuous view (vertical), all systems on one long page (LayoutMode::SYSTEM)
+ * - 'fit-width': like 'continuous-vertical', but the systems are as wide as `width` (e.g. the window) and only
+ *   section breaks start a new system
+ */
+export type ViewMode = 'page' | 'continuous-horizontal' | 'continuous-vertical' | 'fit-width'
+
+export function viewMode(score: MasterScore): ViewMode {
+    switch (score.layoutMode()) {
+    case LayoutMode.LINE:
+    case LayoutMode.HORIZONTAL_FIXED:
+        return 'continuous-horizontal'
+    case LayoutMode.SYSTEM:
+        return score.reflowWidth() ? 'fit-width' : 'continuous-vertical'
+    default:
+        return 'page'
+    }
+}
+
+/**
+ * Sets the view mode and lays out the score again if it changed. `width`: the page width of 'fit-width' in inches
+ * (the systems are this width minus the page margins). Returns true if the layout changed.
+ */
+export function setViewMode(score: MasterScore, mode: ViewMode, width = 0): boolean {
+    const layoutMode = mode === 'continuous-horizontal' ? LayoutMode.LINE
+        : mode === 'continuous-vertical' || mode === 'fit-width' ? LayoutMode.SYSTEM : LayoutMode.PAGE
+    const reflowWidth = mode === 'fit-width' ? Math.round(width * DPI) : 0
+    if (score.layoutMode() === layoutMode && score.reflowWidth() === reflowWidth) {
+        return false
+    }
+    score.setLayoutMode(layoutMode)
+    score.setReflowWidth(reflowWidth)
+    if (s_compatDone.has(score)) {
+        ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
+    }
+    return true
+}
+
 /** MuseScore saves laid out scores (multimeasure rests, compatibility conversions of old files happen with the layout) */
 function ensureLaidOut(score: MasterScore): void {
     if (!s_compatDone.has(score)) {
@@ -177,7 +220,13 @@ export function pageCount(score: MasterScore): number {
     return score.npages()
 }
 
-/** page size in inches */
+/** the page format of the style in inches (the page size of the page view, also in the continuous views) */
+export function pageFormatSize(score: MasterScore): { width: number; height: number } {
+    const s = Paint.pageSizeInch(score)
+    return { width: s.width(), height: s.height() }
+}
+
+/** page size in inches (in the continuous views the size of their single page) */
 export function pageSize(score: MasterScore, pageIdx = 0): { width: number; height: number } {
     const bbox = score.pages()[pageIdx]?.ldata().bbox()
     if (!bbox) {
@@ -270,6 +319,30 @@ export function drawPage(score: MasterScore, pageIdx: number, ctx: Canvas2D, opt
     if (!isPrinting) {
         drawSelectionRange(score, pageIdx, painter, scale)
     }
+}
+
+const s_continuousPanels = new WeakMap<MasterScore, ContinuousPanel>()
+
+/**
+ * The continuous view (horizontal): MuseScore's ContinuousPanel, the staff names, clefs, key and time signatures at the
+ * left edge of the view once the beginning of the score is scrolled out of it. `left` is the x position of the left
+ * edge of the view on the page (inches); the canvas shows the page from there (x = left at its left edge, y = 0 at its
+ * top) at `dpi`. Returns the width of the panel in inches (0 if there is no panel).
+ */
+export function drawContinuousPanel(score: MasterScore, ctx: Canvas2D, options: { dpi: number; left: number }): number {
+    if (!score.lineMode() || !score.npages()) {
+        return 0
+    }
+    let panel = s_continuousPanels.get(score)
+    if (!panel) {
+        panel = new ContinuousPanel(score)
+        s_continuousPanels.set(score, panel)
+    }
+    const scale = options.dpi / DPI
+    const left = options.left * DPI
+    const provider = new CanvasPaintProvider(ctx, new Transform(scale, 0, 0, scale, -left * scale, 0))
+    const painter = new Painter(provider, fontProvider(), 'continuous_panel')
+    return panel.paint(painter, { left }, { isPrinting: false }) ? panel.width() / DPI : 0
 }
 
 /** the range selection rectangle (MuseScore's notation view paints it after the score) */

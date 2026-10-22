@@ -779,6 +779,11 @@ export function registerPlaybackActions(): void {
     registerAction('repeat', { run: () => toggleSetting('playRepeats', () => { s_dirty = true; updateEvents() }), checked: () => pb().playRepeats })
     registerAction('play-chord-symbols', { run: () => toggleSetting('playChordSymbols', () => { s_dirty = true; updateEvents() }), checked: () => pb().playChordSymbols })
     registerAction('pan', { run: () => toggleSetting('pan'), checked: () => pb().pan })
+    // MuseScore's advanced setting "application/playback/smoothPan" (NotationSceneConfiguration::isSmoothPanning)
+    registerAction('smooth-pan', { run: () => toggleSetting('smoothPan'), checked: () => pb().smoothPan }, {
+        title: ['notation', 'Smooth panning'], description: [null, 'Continuous view (horizontal): the score moves smoothly with the playback cursor'],
+        checkable: true,
+    })
     registerAction('metronome', {
         run: () => toggleSetting('metronome', () => { player.metronomeEnabled = pb().metronome }),
         checked: () => pb().metronome,

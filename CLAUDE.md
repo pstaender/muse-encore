@@ -38,7 +38,8 @@ src/
                         rw/rwregister.ts: the reader/writer the DOM uses for the clipboard (mime data, paste)
   engraving/compat      EngravingCompat (pre/post layout conversions of old files), page format, dummy element;
                         compat/midi: the MIDI renderer (CompatMidiRender: play events, tempo/pause maps, velocities)
-  engraving/rendering/score  layout (ScoreLayout, SystemLayout, ChordLayout, ...) and painting (TDraw)
+  engraving/rendering/score  layout (ScoreLayout with the page view and the continuous views ScoreHorizontalViewLayout /
+                        ScoreVerticalViewLayout, SystemLayout, ChordLayout, ...) and painting (TDraw)
   engraving/rendering/single  SingleLayout/SingleDraw: standalone items (palette cells) on the palette score
   engraving/rendering/editmode  EditModeRenderer: text cursor/selection of an edited text, grips
   engraving/editing     score changes (edit.cpp, cmd.cpp, ... as Score module augmentations) through the undo stack
@@ -54,7 +55,7 @@ src/
                         the events of the MIDI renderer in seconds, metronome, preview notes, loop boundaries)
   playback              IPlaybackController (set by the app; the notation scene seeks/plays through it); api.ts
   notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands),
-                        PlaybackCursor, LoopMarker
+                        PlaybackCursor, LoopMarker, ContinuousPanel (left edge of the horizontal continuous view)
   palette               palette tree/palettes/cells with XML read/write and .mpal files (palettecreator: default +
                         master palettes), the user palette tree (paletteprovider.ts: PaletteProvider, UserPaletteController;
                         palettemodel.ts: PaletteTreeModel addressed by PaletteIndex), cell icons (PaletteCellIconEngine,
@@ -73,7 +74,8 @@ webviewer/              Vite web viewer app (MuseScore icon font in webviewer/as
 musescoreweb/           Vite score editor app "MuseScore Web": React UI (App.tsx, home/, newscore/, dialogs/ mirror MuseScore's
                         QML pages), menu bar (menus/appmenu.ts = AppMenuModel), toolbars (toolbars/: docks, note input bar),
                         actions (actions/: MuseScore's UiActions + shortcuts, generated uiactiondata.ts; appactions.ts =
-                        the handlers), i18n.ts (MuseScore's translations via vite-plugin-locales.ts), score view
+                        the handlers), i18n.ts (MuseScore's translations via vite-plugin-locales.ts; the app's own
+                        strings without context are translated in locales/webstrings.json, webtr()), score view
                         (scoreview.ts, DOM code from the viewer; drops of palette cells), dragcontroller.ts (the data of
                         the current drag), session.ts (open/create/save scores), db.ts (IndexedDB via
                         Dexie), settings.ts (localStorage), playback/ (Synthesizer interface, SpessaSynth + MS Basic.sf3
@@ -103,7 +105,8 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
   The engraving library itself stays framework independent.
 - UI texts are MuseScore's English source strings with MuseScore's translation context (`qtrc("project", "New score")`,
   see share/locale/*.ts), so MuseScore's translations apply; commands are MuseScore's actions (codes, titles, icons,
-  shortcuts from the generated table) registered with `registerAction`. Strings MuseScore does not have stay English.
+  shortcuts from the generated table) registered with `registerAction`. Strings MuseScore does not have are
+  translated in musescoreweb/locales/webstrings.json (all of MuseScore's languages; `webtr()`, `[null, text]` titles).
 - TypeScript 7 (native compiler); `npm run typecheck` / `npm run build` use it.
 - C++ destructors with side effects must be emulated explicitly (e.g. ~LayoutContext -> end of ScoreLayout.layoutRange).
 - DOM -> rendering calls (C++ `renderer()->...`) go through hooks set in `rendering/score/scorerenderer.ts`.

@@ -1206,7 +1206,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
     const playButton = '[data-toolbar="playbackToolBar"] .tool-button[data-action="play"]'
     const muteButton = '[data-toolbar="playbackToolBar"] .tool-button[data-action="playback-mute"]'
 
-    it('plays the score from the toolbar and with Space, moves the playback cursor, mutes and plays notes on click', async () => {
+    it('plays the score from the toolbar and with Ctrl/Option+Space, moves the playback cursor, mutes and plays notes on click', async () => {
         const layout = await amazingGraceLayout()
         const { page, context, box } = await openAmazingGrace()
         const at = (fx: number, fy: number): [number, number] => [box.x + box.width * fx, box.y + box.height * fy]
@@ -1230,13 +1230,18 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         const paused = await playbackProbe(page)
         expect(paused.position).toBeGreaterThan(0)
 
-        // Space continues from the last position; Space again pauses
+        // with the default setting "Hold Space and drag to move the score" Ctrl+Space (macOS: Option+Space) plays:
+        // it continues from the last position, again it pauses
+        const playKey = process.platform === 'darwin' ? 'Alt+Space' : 'Control+Space'
         await page.focus('#viewport')
         await page.keyboard.press(' ')
+        await page.waitForTimeout(300)
+        expect((await playbackProbe(page)).playing).toBe(false) // Space alone is the hand tool
+        await page.keyboard.press(playKey)
         await page.waitForFunction(() => (window as unknown as { __musescorewebPlayback: { state: () => { playing: boolean } } })
             .__musescorewebPlayback.state().playing)
         await page.waitForTimeout(300)
-        await page.keyboard.press(' ')
+        await page.keyboard.press(playKey)
         await page.waitForFunction(() => !(window as unknown as { __musescorewebPlayback: { state: () => { playing: boolean } } })
             .__musescorewebPlayback.state().playing)
         expect((await playbackProbe(page)).position).toBeGreaterThan(paused.position)
@@ -1269,6 +1274,85 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.hover('.menu-item:has-text("Toolbars")')
         await page.click('.menu-item:has-text("Playback controls")')
         await page.waitForFunction(() => !document.querySelector('[data-toolbar="playbackToolBar"]'))
+        await context.close()
+    }, 180000)
+    it('switches the view mode in the status bar: continuous views, fit to window, smooth panning while playing', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const pageCount = await page.locator('.page').count()
+        const pageBox = async (): Promise<{ x: number; y: number; width: number; height: number }> => (await page.locator('.page').first().boundingBox())!
+        const chooseViewMode = async (title: string): Promise<void> => {
+            await page.click('.statusbar-button')
+            await page.click(`.menu-item:has-text("${title}")`)
+            await page.waitForTimeout(500)
+        }
+        expect(await page.textContent('.statusbar-button')).toContain('Page view')
+
+        // continuous view (horizontal): one page with one system, wider than the view
+        await chooseViewMode('Continuous view (horizontal)')
+        expect(await page.textContent('.statusbar-button')).toContain('Continuous view')
+        expect(await page.locator('.page').count()).toBe(1)
+        expect(await page.getAttribute('#pages', 'class')).toContain('continuous')
+        let box = await pageBox()
+        expect(box.width).toBeGreaterThan(box.height * 3)
+        const viewport = (await page.locator('#viewport').boundingBox())!
+        expect(box.width).toBeGreaterThan(viewport.width)
+
+        // smooth panning: the playback cursor stays in the middle of the view
+        await page.click('[data-toolbar="playbackToolBar"] .tool-button[aria-label="Playback settings"]')
+        await page.click('.menu-item:has-text("Smooth panning")')
+        await page.click(playButton)
+        await page.waitForFunction(() => (window as unknown as { __musescorewebPlayback: { state: () => { tick: number } } })
+            .__musescorewebPlayback.state().tick > 4 * 1440, null, { timeout: 30000 })
+        const cursorOffsets: number[] = []
+        for (let i = 0; i < 3; ++i) {
+            await page.waitForTimeout(400)
+            const c = (await page.locator('.playback-cursor').boundingBox())!
+            cursorOffsets.push(c.x + c.width / 2 - (viewport.x + viewport.width / 2))
+        }
+        await page.click(playButton)
+        for (const d of cursorOffsets) {
+            expect(Math.abs(d)).toBeLessThan(40)
+        }
+
+        // continuous view (vertical): one long page
+        await chooseViewMode('Continuous view (vertical)')
+        expect(await page.locator('.page').count()).toBe(1)
+        box = await pageBox()
+        expect(box.height).toBeGreaterThan(box.width)
+        // the mouse wheel scrolls the continuous views (it zooms only in the page view)
+        const zoomBefore = await page.inputValue('.zoom-select')
+        const top = await page.evaluate(() => document.getElementById('viewport')!.scrollTop)
+        await page.mouse.move(viewport.x + viewport.width / 2, viewport.y + viewport.height / 2)
+        await page.mouse.wheel(0, 120)
+        await page.waitForTimeout(300)
+        expect(await page.inputValue('.zoom-select')).toBe(zoomBefore)
+        expect(await page.evaluate(() => document.getElementById('viewport')!.scrollTop)).toBeGreaterThan(top)
+
+        // fit to window: the page is as wide as the view, also after the window size changes
+        await chooseViewMode('Continuous view (fit to window)')
+        expect(await page.textContent('.statusbar-button')).toContain('fit to window')
+        const gap = (vw: number, pw: number): number => vw - pw
+        box = await pageBox()
+        let vp = (await page.locator('#viewport').boundingBox())!
+        expect(gap(vp.width, box.width)).toBeGreaterThan(0)
+        expect(gap(vp.width, box.width)).toBeLessThan(80)
+        const systemsWide = box.height
+        await page.setViewportSize({ width: 900, height: 800 })
+        await page.waitForTimeout(800)
+        box = await pageBox()
+        vp = (await page.locator('#viewport').boundingBox())!
+        expect(gap(vp.width, box.width)).toBeLessThan(80)
+        expect(box.height).toBeGreaterThan(systemsWide) // more systems
+        expect(await page.evaluate(() => document.getElementById('viewport')!.scrollWidth <= document.getElementById('viewport')!.clientWidth + 1)).toBe(true)
+
+        // the view mode is kept after a reload; back to the page view
+        await page.reload()
+        await scoreShown(page)
+        expect(await page.textContent('.statusbar-button')).toContain('fit to window')
+        await chooseViewMode('Page view')
+        expect(await page.locator('.page').count()).toBe(pageCount)
         await context.close()
     }, 180000)
 })

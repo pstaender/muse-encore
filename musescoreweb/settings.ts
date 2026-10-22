@@ -9,6 +9,8 @@ export interface ViewSettings {
     zoom: string // a percentage ("100") or a fit mode ("page-width", "whole-page")
     orientation: 'horizontal' | 'vertical'
     spread: boolean
+    /** the view mode (MuseScore's status bar: page view, continuous view horizontal/vertical; fit-width is not in MuseScore) */
+    viewMode: 'page' | 'continuous-horizontal' | 'continuous-vertical' | 'fit-width'
 }
 
 export interface AppSettings {
@@ -49,6 +51,8 @@ export interface AppSettings {
     palettes: Record<string, unknown> | null
     /** the playback (NotationConfiguration, PlaybackConfiguration) and the mute button of this app */
     playback: PlaybackSettings
+    /** settings of the web version (not in MuseScore) */
+    web: WebSettings
 }
 
 export interface PlaybackSettings {
@@ -60,6 +64,8 @@ export interface PlaybackSettings {
     countIn: boolean
     /** isAutomaticallyPanEnabled: "Pan score automatically" */
     pan: boolean
+    /** NotationSceneConfiguration::isSmoothPanning ("Smooth panning", continuous view horizontal) */
+    smoothPan: boolean
     /** isPlayRepeatsEnabled */
     playRepeats: boolean
     /** isPlayChordSymbolsEnabled */
@@ -78,8 +84,13 @@ export interface PlaybackSettings {
     notePlayDuration: number
 }
 
+export interface WebSettings {
+    /** holding Space and dragging moves the score (the hand tool); playback is then Alt+Space (macOS: Option+Space) */
+    spacePan: boolean
+}
+
 const DEFAULTS: AppSettings = {
-    view: { zoom: 'whole-page', orientation: 'horizontal', spread: false },
+    view: { zoom: 'whole-page', orientation: 'horizontal', spread: false, viewMode: 'page' },
     home: { layout: 'grid' },
     newScore: { mode: 'instruments' },
     project: { autoSaveEnabled: true, autoSaveInterval: 5 }, // ProjectConfiguration::init
@@ -89,10 +100,11 @@ const DEFAULTS: AppSettings = {
     panels: { open: ['palettesPanel', 'instrumentsPanel', 'inspectorPanel'], current: 'palettesPanel', width: 300 },
     palettes: null,
     playback: {
-        muted: false, metronome: false, countIn: false, pan: true, playRepeats: true, playChordSymbols: true,
+        muted: false, metronome: false, countIn: false, pan: true, smoothPan: false, playRepeats: true, playChordSymbols: true,
         playNotesWhenEditing: true, playChordWhenEditing: true, playHarmonyWhenEditing: true,
         playPreviewNotesInInputByDuration: true, playPreviewNotesWithScoreDynamics: true, notePlayDuration: 500,
     },
+    web: { spacePan: true },
 }
 
 const SETTINGS_KEY = 'musescoreweb:settings'
@@ -111,6 +123,7 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
             zoom: typeof view.zoom === 'string' ? view.zoom : DEFAULTS.view.zoom,
             orientation: oneOf(view.orientation, ['horizontal', 'vertical'], DEFAULTS.view.orientation),
             spread: typeof view.spread === 'boolean' ? view.spread : DEFAULTS.view.spread,
+            viewMode: oneOf(view.viewMode, ['page', 'continuous-horizontal', 'continuous-vertical', 'fit-width'], DEFAULTS.view.viewMode),
         },
         home: { layout: oneOf(s.home?.layout, ['grid', 'list'], DEFAULTS.home.layout) },
         newScore: { mode: oneOf(s.newScore?.mode, ['instruments', 'template'], DEFAULTS.newScore.mode) },
@@ -138,6 +151,7 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
         },
         palettes: s.palettes && typeof s.palettes === 'object' && !Array.isArray(s.palettes) ? s.palettes as Record<string, unknown> : null,
         playback: sanitizePlayback(s.playback ?? {}),
+        web: { spacePan: typeof s.web?.spacePan === 'boolean' ? s.web.spacePan : DEFAULTS.web.spacePan },
     }
 }
 
@@ -145,7 +159,7 @@ function sanitizePlayback(p: Partial<PlaybackSettings>): PlaybackSettings {
     const d = DEFAULTS.playback
     const b = (k: keyof PlaybackSettings): boolean => typeof p[k] === 'boolean' ? p[k] as boolean : d[k] as boolean
     return {
-        muted: b('muted'), metronome: b('metronome'), countIn: b('countIn'), pan: b('pan'), playRepeats: b('playRepeats'),
+        muted: b('muted'), metronome: b('metronome'), countIn: b('countIn'), pan: b('pan'), smoothPan: b('smoothPan'), playRepeats: b('playRepeats'),
         playChordSymbols: b('playChordSymbols'), playNotesWhenEditing: b('playNotesWhenEditing'),
         playChordWhenEditing: b('playChordWhenEditing'), playHarmonyWhenEditing: b('playHarmonyWhenEditing'),
         playPreviewNotesInInputByDuration: b('playPreviewNotesInInputByDuration'),

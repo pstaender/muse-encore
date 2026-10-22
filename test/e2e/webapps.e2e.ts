@@ -66,9 +66,12 @@ function pageCenterOffset(page: Page, idx = 0): Promise<[number, number]> {
     }, idx)
 }
 
-/** the hand tool: Space + drag in the viewer; the middle mouse button in the editor (Space plays there) */
-async function handDrag(page: Page, app: string, dx: number, dy: number): Promise<void> {
-    const space = app === 'webviewer'
+/**
+ * the hand tool: Space + drag (in the editor the default setting "Hold Space and drag to move the score"), or the
+ * middle mouse button in the editor
+ */
+async function handDrag(page: Page, app: string, dx: number, dy: number, middleButton = false): Promise<void> {
+    const space = app === 'webviewer' || !middleButton
     await page.mouse.move(640, 400)
     if (space) {
         await page.keyboard.down(' ')
@@ -234,6 +237,18 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
         expect(moved).toEqual([48, 48]) // only a strip of the page stays visible
         await page.click(sel.center)
         expect(await pageCenterOffset(page)).toEqual([0, 0])
+        if (editor) {
+            // the middle mouse button moves the view too
+            await handDrag(page, app, 300, 200, true)
+            expect(await pageCenterOffset(page)).toEqual([300, 200])
+            // with a selection the center button centers it, not the page (the music fills only the upper part of the page)
+            await page.focus('#viewport')
+            await page.keyboard.press('ControlOrMeta+a')
+            await page.click(sel.center)
+            const [x, y] = await pageCenterOffset(page)
+            expect(Math.abs(x)).toBeLessThan(40)
+            expect(Math.abs(y)).toBeGreaterThan(10)
+        }
         await context.close()
     }, 120000)
 

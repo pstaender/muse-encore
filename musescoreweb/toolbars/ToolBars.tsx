@@ -10,6 +10,7 @@ import {
     useActions,
 } from '../actions/actions'
 import { MenuPopup } from '../components/Menu'
+import { ViewModeControl } from '../components/ViewModeControl'
 import { qtrc, stripMnemonic, trString, useLanguage } from '../i18n'
 import type { MenuItem } from '../menus/appmenu'
 import { ZOOM_LEVELS, setFitMode, useScoreView, zoomAt, type FitMode } from '../scoreview'
@@ -290,6 +291,7 @@ function ViewToolBar(): React.JSX.Element {
             <ActionButton code="view-pages-horizontal" />
             <ActionButton code="view-pages-vertical" />
             <ActionButton code="view-two-pages" />
+            <ViewModeControl className="tool-button view-mode-button" />
             <Separator />
             <ActionButton code="zoomout" />
             <select className="zoom-select" title={qtrc('notation', 'Zoom')} aria-label={qtrc('notation', 'Zoom')} disabled={!v.hasScore} value={zoomValue}

@@ -1047,5 +1047,43 @@
   CompatMidiRender events (like MuseScore's MIDI export) are played, so e.g. hairpins in preview dynamics, playing
   technique annotations and articulation sounds of the MPE model differ. Playing sets the notes' play events like a
   MIDI export (the status bar then shows "(on ... off ...)" for shortened notes, as in MuseScore after a MIDI export).
-  No mixer, MIDI input, playback setup dialog, ChangePart harmony channels, smooth pan in continuous view; no
+  No mixer, MIDI input, playback setup dialog, ChangePart harmony channels; no
   WebAudioFont fallback (SpessaSynth works wherever AudioWorklet exists; without it there is no sound).
+
+## 2026-10-22 — View modes (continuous views), fit to window, smooth panning, Space hand tool
+
+- Library: rendering/score/scorehorizontalviewlayout.ts (ScoreHorizontalViewLayout: one page with one system of all
+  measures, VBoxes left out; partial layout keeps the layout of the measures outside the range like C++) and
+  scoreverticalviewlayout.ts (ScoreVerticalViewLayout: all systems on one page that grows; PassLayoutIndependentItems
+  on layout all). ScoreLayout dispatches LINE/HORIZONTAL_FIXED/SYSTEM; System.topDistance/bottomDistance return 0 in
+  LINE mode (EngravingConfiguration::minDistanceForPartialSkylineCalculated is false). API: setViewMode/viewMode
+  ('page' | 'continuous-horizontal' | 'continuous-vertical' | 'fit-width'), pageFormatSize, drawContinuousPanel;
+  tools/render.ts takes a view mode.
+- Not in MuseScore: "Continuous view (fit to window)" = LayoutMode::SYSTEM with Score.reflowWidth (LayoutConfiguration
+  loWidth()/pagePrintableWidth() use it); only section breaks start a new system (system/page breaks and system locks
+  are ignored). The editor lays the score out again when the width of the view or the zoom changes (debounced).
+- notationscene/continuouspanel.ts: port of ContinuousPanel (staff names, clefs, key/time signatures, measure number
+  at the left edge of the horizontal view); the editor draws it on an overlay canvas that follows the scrolling.
+- Editor: view mode control in the status bar (MuseScore's ViewModeControl; components/ViewModeControl.tsx), also in
+  the page view toolbar and View > View mode; actions view-mode-page/-continuous/-single (MuseScore) and
+  view-mode-fit-width; the mode is a view setting (persisted, for all scores, MuseScore keeps it per score). Continuous
+  views: no page shadow, zoom fit modes fit the height (horizontal) or width (vertical), long pages are drawn as tiles
+  (also above 16384 px per side), tiles follow while scrolling continuously; printing and the home thumbnails use the
+  page view (printing switches temporarily, the thumbnail shows the beginning in the page format).
+- In the continuous views the mouse wheel scrolls (a wheel notch zooms only in the page view; fast trackpad scrolling
+  was taken for wheel notches and changed the zoom).
+- Smooth panning (MuseScore's advanced setting application/playback/smoothPan): Playback settings > Smooth panning;
+  in the continuous view (horizontal) the score moves under the cursor in the middle of the view
+  (adjustCanvasPositionSmoothPan).
+- "Center page" centers the selection (e.g. selected measures) if there is one.
+- Preferences > Web version (also fixed: the Note input page was missing in the list): "Hold Space and drag to move the
+  score" (default on): Space + drag is the hand tool, "play" gets Ctrl+Space (macOS Option+Space; that key was
+  pause-and-select, which then has no shortcut); off: Space plays as in MuseScore. The middle mouse button always pans.
+- Translations of the web version's own strings (no context in the action table, webtr()): musescoreweb/locales/
+  webstrings.json for all of MuseScore's languages (view toolbar, view modes, mute, smooth panning, Web version page).
+- Tests: test/viewmode.test.ts; e2e: view modes, smooth panning, fit to window on resize, Space/middle button hand
+  tool, Ctrl/Option+Space playback, center on the selection.
+- Known differences: in the horizontal view, autoplace of lines far from an edit can differ slightly between the
+  partial layout after an edit and a full layout (partial skylines, like MuseScore); the auto pan does not leave room
+  for the continuous panel (C++ adjusts the view rect by the panel width).
+

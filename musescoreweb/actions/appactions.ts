@@ -6,9 +6,10 @@
  */
 import { removeAllScores } from '../db'
 import { ICON_CODES } from './uiactiondata'
+import type { ViewMode } from '../../src/index'
 import {
-    centerPage, goToPage, lastPage, onScoreViewChanged, print, scoreViewState, setFitMode, setOrientation,
-    showShortcutsHelp, stepPage, toggleFullscreen, toggleSpread, zoomAt, zoomStep,
+    centerPage, centerSelectionOrPage, goToPage, lastPage, onScoreViewChanged, print, scoreViewState, setFitMode, setOrientation,
+    setViewMode, showShortcutsHelp, stepPage, toggleFullscreen, toggleSpread, zoomAt, zoomStep,
 } from '../scoreview'
 import {
     canSave, chooseFile, closeScore, forgetScore, onSessionChanged, saveCopy, saveScore, saveScoreAs, session, showDialog,
@@ -91,18 +92,31 @@ export function registerAppActions(): void {
     registerAction('page-top', { run: () => goToPage(0), enabled: scoreShown })
     registerAction('page-end', { run: () => goToPage(lastPage()), enabled: scoreShown })
 
+    // ---- view modes (NotationActionController: view-mode-*; the status bar's ViewModeControl) ----
+    for (const [code, mode] of VIEW_MODE_ACTIONS) {
+        registerAction(code, { run: () => setViewMode(mode), enabled: scoreShown, checked: () => scoreViewState().viewMode === mode }, { checkable: true })
+    }
+    registerAction('view-mode-fit-width', {
+        run: () => setViewMode('fit-width'), enabled: scoreShown, checked: () => scoreViewState().viewMode === 'fit-width',
+    }, {
+        title: [null, 'Continuous view (fit to window)'],
+        description: [null, 'Display continuous view (vertical) as wide as the window, without system and page breaks'],
+        icon: ICON_CODES.HORIZONTAL, checkable: true,
+    })
+
     // ---- the page view toolbar of the web viewer ----
+    const pageViewShown = (): boolean => scoreShown() && scoreViewState().viewMode === 'page'
     registerAction('view-pages-horizontal', {
-        run: () => setOrientation('horizontal'), enabled: scoreShown, checked: () => scoreViewState().orientation === 'horizontal',
+        run: () => setOrientation('horizontal'), enabled: pageViewShown, checked: () => scoreViewState().orientation === 'horizontal',
     }, { title: [null, 'Pages side by side'], icon: 0xEF1C, checkable: true })
     registerAction('view-pages-vertical', {
-        run: () => setOrientation('vertical'), enabled: scoreShown, checked: () => scoreViewState().orientation === 'vertical',
+        run: () => setOrientation('vertical'), enabled: pageViewShown, checked: () => scoreViewState().orientation === 'vertical',
     }, { title: [null, 'Pages vertically'], icon: 0xF3AF, checkable: true })
     registerAction('view-two-pages', {
-        run: toggleSpread, enabled: () => scoreShown() && scoreViewState().spreadAvailable, checked: () => scoreViewState().spread,
+        run: toggleSpread, enabled: () => pageViewShown() && scoreViewState().spreadAvailable, checked: () => scoreViewState().spread,
     }, { title: [null, 'Two pages'], description: [null, 'Two pages (for scores with a two-sided page layout)'], icon: 0xEF7F, checkable: true })
-    registerAction('view-center-page', { run: () => centerPage(), enabled: scoreShown },
-        { title: [null, 'Center page'], icon: 0xF48C })
+    registerAction('view-center-page', { run: centerSelectionOrPage, enabled: scoreShown },
+        { title: [null, 'Center page'], description: [null, 'Center the page, or the selected measures'], icon: 0xF48C })
     registerAction('view-shortcuts-help', { run: showShortcutsHelp }, { title: [null, '?'], description: [null, 'Keyboard shortcuts'] })
 
     // ---- playback (PlaybackController) ----
@@ -121,6 +135,13 @@ export function registerAppActions(): void {
     onToolBarLayoutChanged(actionsChanged)
     onPanelsChanged(actionsChanged)
 }
+
+/** MuseScore's view modes (NotationStatusBarModel ALL_VIEW_MODE_MAP without the developer mode's "Floating") */
+export const VIEW_MODE_ACTIONS: readonly (readonly [string, ViewMode])[] = [
+    ['view-mode-page', 'page'],
+    ['view-mode-continuous', 'continuous-horizontal'],
+    ['view-mode-single', 'continuous-vertical'],
+]
 
 /** "Clear recent" confirmed: the stored scores are removed (they are the recent list here) */
 export async function clearRecentScores(): Promise<void> {

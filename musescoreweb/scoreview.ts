@@ -10,7 +10,7 @@ import { useSyncExternalStore } from 'react'
 import {
     clearSelection, drawPage, drawPageSvg, setCanLayoutIcons, hasSelection, initEngravingFonts, isModified, isTwoSided, moveSelection,
     noteInputCursorBounds, noteInputState, onImageDecoded, onNotationChanged, pageCount, pageSize, scoreTitle, selectAll, selectionBounds, selectionInfo,
-    SvgGlyphDefs, type MasterScore,
+    SvgGlyphDefs, type MasterScore, setViewMode as setScoreViewMode, type ViewMode, drawContinuousPanel,
     // copy/paste, text editing, drag
     CLIPBOARD_FORMATS, clipboardContents, executeAction, isActionEnabled, isDragging, setClipboardContents, setClipboardImage, textEditingInfo,
     viewInputText, viewKeyPress, viewMouseDoubleClick, viewMouseMove, viewMousePress, viewMouseRelease, viewResetTripleClick,
@@ -55,6 +55,8 @@ export interface ScoreViewState {
     fitMode: FitMode | null
     orientation: 'horizontal' | 'vertical'
     spread: boolean
+    /** page view or one of the continuous views */
+    viewMode: ViewMode
     spreadAvailable: boolean
     fullscreen: boolean
     status: string
@@ -73,7 +75,7 @@ export interface ScoreViewState {
 
 let viewState: ScoreViewState = {
     hasScore: false, title: '', tooltip: '', pageText: '–', canPrev: false, canNext: false, zoom: 100, fitMode: null,
-    orientation: 'horizontal', spread: false, spreadAvailable: false, fullscreen: false, status: '', statusError: false,
+    orientation: 'horizontal', spread: false, viewMode: 'page', spreadAvailable: false, fullscreen: false, status: '', statusError: false,
     selection: '', modified: false, noteInput: false, selectionVersion: 0, scoreVersion: 0,
 }
 const viewListeners = new Set<() => void>()
@@ -115,6 +117,7 @@ const MIN_ZOOM = ZOOM_LEVELS[0]
 const MAX_ZOOM = ZOOM_LEVELS[ZOOM_LEVELS.length - 1]
 const CSS_DPI = 96 // CSS pixels per inch at 100%
 const MAX_CANVAS_PIXELS = 16 * 1024 * 1024 // larger pages are drawn as tiles of the visible part
+const MAX_CANVAS_SIZE = 16384 // also pages longer than this (continuous views)
 
 const FIT_MODES = ['page-width', 'whole-page'] as const
 export type FitMode = typeof FIT_MODES[number]
@@ -135,7 +138,7 @@ function fitMode(): FitMode | null {
 }
 
 function spreadActive(): boolean {
-    return !!score && settings.spread && isTwoSided(score)
+    return !!score && settings.viewMode === 'page' && settings.spread && isTwoSided(score)
 }
 
 export function setStatus(text: string, error = false): void {
@@ -200,6 +203,7 @@ export function showScore(s: MasterScore, name: string): void {
     publish({ selection: '', modified: isModified(s), noteInput: noteInputState(s).active, selectionVersion: viewState.selectionVersion + 1, scoreVersion: viewState.scoreVersion + 1 })
     fileName = name
     printPagesDiv.replaceChildren()
+    applyViewMode()
     buildPages()
 }
 
@@ -363,6 +367,32 @@ export function adjustViewToRect(pageIdx: number, r: { x: number; y: number; wid
     return true
 }
 
+/**
+ * C++ AbstractNotationPaintView::adjustCanvasPositionSmoothPan: the rectangle of a page (inches) moves to the middle of
+ * the view horizontally (vertically too if it is not in the view); returns true if the view moved
+ */
+export function centerViewOnRect(pageIdx: number, r: { x: number; y: number; width: number; height: number }): boolean {
+    const el = pages[pageIdx]
+    if (!el || !score) {
+        return false
+    }
+    const pr = el.getBoundingClientRect()
+    const f = pr.width / pageSize(score, pageIdx).width
+    const vr = viewport.getBoundingClientRect()
+    const show = { left: pr.left + r.x * f, top: pr.top + r.y * f, width: r.width * f, height: r.height * f }
+    const inView = show.left < vr.left + viewport.clientWidth && show.left + show.width > vr.left
+        && show.top < vr.top + viewport.clientHeight && show.top + show.height > vr.top
+    const left = viewport.scrollLeft
+    const top = viewport.scrollTop
+    s_programmaticScroll++
+    viewport.scrollLeft += show.left - (vr.left + viewport.clientWidth / 2)
+    if (!inView) {
+        viewport.scrollTop += show.top - (vr.top + viewport.clientHeight / 2)
+    }
+    requestAnimationFrame(() => { s_programmaticScroll = Math.max(0, s_programmaticScroll - 1) })
+    return viewport.scrollLeft !== left || viewport.scrollTop !== top
+}
+
 const userMovedListeners = new Set<() => void>()
 
 /** the user moved the view (wheel, scroll bars, the hand tool): the automatic panning pauses (C++ moveCanvas) */
@@ -422,7 +452,9 @@ function buildPages(keepPosition = false): void {
         viewport.scrollTo(scroll.left, scroll.top)
         return
     }
-    if (score) {
+    if (score && settings.viewMode !== 'page') {
+        showPageStart()
+    } else if (score) {
         centerPage(0)
     } else {
         viewport.scrollTo(0, 0)
@@ -505,7 +537,7 @@ function renderPage(el: HTMLDivElement, cssDpi: number): void {
     const sameDpi = d.dpi === dpi.toFixed(4)
 
     let region: { x: number; y: number; width: number; height: number } | undefined
-    if (fullW * fullH <= MAX_CANVAS_PIXELS) {
+    if (fullW * fullH <= MAX_CANVAS_PIXELS && fullW <= MAX_CANVAS_SIZE && fullH <= MAX_CANVAS_SIZE) {
         if (sameDpi && d.tile === '0') {
             return
         }
@@ -558,6 +590,7 @@ function renderVisible(): void {
     if (!score) {
         return
     }
+    updateContinuousPanel()
     const cssDpi = CSS_DPI * zoom / 100
     // draw one page per frame to keep the UI responsive
     const queue = [...visible].sort((a, b) => Number(a.dataset.page) - Number(b.dataset.page))
@@ -586,6 +619,11 @@ function preparePrint(): void {
     if (!score || printPagesDiv.childElementCount) {
         return
     }
+    // like MuseScore (Score::print), the pages of the page view are printed in every view mode
+    const pageView = settings.viewMode !== 'page'
+    if (pageView) {
+        setScoreViewMode(score, 'page')
+    }
     // the paper has the page size of the score, which also gives portrait or landscape
     const size = pageSize(score, 0)
     pageStyle.textContent = `@page { size: ${size.width}in ${size.height}in; margin: 0; }`
@@ -596,6 +634,9 @@ function preparePrint(): void {
         html += `<div class="print-page">${drawPageSvg(score, i, { defs })}</div>`
     }
     printPagesDiv.innerHTML = defs.svg() + html
+    if (pageView) {
+        applyViewMode()
+    }
 }
 
 export async function print(): Promise<void> {
@@ -630,10 +671,19 @@ function computeZoom(): number {
         const z = Number(settings.zoom)
         return Number.isFinite(z) && z > 0 ? z : 100
     }
+    if (settings.viewMode === 'fit-width') {
+        return 100 // the page is as wide as the view (at this zoom)
+    }
     const gap = pageGap()
     const availW = viewport.clientWidth - 2 * gap
     const availH = viewport.clientHeight - 2 * gap
     const s = pageSize(score, 0)
+    if (settings.viewMode === 'continuous-horizontal') {
+        return Math.max(MIN_ZOOM, availH / (s.height * CSS_DPI) * 100)
+    }
+    if (settings.viewMode === 'continuous-vertical') {
+        return Math.max(MIN_ZOOM, availW / (s.width * CSS_DPI) * 100)
+    }
     const pagesAcross = spreadActive() ? 2 : 1
     const zw = availW / (s.width * pagesAcross * CSS_DPI) * 100
     const zh = availH / (s.height * CSS_DPI) * 100
@@ -679,6 +729,7 @@ export function zoomAt(z: number, clientX?: number, clientY?: number): void {
         viewport.scrollLeft += after.left + fx * after.width - x
         viewport.scrollTop += after.top + fy * after.height - y
     }
+    scheduleReflow()
 }
 
 export function zoomStep(dir: 1 | -1): void {
@@ -696,6 +747,7 @@ export function setFitMode(mode: FitMode): void {
 
 new ResizeObserver(() => {
     updatePan()
+    scheduleReflow()
     if (fitMode() && score) {
         // the page stays fitted and centered (e.g. entering full screen)
         const page = currentPage()
@@ -710,7 +762,7 @@ new ResizeObserver(() => {
 
 function updateControls(): void {
     const horizontal = settings.orientation === 'horizontal'
-    pagesDiv.className = horizontal ? 'horizontal' : 'vertical'
+    pagesDiv.className = (horizontal ? 'horizontal' : 'vertical') + (settings.viewMode !== 'page' ? ' continuous' : '')
     publish({ orientation: settings.orientation, spread: spreadActive(), spreadAvailable: !!score && isTwoSided(score) })
     updatePageInfo()
 }
@@ -784,8 +836,166 @@ export function centerPage(idx = currentPage()): void {
     const target = c.parentElement?.classList.contains('spread') ? c.parentElement : c
     const vr = viewport.getBoundingClientRect()
     const tr = target.getBoundingClientRect()
-    viewport.scrollLeft += tr.left + tr.width / 2 - (vr.left + viewport.clientWidth / 2)
-    viewport.scrollTop += tr.top + tr.height / 2 - (vr.top + viewport.clientHeight / 2)
+    const continuous = settings.viewMode !== 'page'
+    if (!continuous || tr.width <= viewport.clientWidth) {
+        viewport.scrollLeft += tr.left + tr.width / 2 - (vr.left + viewport.clientWidth / 2)
+    }
+    if (!continuous || tr.height <= viewport.clientHeight) {
+        viewport.scrollTop += tr.top + tr.height / 2 - (vr.top + viewport.clientHeight / 2)
+    }
+}
+
+/**
+ * The "Center page" button: centers the selection (e.g. the selected measures; the rectangles on the page of the
+ * first one) or, without a selection, the current page
+ */
+export function centerSelectionOrPage(): void {
+    const rects = score ? selectionBounds(score) : []
+    if (!rects.length) {
+        centerPage()
+        return
+    }
+    const page = rects[0].page
+    const onPage = rects.filter(r => r.page === page)
+    const left = Math.min(...onPage.map(r => r.x))
+    const top = Math.min(...onPage.map(r => r.y))
+    const right = Math.max(...onPage.map(r => r.x + r.width))
+    const bottom = Math.max(...onPage.map(r => r.y + r.height))
+    const el = pages[page]
+    if (!el) {
+        return
+    }
+    const pr = el.getBoundingClientRect()
+    const f = pr.width / pageSize(score!, page).width
+    const vr = viewport.getBoundingClientRect()
+    viewport.scrollLeft += pr.left + (left + right) / 2 * f - (vr.left + viewport.clientWidth / 2)
+    viewport.scrollTop += pr.top + (top + bottom) / 2 * f - (vr.top + viewport.clientHeight / 2)
+}
+
+/** the continuous views: shows the beginning of their page (centered along an axis where it fits) */
+function showPageStart(): void {
+    const el = pages[0]
+    if (!el) {
+        return
+    }
+    const gap = pageGap()
+    const vr = viewport.getBoundingClientRect()
+    const tr = el.getBoundingClientRect()
+    viewport.scrollLeft += tr.width <= viewport.clientWidth
+        ? tr.left + tr.width / 2 - (vr.left + viewport.clientWidth / 2) : tr.left - vr.left - gap
+    viewport.scrollTop += tr.height <= viewport.clientHeight
+        ? tr.top + tr.height / 2 - (vr.top + viewport.clientHeight / 2) : tr.top - vr.top - gap
+}
+
+// ---------------------------------------------------------------------------------
+//   view modes (MuseScore's status bar: NotationStatusBarModel::setCurrentViewMode, NotationPainting::setViewMode)
+// ---------------------------------------------------------------------------------
+
+/** the page width of the "fit to window" view in inches: the width of the view at the current zoom */
+function fitWidthInches(): number {
+    return Math.max(1, (viewport.clientWidth - 2 * pageGap()) / (CSS_DPI * zoom / 100))
+}
+
+/** lays the score out in the view mode of the settings; returns true if the layout changed */
+function applyViewMode(): boolean {
+    publish({ viewMode: settings.viewMode })
+    if (!score) {
+        return false
+    }
+    if (settings.viewMode === 'fit-width') {
+        // the zoom of the view first (the page width follows from it)
+        zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, computeZoom()))
+    }
+    return setScoreViewMode(score, settings.viewMode, settings.viewMode === 'fit-width' ? fitWidthInches() : 0)
+}
+
+export function setViewMode(mode: ViewMode): void {
+    if (mode === settings.viewMode) {
+        return
+    }
+    settings.viewMode = mode
+    saveSettings(settings)
+    if (score && settings.viewMode === 'fit-width' && fitMode()) {
+        settings.zoom = '100'
+        saveSettings(settings)
+    }
+    applyViewMode()
+    buildPages()
+    // the selection stays in view
+    selectionChanged(true)
+}
+
+// the continuous view (horizontal): the staff names, clefs, key and time signatures at the left edge of the view
+const panelCanvas = document.createElement('canvas')
+panelCanvas.className = 'continuous-panel'
+panelCanvas.setAttribute('aria-hidden', 'true')
+let panelFrame = 0
+
+function scheduleContinuousPanel(): void {
+    if (!panelFrame) {
+        panelFrame = requestAnimationFrame(() => {
+            panelFrame = 0
+            updateContinuousPanel()
+        })
+    }
+}
+
+/** C++ AbstractNotationPaintView::paint: m_continuousPanel->paint() after the score, at the left edge of the view */
+function updateContinuousPanel(): void {
+    const el = pages[0]
+    if (!score || !el || settings.viewMode !== 'continuous-horizontal') {
+        panelCanvas.remove()
+        return
+    }
+    const pr = el.getBoundingClientRect()
+    const vr = viewport.getBoundingClientRect()
+    const cssPerInch = pr.width / pageSize(score, 0).width
+    const leftCss = Math.max(0, vr.left - pr.left)
+    const widthCss = Math.min(viewport.clientWidth / 2, pr.width - leftCss)
+    if (widthCss <= 0) {
+        panelCanvas.remove()
+        return
+    }
+    const dpr = window.devicePixelRatio
+    panelCanvas.width = Math.round(widthCss * dpr)
+    panelCanvas.height = Math.round(pr.height * dpr)
+    const width = drawContinuousPanel(score, panelCanvas.getContext('2d')!, { dpi: cssPerInch * dpr, left: leftCss / cssPerInch })
+    if (!width) {
+        panelCanvas.remove()
+        return
+    }
+    Object.assign(panelCanvas.style, { left: `${leftCss}px`, top: '0px', width: `${widthCss}px`, height: `${pr.height}px` })
+    if (panelCanvas.parentElement !== el) {
+        el.appendChild(panelCanvas)
+    }
+}
+
+let reflowTimer = 0
+
+/** the "fit to window" view: the score is laid out again for a new width of the view or a new zoom */
+function scheduleReflow(): void {
+    if (!score || settings.viewMode !== 'fit-width') {
+        return
+    }
+    clearTimeout(reflowTimer)
+    reflowTimer = window.setTimeout(() => {
+        const el = pages[0]
+        if (!score || !el || settings.viewMode !== 'fit-width') {
+            return
+        }
+        // the same part of the score stays at the top of the view (as far as the new layout allows)
+        const vr = viewport.getBoundingClientRect()
+        const before = el.getBoundingClientRect()
+        const f = (vr.top - before.top) / before.height
+        if (!setScoreViewMode(score, 'fit-width', fitWidthInches())) {
+            return
+        }
+        buildPages(true)
+        const after = pages[0].getBoundingClientRect()
+        viewport.scrollTop += after.top + f * after.height - vr.top
+        viewport.scrollLeft += after.left + after.width / 2 - (vr.left + viewport.clientWidth / 2)
+        publish({ scoreVersion: viewState.scoreVersion + 1 })
+    }, 150)
 }
 
 function pageGap(): number {
@@ -804,7 +1014,7 @@ let pan = { x: 0, y: 0 }
 function updatePan(): void {
     // without a score nothing can be moved (the drop target must stay in view)
     const next = score ? {
-        x: Math.max(0, viewport.clientWidth - MIN_VISIBLE - pageGap()),
+        x: settings.viewMode === 'fit-width' ? 0 : Math.max(0, viewport.clientWidth - MIN_VISIBLE - pageGap()),
         y: Math.max(0, viewport.clientHeight - MIN_VISIBLE - pageGap()),
     } : { x: 0, y: 0 }
     if (next.x === pan.x && next.y === pan.y) {
@@ -846,8 +1056,16 @@ viewport.addEventListener('scroll', () => {
         userMovedView()
     }
     updatePageInfo()
-    scheduleRender(60) // tiles of zoomed-in pages follow the view
+    // tiles of zoomed-in pages follow the view, also while it keeps moving (smooth panning while playing)
+    scheduleContinuousPanel()
+    if (!scrollRenderTimer) {
+        scrollRenderTimer = window.setTimeout(() => {
+            scrollRenderTimer = 0
+            renderVisible()
+        }, 60)
+    }
 }, { passive: true })
+let scrollRenderTimer = 0
 
 // ---------------------------------------------------------------------------------
 //   wheel, pinch and the hand tool
@@ -873,7 +1091,9 @@ viewport.addEventListener('wheel', (e) => {
         // trackpad pinch (reported as ctrl+wheel) and ctrl+wheel
         e.preventDefault()
         zoomAt(zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY)
-    } else if (!e.shiftKey && isMouseWheel(e)) {
+    } else if (!e.shiftKey && settings.viewMode === 'page' && isMouseWheel(e)) {
+        // a wheel notch zooms in the page view; the continuous views are scrolled (also because fast trackpad
+        // scrolling can look like wheel notches)
         e.preventDefault()
         zoomAt(zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1), e.clientX, e.clientY)
     }
@@ -1509,8 +1729,10 @@ viewport.addEventListener('contextmenu', (e) => {
     }
 })
 
-// hand tool: the middle mouse button drags the view (Space plays, like in MuseScore: the "play" action)
-const spaceDown = false
+// hand tool: the middle mouse button drags the view; with the setting "Hold Space and drag to move the score"
+// (web.spacePan) also Space + the left button (then Ctrl/Option+Space plays, see actions.ts), otherwise Space plays
+// like in MuseScore (the "play" action)
+let spaceDown = false
 let drag: { x: number; y: number; left: number; top: number; id: number } | null = null
 
 function setHand(on: boolean): void {
@@ -1539,6 +1761,18 @@ const endDrag = (e: PointerEvent): void => {
         setHand(spaceDown)
     }
 }
+const releaseSpace = (): void => {
+    if (spaceDown) {
+        spaceDown = false
+        setHand(false)
+    }
+}
+document.addEventListener('keyup', (e) => {
+    if (e.key === ' ') {
+        releaseSpace()
+    }
+})
+window.addEventListener('blur', releaseSpace)
 viewport.addEventListener('pointerup', endDrag)
 viewport.addEventListener('pointercancel', endDrag)
 
@@ -1670,6 +1904,16 @@ document.addEventListener('keydown', (e) => {
     // the commands of the menus and toolbars are actions (actions/actions.ts) with MuseScore's shortcuts;
     // here only the keys of the view itself
     if (!score || document.body.dataset.view !== 'score') {
+        return
+    }
+
+    if (key === ' ' && appSettings().web.spacePan && !mod && !e.altKey && !e.shiftKey && !isTextInput(e.target)
+        && !(e.target instanceof HTMLButtonElement)) {
+        e.preventDefault() // no scrolling
+        if (!spaceDown) {
+            spaceDown = true
+            setHand(true)
+        }
         return
     }
 

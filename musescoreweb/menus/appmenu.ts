@@ -94,6 +94,13 @@ function makeViewMenu(toolbarItems: () => MenuItem[]): MenuItem {
             item('show-pageborders'),
             item('show-irregular'),
         ], 'menu-show'),
+        // not in MuseScore's View menu (its status bar has the view modes)
+        menu([null, 'View mode'], [
+            item('view-mode-page'),
+            item('view-mode-continuous'),
+            item('view-mode-single'),
+            item('view-mode-fit-width'),
+        ], 'menu-view-mode'),
         sep,
         item('dock-restore-default-layout'),
     ], 'menu-view')
