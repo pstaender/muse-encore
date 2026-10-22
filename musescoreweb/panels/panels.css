@@ -19,13 +19,49 @@
     border-inline-end: 1px solid var(--border);
 }
 
-.panel-tabs {
+.panel-tabs-row {
     display: flex;
     flex-shrink: 0;
     height: 35px;
     background: var(--bg);
+}
+
+.panel-tabs {
+    flex: 1;
+    display: flex;
+    min-width: 0;
     overflow: hidden;
 }
+
+/* collapse / expand the panel area */
+.panel-collapse {
+    flex-shrink: 0;
+    display: inline-grid;
+    place-items: center;
+    width: 32px;
+    height: 35px;
+    border-bottom: 1px solid var(--border);
+    color: var(--muted);
+    font-family: "MusescoreIcon";
+    font-size: 14px;
+}
+
+.panel-collapse:hover { background: var(--hover); color: var(--fg); }
+.panel-collapse:focus-visible, .panel-strip-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* the collapsed panel area: a narrow strip with the expand button and the tabs (vertical text) */
+.panel-dock.collapsed { width: 32px; align-items: stretch; background: var(--bg); }
+.panel-dock.collapsed .panel-collapse { width: 100%; }
+
+.panel-strip-tab {
+    padding: 12px 0;
+    writing-mode: vertical-rl;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+}
+
+.panel-strip-tab:hover { background: var(--hover); }
+.panel-strip-tab.current { font-weight: 600; }
 
 .panel-tab {
     display: flex;

@@ -50,8 +50,8 @@ export const TOOLBARS: readonly ToolBarInfo[] = [
 
 const DEFAULT_DOCKS: Record<DockId, string[]> = {
     main: ['notationToolBar', 'playbackToolBar', 'undoRedoToolBar'],
-    top: ['noteInputBar', 'viewToolBar'],
-    bottom: [],
+    top: ['noteInputBar'],
+    bottom: ['viewToolBar'],
 }
 
 export interface ToolBarLayout {

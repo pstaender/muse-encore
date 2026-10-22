@@ -48,6 +48,10 @@ export function registerAppActions(): void {
     registerAction('preference-dialog', { run: () => showDialog('preferences') })
     // the editing and note input actions (incl. undo/redo, select all, escape): notationactions.ts
     registerNotationActions()
+
+    // ---- tools ----
+    // NotationActionController::openTransposeDialog
+    registerAction('transpose', { run: () => showDialog('transpose'), enabled: scoreShown, context: 'notation' })
     // ApplicationActionController::doGlobalUndo etc.: the global shortcuts go to the notation when it is shown
     for (const name of ['undo', 'redo', 'delete', 'cancel']) {
         const target = `action://notation/${name}`

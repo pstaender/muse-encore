@@ -2,7 +2,8 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * The panel area left of the score: the open panels as tabs (MuseScore's DockTabBar / DockPanelTab: the current tab
  * in bold with its context menu button "…": the panel's own items and "Close"), the current panel, and a splitter
- * to change the width (MuseScore's vertical panels have a fixed width of 300).
+ * to change the width (MuseScore's vertical panels have a fixed width of 300). Not in MuseScore: the panel area can
+ * be collapsed to a narrow strip with the tabs (the button at the end of the tab bar), a tab there expands it.
  */
 import { useRef, useState } from 'react'
 import { registerAction } from '../actions/actions'
@@ -14,7 +15,9 @@ import { InspectorForm, inspectorPanelMenu } from './inspector/InspectorForm'
 import { LayoutPanel, layoutPanelMenu } from './layout/LayoutPanel'
 import { PalettesPanel, palettesPanelMenu } from './palettes/PalettesPanel'
 import './panels.css'
-import { PANEL_MAX_WIDTH, PANEL_MIN_WIDTH, PANELS, setCurrentPanel, setPanelOpen, setPanelWidth, usePanels } from './panels'
+import {
+    PANEL_MAX_WIDTH, PANEL_MIN_WIDTH, PANELS, expandPanel, setCurrentPanel, setPanelOpen, setPanelsCollapsed, setPanelWidth, usePanels,
+} from './panels'
 
 const PANEL_CONTENT: Record<string, { component: () => React.JSX.Element; menu: () => MenuItem[] }> = {
     palettesPanel: { component: PalettesPanel, menu: palettesPanelMenu },
@@ -122,6 +125,18 @@ function Splitter({ width }: { width: number }): React.JSX.Element {
     )
 }
 
+/** the button that collapses or expands the panel area (the chevron points to where the panels go) */
+function CollapseButton({ collapsed }: { collapsed: boolean }): React.JSX.Element {
+    const rtl = document.documentElement.dir === 'rtl'
+    const title = qtrc('global', collapsed ? 'Expand' : 'Collapse')
+    return (
+        <button className="panel-collapse" aria-label={title} title={title} aria-expanded={!collapsed}
+            onClick={() => setPanelsCollapsed(!collapsed)}>
+            {String.fromCodePoint(collapsed !== rtl ? ICON_CODES.CHEVRON_RIGHT : ICON_CODES.CHEVRON_LEFT)}
+        </button>
+    )
+}
+
 export function PanelDock(): React.JSX.Element | null {
     useLanguage()
     const state = usePanels()
@@ -129,15 +144,32 @@ export function PanelDock(): React.JSX.Element | null {
         return null
     }
     const open = PANELS.filter(p => state.open.includes(p.id))
+    const label = open.map(p => trString(p.title)).join(', ')
+    if (state.collapsed) {
+        return (
+            <aside className="panel-dock collapsed" aria-label={label}>
+                <CollapseButton collapsed />
+                {open.map(p => (
+                    <button key={p.id} className={`panel-strip-tab${p.id === state.current ? ' current' : ''}`}
+                        onClick={() => expandPanel(p.id)}>
+                        {trString(p.title)}
+                    </button>
+                ))}
+            </aside>
+        )
+    }
     const current = PANEL_CONTENT[state.current]
     const Content = current?.component
     return (
         <>
-            <aside className="panel-dock" style={{ width: state.width }} aria-label={open.map(p => trString(p.title)).join(', ')}>
-                <div className="panel-tabs" role="tablist">
-                    {open.map((p, i) => (
-                        <PanelTab key={p.id} id={p.id} title={trString(p.title)} current={p.id === state.current} index={i} count={open.length} />
-                    ))}
+            <aside className="panel-dock" style={{ width: state.width }} aria-label={label}>
+                <div className="panel-tabs-row">
+                    <div className="panel-tabs" role="tablist">
+                        {open.map((p, i) => (
+                            <PanelTab key={p.id} id={p.id} title={trString(p.title)} current={p.id === state.current} index={i} count={open.length} />
+                        ))}
+                    </div>
+                    <CollapseButton collapsed={false} />
                 </div>
                 <div className="panel-content" role="tabpanel" id={`panel-${state.current}`} aria-labelledby={`panel-tab-${state.current}`}>
                     {Content && <Content />}

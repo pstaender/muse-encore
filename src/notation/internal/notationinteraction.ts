@@ -106,7 +106,9 @@ import type { HairpinType } from '../../engraving/dom/hairpin'
 import type { Position } from '../../engraving/dom/score'
 import type { SymId } from '../../engraving/types/symid'
 import { ArticulationsUpdateMode, flipArticulations, splitArticulations } from '../../engraving/dom/articulation'
-import { PlacementV } from '../../engraving/types/types'
+import { PlacementV, type TransposeDirection } from '../../engraving/types/types'
+import { Transpose } from '../../engraving/editing/transpose'
+import type { TransposeOptions } from '../notationtypes'
 
 /** C++ NotationInteraction::ShadowNoteParams */
 interface ShadowNoteParams {
@@ -921,6 +923,29 @@ export class NotationInteraction {
 
     changeAccidental(accidental: AccidentalType): void {
         this.execute(() => this.score().changeAccidental(accidental), new TranslatableString('undoableAction', 'Add accidental'))
+    }
+
+    transpose(options: TransposeOptions): boolean {
+        this.startEdit(new TranslatableString('undoableAction', 'Transposition'))
+
+        const ok = Transpose.transpose(this.score(), options.mode, options.direction, options.key, options.interval,
+            options.needTransposeKeys, options.needTransposeChordNames, options.needTransposeDoubleSharpsFlats)
+
+        this.apply()
+
+        return ok
+    }
+
+    transposeSemitone(steps: number): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Transpose semitone'))
+        Transpose.transposeSemitone(this.score(), steps)
+        this.apply()
+    }
+
+    transposeDiatonicAlterations(direction: TransposeDirection): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Transpose diatonically'))
+        Transpose.transposeDiatonicAlterations(this.score(), direction)
+        this.apply()
     }
 
     toggleDotsForSelection(dots: Pad): void {

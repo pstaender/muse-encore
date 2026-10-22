@@ -90,7 +90,9 @@ export class ChangeStyle extends UndoCommand {
     protected override flip(_ed: EditData | null): void {
         const tmp = this.score.style().clone()
 
-        // TODO(port): cmdConcertPitchChanged() when Sid::concertPitch changes
+        if (this.score.style().styleB(Sid.concertPitch) !== (this.style.value(Sid.concertPitch) as boolean)) {
+            this.score.cmdConcertPitchChanged(this.style.value(Sid.concertPitch) as boolean)
+        }
         this.score.setStyle(this.style, this.overlap)
         changeChordStyle(this.score)
         // TODO(port): spatiumChanged() (EngravingItem::spatiumChanged scales user offsets)

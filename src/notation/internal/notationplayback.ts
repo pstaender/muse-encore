@@ -13,6 +13,7 @@
 
 import { Fraction } from '../../engraving/types/fraction'
 import { Constants } from '../../engraving/types/constants'
+import { VOICES } from '../../engraving/types/types'
 import { CompatMidiRender } from '../../engraving/compat/midi/compatmidirender'
 import { Context, HarmonyChannelSetting } from '../../engraving/compat/midi/compatmidirenderinternal'
 import { EventsHolder } from '../../engraving/compat/midi/event'
@@ -28,6 +29,9 @@ import { LoopBoundaryType } from '../../engraving/dom/score'
 import { ticks_beat } from '../../engraving/dom/sig'
 import type { NoteVal } from '../../engraving/dom/input'
 import type { Segment } from '../../engraving/dom/segment'
+import { InstrChannel } from '../../engraving/dom/instrument'
+import { PlaybackSetupDataResolver } from '../../engraving/playback/playbacksetupdataresolver'
+import { articulationSounds, findPrograms, type MidiProgram } from '../../framework/audio/fluidsynth/soundmapping'
 
 const PLAYBACK_TAIL_SECS = 3
 
@@ -61,7 +65,7 @@ export interface PlaybackMidiEvent {
     time: number
     /** ME_NOTEON, ME_CONTROLLER (dataA CTRL_PROGRAM: program change) or ME_PITCHBEND */
     type: number
-    /** the MuseScore channel (InstrChannel::channel(), an index of the MIDI mapping) */
+    /** the synthesizer channel (synthChannel(): instrument channel and voice) */
     channel: number
     dataA: number
     dataB: number
@@ -69,14 +73,18 @@ export interface PlaybackMidiEvent {
     staffIdx: number
 }
 
-/** the sound of a MuseScore channel (InstrChannel) */
+/** the sound of a synthesizer channel: a voice of a MuseScore channel (InstrChannel) */
 export interface PlaybackChannel {
+    /** synthChannel(instrumentChannel, voice) */
     channel: number
+    /** the MuseScore channel (InstrChannel::channel(), an index of the MIDI mapping) */
+    instrumentChannel: number
+    voice: number
     /** MIDI port and channel of the MIDI mapping (port * 16 + channel = the channel of a MIDI device) */
     midiPort: number
     midiChannel: number
+    /** the soundfont preset (bank 128: drum kits) */
     program: number
-    /** bank (MIDI bank select: MSB << 7 | LSB) */
     bank: number
     volume: number
     pan: number
@@ -99,7 +107,7 @@ export interface PlaybackEvents {
     endUtick: number
 }
 
-/** a note to play now (preview): its MuseScore channel, pitch and velocity */
+/** a note to play now (preview): its synthesizer channel, pitch and velocity */
 export interface PreviewNote {
     channel: number
     pitch: number
@@ -110,6 +118,36 @@ export interface PreviewNote {
 
 /** the MuseScore channel of the metronome (after the channels of the score) */
 export const METRONOME_CHANNEL_NAME = 'metronome'
+/**
+ * the ArticulationType of the sound of an instrument channel; the channels of the MIDI renderer replace the
+ * articulations of the mpe events (ChannelMap::resolveChannelForEvent)
+ */
+const CHANNEL_ARTICULATIONS: ReadonlyMap<string, string> = new Map([
+    ['pizzicato', 'Pizzicato'],
+    ['mute', 'Mute'],
+    [InstrChannel.PALM_MUTE_NAME, 'PalmMute'],
+    ['tremolo', 'Tremolo16th'],
+    ['jazz', 'JazzTone'],
+    ['harmonics', 'Harmonic'],
+    ['flageoletti', 'Harmonic'],
+    ['distortion', 'Distortion'],
+    ['overdriven', 'Overdrive'],
+    ['slap', 'Slap'],
+    ['pop', 'Pop'],
+])
+
+/** the drum kits are in bank 128 of the soundfont */
+const PERCUSSION_BANK = 128
+
+/**
+ * the synthesizer channel of a voice of a MuseScore channel: like MuseScore 4's Fluid synth (ChannelMap of
+ * soundmapping.h) each voice has its own channel (the articulations have their MuseScore channels), so that the pitch
+ * bends and pedals of a voice do not affect the others
+ */
+export function synthChannel(instrumentChannel: number, voice: number): number {
+    return instrumentChannel * VOICES + voice
+}
+
 const HIGH_WOOD_BLOCK = 76 // pitchLevel(PitchClass::E, 5)
 const LOW_WOOD_BLOCK = 77 // pitchLevel(PitchClass::F, 5)
 const METRONOME_VELOCITY = 80 // dynamicLevelFromType(mpe::DynamicType::mf)
@@ -165,10 +203,31 @@ export class NotationPlayback {
         ctx.sndController = CompatMidiRender.getControllerForSnd(score, -1)
         ctx.useDefaultArticulations = false
         ctx.applyCaesuras = false
+        ctx.eachVoiceHasChannel = true
+        ctx.renderMidiActions = false
+        // the lookup channels (instrument channel + voice) are numbered after the instrument channels: events of an
+        // instrument channel without lookup channels (spanners of a staff without notes, chord symbols) are told apart
+        let instrumentChannels = score.midiMapping().length
+        for (const part of score.parts()) {
+            for (const instr of part.instruments().values()) {
+                for (const c of instr.channels()) {
+                    instrumentChannels = Math.max(instrumentChannels, c.channel() + 1)
+                }
+            }
+        }
+        ctx.channels.maxChannel = instrumentChannels
 
         if (score.firstMeasure()) {
             CompatMidiRender.renderScore(score, events, ctx, this.playRepeats)
         }
+
+        const toSynthChannel = new Map<number, number>()
+        for (const [instrumentChannel, lookups] of ctx.channels.channelsMap) {
+            for (const [lookupData, channel] of lookups) {
+                toSynthChannel.set(channel, synthChannel(instrumentChannel, lookupData.voice))
+            }
+        }
+        const channelOf = (e: { channel(): number }): number => toSynthChannel.get(e.channel()) ?? synthChannel(e.channel(), 0)
 
         const repeatList = score.repeatList(this.playRepeats)
         const out: PlaybackMidiEvent[] = []
@@ -181,12 +240,12 @@ export class NotationPlayback {
                         continue
                     }
                     if (e.discard() && e.velo() > 0) {
-                        out.push({ utick, time: 0, type, channel: e.channel(), dataA: e.pitch(), dataB: 0, staffIdx: e.getOriginatingStaff() })
+                        out.push({ utick, time: 0, type, channel: channelOf(e), dataA: e.pitch(), dataB: 0, staffIdx: e.getOriginatingStaff() })
                     }
                 } else if (type !== ME_CONTROLLER && type !== ME_PITCHBEND) {
                     continue
                 }
-                out.push({ utick, time: 0, type, channel: e.channel(), dataA: e.dataA(), dataB: e.dataB(), staffIdx: e.getOriginatingStaff() })
+                out.push({ utick, time: 0, type, channel: channelOf(e), dataA: e.dataA(), dataB: e.dataB(), staffIdx: e.getOriginatingStaff() })
             }
         }
         for (const e of out) {
@@ -196,40 +255,63 @@ export class NotationPlayback {
         out.sort((a, b) => a.utick - b.utick)
 
         const endUtick = repeatList.ticks()
-        return { events: out, channels: this.channels(), totalPlayTime: this.totalPlayTime(), endUtick }
+        const used = new Set(out.map(e => e.channel))
+        const channels = this.channels().filter(c => used.has(c.channel))
+        return { events: out, channels, totalPlayTime: this.totalPlayTime(), endUtick }
     }
 
-    /** the sounds of the MuseScore channels of all instruments of all parts */
+    /**
+     * the sounds of the synthesizer channels (the voices of the MuseScore channels of all instruments of all parts):
+     * the presets of MuseScore 4's Fluid synth (PlaybackSetupDataResolver + soundmapping.h), not the bank and program
+     * of the channel
+     */
     channels(): PlaybackChannel[] {
         const score = this.m_score
         const result: PlaybackChannel[] = []
         for (const part of score.parts()) {
             for (const instr of part.instruments().values()) {
+                const setupData = PlaybackSetupDataResolver.resolveSetupData(instr)
+                const standardProgram = findPrograms(setupData)[0]
+                const articulations = articulationSounds(setupData)
                 for (const c of instr.channels()) {
+                    let preset: MidiProgram
+                    if (c.name() === InstrChannel.HARMONY_NAME) {
+                        preset = findPrograms(PlaybackSetupDataResolver.resolveChordSymbolsSetupData(instr))[0]
+                    } else {
+                        const articulation = articulations.get(CHANNEL_ARTICULATIONS.get(c.name()) ?? '')
+                        preset = articulation ? { bank: articulation[0], program: articulation[1] } : standardProgram
+                    }
                     const idx = c.channel()
                     const mapping = score.midiMapping()[idx]
-                    result.push({
-                        channel: idx,
-                        midiPort: mapping ? mapping.port() : 0,
-                        midiChannel: mapping ? mapping.channel() : idx % 16,
-                        program: Math.max(0, c.program()),
-                        bank: c.bank(),
-                        volume: c.volume(),
-                        pan: c.pan(),
-                        reverb: c.reverb(),
-                        chorus: c.chorus(),
-                        // like MuseScore 4's Fluid synth (sound mapping by the instrument's category): not the channel's
-                        // bank, old files have user banks >= 128 for melodic instruments (2.x piano: MSB 2, LSB 5)
-                        drum: instr.useDrumset() && c.name() !== 'harmony',
-                        partId: part.id(),
-                        name: c.name(),
-                        muted: !part.show(),
-                    })
+                    for (let voice = 0; voice < VOICES; ++voice) {
+                        result.push({
+                            channel: synthChannel(idx, voice),
+                            instrumentChannel: idx,
+                            voice,
+                            midiPort: mapping ? mapping.port() : 0,
+                            midiChannel: mapping ? mapping.channel() : idx % 16,
+                            program: preset.program,
+                            bank: preset.bank,
+                            volume: c.volume(),
+                            pan: c.pan(),
+                            reverb: c.reverb(),
+                            chorus: c.chorus(),
+                            drum: preset.bank >= PERCUSSION_BANK,
+                            partId: part.id(),
+                            name: c.name(),
+                            muted: !part.show(),
+                        })
+                    }
                 }
             }
         }
         result.sort((a, b) => a.channel - b.channel)
         return result
+    }
+
+    /** the preset of the metronome (resolveMetronomeSetupData) */
+    metronomeProgram(): MidiProgram {
+        return findPrograms(PlaybackSetupDataResolver.resolveMetronomeSetupData())[0]
     }
 
     /** PlaybackEventsRenderer::renderMetronome for all measures of the repeat list (note on/off pairs; channel -1) */
@@ -358,7 +440,7 @@ export class NotationPlayback {
                 return
             }
             const pitch = Math.min(Math.max(note.ppitch(), 0), 127)
-            result.push({ channel: c.channel(), pitch, velocity, duration })
+            result.push({ channel: synthChannel(c.channel(), note.voice()), pitch, velocity, duration })
         }
         for (const item of items) {
             if (item.isNote()) {
@@ -374,7 +456,7 @@ export class NotationPlayback {
                     continue
                 }
                 for (const [pitch] of h.getRealizedHarmony().notes()) {
-                    result.push({ channel: c.channel(), pitch, velocity, duration })
+                    result.push({ channel: synthChannel(c.channel(), 0), pitch, velocity, duration })
                 }
             }
         }
@@ -427,7 +509,7 @@ export class NotationPlayback {
                 continue
             }
             const pitch = Math.min(Math.max(nval.pitch + staff.pitchOffset(tick), 0), 127)
-            result.push({ channel: c.channel(), pitch, velocity: nval.velocityOverride > 0 ? nval.velocityOverride : 80, duration })
+            result.push({ channel: synthChannel(c.channel(), 0), pitch, velocity: nval.velocityOverride > 0 ? nval.velocityOverride : 80, duration })
         }
         return result
     }

@@ -792,6 +792,47 @@ export function selectAll(score: MasterScore): void {
     notationState(score).interaction.selectAll()
 }
 
+export { TransposeMode, TransposeDirection } from './engraving/types/types'
+import type { TransposeOptions } from './notation/notationtypes'
+export type { TransposeOptions }
+
+/** what MuseScore's Transpose dialog can offer for the selection (TransposeDialog's constructor) */
+export interface TransposeSelectionInfo {
+    /** nothing was selected: the whole score was selected for the dialog (deselect it after transposing) */
+    allSelected: boolean
+    /** a range is selected: transposing to a key and the key signatures is possible */
+    rangeSelection: boolean
+    /** chord symbols or fretboard diagrams are selected */
+    hasChordNames: boolean
+}
+
+/** prepares the selection for the Transpose dialog: selects the whole score if nothing is selected */
+export function prepareTransposeSelection(score: MasterScore): TransposeSelectionInfo {
+    const interaction = notationState(score).interaction
+    let allSelected = false
+    if (score.selection().isNone()) {
+        interaction.selectAll()
+        allSelected = true
+    }
+    const rangeSelection = score.selection().isRange()
+    const hasChordNames = score.selection().elements().some(item => item.isHarmony() || item.isFretDiagram())
+    return { allSelected, rangeSelection, hasChordNames }
+}
+
+/**
+ * Transposes the selection (MuseScore's Transpose dialog: NotationInteraction::transpose, undoable "Transposition");
+ * with allSelected (prepareTransposeSelection) the selection is cleared afterwards. Returns false if a note could not
+ * be transposed (out of the pitch range).
+ */
+export function transposeSelection(score: MasterScore, options: TransposeOptions, allSelected = false): boolean {
+    const interaction = notationState(score).interaction
+    const ok = interaction.transpose(options)
+    if (allSelected) {
+        interaction.clearSelection()
+    }
+    return ok
+}
+
 /**
  * Keyboard navigation of the selection like MuseScore's shortcuts without note input: arrows (next/previous chord),
  * Ctrl+arrows (measure), Shift(+Ctrl)+Left/Right and Shift+Up/Down (extend the range), Alt+Up/Down (note in chord /

@@ -507,6 +507,21 @@ body.fullscreen.panels-shown .side-chrome { transform: none; }
     cursor: pointer;
 }
 .statusbar-button:hover, .statusbar-button[aria-expanded="true"] { background: var(--hover, rgba(127, 127, 127, .15)); }
+.statusbar-button:disabled { opacity: .5; cursor: default; background: transparent; }
+.statusbar-separator { flex: none; width: 1px; height: 16px; margin: 0 4px; background: var(--border); }
+/* the check box of MuseScore's ConcertPitchControl */
+.statusbar-checkbox {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    border: 1px solid var(--muted);
+    border-radius: 2px;
+    box-sizing: border-box;
+}
+.statusbar-button[aria-checked="true"] .statusbar-checkbox {
+    border-color: var(--accent);
+    background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2l2.3 2.3 4.7-5' fill='none' stroke='white' stroke-width='1.6'/%3E%3C/svg%3E") center / 10px no-repeat;
+}
 
 /* the continuous views: one long page without page border (NotationPainting::isPaintPageBorder) */
 #pages.continuous .page { box-shadow: none; }
@@ -1132,6 +1147,26 @@ dialog.preferences .dialog-buttons { margin: 0; padding: 12px 24px; border-top: 
 .autosave-row input[type="number"] { width: 64px; }
 
 dialog.save-score { width: min(480px, calc(100vw - 32px)); }
+
+/* the Transpose dialog (TransposeDialog: group boxes, the checkable ones with a radio button in the title) */
+dialog.transpose { width: min(460px, calc(100vw - 32px)); }
+dialog.transpose form { text-align: left; display: flex; flex-direction: column; gap: 12px; }
+dialog.transpose .groupbox {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin: 0;
+    padding: 8px 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+dialog.transpose .groupbox legend { padding: 0 4px; }
+dialog.transpose .groupbox:disabled > :not(legend) { opacity: .5; }
+dialog.transpose .groupbox-row { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+dialog.transpose label.groupbox-row { align-items: center; }
+dialog.transpose select { min-width: 0; max-width: 100%; }
+dialog.transpose .radio-rows { gap: 6px; }
 dialog.save-score form { display: flex; flex-direction: column; gap: 12px; }
 dialog.save-score .hint { max-width: none; }
 dialog.save-score .dialog-buttons .spacer { flex: 1; }

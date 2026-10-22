@@ -144,12 +144,14 @@ export interface LookupData {
     staffIdx: number
     effect: MidiInstrumentEffect
     harmony: boolean
+    /** not in C++: the voice of the note (Context.eachVoiceHasChannel) */
+    voice: number
 }
 
 export const INVALID_STRING = -1
 
 function newLookupData(): LookupData {
-    return { string: INVALID_STRING, staffIdx: 0, effect: MidiInstrumentEffect.NONE, harmony: false }
+    return { string: INVALID_STRING, staffIdx: 0, effect: MidiInstrumentEffect.NONE, harmony: false, voice: 0 }
 }
 
 /** LookupData::operator< as a comparison function */
@@ -168,6 +170,9 @@ function compareLookupData(a: LookupData, b: LookupData): number {
     }
     if (a.effect !== b.effect) {
         return a.effect < b.effect ? -1 : 1
+    }
+    if (a.voice !== b.voice) {
+        return a.voice < b.voice ? -1 : 1
     }
     return 0
 }
@@ -240,6 +245,16 @@ export class Context {
 
     eachStringHasChannel = false //!to better display the guitar instrument, each string has its own channel
     instrumentsHaveEffects = false //!when effect is applied, new channel should be used
+    /**
+     * not in C++: each voice has its own channel, like the channels of MuseScore 4's Fluid synth (ChannelMap of
+     * soundmapping.h: a channel per voice and articulation), so that pitch bends of a voice do not bend the others
+     */
+    eachVoiceHasChannel = false
+    /**
+     * not in C++: the MIDI actions and Aeolus stops of staff texts (collectProgramChanges); MuseScore 4's playback
+     * does not play them
+     */
+    renderMidiActions = true
     useDefaultArticulations = false //!using default articulations means ignoring the ones stored for each instrument
     applyCaesuras = false //! to add pauses (caesura) between midi events
     harmonyChannelSetting = HarmonyChannelSetting.DEFAULT
@@ -256,6 +271,8 @@ export class Context {
         const c = new Context()
         c.eachStringHasChannel = this.eachStringHasChannel
         c.instrumentsHaveEffects = this.instrumentsHaveEffects
+        c.eachVoiceHasChannel = this.eachVoiceHasChannel
+        c.renderMidiActions = this.renderMidiActions
         c.useDefaultArticulations = this.useDefaultArticulations
         c.applyCaesuras = this.applyCaesuras
         c.harmonyChannelSetting = this.harmonyChannelSetting
@@ -1320,11 +1337,15 @@ function getChannel(instr: Instrument, note: Note, effect: MidiInstrumentEffect,
     const subchannel = note.subchannel()
     const channel = (instr.channel(subchannel) ?? instr.channel(0)!).channel()
 
-    if (!context.instrumentsHaveEffects && !context.eachStringHasChannel) {
+    if (!context.instrumentsHaveEffects && !context.eachStringHasChannel && !context.eachVoiceHasChannel) {
         return channel
     }
 
     const lookupData = newLookupData()
+
+    if (context.eachVoiceHasChannel) {
+        lookupData.voice = note.voice()
+    }
 
     if (context.instrumentsHaveEffects) {
         lookupData.effect = effect
@@ -1744,7 +1765,9 @@ export class CompatMidiRendererInternal {
                                  pitchWheelRenderer: PitchWheelRenderer, prevChords: (Chord | null)[]): void {
         this.doCollectMeasureEvents(events, m, staff, tickOffset, pitchWheelRenderer, prevChords)
 
-        collectProgramChanges(events, m, staff, tickOffset)
+        if (this.m_context.renderMidiActions) {
+            collectProgramChanges(events, m, staff, tickOffset)
+        }
     }
 
     private doCollectMeasureEvents(events: EventsHolder, m: Measure, staff: Staff, tickOffset: number,

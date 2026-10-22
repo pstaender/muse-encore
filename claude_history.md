@@ -1049,9 +1049,22 @@
   MIDI export (the status bar then shows "(on ... off ...)" for shortened notes, as in MuseScore after a MIDI export).
   No mixer, MIDI input, playback setup dialog, ChangePart harmony channels; no
   WebAudioFont fallback (SpessaSynth works wherever AudioWorklet exists; without it there is no sound).
-  Presets: drum kits only for instruments with a drumset, melodic channels always bank 0 + the channel's program
-  (MuseScore 4's Fluid maps the instrument to a preset and ignores the channel's bank; 2.x pianos with the user bank
-  MSB 2/LSB 5 = 261 played as drums before). The sound mapping by instrument (fluidsynth/soundmapping.h) is not ported.
+  Presets: MuseScore 4's Fluid sound mapping (tools/gen/gen-soundmapping.ts: framework/mpe/soundid.ts,
+  engraving/playback/mapping/setupdatamaps.ts, framework/audio/fluidsynth/soundmappingdata.ts; PlaybackSetupDataResolver,
+  findPrograms, articulationSounds): the instrument (id or soundId) -> sound -> bank/program of MS Basic; bank 128 =
+  drum kit. The bank and program of the instrument channels are ignored like in MuseScore 4 (2.x pianos with the user
+  bank MSB 2/LSB 5 played as drums before). The renderer's articulation channels (pizzicato, mute, tremolo, jazz,
+  harmonics, slap, pop, ...) take the articulation presets; chord symbols guitar or piano; the metronome Block/Wooden.
+  ChannelMap: each voice of an instrument channel (= articulation) has its own synthesizer channel
+  (synthChannel(instrumentChannel, voice) = instrumentChannel * 4 + voice), so pitch bends/pedals/expression of a voice do
+  not affect the others and equal pitches of two voices do not cut each other off. Done with the renderer's channel
+  lookup (TS-only Context.eachVoiceHasChannel + LookupData.voice; the lookup channels are numbered after the instrument
+  channels); spanners (pedal, vibrato) go to all voice channels of their instrument channel like in C++. Deviation:
+  MuseScore 4 sends the expression controller of single note dynamics to all channels of the instrument, here only to
+  the voice's channel. The MIDI actions and Aeolus stops of staff texts are not played (TS-only
+  Context.renderMidiActions = false; MuseScore 4's playback ignores them, the MIDI export still renders them).
+  Instrument::isPrimary with Score's markInstrumentsAsPrimary (append/insert/remove part, sortStaves): violin and flute
+  sounds get the primary/secondary subcategory.
 
 ## 2026-10-22 — View modes (continuous views), fit to window, smooth panning, Space hand tool
 
@@ -1171,3 +1184,52 @@
   action has no extra key any more when Space is the hand tool: playback starts with MuseScore's Shift+Space (play from
   the selection) and stops with Escape (NotationActionController::resetState); pause-and-select keeps MuseScore's key.
   The Preferences hint names these keys with MuseScore's action titles.
+- Concert pitch: Score::cmdConcertPitchChanged (score.ts; also from ChangeStyle::flip when a style with another
+  concertPitch is applied), Transpose::transposeKeys / undoTransposeHarmony with the TransposeHarmony undo command
+  (transpose.ts; the key signature is created through itemFactories, transpose.ts is imported by the DOM), ChangeKeySig
+  (editing/editkeysig.ts; undoChangeKeySig uses it now, so key signature changes are undoable), Score::firstSegment.
+  NotationActionController: "concert-pitch" (toggleConcertPitch: "Display concert pitch" / "Display transposed",
+  checked = Sid::concertPitch). Editor: MuseScore's ConcertPitchControl in the status bar
+  (components/ConcertPitchControl.tsx, check box + tuning fork + title, before the view mode control). Test: MuseScore's
+  keysig_tests concertPitch with its reference files, chord symbols, undo/redo. Score::appendScore (which also matches
+  the concert pitch states) is not ported at all.
+- Editor: the page view toolbar is in the bottom dock (above the status bar) by default; saved layouts keep their place.
+
+### Transpose
+
+- transpose.ts: the rest of transpose.cpp: Transpose::transpose (to a key / by an interval / diatonically, list and
+  range selections, key signatures, chord symbols), transposeSemitone, transposeDiatonicAlterations,
+  transpositionChanged (both overloads; the second as transpositionChangedAt), keydiff2Interval,
+  transposeTpcDiatonicByKey, transposeHarmony and the TransposeHarmonyDiatonic undo command. Interval::allIntervals,
+  TransposeMode, utils isFirstSystemKeySig, Staff::primaryStaff. Note::transpose/transposeDiatonic go through
+  undoChangePitch now (like C++).
+- Score::undoChangeKeySig: updateInstrumentChangeTranspositions, links between the new key signatures of linked staves,
+  transpositionChanged when the staff transposition changes. cmdDeleteSelection: deleting a key signature before an
+  instrument change keeps the instrument change's key, deleting an instrument change removes its key signatures and
+  clefs (InstrumentChange::keySigs/clefs) and transposes the notes back (transpositionChanged).
+- NotationInteraction transpose/transposeSemitone/transposeDiatonicAlterations; actions transpose-up/-down,
+  pitch-up/down-diatonic-alterations. Library: prepareTransposeSelection/transposeSelection (TransposeOptions).
+- Editor: MuseScore's Transpose dialog (dialogs/TransposeDialog.tsx, Tools > Transpose…: the group boxes of
+  transposedialog.ui with its translations, the last settings are kept while the app runs; nothing selected = the whole
+  score, deselected afterwards). Deviation: MuseScore's restored state can check the disabled "To key" box for a list
+  selection; here "By interval" is used then.
+- Tests (test/transpose.test.ts): MuseScore's transpose_tests (undoTranspose, undoTransposeChordSymbols,
+  undoDiatonicTranspose(ChordSymbols)), chordsymbol_tests testTranspose and keysig_tests preferSharpFlat with their
+  reference files; the actions and the dialog API; e2e: the dialog with undo.
+- Not ported: transposing fretboard diagrams (only their chord symbol is transposed: FretDataChange,
+  FretDiagram::patternsFromHarmony/harmoniesFromPattern need share/.../harmony_to_diagram.xml, which the fret diagram
+  palette also needs), MsError::TRANSPOSE_NO_FRET_DIAGRAM, rebuildFretBox, setPlayNote; the callers of
+  transpositionChanged in the unported instrument editing (InstrumentChange::setupInstrument, replaceInstrument,
+  setPartSharpFlat, pasting instrument changes).
+- Known: after a layout change, a key signature segment with a key change in some staves keeps the generated system
+  header key signatures of the other staves (removeSystemHeader keeps the segment because of the key change, the same
+  code path as MuseScore); seen after undoing a transposition of Amazing_grace (measure 5) when the systems moved.
+
+### Collapsible panel area
+
+- Editor: the panel area left of the score (.side-chrome) can be collapsed to a 32 px strip (not in MuseScore): the
+  chevron button at the end of the panel tab bar ("Collapse"/"Expand", MuseScore's global strings); the strip shows the
+  expand button and the open panels as vertical tabs, which expand the area with that panel. Showing a panel (View menu,
+  F9/F7/F8) expands it, too; the state is kept in the settings (panels.collapsed), "Restore the default layout" expands.
+- e2e: the menu keyboard test moves the mouse away first (the pointer left over the Edit menu's first item made it the
+  active one again after End).

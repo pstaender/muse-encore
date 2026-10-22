@@ -501,7 +501,7 @@ export class Note extends EngravingItem {
         this.m_pitch = val
     }
 
-    /** C++ Note::transposeDiatonic() (TODO(port): undo) */
+    /** C++ Note::transposeDiatonic() */
     transposeDiatonic(interval: number, keepAlterations: boolean, useDoubleAccidentals: boolean): boolean {
         // compute note current absolute step
         const tick = this.chord().segment()!.tick()
@@ -540,11 +540,11 @@ export class Note extends EngravingItem {
         newPitch = clampPitch(newPitch, true)
 
         // store new data
-        this.setPitch(newPitch, newTpc1, newTpc2)
+        this.score().undoChangePitch(this, newPitch, newTpc1, newTpc2)
         return true
     }
 
-    /** C++ Note::transpose() (TODO(port): undo) */
+    /** C++ Note::transpose() */
     transpose(interval: Interval, useDoubleSharpsFlats: boolean): boolean {
         const npitch = this.pitch() + interval.chromatic
         if (!pitchIsValid(npitch)) {
@@ -561,7 +561,7 @@ export class Note extends EngravingItem {
                 ntpc2 = Transpose.transposeTpc(this.tpc2(), interval, useDoubleSharpsFlats)
             }
         }
-        this.setPitch(npitch, ntpc1, ntpc2)
+        this.score().undoChangePitch(this, npitch, ntpc1, ntpc2)
         return true
     }
 

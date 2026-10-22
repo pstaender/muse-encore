@@ -89,9 +89,8 @@ export class SpessaSynthesizer implements Synthesizer {
         const o = this.opts(time)
         s.midiChannels[channel]?.setDrums(setup.drum)
         if (!setup.drum) {
-            // bank 0 like MuseScore 4's Fluid synth, which ignores the channel's bank (user banks of old files, e.g.
-            // MSB 2/LSB 5 of 2.x pianos, would select other presets of MS Basic)
-            s.controllerChange(channel, CC_BANK_MSB, 0, o)
+            // fluid_synth_bank_select of MuseScore 4's Fluid synth: the soundfont bank of the sound mapping
+            s.controllerChange(channel, CC_BANK_MSB, setup.bank & 0x7f, o)
             s.controllerChange(channel, CC_BANK_LSB, 0, o)
         }
         s.programChange(channel, setup.program & 0x7f, o)

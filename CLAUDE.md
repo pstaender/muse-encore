@@ -27,6 +27,9 @@ src/
                         FontProvider (opentype.js, replaces Qt font metrics), canvas and SVG paint providers,
                         Pixmap/ImageProvider/SvgRenderer + imagecache.ts (asynchronous image decoding; pages are redrawn
                         when an image is decoded: onImageDecoded/imagesDecoded in index.ts)
+  framework/mpe         PlaybackSetupData, SoundId/SoundCategory/SoundSubCategory as strings (soundid.ts, generated)
+  framework/audio/fluidsynth  soundmapping: the MS Basic presets of MuseScore 4's Fluid synth per sound and articulation
+                        (findPrograms, articulationSounds; tables generated)
   engraving/types       enums (types.ts), Fraction, Spatium, SymId (generated)
   engraving/style       Sid + default style (generated), MStyle
   engraving/infrastructure  Shape, Skyline, Smufl, MscReader (zip)
@@ -38,6 +41,7 @@ src/
                         rw/rwregister.ts: the reader/writer the DOM uses for the clipboard (mime data, paste)
   engraving/compat      EngravingCompat (pre/post layout conversions of old files), page format, dummy element;
                         compat/midi: the MIDI renderer (CompatMidiRender: play events, tempo/pause maps, velocities)
+  engraving/playback    PlaybackSetupDataResolver: instrument -> sound (mapping/setupdatamaps.ts generated)
   engraving/rendering/score  layout (ScoreLayout with the page view and the continuous views ScoreHorizontalViewLayout /
                         ScoreVerticalViewLayout, SystemLayout, ChordLayout, ...) and painting (TDraw)
   engraving/rendering/single  SingleLayout/SingleDraw: standalone items (palette cells) on the palette score
@@ -142,7 +146,7 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - `npm run compare:mscx` - diff writeMscx/saveMscz output (main .mscx, style, parts) against MuseScore's own re-save
   (`mscore -o out.mscx`, cached in compare-out/mscx/ref); EIDs are normalized
 - `npx tsx tools/gen/<gen-*.ts> MuseScore` - regenerate tables from the reference sources (symids, styledef,
-  property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates, scoreorders, uiactions [-> musescoreweb/actions])
+  property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates, scoreorders, soundmapping, uiactions [-> musescoreweb/actions])
 
 ## Progress tracking
 

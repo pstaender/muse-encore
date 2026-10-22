@@ -46,7 +46,7 @@ export interface SessionState {
     current: CurrentScore | null
     newScoreDialog: boolean
     /** another dialog of the app; the questions (saveChanges, saveAs, restoreSession, migration) are answered with answerDialog() */
-    dialog: 'preferences' | 'about' | 'clearRecent' | 'revertFactory' | 'saveChanges' | 'saveAs' | 'restoreSession' | 'migration' | null
+    dialog: 'preferences' | 'about' | 'transpose' | 'clearRecent' | 'revertFactory' | 'saveChanges' | 'saveAs' | 'restoreSession' | 'migration' | null
     /** the name proposed by the Save as dialog */
     saveAsName: string
     /** the last error, shown on the home screen */

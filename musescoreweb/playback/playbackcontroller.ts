@@ -243,7 +243,10 @@ function updateEvents(): void {
     for (const c of s_channels) {
         setups.set(c.channel, channelSetup(c))
     }
-    setups.set(s_metronomeChannel, { program: 0, bank: 128, drum: true, volume: 100, pan: 64, reverb: 0, chorus: 0 })
+    const metronome = playback.metronomeProgram()
+    setups.set(s_metronomeChannel, {
+        program: metronome.program, bank: metronome.bank, drum: metronome.bank >= 128, volume: 100, pan: 64, reverb: 0, chorus: 0,
+    })
 
     // the play position stays at its tick (the times change with the tempo)
     const tick = state.tick

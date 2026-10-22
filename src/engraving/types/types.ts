@@ -1171,6 +1171,11 @@ export enum OffsetType {
     SPATIUM, ///< offset in staff space units
 }
 
+/** C++ TransposeMode (dom/mscore.h) */
+export enum TransposeMode {
+    TO_KEY, BY_INTERVAL, DIATONICALLY, UNKNOWN,
+}
+
 export enum TransposeDirection {
     UP, DOWN, CLOSEST, UNKNOWN,
 }

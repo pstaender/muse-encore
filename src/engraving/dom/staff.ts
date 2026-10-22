@@ -645,6 +645,22 @@ export class Staff extends EngravingItem {
         return this.isSystemObjectStaff() && this.isLastOfScore() && this.style().styleB(Sid.systemObjectsBelowBottomStaff)
     }
 
+    primaryStaff(): Staff | null {
+        const linkedElements = this.links()
+        if (!linkedElements) {
+            return null
+        }
+
+        for (const linkedElement of linkedElements) {
+            const staff = linkedElement as unknown as Staff
+            if (staff && staff.isPrimaryStaff()) {
+                return staff
+            }
+        }
+
+        return null
+    }
+
     /**
      * if there are linked staves, the primary staff is the one who is played back and it's not a tab staff
      * because we don't have enough information to play e.g ornaments. NOTE: it's not necessarily the top staff!

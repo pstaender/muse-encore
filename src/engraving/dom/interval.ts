@@ -68,6 +68,44 @@ export class Interval {
         return down ? -steps : steps
     }
 
+    /** C++ Interval::allIntervals (the intervals of the Transpose dialog) */
+    static readonly allIntervals: readonly Interval[] = [
+        // diatonic - chromatic
+        new Interval(0, 0), //  0 Perfect Unison
+        new Interval(0, 1), //  1 Augmented Unison
+
+        new Interval(1, 0), //  2 Diminished Second
+        new Interval(1, 1), //  3 Minor Second
+        new Interval(1, 2), //  4 Major Second
+        new Interval(1, 3), //  5 Augmented Second
+
+        new Interval(2, 2), //  6 Diminished Third
+        new Interval(2, 3), //  7 Minor Third
+        new Interval(2, 4), //  8 Major Third
+        new Interval(2, 5), //  9 Augmented Third
+
+        new Interval(3, 4), // 10 Diminished Fourth
+        new Interval(3, 5), // 11 Perfect Fourth
+        new Interval(3, 6), // 12 Augmented Fourth
+
+        new Interval(4, 6), // 13 Diminished Fifth
+        new Interval(4, 7), // 14 Perfect Fifth
+        new Interval(4, 8), // 15 Augmented Fifth
+
+        new Interval(5, 7), // 16 Diminished Sixth
+        new Interval(5, 8), // 17 Minor Sixth
+        new Interval(5, 9), // 18 Major Sixth
+        new Interval(5, 10), // 19 Augmented Sixth
+
+        new Interval(6, 9), // 20 Diminished Seventh
+        new Interval(6, 10), // 21 Minor Seventh
+        new Interval(6, 11), // 22 Major Seventh
+        new Interval(6, 12), // 23 Augmented Seventh
+
+        new Interval(7, 11), // 24 Diminished Octave
+        new Interval(7, 12), // 25 Perfect Octave
+    ]
+
     clone(): Interval { return new Interval(this.diatonic, this.chromatic) }
     flip(): void {
         this.diatonic = -this.diatonic

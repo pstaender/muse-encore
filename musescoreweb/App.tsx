@@ -6,11 +6,13 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { actionsChanged, registerAction, useActions } from './actions/actions'
 import { clearRecentScores } from './actions/appactions'
+import { ConcertPitchControl } from './components/ConcertPitchControl'
 import { ViewModeControl } from './components/ViewModeControl'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { MenuBar } from './components/Menu'
 import { MigrationDialog } from './dialogs/MigrationDialog'
 import { AboutDialog } from './dialogs/AboutDialog'
+import { TransposeDialog } from './dialogs/TransposeDialog'
 import { PreferencesDialog } from './dialogs/PreferencesDialog'
 import { SaveScoreDialog } from './dialogs/SaveScoreDialog'
 import { useScores } from './db'
@@ -77,6 +79,9 @@ function StatusBar(): React.JSX.Element {
     return (
         <footer className={`statusbar${v.statusError ? ' error' : ''}`}>
             <span id="status" aria-live="polite">{v.selection ? plainText(v.selection) : v.status}</span>
+            <span className="statusbar-separator" aria-hidden="true" />
+            <ConcertPitchControl />
+            <span className="statusbar-separator" aria-hidden="true" />
             <ViewModeControl />
         </footer>
     )
@@ -183,6 +188,7 @@ export function App(): React.JSX.Element {
             {session.newScoreDialog && <NewScoreDialog />}
             {session.dialog === 'preferences' && <PreferencesDialog onClose={() => showDialog(null)} />}
             {session.dialog === 'about' && <AboutDialog onClose={() => showDialog(null)} />}
+            {session.dialog === 'transpose' && <TransposeDialog onClose={() => showDialog(null)} />}
             {session.dialog === 'saveChanges' && <SaveChangesDialog key={session.question} onClose={answer} />}
             {session.dialog === 'saveAs' && <SaveScoreDialog key={session.question} name={session.saveAsName} onClose={answer} />}
             {session.dialog === 'restoreSession' && <RestoreSessionDialog key={session.question} onClose={answer} />}

@@ -81,6 +81,7 @@ import type { Part } from '../dom/part'
 import type { Staff } from '../dom/staff'
 import type { TimeSig } from '../dom/timesig'
 import type { KeySig } from '../dom/keysig'
+import type { InstrumentChange } from '../dom/instrchange'
 import { Text } from '../dom/text'
 import type { TextBase } from '../dom/textbase'
 import type { Spanner, SpannerSegment } from '../dom/spanner'
@@ -132,6 +133,7 @@ declare module '../dom/score' {
         restoreInitialKeySigAndTimeSig(): void
         cmdAddTimeSig(fm: Measure, staffIdx: staff_idx_t, ts: TimeSig, local: boolean): void
         undoChangeKeySig(ostaff: Staff, tick: Fraction, key: KeySigEvent): void
+        updateInstrumentChangeTranspositions(key: KeySigEvent, staff: Staff, tick: Fraction): void
         addText(type: TextStyleType, destinationElement?: EngravingItem | null): TextBase | null
         /** figuredbass.cpp */
         addFiguredBass(): FiguredBass | null
@@ -1094,6 +1096,9 @@ Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: st
 }
 
 Score.prototype.undoChangeKeySig = function (this: Score, ostaff: Staff, tick: Fraction, key: KeySigEvent): void {
+    let lks: KeySig | null = null
+    let needsUpdate = false
+
     for (const staff of ostaff.staffList()) {
         if (staff.isDrumStaff(tick)) {
             continue
@@ -1111,6 +1116,7 @@ Score.prototype.undoChangeKeySig = function (this: Score, ostaff: Staff, tick: F
         const ks = s.element(track) as KeySig | null
 
         const interval = staff.part().instrument(tick).transpose().clone()
+        const oldStaffInterval = staff.transpose(tick).clone()
         const nkey = key.clone()
         const concertPitch = score.style().styleB(Sid.concertPitch)
 
@@ -1120,25 +1126,68 @@ Score.prototype.undoChangeKeySig = function (this: Score, ostaff: Staff, tick: F
             interval.flip()
         }
 
-        // TODO(port): updateInstrumentChangeTranspositions(key, staff, tick)
+        this.updateInstrumentChangeTranspositions(key, staff, tick)
         if (ks) {
             ks.undoChangeProperty(Pid.GENERATED, false)
-            // TODO(port): undo (ChangeKeySig::flip with evtInStaff = true)
-            const segment = ks.segment()!
-            ks.setKeySigEvent(nkey)
-            ks.setShowCourtesy(ks.showCourtesy())
-            ks.staff()!.setKey(segment.tick(), nkey) // replace
-            segment.setEnabled(true)
-            segment.setHeader(false)
+            this.undo(new ChangeKeySig(ks, nkey, ks.showCourtesy()))
         } else {
             const nks = Factory.createItem(ElementType.KEYSIG, s) as KeySig
             nks.setParent(s)
             nks.setTrack(track)
             nks.setKeySigEvent(nkey)
             this.doUndoAddElement(nks)
-            // TODO(port): links between the key signatures of linked staves
+            if (lks) {
+                this.undo(new Link(lks, nks))
+            } else {
+                lks = nks
+            }
         }
-        // TODO(port): Transpose::transpositionChanged if the staff transposition changed (transposes existing notes)
+        if (!interval.equals(staff.transpose(tick)) || !interval.equals(oldStaffInterval)) {
+            needsUpdate = true
+        }
+    }
+    if (needsUpdate) {
+        const tickEnd = Fraction.fromTicks(ostaff.keyList().nextKeyTick(tick.ticks()))
+        Transpose.transpositionChanged(this, ostaff.part(), ostaff.transpose(tick).clone(), tick, tickEnd)
+    }
+}
+
+Score.prototype.updateInstrumentChangeTranspositions = function (this: Score, key: KeySigEvent, staff: Staff, tick: Fraction): void {
+    if (!key.forInstrumentChange()) {
+        const kl = staff.keyList()
+        let nextTick = kl.nextKeyTick(tick.ticks())
+
+        while (nextTick !== -1) {
+            const e = kl.key(nextTick).clone()
+            if (e.forInstrumentChange()) {
+                if (key.isAtonal() && !e.isAtonal()) {
+                    e.setMode(KeyMode.NONE)
+                    e.setConcertKey(Key.C)
+                } else {
+                    e.setMode(key.mode())
+                    const transposeInterval = staff.part().instrument(Fraction.fromTicks(nextTick)).transpose().clone()
+                    transposeInterval.flip()
+                    const ckey = key.concertKey()
+                    const nkey = Transpose.transposeKey(ckey, transposeInterval, staff.part().preferSharpFlat())
+                    e.setConcertKey(ckey)
+                    e.setKey(nkey)
+                }
+                const m = this.tick2measure(Fraction.fromTicks(nextTick))
+                const s = m ? m.tick2segment(Fraction.fromTicks(nextTick), SegmentType.KeySig) : null
+                const track = staff.idx() * VOICES
+                let keySig: KeySig | null = null
+                const keySigElem = s ? s.element(track) : null
+                if (keySigElem && keySigElem.isKeySig()) {
+                    keySig = keySigElem as unknown as KeySig
+                }
+                if (keySig) {
+                    this.undo(new ChangeKeySig(keySig, e, keySig.showCourtesy()))
+                }
+                nextTick = kl.nextKeyTick(nextTick)
+            } else {
+                nextTick = -1
+            }
+        }
     }
 }
 
@@ -2477,9 +2526,29 @@ Score.prototype.deleteItem = function (this: Score, el: EngravingItem | null): v
                 return
             }
         }
-        // TODO(port): instrument change key signatures (KeySigEvent::setForInstrumentChange, transposition),
-        // updateInstrumentChangeTranspositions
+        const nextCrSeg = k.segment()!.next1(SegmentType.ChordRest)
+        const ic = !!nextCrSeg && !!nextCrSeg.findAnnotation(ElementType.INSTRUMENT_CHANGE,
+            el.part()!.startTrack(), el.part()!.endTrack() - 1)
         this.undoRemoveElement(k)
+        if (ic) {
+            const ke = k.keySigEvent().clone()
+            ke.setForInstrumentChange(true)
+            const cKey = k.staff()!.keySigEvent(k.tick()).concertKey()
+            let tKey = cKey
+            if (!this.style().styleB(Sid.concertPitch)) {
+                const v = k.part()!.instrument(k.tick()).transpose().clone()
+                v.flip()
+                tKey = Transpose.transposeKey(cKey, v, k.part()!.preferSharpFlat())
+            }
+            ke.setConcertKey(cKey)
+            ke.setKey(tKey)
+            this.undoChangeKeySig(k.staff()!, k.tick(), ke)
+        }
+        for (let i = 0; i < k.part()!.nstaves(); i++) {
+            const staff = k.part()!.staff(i)!
+            const e = staff.keySigEvent(k.tick()).clone()
+            this.updateInstrumentChangeTranspositions(e, staff, k.tick())
+        }
         break
     }
 
@@ -2855,10 +2924,27 @@ Score.prototype.deleteItem = function (this: Score, el: EngravingItem | null): v
         // TODO(port): PlayCountText (barline()->undoChangeProperty(Pid::PLAY_COUNT_TEXT_SETTING, HIDE))
         break
 
-    case ElementType.INSTRUMENT_CHANGE:
-        // TODO(port): instrument changes (key signatures, clefs, Transpose::transpositionChanged)
+    case ElementType.INSTRUMENT_CHANGE: {
+        const ic = el as unknown as InstrumentChange
+        const tickStart = ic.segment().tick()
+        const part = ic.part()!
+        const oldV = part.staff(0)!.transpose(tickStart).clone()
         this.undoRemoveElement(el)
+        if (!tickStart.isZero()) {
+            for (const keySig of ic.keySigs()) {
+                this.deleteItem(keySig)
+            }
+        }
+        for (const clef of ic.clefs()) {
+            this.deleteItem(clef)
+        }
+        if (!part.staff(0)!.transpose(tickStart).equals(oldV)) {
+            const i = part.instruments().upperBound(tickStart.ticks())
+            const tickEnd = i === part.instruments().size() ? new Fraction(-1, 1) : Fraction.fromTicks(part.instruments().keyAt(i))
+            Transpose.transpositionChanged(this, part, oldV, tickStart, tickEnd)
+        }
         break
+    }
 
     case ElementType.MARKER: {
         const m = el.explicitParent() as unknown as Measure
@@ -4165,6 +4251,7 @@ import { CHORD_REST_OR_TIME_TICK_TYPE } from '../dom/segment'
 import { ClefInfo } from '../dom/clefinfo'
 import { MScore as DropMScore, MsError as DropMsError } from '../dom/mscore'
 import { ChangeClefType } from './editclef'
+import { ChangeKeySig } from './editkeysig'
 import { ChangeProperty as DropChangeProperty } from './editproperty'
 import { Link, Unlink } from './addremoveelement'
 import type { Clef } from '../dom/clef'

@@ -10,7 +10,7 @@
 import type { SystemDivider, SystemDividerType } from './systemdivider'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
-import { DPI, ElementType, INCH, Key, TextStyleType, VOICES, staff2track, type staff_idx_t, type track_idx_t } from '../types/types'
+import { DPI, ElementType, INCH, Key, StaffGroup, TextStyleType, VOICES, staff2track, type staff_idx_t, type track_idx_t } from '../types/types'
 import { Sid } from '../style/styledef'
 import { SymId } from '../types/symid'
 import { MStyle } from '../style/style'
@@ -31,6 +31,7 @@ import type { Part } from './part'
 import type { System } from './system'
 import type { Page } from './page'
 import type { Spanner, SpannerSegment } from './spanner'
+import type { Harmony } from './harmony'
 import type { Note } from './note'
 import type { Text } from './text'
 import { SystemLocks, type SystemLock } from './systemlock'
@@ -172,6 +173,22 @@ export enum LoopBoundaryType {
     Unknown = -1,
     LoopIn = 0,
     LoopOut = 1,
+}
+
+function markInstrumentsAsPrimary(parts: readonly Part[]): void {
+    const instrumentCount = new Map<string /*instrumentId*/, number /*count*/>()
+
+    for (const part of parts) {
+        const instrument = part.instrument()
+        if (!instrument) {
+            continue
+        }
+
+        const count = (instrumentCount.get(instrument.id()) ?? 0) + 1
+        instrumentCount.set(instrument.id(), count)
+
+        instrument.setIsPrimary(count % 2 !== 0)
+    }
 }
 
 function roundTempo(bps: number): number {
@@ -1084,6 +1101,7 @@ export class Score extends EngravingObject {
         part.setScore(this)
         this.assignIdIfNeed(part)
         this.m_parts.push(part)
+        markInstrumentsAsPrimary(this.m_parts)
     }
 
     insertPart(part: Part | null, targetPartIdx: number): void {
@@ -1102,7 +1120,7 @@ export class Score extends EngravingObject {
 
         this.masterScore().rebuildMidiMapping()
         this.masterScore().setInstrumentsChanged(true)
-        // TODO(port): markInstrumentsAsPrimary(m_parts) (playback)
+        markInstrumentsAsPrimary(this.m_parts)
     }
 
     removePart(part: Part): void {
@@ -1113,13 +1131,14 @@ export class Score extends EngravingObject {
         }
 
         this.m_parts.splice(index, 1)
-        // TODO(port): markInstrumentsAsPrimary(m_parts) (playback)
+        markInstrumentsAsPrimary(this.m_parts)
 
         if (this.m_excerpt) {
             const excerptParts = this.m_excerpt.parts()
             const i = excerptParts.findIndex(p => p.id() === part.id())
             if (i >= 0) {
                 excerptParts.splice(i, 1)
+                markInstrumentsAsPrimary(excerptParts)
             }
         }
 
@@ -1299,6 +1318,55 @@ export class Score extends EngravingObject {
         }
     }
 
+    cmdConcertPitchChanged(flag: boolean): void {
+        if (flag === this.style().styleB(Sid.concertPitch)) {
+            return
+        }
+
+        this.undoChangeStyleVal(Sid.concertPitch, flag) // change style flag
+
+        for (const staff of this.m_staves) {
+            if (staff.staffType(new Fraction(0, 1)).group() === StaffGroup.PERCUSSION) { // TODO
+                continue
+            }
+            // if this staff has no transposition, and no instrument changes, we can skip it
+            let interval = staff.part().instrument().transpose().clone() //tick?
+            if (interval.isZero() && staff.part().instruments().size() === 1) {
+                continue
+            }
+            if (!flag) {
+                interval.flip()
+            }
+
+            const staffIdx = staff.idx()
+            const startTrack = staffIdx * VOICES
+            const endTrack = startTrack + VOICES
+
+            Transpose.transposeKeys(this, staffIdx, staffIdx + 1, new Fraction(0, 1), this.lastSegment()!.tick(), !flag)
+
+            for (let segment = this.firstSegment(SegmentType.ChordRest); segment; segment = segment.next1(SegmentType.ChordRest)) {
+                interval = staff.transpose(segment.tick()).clone()
+                if (!flag) {
+                    interval.flip()
+                }
+                for (const e of segment.annotations()) {
+                    if (!e.isHarmony() || (e.track() < startTrack) || (e.track() >= endTrack)) {
+                        continue
+                    }
+                    const h = e as unknown as Harmony
+                    for (const se of h.linkList()) {
+                        // don't transpose all links
+                        // just ones resulting from mmrests
+                        const he = se as Harmony
+                        if (he.staff() === h.staff()) {
+                            Transpose.undoTransposeHarmony(this, he, interval)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     sortStaves(dst: readonly staff_idx_t[]): void {
         this.sortSystemObjects(dst)
         for (const s of this.m_systems) {
@@ -1338,7 +1406,7 @@ export class Score extends EngravingObject {
             }
         }
         this.setLayoutAll()
-        // TODO(port): markInstrumentsAsPrimary(m_parts) (playback)
+        markInstrumentsAsPrimary(this.m_parts)
     }
 
     /** staves which are not linked to another staff; TODO(port): linked staves */
@@ -1959,6 +2027,18 @@ export class Score extends EngravingObject {
     /** C++ Score::checkChordList() (dom/utils.cpp) */
     checkChordList(): void {
         this.m_chordList.checkChordList(this.style())
+    }
+
+    firstSegment(segType: SegmentType): Segment | null {
+        const m = this.firstMeasure()
+        if (!m) {
+            return null
+        }
+        let seg = m.first()
+        if (seg && !(seg.segmentType() & segType)) {
+            seg = seg.next1(segType)
+        }
+        return seg
     }
 
     lastSegment(): Segment | null {

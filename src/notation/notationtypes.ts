@@ -7,7 +7,7 @@
  */
 
 import { Fraction } from '../engraving/types/fraction'
-import { DurationType, Key, TextStyleType } from '../engraving/types/types'
+import { DurationType, Key, TextStyleType, TransposeDirection, TransposeMode } from '../engraving/types/types'
 import { TimeSigType } from '../engraving/dom/timesig'
 import { ScoreOrder } from '../engraving/dom/scoreorder'
 import { TupletBracketType, TupletNumberType } from '../engraving/dom/tuplet'
@@ -108,4 +108,14 @@ export const MAX_NOTES_INTERVAL = 10
 export function isNotesIntervalValid(interval: number): boolean {
     return interval >= MIN_NOTES_INTERVAL && interval <= MAX_NOTES_INTERVAL
            && interval !== 0 && interval !== -1
+}
+
+export interface TransposeOptions {
+    mode: TransposeMode
+    direction: TransposeDirection
+    key: Key
+    interval: number
+    needTransposeKeys: boolean
+    needTransposeChordNames: boolean
+    needTransposeDoubleSharpsFlats: boolean
 }

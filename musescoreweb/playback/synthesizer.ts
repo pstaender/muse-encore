@@ -7,8 +7,8 @@
  */
 
 export interface SynthChannelSetup {
+    /** the soundfont preset (fluid_synth_bank_select + program change); bank 128: a drum kit */
     program: number
-    /** 128 and above: a drum kit */
     bank: number
     drum: boolean
     volume: number

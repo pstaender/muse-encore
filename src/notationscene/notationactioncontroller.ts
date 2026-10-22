@@ -121,7 +121,7 @@ import { OttavaType } from '../engraving/dom/ottava'
 import { MAX_NOTES_INTERVAL, MIN_NOTES_INTERVAL, TupletOptions, isNotesIntervalValid } from '../notation/notationtypes'
 import { NotationMidiInput } from '../notation/internal/notationmidiinput'
 import { SymId } from '../engraving/types/symid'
-import { PlacementV } from '../engraving/types/types'
+import { PlacementV, TransposeDirection } from '../engraving/types/types'
 import { flipArticulations, splitArticulations } from '../engraving/dom/articulation'
 import type { Chord } from '../engraving/dom/chord'
 import type { Note } from '../engraving/dom/note'
@@ -210,6 +210,7 @@ export class NotationActionController {
         this.registerAction('rest', () => this.interaction().putRestToSelection())
 
         this.registerAction('toggle-visible', () => this.interaction().toggleVisible(), () => this.isToggleVisibleAllowed())
+        this.registerAction('concert-pitch', () => this.toggleConcertPitch())
 
         this.registerAction('notation-move-right', () => this.move(MoveDirection.Right, false))
         this.registerAction('notation-move-left', () => this.move(MoveDirection.Left, false))
@@ -245,6 +246,13 @@ export class NotationActionController {
         this.registerAction('pitch-up-diatonic', () => this.movePitchDiatonic(MoveDirection.Up))
         this.registerAction('pitch-down-diatonic', () => this.movePitchDiatonic(MoveDirection.Down))
 
+        this.registerAction('transpose-up', () => this.withPlayMode(PlayMode.PlayNote, () => this.interaction().transposeSemitone(1)))
+        this.registerAction('transpose-down', () => this.withPlayMode(PlayMode.PlayNote, () => this.interaction().transposeSemitone(-1)))
+        this.registerAction('pitch-up-diatonic-alterations', () => this.withPlayMode(PlayMode.PlayNote,
+            () => this.interaction().transposeDiatonicAlterations(TransposeDirection.UP)))
+        this.registerAction('pitch-down-diatonic-alterations', () => this.withPlayMode(PlayMode.PlayNote,
+            () => this.interaction().transposeDiatonicAlterations(TransposeDirection.DOWN)))
+
         for (const [code, voice] of VOICE_ACTIONS) {
             this.registerAction(code, () => this.changeVoice(voice))
         }
@@ -272,7 +280,7 @@ export class NotationActionController {
     static isCheckableAction(code: string): boolean {
         return code === 'note-input' || NOTE_INPUT_METHOD_ACTIONS.has(code) || DOT_ACTIONS.has(code) || DURATION_ACTIONS.has(code)
             || ACCIDENTAL_ACTIONS.has(code) || VOICE_ACTIONS.has(code) || code === 'tie' || code === 'pad-rest' || code === 'add-slur'
-            || ARTICULATION_ACTIONS.has(code) || code === 'lv'
+            || ARTICULATION_ACTIONS.has(code) || code === 'lv' || code === 'concert-pitch'
     }
 
     interaction(): NotationInteraction { return this.m_interaction }
@@ -688,6 +696,19 @@ export class NotationActionController {
 
     isNoteInputMode(): boolean { return this.noteInput().isNoteInputMode() }
     hasSelection(): boolean { return !this.score().selection().isNone() }
+    toggleConcertPitch(): void {
+        const toggle = !this.score().style().styleB(Sid.concertPitch)
+
+        const actionName = toggle
+            ? new TranslatableString('undoableAction', 'Display concert pitch')
+            : new TranslatableString('undoableAction', 'Display transposed')
+
+        this.interaction().undoStack().prepareChanges(actionName)
+        // NotationStyle::setStyleValue(StyleId::concertPitch)
+        this.score().cmdConcertPitchChanged(toggle)
+        this.interaction().undoStack().commitChanges()
+    }
+
     canUndo(): boolean { return this.interaction().undoStack().canUndo() }
     canRedo(): boolean { return this.interaction().undoStack().canRedo() }
 
@@ -720,6 +741,10 @@ export class NotationActionController {
     isActionChecked(code: string): boolean {
         if (!this.score().parts().length) { // C++ isInputAllowed()
             return false
+        }
+
+        if (code === 'concert-pitch') { // NotationStatusBarModel::updateConcertPitchItem
+            return this.score().style().styleB(Sid.concertPitch)
         }
 
         const is = this.score().inputState()

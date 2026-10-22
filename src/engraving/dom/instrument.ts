@@ -191,6 +191,7 @@ export class Instrument {
     private m_articulation: MidiArticulation[] = []
     private m_stringData = new StringData()
     private m_singleNoteDynamics = true
+    private m_isPrimary = false
     private m_trait = new Trait()
     private m_glissandoStyle = GlissandoStyle.CHROMATIC
 
@@ -252,7 +253,9 @@ export class Instrument {
 
     /** C++ Instrument::operator=() / copy constructor */
     assign(i: Instrument): void {
+        const isPrimary = this.m_isPrimary // not copied in C++
         Object.assign(this, i)
+        this.m_isPrimary = isPrimary
         this.m_longNames = [...i.m_longNames]
         this.m_shortNames = [...i.m_shortNames]
         this.m_transpose = i.m_transpose.clone()
@@ -470,6 +473,8 @@ export class Instrument {
     stringData(): StringData { return this.m_stringData }
     setStringData(d: StringData): void { this.m_stringData = d }
     singleNoteDynamics(): boolean { return this.m_singleNoteDynamics }
+    isPrimary(): boolean { return this.m_isPrimary }
+    setIsPrimary(isPrimary: boolean): void { this.m_isPrimary = isPrimary }
     setSingleNoteDynamics(v: boolean): void { this.m_singleNoteDynamics = v }
     trait(): Trait { return this.m_trait }
     setTrait(t: Trait): void { this.m_trait = t }

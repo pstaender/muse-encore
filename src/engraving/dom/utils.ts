@@ -27,6 +27,7 @@ import type { System } from './system'
 import type { EngravingItem } from './engravingitem'
 import type { Spanner } from './spanner'
 import type { Staff } from './staff'
+import type { KeySig } from './keysig'
 import type { Selection } from './select'
 import type { NoteVal } from './input'
 import { Sid } from '../style/styledef'
@@ -1074,4 +1075,15 @@ export function chromaticPitchSteps(noteL: Note, noteR: Note, nominalDiatonicSte
         }
     }
     return halfsteps
+}
+
+export function isFirstSystemKeySig(ks: KeySig | null): boolean {
+    if (!ks) {
+        return false
+    }
+    const sys = ks.measure()!.system()
+    if (!sys) {
+        return false
+    }
+    return ks.tick().eq(sys.firstMeasure()!.tick())
 }

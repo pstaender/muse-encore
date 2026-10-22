@@ -216,7 +216,9 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.keyboard.press('Escape')
         await page.waitForFunction(() => !document.querySelector('dialog[open]'))
 
-        // F10 focuses the menu bar; arrows and Enter open a menu and run an item
+        // F10 focuses the menu bar; arrows and Enter open a menu and run an item (the mouse is moved away: hovering
+        // an item makes it the active one)
+        await page.mouse.move(600, 600)
         await page.keyboard.press('F10')
         await page.keyboard.press('ArrowRight') // Edit
         await page.keyboard.press('ArrowDown')
@@ -233,7 +235,19 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await scoreShown(page)
         const docks = (): Promise<Record<string, string[]>> => page.evaluate(() => Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-dock]')]
             .map(d => [d.dataset.dock!, [...d.querySelectorAll<HTMLElement>('[data-toolbar]')].map(t => t.dataset.toolbar!)])))
-        expect(await docks()).toEqual({ main: ['notationToolBar', 'playbackToolBar', 'undoRedoToolBar'], top: ['noteInputBar', 'viewToolBar'] })
+        const main = ['notationToolBar', 'playbackToolBar', 'undoRedoToolBar']
+        // the page view toolbar is at the bottom by default
+        expect(await docks()).toEqual({ main, top: ['noteInputBar'], bottom: ['viewToolBar'] })
+
+        // the handle's menu: a new row below the last one, back, to the bottom dock and back
+        const moveBy = async (title: string, expected: Record<string, string[]>): Promise<void> => {
+            await page.click('[data-toolbar="viewToolBar"] .toolbar-grip')
+            await page.click(`.menu-popup .menu-item:has-text("${title}")`)
+            await page.waitForFunction(e => JSON.stringify(Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-dock]')]
+                .map(d => [d.dataset.dock!, [...d.querySelectorAll<HTMLElement>('[data-toolbar]')].map(t => t.dataset.toolbar!)]))) === e,
+            JSON.stringify(expected))
+        }
+        await moveBy('Move to the top', { main, top: ['noteInputBar', 'viewToolBar'] })
 
         // drag the page view toolbar before the note input toolbar
         const grip = page.locator('[data-toolbar="viewToolBar"] .toolbar-grip')
@@ -245,15 +259,6 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.mouse.up()
         expect((await docks()).top).toEqual(['viewToolBar', 'noteInputBar'])
 
-        // the handle's menu: a new row below the last one, back, to the bottom dock and back
-        const moveBy = async (title: string, expected: Record<string, string[]>): Promise<void> => {
-            await page.click('[data-toolbar="viewToolBar"] .toolbar-grip')
-            await page.click(`.menu-popup .menu-item:has-text("${title}")`)
-            await page.waitForFunction(e => JSON.stringify(Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-dock]')]
-                .map(d => [d.dataset.dock!, [...d.querySelectorAll<HTMLElement>('[data-toolbar]')].map(t => t.dataset.toolbar!)]))) === e,
-            JSON.stringify(expected))
-        }
-        const main = ['notationToolBar', 'playbackToolBar', 'undoRedoToolBar']
         await moveBy('Move to the row below', { main, top: ['noteInputBar'], top1: ['viewToolBar'] })
         expect(await page.isVisible('[data-toolbar="viewToolBar"]')).toBe(true)
         await moveBy('Move to the row above', { main, top: ['noteInputBar', 'viewToolBar'] })
@@ -286,7 +291,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.click('.menubar > button:has-text("View")')
         await page.click('.menu-item:has-text("Restore the default layout")')
         await page.waitForSelector('[data-toolbar="noteInputBar"]')
-        expect(await docks()).toEqual({ main: ['notationToolBar', 'playbackToolBar', 'undoRedoToolBar'], top: ['noteInputBar', 'viewToolBar'] })
+        expect(await docks()).toEqual({ main, top: ['noteInputBar'], bottom: ['viewToolBar'] })
         expect(await page.locator(".tool-button[data-action=\"pad-note-4\"]").count()).toBe(1)
         await context.close()
     }, 120000)
@@ -669,6 +674,39 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.waitForFunction(() => document.querySelectorAll('.panel-tabs [role="tab"]').length === 3)
         expect(await currentTab()).toBe('Palettes')
         expect(await dockWidth()).toBe(300)
+        await context.close()
+    }, 120000)
+
+    it('collapses the panel area to a strip and expands it again', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const dockWidth = (): Promise<number> => page.$eval('.panel-dock', d => d.getBoundingClientRect().width)
+        const viewportWidth = async (): Promise<number> => (await page.locator('#viewport').boundingBox())!.width
+        const wide = await viewportWidth()
+        await page.click('.panel-collapse[aria-label="Collapse"]')
+        await page.waitForSelector('.panel-dock.collapsed')
+        expect(await dockWidth()).toBe(32)
+        expect(await page.$$eval('.panel-strip-tab', t => t.map(x => x.textContent))).toEqual(['Palettes', 'Layout', 'Properties'])
+        expect(await page.locator('.panel-splitter').count()).toBe(0)
+        expect(await viewportWidth()).toBeGreaterThan(wide + 200)
+        // kept across reloads; a tab of the strip expands the panel area with that panel
+        await page.reload()
+        await reopen(page)
+        await page.waitForSelector('.panel-dock.collapsed')
+        await page.click('.panel-strip-tab:has-text("Layout")')
+        await page.waitForSelector('.panel-dock:not(.collapsed)')
+        expect(await page.textContent('.panel-tabs [role="tab"][aria-selected="true"]')).toBe('Layout')
+        expect(await dockWidth()).toBe(300)
+        // the expand button, and showing a panel (F9) expand it, too
+        await page.click('.panel-collapse')
+        await page.click('.panel-collapse[aria-label="Expand"]')
+        await page.waitForSelector('.panel-dock:not(.collapsed)')
+        await page.click('.panel-collapse')
+        await page.click('.page')
+        await page.keyboard.press('F9')
+        await page.waitForSelector('.panel-dock:not(.collapsed)')
+        expect(await page.textContent('.panel-tabs [role="tab"][aria-selected="true"]')).toBe('Palettes')
         await context.close()
     }, 120000)
 
@@ -1338,6 +1376,50 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.waitForFunction(() => !document.querySelector('[data-toolbar="playbackToolBar"]'))
         await context.close()
     }, 180000)
+    it('toggles concert pitch in the status bar (undoable)', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const control = '.statusbar-button.concert-pitch'
+        expect(await page.textContent(control)).toContain('Concert pitch')
+        expect(await page.getAttribute(control, 'aria-checked')).toBe('false')
+        await page.click(control)
+        await page.waitForSelector(`${control}[aria-checked="true"]`)
+        await page.click('.page')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForSelector(`${control}[aria-checked="false"]`)
+        await context.close()
+    })
+    it('transposes the score with the Transpose dialog (undoable)', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.waitForTimeout(500)
+        const before = await page.locator('.page').first().screenshot()
+        await page.click('.menubar > button:has-text("Tools")')
+        await page.click('.menu-item:has-text("Transpose…")')
+        await page.waitForSelector('dialog.transpose[open]')
+        expect(await page.textContent('dialog.transpose h2')).toBe('Transpose')
+        // nothing was selected: the whole score is selected, so transposing to a key is possible
+        const toKey = page.locator('dialog.transpose label:has-text("To Key") input')
+        expect(await toKey.isEnabled()).toBe(true)
+        // the defaults: to C major (closest)
+        expect(await toKey.isChecked()).toBe(true)
+        await page.click('dialog.transpose button[type="submit"]')
+        await page.waitForSelector('dialog.transpose', { state: 'detached' })
+        await page.waitForTimeout(500)
+        const after = await page.locator('.page').first().screenshot()
+        expect(after.equals(before)).toBe(false)
+
+        await page.click('.menubar > button:has-text("Edit")')
+        await page.click('.menu-item:has-text("Undo")')
+        await page.waitForTimeout(500)
+        // undo restores the selection of the command (the whole score): deselect by clicking beside the page
+        await page.click('#viewport', { position: { x: 5, y: 5 } })
+        await page.waitForTimeout(300)
+        expect((await page.locator('.page').first().screenshot()).equals(before)).toBe(true)
+        await context.close()
+    })
     it('switches the view mode in the status bar: continuous views, fit to window, smooth panning while playing', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
@@ -1345,15 +1427,15 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         const pageCount = await page.locator('.page').count()
         const pageBox = async (): Promise<{ x: number; y: number; width: number; height: number }> => (await page.locator('.page').first().boundingBox())!
         const chooseViewMode = async (title: string): Promise<void> => {
-            await page.click('.statusbar-button')
+            await page.click('.statusbar-button[aria-haspopup="menu"]')
             await page.click(`.menu-item:has-text("${title}")`)
             await page.waitForTimeout(500)
         }
-        expect(await page.textContent('.statusbar-button')).toContain('Page view')
+        expect(await page.textContent('.statusbar-button[aria-haspopup="menu"]')).toContain('Page view')
 
         // continuous view (horizontal): one page with one system, wider than the view
         await chooseViewMode('Continuous view (horizontal)')
-        expect(await page.textContent('.statusbar-button')).toContain('Continuous view')
+        expect(await page.textContent('.statusbar-button[aria-haspopup="menu"]')).toContain('Continuous view')
         expect(await page.locator('.page').count()).toBe(1)
         expect(await page.getAttribute('#pages', 'class')).toContain('continuous')
         let box = await pageBox()
@@ -1394,7 +1476,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
 
         // fit to window: the page is as wide as the view, also after the window size changes
         await chooseViewMode('Continuous view (fit to window)')
-        expect(await page.textContent('.statusbar-button')).toContain('fit to window')
+        expect(await page.textContent('.statusbar-button[aria-haspopup="menu"]')).toContain('fit to window')
         const gap = (vw: number, pw: number): number => vw - pw
         box = await pageBox()
         let vp = (await page.locator('#viewport').boundingBox())!
@@ -1412,7 +1494,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         // the view mode is kept after a reload; back to the page view
         await page.reload()
         await reopen(page)
-        expect(await page.textContent('.statusbar-button')).toContain('fit to window')
+        expect(await page.textContent('.statusbar-button[aria-haspopup="menu"]')).toContain('fit to window')
         await chooseViewMode('Page view')
         expect(await page.locator('.page').count()).toBe(pageCount)
         await context.close()
