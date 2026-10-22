@@ -125,6 +125,7 @@ export class Fermata extends EngravingItem {
             break
         case Pid.TIME_STRETCH:
             this.setTimeStretch(v as number)
+            this.score().setUpTempoMapLater()
             break
         default:
             return super.setProperty(propertyId, v)
@@ -169,5 +170,13 @@ export class Fermata extends EngravingItem {
 
     override accessibleInfo(): string {
         return `${this.translatedTypeUserName()}: ${SymNames.translatedUserNameForSymId(this.symId())}`
+    }
+
+    override added(): void {
+        this.score().setUpTempoMapLater()
+    }
+
+    override removed(): void {
+        this.score().setUpTempoMapLater()
     }
 }

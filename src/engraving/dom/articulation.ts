@@ -154,6 +154,81 @@ export class Articulation extends EngravingItem {
 
     symId(): SymId { return this.m_symId }
 
+    articulationName(): string {
+        return Articulation.symId2ArticulationName(this.m_symId)
+    }
+
+    static symId2ArticulationName(symId: SymId): string {
+        switch (symId) {
+        case SymId.articStaccatissimoAbove:
+        case SymId.articStaccatissimoBelow:
+        case SymId.articStaccatissimoStrokeAbove:
+        case SymId.articStaccatissimoStrokeBelow:
+        case SymId.articStaccatissimoWedgeAbove:
+        case SymId.articStaccatissimoWedgeBelow:
+            return 'staccatissimo'
+
+        case SymId.articStaccatoAbove:
+        case SymId.articStaccatoBelow:
+        case SymId.tremoloDivisiDots2:
+        case SymId.tremoloDivisiDots3:
+        case SymId.tremoloDivisiDots4:
+        case SymId.tremoloDivisiDots6:
+            return 'staccato'
+
+        case SymId.articAccentStaccatoAbove:
+        case SymId.articAccentStaccatoBelow:
+            return 'sforzatoStaccato'
+
+        case SymId.articMarcatoStaccatoAbove:
+        case SymId.articMarcatoStaccatoBelow:
+            return 'marcatoStaccato'
+
+        case SymId.articTenutoStaccatoAbove:
+        case SymId.articTenutoStaccatoBelow:
+            return 'portato'
+
+        case SymId.articTenutoAccentAbove:
+        case SymId.articTenutoAccentBelow:
+            return 'sforzatoTenuto'
+
+        case SymId.articMarcatoTenutoAbove:
+        case SymId.articMarcatoTenutoBelow:
+            return 'marcatoTenuto'
+
+        case SymId.articTenutoAbove:
+        case SymId.articTenutoBelow:
+            return 'tenuto'
+
+        case SymId.articMarcatoAbove:
+        case SymId.articMarcatoBelow:
+            return 'marcato'
+
+        case SymId.articAccentAbove:
+        case SymId.articAccentBelow:
+            return 'accent'
+
+        case SymId.dynamicSforzato:
+        case SymId.dynamicSforzando:
+            return 'sforzato'
+
+        case SymId.brassMuteOpen:
+            return 'open'
+
+        case SymId.brassMuteClosed:
+            return 'closed'
+
+        case SymId.stringsHarmonic:
+            return 'harmonic'
+
+        case SymId.ornamentMordent:
+            return 'mordent'
+
+        default:
+            return '---'
+        }
+    }
+
     setSymId(id: SymId): void {
         this.m_symId = id
         this.computeCategories()

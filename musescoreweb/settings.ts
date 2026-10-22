@@ -47,6 +47,35 @@ export interface AppSettings {
     }
     /** the state of the palettes panel (palettes/ checks it); null = MuseScore's default palettes */
     palettes: Record<string, unknown> | null
+    /** the playback (NotationConfiguration, PlaybackConfiguration) and the mute button of this app */
+    playback: PlaybackSettings
+}
+
+export interface PlaybackSettings {
+    /** the sound output is muted (the mute button of the playback toolbar; not in MuseScore) */
+    muted: boolean
+    /** isMetronomeEnabled */
+    metronome: boolean
+    /** isCountInEnabled */
+    countIn: boolean
+    /** isAutomaticallyPanEnabled: "Pan score automatically" */
+    pan: boolean
+    /** isPlayRepeatsEnabled */
+    playRepeats: boolean
+    /** isPlayChordSymbolsEnabled */
+    playChordSymbols: boolean
+    /** PlaybackConfiguration::playNotesWhenEditing ("Hear playback when adding, editing, and selecting notes") */
+    playNotesWhenEditing: boolean
+    /** playChordWhenEditing */
+    playChordWhenEditing: boolean
+    /** playHarmonyWhenEditing ("Play chord symbols and Nashville numbers") */
+    playHarmonyWhenEditing: boolean
+    /** isPlayPreviewNotesInInputByDuration ("Play when setting pitch (input by duration mode only)") */
+    playPreviewNotesInInputByDuration: boolean
+    /** playPreviewNotesWithScoreDynamics */
+    playPreviewNotesWithScoreDynamics: boolean
+    /** notePlayDurationMilliseconds ("Playback duration") */
+    notePlayDuration: number
 }
 
 const DEFAULTS: AppSettings = {
@@ -59,6 +88,11 @@ const DEFAULTS: AppSettings = {
     noteInputBar: null,
     panels: { open: ['palettesPanel', 'instrumentsPanel', 'inspectorPanel'], current: 'palettesPanel', width: 300 },
     palettes: null,
+    playback: {
+        muted: false, metronome: false, countIn: false, pan: true, playRepeats: true, playChordSymbols: true,
+        playNotesWhenEditing: true, playChordWhenEditing: true, playHarmonyWhenEditing: true,
+        playPreviewNotesInInputByDuration: true, playPreviewNotesWithScoreDynamics: true, notePlayDuration: 500,
+    },
 }
 
 const SETTINGS_KEY = 'musescoreweb:settings'
@@ -103,6 +137,22 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
             width: typeof s.panels?.width === 'number' && Number.isFinite(s.panels.width) ? s.panels.width : DEFAULTS.panels.width,
         },
         palettes: s.palettes && typeof s.palettes === 'object' && !Array.isArray(s.palettes) ? s.palettes as Record<string, unknown> : null,
+        playback: sanitizePlayback(s.playback ?? {}),
+    }
+}
+
+function sanitizePlayback(p: Partial<PlaybackSettings>): PlaybackSettings {
+    const d = DEFAULTS.playback
+    const b = (k: keyof PlaybackSettings): boolean => typeof p[k] === 'boolean' ? p[k] as boolean : d[k] as boolean
+    return {
+        muted: b('muted'), metronome: b('metronome'), countIn: b('countIn'), pan: b('pan'), playRepeats: b('playRepeats'),
+        playChordSymbols: b('playChordSymbols'), playNotesWhenEditing: b('playNotesWhenEditing'),
+        playChordWhenEditing: b('playChordWhenEditing'), playHarmonyWhenEditing: b('playHarmonyWhenEditing'),
+        playPreviewNotesInInputByDuration: b('playPreviewNotesInInputByDuration'),
+        playPreviewNotesWithScoreDynamics: b('playPreviewNotesWithScoreDynamics'),
+        // NotePreviewSection: 0..10000 ms
+        notePlayDuration: typeof p.notePlayDuration === 'number' && p.notePlayDuration >= 0 && p.notePlayDuration <= 10000
+            ? p.notePlayDuration : d.notePlayDuration,
     }
 }
 

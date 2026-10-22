@@ -6,7 +6,7 @@
  * Port of src/engraving/dom/instrtemplate.h/.cpp: the instrument templates of share/instruments/instruments.xml
  * (generated into instrtemplatedata.ts by tools/gen/gen-instrumenttemplates.ts; C++ loadInstrumentTemplates()
  * reads the xml files at startup) and the score orders of orders.xml (scoreorderdata.ts).
- * TODO(port): MIDI actions and articulations, user instrument files, translations of the names
+ * TODO(port): MIDI actions (instruments.xml has none), user instrument files, translations of the names
  */
 
 import { BracketType, ClefType, GlissandoStyle, StaffGroup, type staff_idx_t } from '../types/types'
@@ -14,13 +14,13 @@ import { TConv } from '../types/typesconv'
 import { ClefTypeList } from './clefinfo'
 import { Drumset, smDrumset } from './drumset'
 import { Interval } from './interval'
-import { StaffName, Trait, TraitType, type StaffNameList } from './instrument'
+import { StaffName, Trait, TraitType, type MidiArticulation, type StaffNameList } from './instrument'
 
 export { Trait, TraitType }
 import { StaffType } from './stafftype'
 import { StringData } from './stringdata'
 import { ScoreOrder } from './scoreorder'
-import { INSTRUMENT_FAMILY_DATA, INSTRUMENT_GENRE_DATA, INSTRUMENT_GROUP_DATA, type InstrumentTemplateData } from './instrtemplatedata'
+import { INSTRUMENT_FAMILY_DATA, INSTRUMENT_GENRE_DATA, INSTRUMENT_GROUP_DATA, MIDI_ARTICULATION_DATA, type InstrumentTemplateData } from './instrtemplatedata'
 import { SCORE_ORDERS_XML } from './scoreorderdata'
 import { XmlReader } from '../rw/xmlreader'
 import { TRead } from '../rw/read460/tread'
@@ -80,6 +80,7 @@ export class InstrumentTemplate {
     stringData = new StringData()
 
     channel: TemplateChannel[] = []
+    midiArticulations: MidiArticulation[] = []
     genres: InstrumentGenre[] = [] // list of genres this instrument belongs to
     family: InstrumentFamily | null = null // family the instrument belongs to
 
@@ -159,6 +160,7 @@ export class InstrumentTemplate {
             TRead.readStringData(t.stringData, e)
         }
         t.channel = d.channels.map(([name, bank, program]) => ({ name, bank, program }))
+        t.midiArticulations = (d.midiArticulations ?? MIDI_ARTICULATION_DATA).map(([name, velocity, gateTime]) => ({ name, descr: '', velocity, gateTime }))
         t.genres = (d.genres ?? []).map(id => searchInstrumentGenre(id)!).filter(g => g)
         t.family = d.family ? searchInstrumentFamily(d.family) : null
         if (d.clefs) {

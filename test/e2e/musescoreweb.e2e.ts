@@ -171,7 +171,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await scoreShown(page)
         const docks = (): Promise<Record<string, string[]>> => page.evaluate(() => Object.fromEntries([...document.querySelectorAll<HTMLElement>('[data-dock]')]
             .map(d => [d.dataset.dock!, [...d.querySelectorAll<HTMLElement>('[data-toolbar]')].map(t => t.dataset.toolbar!)])))
-        expect(await docks()).toEqual({ main: ['notationToolBar', 'undoRedoToolBar'], top: ['noteInputBar', 'viewToolBar'] })
+        expect(await docks()).toEqual({ main: ['notationToolBar', 'playbackToolBar', 'undoRedoToolBar'], top: ['noteInputBar', 'viewToolBar'] })
 
         // drag the page view toolbar before the note input toolbar
         const grip = page.locator('[data-toolbar="viewToolBar"] .toolbar-grip')
@@ -191,7 +191,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
                 .map(d => [d.dataset.dock!, [...d.querySelectorAll<HTMLElement>('[data-toolbar]')].map(t => t.dataset.toolbar!)]))) === e,
             JSON.stringify(expected))
         }
-        const main = ['notationToolBar', 'undoRedoToolBar']
+        const main = ['notationToolBar', 'playbackToolBar', 'undoRedoToolBar']
         await moveBy('Move to the row below', { main, top: ['noteInputBar'], top1: ['viewToolBar'] })
         expect(await page.isVisible('[data-toolbar="viewToolBar"]')).toBe(true)
         await moveBy('Move to the row above', { main, top: ['noteInputBar', 'viewToolBar'] })
@@ -224,7 +224,7 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.click('.menubar > button:has-text("View")')
         await page.click('.menu-item:has-text("Restore the default layout")')
         await page.waitForSelector('[data-toolbar="noteInputBar"]')
-        expect(await docks()).toEqual({ main: ['notationToolBar', 'undoRedoToolBar'], top: ['noteInputBar', 'viewToolBar'] })
+        expect(await docks()).toEqual({ main: ['notationToolBar', 'playbackToolBar', 'undoRedoToolBar'], top: ['noteInputBar', 'viewToolBar'] })
         expect(await page.locator(".tool-button[data-action=\"pad-note-4\"]").count()).toBe(1)
         await context.close()
     }, 120000)
@@ -1187,6 +1187,88 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.uncheck('.autosave-row input[type="checkbox"]')
         expect(await page.isDisabled('.autosave-row input[type="number"]')).toBe(true)
         expect(await page.evaluate(() => JSON.parse(localStorage.getItem('musescoreweb:settings')!).project.autoSaveEnabled)).toBe(false)
+        await context.close()
+    }, 180000)
+
+    // the playback (automated browsers get the silent synthesizer: navigator.webdriver; it counts the played notes)
+    interface PlaybackProbe { playing: boolean; position: number; tick: number; muted: boolean; notes: number; cursor: string | null }
+    const playbackProbe = (page: Page): Promise<PlaybackProbe> => page.evaluate(() => {
+        const p = (window as unknown as { __musescorewebPlayback: {
+            synth: { noteOnCount: number }; state: () => { playing: boolean; position: number; tick: number; muted: boolean }
+        } }).__musescorewebPlayback
+        const st = p.state()
+        const c = document.querySelector<HTMLElement>('.playback-cursor')
+        return {
+            playing: st.playing, position: st.position, tick: st.tick, muted: st.muted, notes: p.synth.noteOnCount,
+            cursor: c && !c.hidden && c.style.display !== 'none' ? c.style.left : null,
+        }
+    })
+    const playButton = '[data-toolbar="playbackToolBar"] .tool-button[data-action="play"]'
+    const muteButton = '[data-toolbar="playbackToolBar"] .tool-button[data-action="playback-mute"]'
+
+    it('plays the score from the toolbar and with Space, moves the playback cursor, mutes and plays notes on click', async () => {
+        const layout = await amazingGraceLayout()
+        const { page, context, box } = await openAmazingGrace()
+        const at = (fx: number, fy: number): [number, number] => [box.x + box.width * fx, box.y + box.height * fy]
+        expect(await page.locator('[data-toolbar="playbackToolBar"]').count()).toBe(1)
+
+        // play / pause with the toolbar button: the position and the cursor advance
+        await page.click(playButton)
+        await page.waitForFunction(() => (window as unknown as { __musescorewebPlayback: { state: () => { playing: boolean; tick: number } } })
+            .__musescorewebPlayback.state().tick > 1920, null, { timeout: 20000 }) // after the pickup measure's rests
+        const a = await playbackProbe(page)
+        expect(a.playing).toBe(true)
+        expect(a.notes).toBeGreaterThan(0)
+        expect(a.cursor).not.toBeNull()
+        await page.waitForTimeout(600)
+        const b = await playbackProbe(page)
+        expect(b.position).toBeGreaterThan(a.position)
+        expect(parseFloat(b.cursor!)).not.toBe(parseFloat(a.cursor!))
+        await page.click(playButton)
+        await page.waitForFunction(() => !(window as unknown as { __musescorewebPlayback: { state: () => { playing: boolean } } })
+            .__musescorewebPlayback.state().playing)
+        const paused = await playbackProbe(page)
+        expect(paused.position).toBeGreaterThan(0)
+
+        // Space continues from the last position; Space again pauses
+        await page.focus('#viewport')
+        await page.keyboard.press(' ')
+        await page.waitForFunction(() => (window as unknown as { __musescorewebPlayback: { state: () => { playing: boolean } } })
+            .__musescorewebPlayback.state().playing)
+        await page.waitForTimeout(300)
+        await page.keyboard.press(' ')
+        await page.waitForFunction(() => !(window as unknown as { __musescorewebPlayback: { state: () => { playing: boolean } } })
+            .__musescorewebPlayback.state().playing)
+        expect((await playbackProbe(page)).position).toBeGreaterThan(paused.position)
+
+        // a click on a note plays it (and seeks there)
+        const note = layout.cr.filter(c => c.type === 'Chord')[2]
+        let before = (await playbackProbe(page)).notes
+        await page.mouse.click(...at(note.x, note.y))
+        await page.waitForFunction(() => /^Note/.test(document.getElementById('status')!.textContent!))
+        await page.waitForFunction(n => (window as unknown as { __musescorewebPlayback: { synth: { noteOnCount: number } } })
+            .__musescorewebPlayback.synth.noteOnCount > n, before)
+
+        // muted: no sound for the preview notes; the mute is kept after a reload
+        await page.click(muteButton)
+        expect((await playbackProbe(page)).muted).toBe(true)
+        expect(await page.getAttribute(muteButton, 'aria-pressed')).toBe('true')
+        before = (await playbackProbe(page)).notes
+        await page.keyboard.press('ArrowUp')
+        await page.waitForTimeout(300)
+        expect((await playbackProbe(page)).notes).toBe(before)
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.reload()
+        await scoreShown(page)
+        expect((await playbackProbe(page)).muted).toBe(true)
+        await page.click(muteButton)
+        expect((await playbackProbe(page)).muted).toBe(false)
+
+        // View > Toolbars hides the playback toolbar
+        await page.click('.menubar > button:has-text("View")')
+        await page.hover('.menu-item:has-text("Toolbars")')
+        await page.click('.menu-item:has-text("Playback controls")')
+        await page.waitForFunction(() => !document.querySelector('[data-toolbar="playbackToolBar"]'))
         await context.close()
     }, 180000)
 })

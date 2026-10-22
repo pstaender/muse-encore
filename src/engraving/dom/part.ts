@@ -10,7 +10,9 @@ import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import { AutoOnOff, ElementType, PreferSharpFlat, VOICES, nidx, type staff_idx_t, type track_idx_t } from '../types/types'
 import { EngravingObject } from './engravingobject'
-import { Instrument, InstrumentList, type StaffNameList } from './instrument'
+import { InstrChannel, Instrument, InstrumentList, type StaffNameList } from './instrument'
+import { SegmentType } from './segment'
+import type { FretDiagram } from './fret'
 import { Pid } from './property'
 import type { Score } from './score'
 import type { Staff } from './staff'
@@ -197,6 +199,91 @@ export class Part extends EngravingObject {
     }
 
     instruments(): InstrumentList { return this.m_instruments }
+
+    /** the number of chord symbols (also of fret diagrams) of the part */
+    harmonyCount(): number {
+        if (!this.score()) {
+            return 0
+        }
+
+        const firstM = this.score().firstMeasure()
+        if (!firstM) {
+            return 0
+        }
+
+        const st = SegmentType.ChordRest
+        let count = 0
+        for (let seg = firstM.first(st); seg; seg = seg.next1(st)) {
+            for (const e of seg.annotations()) {
+                if ((e.isHarmony() || (e.isFretDiagram() && (e as unknown as FretDiagram).harmony())) && e.track() >= this.startTrack()
+                    && e.track() < this.endTrack()) {
+                    count++
+                }
+            }
+        }
+        return count
+    }
+
+    /** adds the "harmony" channel (chord symbol playback) to the instrument if there are chord symbols, removes it if not */
+    updateHarmonyChannels(isDoOnInstrumentChanged: boolean, checkRemoval = false): void {
+        const onInstrumentChanged = (): void => {
+            this.masterScore().rebuildMidiMapping()
+            this.masterScore().updateChannel()
+            this.score().masterScore().setInstrumentsChanged(true)
+            this.score().setLayoutAll() //do we need this?
+        }
+
+        // usage of harmony count is okay even if expensive since checking harmony channel will shortcircuit if existent
+        // harmonyCount will only be called on loading of a score (where it will need to be scanned for harmony anyway)
+        // or when the first harmony of a score is just added
+        if (checkRemoval) {
+            //may be a bit expensive since it gets called after every single delete or undo, but it should be okay for now
+            //~OPTIM~
+            if (this.harmonyCount() === 0) {
+                const instr = this.instrument()
+                const hChIdx = instr.channelIdx(InstrChannel.HARMONY_NAME)
+                if (hChIdx !== -1) {
+                    const hChan = instr.channel(hChIdx)!
+                    instr.removeChannel(hChan)
+                    if (isDoOnInstrumentChanged) {
+                        onInstrumentChanged()
+                    }
+                    return
+                }
+            }
+        }
+
+        if (!this.harmonyChannel() && this.harmonyCount() > 0) {
+            const instr = this.instrument()
+            const c = instr.channel(0)!.clone()
+            // default to program 0, which is piano in General MIDI
+            c.setProgram(0)
+            if (c.bank() === 128) { // drumset?
+                c.setBank(0)
+            }
+            c.setName(InstrChannel.HARMONY_NAME)
+            instr.appendChannel(c)
+            onInstrumentChanged()
+        }
+    }
+
+    harmonyChannel(): InstrChannel | null {
+        const instr = this.instrument()
+        if (!instr) {
+            return null
+        }
+
+        const chanIdx = instr.channelIdx(InstrChannel.HARMONY_NAME)
+        if (chanIdx === -1) {
+            return null
+        }
+
+        return instr.channel(chanIdx)
+    }
+
+    hasChordSymbol(): boolean {
+        return this.harmonyChannel() !== null
+    }
 
     setInstrument(i: Instrument, tick: Fraction = new Fraction(-1, 1)): void {
         this.m_instruments.setInstrument(i, tick.ticks())

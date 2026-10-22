@@ -93,6 +93,8 @@ export { SvgGlyphDefs } from './framework/draw/svgpaintprovider'
 export * from './palette/api'
 export * from './instrumentsscene/api'
 export * from './inspector/api'
+// playback: MIDI events, positions/times, playback cursor, loop markers
+export * from './playback/api'
 export {
     setFallbackFontEngine, createCanvasFallbackFontEngine, type FallbackFontEngine, type FallbackFont,
 } from './framework/draw/internal/fontprovider'
@@ -1818,6 +1820,11 @@ export function rightClickAt(score: MasterScore, pageIdx: number, x: number, y: 
  * Calls the listener after changes that were not made by a call of this API: the real-time note input advances by
  * a timer ("realtime-advance" in the automatic real-time mode). Returns a function that removes the listener.
  */
+/** C++ NotationInteraction::findAndSelectChordRest (the "pause-and-select" action): selects the chord/rest at a tick */
+export function findAndSelectChordRest(score: MasterScore, tick: number): void {
+    notationState(score).interaction.findAndSelectChordRest(Fraction.fromTicks(tick))
+}
+
 export function onNotationChanged(score: MasterScore, listener: () => void): () => void {
     return notationState(score).interaction.notationChanged().onNotify(listener)
 }

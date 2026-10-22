@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/chordline.h/.cpp
  *
- * TODO(port): editing (grips), Note::attachSlide (playback)
+ * TODO(port): editing (grips)
  */
 
 import { PainterPath } from '../../framework/draw/types/painterpath'
@@ -14,7 +14,7 @@ import { SymId } from '../types/symid'
 import { ChordLineType, ElementType } from '../types/types'
 import type { Chord } from './chord'
 import { EngravingItem, ElementFlag, LayoutData } from './engravingitem'
-import type { Note } from './note'
+import { SlideType, type Note } from './note'
 import { Pid } from './property'
 
 export class ChordLineLayoutData extends LayoutData {
@@ -23,6 +23,16 @@ export class ChordLineLayoutData extends LayoutData {
 
 ///    bezier line attached to top note of a chord
 ///    implements fall, doit, plop, bend
+function slideType(type: ChordLineType): SlideType {
+    switch (type) {
+    case ChordLineType.FALL: return SlideType.DownFromNote
+    case ChordLineType.DOIT: return SlideType.UpFromNote
+    case ChordLineType.SCOOP: return SlideType.UpToNote
+    case ChordLineType.PLOP: return SlideType.DownToNote
+    default: return SlideType.Undefined
+    }
+}
+
 export class ChordLine extends EngravingItem {
     private m_straight = false
     private m_wavy = false
@@ -62,7 +72,13 @@ export class ChordLine extends EngravingItem {
     playChordLine(): boolean { return this.m_playChordLine }
     setPlayChordLine(val: boolean): void { this.m_playChordLine = val }
 
-    setNote(note: Note | null): void { this.m_note = note }
+    setNote(note: Note | null): void {
+        this.m_note = note
+
+        if (note) {
+            note.attachSlide(slideType(this.m_chordLineType))
+        }
+    }
     note(): Note | null { return this.m_note }
 
     waveSym(): SymId {

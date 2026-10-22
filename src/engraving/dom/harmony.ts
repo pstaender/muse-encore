@@ -4,9 +4,13 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/engraving/dom/harmony.h/.cpp
- * TODO(port): editing, RealizedHarmony (playback), accessibility, transposition, fret diagrams/fret boxes
+ * TODO(port): editing, accessibility, transposition, fret diagrams/fret boxes
  */
 
+import { Fraction } from '../types/fraction'
+import type { Measure } from './measure'
+import { CapoTransposeMode } from '../types/types'
+import { HDuration, RealizedHarmony, Voicing } from './realizedharmony'
 import { FontMetrics } from '../../framework/draw/fontmetrics'
 import { Font, FontType } from '../../framework/draw/types/font'
 import { LineF, PointF, RectF } from '../../framework/draw/types/geometry'
@@ -309,10 +313,7 @@ export class Harmony extends TextBase {
 
     private m_bassScale = 1.0
 
-    // RealizedHarmony properties (TODO(port): RealizedHarmony)
-    private m_voiceLiteral = false
-    private m_voicing = 0
-    private m_duration = 0
+    private m_realizedHarmony = new RealizedHarmony(this) // the realized harmony used for playback
 
     // Overridden textbase properties to apply to whole item
     private m_fontSize = 10.0
@@ -332,6 +333,8 @@ export class Harmony extends TextBase {
         super.onCloned(original)
         this.m_degreeList = [...original.m_degreeList]
         this.m_chords = original.m_chords.map(hi => hi.clone())
+        this.m_realizedHarmony = new RealizedHarmony(this)
+        this.m_realizedHarmony.copyFrom(original.m_realizedHarmony)
     }
 
     protected override createLayoutData(): HarmonyLayoutData { return new HarmonyLayoutData(this) }
@@ -379,6 +382,171 @@ export class Harmony extends TextBase {
             return (parent as unknown as { isInFretBox(): boolean }).isInFretBox()
         }
         return parent.isFBox()
+    }
+
+    /** find a Harmony in a segment on the same track */
+    findInSeg(seg: Segment): Harmony | null {
+        // Find harmony as parent of fret diagram on same track
+        const fde = seg.findAnnotation(ElementType.FRET_DIAGRAM, this.track(), this.track())
+        if (fde) {
+            const fd = fde as unknown as FretDiagram
+            if (fd.harmony()) {
+                return fd.harmony()
+            }
+        }
+
+        // Find harmony on same track
+        const e = seg.findAnnotation(ElementType.HARMONY, this.track(), this.track())
+        if (e) {
+            return e as unknown as Harmony
+        }
+        return null
+    }
+
+    /** find the next Harmony in the score; returns null if there is none */
+    findNext(): Harmony | null {
+        const segment = this.getParentSeg()
+        let cur = segment ? segment.next1() : null
+        while (cur) {
+            const h = this.findInSeg(cur)
+            if (h) {
+                return h
+            }
+            cur = cur.next1()
+        }
+        return null
+    }
+
+    /** find the previous Harmony in the score; returns null if there is none */
+    findPrev(): Harmony | null {
+        const segment = this.getParentSeg()
+        let cur = segment ? segment.prev1() : null
+        while (cur) {
+            const h = this.findInSeg(cur)
+            if (h) {
+                return h
+            }
+            cur = cur.prev1()
+        }
+        return null
+    }
+
+    /**
+     * finds ticks until the next chord symbol or end of score
+     * utick is our current playback position to start from
+     * stopAtMeasureEnd being set to true will have the loop stop at measure end.
+     */
+    ticksTillNext(utick: number, stopAtMeasureEnd: boolean): Fraction {
+        const seg = this.getParentSeg()
+        if (!seg) {
+            return new Fraction(-1, 1)
+        }
+
+        let duration = seg.ticks()
+
+        const repeats = this.score().repeatList()
+        let rsIt = repeats.findRepeatSegmentFromUTick(utick)
+        if (rsIt < 0) {
+            return duration
+        }
+
+        let cur: Segment | null = seg.next()
+        let currentMeasure: Measure | null = seg.measure()
+        let endMeasure: Measure | null = (stopAtMeasureEnd) ? currentMeasure : repeats[rsIt].lastMeasure()
+        let nextHarmony: Harmony | null = null
+
+        do {
+            // Loop over segments of this measure
+            while (cur) {
+                //find harmony on same track
+                let e = cur.findAnnotation(ElementType.HARMONY, this.track(), this.track())
+                if (e) {
+                    nextHarmony = e as unknown as Harmony
+                } else {
+                    // no harmony; look for fret diagram
+                    e = cur.findAnnotation(ElementType.FRET_DIAGRAM, this.track(), this.track())
+                    if (e) {
+                        nextHarmony = (e as unknown as FretDiagram).harmony()
+                    }
+                }
+                if (nextHarmony !== null) {
+                    //we have found the next chord symbol
+                    break
+                }
+                //keep adding the duration of the current segment
+                //in case we are not able to find a next
+                //chord symbol
+                duration = duration.plus(cur.ticks())
+                cur = cur.next()
+            }
+            // Move segment reference to next measure
+            if (currentMeasure !== endMeasure) {
+                currentMeasure = currentMeasure!.nextMeasure()
+                if (currentMeasure && currentMeasure.mmRest()) {
+                    duration = duration.plus(currentMeasure.mmRest()!.ticks())
+                    currentMeasure = currentMeasure.mmRest()!.nextMeasure()
+                }
+                cur = (currentMeasure) ? currentMeasure.first() : null
+            } else {
+                // End of repeatSegment or search boundary reached
+                if (stopAtMeasureEnd) {
+                    break
+                } else if (!nextHarmony) {
+                    // move to next RepeatSegment
+                    if (++rsIt < repeats.length) {
+                        currentMeasure = repeats[rsIt].firstMeasure()
+                        endMeasure = repeats[rsIt].lastMeasure()
+                        cur = currentMeasure!.first()
+                    }
+                }
+            }
+        } while ((nextHarmony === null) && (cur !== null))
+
+        if (nextHarmony && rsIt < repeats.length) {
+            const tickOffset = repeats[rsIt].utick - repeats[rsIt].tick
+            const nextHarmonyUtick = nextHarmony.tick().ticks() + tickOffset
+            duration = Fraction.fromTicks(nextHarmonyUtick - utick)
+        }
+
+        return duration
+    }
+
+    /**
+     * get realized harmony or create one for the current symbol also updates the realized harmony and accounts for
+     * transposition. RealizedHarmony objects cannot be cached since the notes generated depends on context rather than
+     * just root, bass, chord symbol, and voicing.
+     */
+    getRealizedHarmony(): RealizedHarmony {
+        const st = this.staff()
+        if (!st) {
+            return this.m_realizedHarmony
+        }
+
+        const tick = this.tick()
+        const capo = st.capo(tick)
+
+        let offset = 0
+        if (capo.active && CapoTransposeMode.TAB_ONLY !== capo.transposeMode) {
+            offset = capo.fretPosition
+        }
+
+        const interval = st.part().instrument(tick).transpose()
+        if (!this.style().styleB(Sid.concertPitch)) {
+            offset += interval.chromatic
+        }
+
+        const info = this.m_chords.length ? this.m_chords[0] : null
+        const root = info ? info.rootTpc() : Tpc.TPC_INVALID
+        const bass = info ? info.bassTpc() : Tpc.TPC_INVALID
+
+        this.m_realizedHarmony.update(root, bass, offset)
+
+        return this.m_realizedHarmony
+    }
+
+    /** get realized harmony or create one for the current symbol without updating the realized harmony */
+    realizedHarmony(): RealizedHarmony {
+        return this.m_realizedHarmony
     }
 
     isRealizable(): boolean {
@@ -778,9 +946,11 @@ export class Harmony extends TextBase {
         return noteCase
     }
 
-    isPlayable(): boolean { return !this.isInFretBox() }
+    override isPlayable(): boolean { return !this.isInFretBox() }
 
     setHarmony(s: string): void {
+        this.m_realizedHarmony.setDirty(true)
+
         const descriptions = this.parseHarmony(s)
 
         for (let i = 0; i < this.m_chords.length; i++) {
@@ -821,11 +991,11 @@ export class Harmony extends TextBase {
         case Pid.HARMONY_BASS_SCALE:
             return this.m_bassScale
         case Pid.HARMONY_VOICE_LITERAL:
-            return this.m_voiceLiteral
+            return this.m_realizedHarmony.literal()
         case Pid.HARMONY_VOICING:
-            return this.m_voicing
+            return this.m_realizedHarmony.voicing()
         case Pid.HARMONY_DURATION:
-            return this.m_duration
+            return this.m_realizedHarmony.duration()
         case Pid.HARMONY_DO_NOT_STACK_MODIFIERS:
             return this.m_doNotStackModifiers
         case Pid.FONT_SIZE:
@@ -851,13 +1021,13 @@ export class Harmony extends TextBase {
             this.setBassScale(v as number)
             break
         case Pid.HARMONY_VOICE_LITERAL:
-            this.m_voiceLiteral = !!v
+            this.m_realizedHarmony.setLiteral(!!v)
             break
         case Pid.HARMONY_VOICING:
-            this.m_voicing = v as number
+            this.m_realizedHarmony.setVoicing(v as Voicing)
             break
         case Pid.HARMONY_DURATION:
-            this.m_duration = v as number
+            this.m_realizedHarmony.setDuration(v as HDuration)
             break
         case Pid.HARMONY_DO_NOT_STACK_MODIFIERS:
             this.m_doNotStackModifiers = !!v

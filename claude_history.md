@@ -1005,3 +1005,47 @@
 - Actions "system-break" (Enter), "page-break", "section-break": NotationInteraction.toggleLayoutBreak /
   toggleLayoutBreakAvailable (Score.cmdToggleLayoutBreak was already ported). Test: test/layoutbreak.test.ts.
 - TODO(port): IndicatorIcon / system lock indicators; EditSystemLocks::removeSystemLocksOnAddLayoutBreak.
+
+## 2026-10-22 — Playback (MIDI renderer, SpessaSynth, playback toolbar)
+
+- Library: port of the MIDI renderer `engraving/compat/midi` (CompatMidiRender, CompatMidiRendererInternal, EventMap /
+  EventsHolder, NPlayEvent/midicoreevent, VelocityMap, PauseMap, PitchWheelRenderer, MidiInstrumentEffects, midipatch)
+  with what it needs in the DOM: TempoMap (dom/tempo.ts) and Score::setUpTempoMap/rebuildTempoAndTimeSigMaps/
+  fixAnacrusisTempo, RepeatList utick <-> utime and updateTempo, TempoText updateTempo/updateRelative, gradual tempo
+  changes (easeInOut.ts, TConv.easingValueCurve), swing (swing.ts, Staff swing/channel maps, Score::updateSwing/
+  updateChannel), RealizedHarmony + Part harmony channels, Instrument MIDI actions/articulations (template
+  articulations regenerated), Note/Chord playback helpers (play events, playTicks, ties ignoring playback, grace notes),
+  Volta/PalmMute channels, added()/removed() hooks, the loop boundaries of MasterScore (LoopBoundaryType).
+- notation/internal/notationplayback.ts: NotationPlayback (C++ NotationPlayback + the parts of PlaybackController /
+  PlaybackEventsRenderer the web needs): renderMidiEvents (the CompatMidiRender events with seconds, the channels),
+  metronome and count-in events, preview notes (triggerEventsForItems, previewNotesForNoteVals), tick/second
+  conversions with or without repeats, tempo multiplier, loop boundaries, beats. notationscene/playbackcursor.ts and
+  loopmarker.ts; playback/iplaybackcontroller.ts (the notation scene calls it: seek on click, play the clicked/entered
+  notes, chord symbols); playback/api.ts is the public API (re-exported from index.ts).
+- Editor (musescoreweb/playback/): pluggable `Synthesizer` (synthesizer.ts; NullSynthesizer = no sound, counts the
+  notes; used with `?synth=none`, without Web Audio and in automated browsers (navigator.webdriver;
+  `?synth=spessasynth` forces the sound)), SpessaSynth (spessasynth_lib 4.3.14, Apache-2.0, AudioWorklet;
+  spessasynth.ts) with MuseScore's "MS Basic.sf3" (51.3 MB, MIT) loaded on the first play/preview with progress in
+  the toolbar ("Loading audio samples") and kept in the Cache API (soundfont.ts). vite-plugin-sound.ts serves the file
+  from MuseScore/share/sound in dev and copies it with its license and readme to dist-musescoreweb/sound/. player.ts:
+  lookahead scheduler on the audio clock (chasing of controllers, loop, end of playback); playbackcontroller.ts:
+  MuseScore's playback actions (play, play-from-selection, pause-and-select, stop, rewind, loop, loop-in/out, repeat,
+  play-chord-symbols, pan, metronome, countin, toggle-hear-playback-when-editing; own `playback-mute`), the
+  IPlaybackController of the notation scene, range playback mutes the other parts; the events are rendered only for
+  playing (previews and seeking use the channels and the tempo map); playbackview.ts: playback cursor, auto pan
+  (AbstractNotationPaintView::adjustCanvasPosition, paused after the user moved the view), loop markers.
+- Playback toolbar (toolbars/PlaybackToolBar.tsx, View > Toolbars > Playback controls = toggle-transport): rewind,
+  play/pause, loop, metronome, mute (persisted), settings menu, time, measure/beat fields, tempo with the speed popup.
+  Space = play (MuseScore's shortcut); the hand tool of the editor is the middle mouse button now. Preferences >
+  Note input: note preview settings (play when editing, chords, chord symbols, duration, by duration in note input,
+  score dynamics).
+- Tests: test/midirenderer.test.ts (the 64 tests of MuseScore's midirenderer_tests.cpp), test/midiexport.test.ts (notes
+  and tempos of 15 reference MIDI files of midiexport_tests.cpp), test/playback.test.ts (API: tempos, repeats,
+  dynamics, ties, channels, metronome, loop, cursor, preview), e2e: playback toolbar, play/pause (button and Space),
+  cursor, preview on click, mute (persisted), toolbar toggle.
+- Not ported / known differences: MuseScore 4 plays with the MPE PlaybackModel and Muse Sounds; here the 3.x-style
+  CompatMidiRender events (like MuseScore's MIDI export) are played, so e.g. hairpins in preview dynamics, playing
+  technique annotations and articulation sounds of the MPE model differ. Playing sets the notes' play events like a
+  MIDI export (the status bar then shows "(on ... off ...)" for shortened notes, as in MuseScore after a MIDI export).
+  No mixer, MIDI input, playback setup dialog, ChangePart harmony channels, smooth pan in continuous view; no
+  WebAudioFont fallback (SpessaSynth works wherever AudioWorklet exists; without it there is no sound).

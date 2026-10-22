@@ -41,6 +41,7 @@ export interface ToolBarInfo {
 
 export const TOOLBARS: readonly ToolBarInfo[] = [
     { id: 'notationToolBar', title: ['appshell', 'Notation toolbar'] },
+    { id: 'playbackToolBar', title: ['appshell', 'Playback controls'], toggleAction: 'toggle-transport' },
     { id: 'undoRedoToolBar', title: ['appshell', 'Undo/redo'] },
     { id: 'noteInputBar', title: ['appshell', 'Note input'], toggleAction: 'toggle-noteinput' },
     // the toolbar of the web viewer (pages, zoom, printing); not in MuseScore
@@ -48,7 +49,7 @@ export const TOOLBARS: readonly ToolBarInfo[] = [
 ]
 
 const DEFAULT_DOCKS: Record<DockId, string[]> = {
-    main: ['notationToolBar', 'undoRedoToolBar'],
+    main: ['notationToolBar', 'playbackToolBar', 'undoRedoToolBar'],
     top: ['noteInputBar', 'viewToolBar'],
     bottom: [],
 }

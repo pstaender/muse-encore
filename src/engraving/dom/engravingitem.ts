@@ -432,6 +432,18 @@ export abstract class EngravingItem extends EngravingObject {
     }
 
     elementBase(): EngravingItem { return this }
+
+    isPlayable(): boolean {
+        switch (this.type()) {
+        case ElementType.NOTE:
+        case ElementType.CHORD:
+            return true
+        case ElementType.HARMONY:
+            return !!this.explicitParent() && this.explicitParent()!.isSegment()
+        default:
+            return false
+        }
+    }
     /** hooks called after the item was added to / removed from its parent */
     added(): void {}
     removed(): void {}

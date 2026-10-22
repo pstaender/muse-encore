@@ -335,4 +335,12 @@ export class TimeSig extends EngravingItem {
     override accessibleInfo(): string {
         return `${this.translatedTypeUserName()}: ${this.translatedSubtypeUserName()}`
     }
+
+    override added(): void {
+        this.score().setUpTempoMapLater()
+    }
+
+    override removed(): void {
+        this.score().setUpTempoMapLater()
+    }
 }

@@ -714,6 +714,8 @@ export class Segment extends EngravingItem {
         default:
             return
         }
+
+        el.added()
     }
 
     override remove(el: EngravingItem): void {
@@ -773,6 +775,7 @@ export class Segment extends EngravingItem {
             break
         }
         this.checkEmpty()
+        el.removed()
     }
 
     static segmentTypeForElement(type: ElementType): SegmentType {

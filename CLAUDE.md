@@ -36,7 +36,8 @@ src/
                         XmlWriter, rw/write (Writer, TWrite, MeasureWrite, StaffWrite, ConnectorInfoWriter, WriteContext),
                         MscSaver (.mscz contents); infrastructure/MscWriter (zip via fflate), EID/EIDRegister;
                         rw/rwregister.ts: the reader/writer the DOM uses for the clipboard (mime data, paste)
-  engraving/compat      EngravingCompat (pre/post layout conversions of old files), page format, dummy element
+  engraving/compat      EngravingCompat (pre/post layout conversions of old files), page format, dummy element;
+                        compat/midi: the MIDI renderer (CompatMidiRender: play events, tempo/pause maps, velocities)
   engraving/rendering/score  layout (ScoreLayout, SystemLayout, ChordLayout, ...) and painting (TDraw)
   engraving/rendering/single  SingleLayout/SingleDraw: standalone items (palette cells) on the palette score
   engraving/rendering/editmode  EditModeRenderer: text cursor/selection of an edited text, grips
@@ -49,8 +50,11 @@ src/
   notation, project     MasterNotation / NotationParts / MasterNotationParts / NotationProject: creating new scores
                         (createScore), the part and staff commands of the Layout panel (editing/editpart.ts, editstaff.ts);
                         NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input;
-                        NotationMidiInput: the real-time advance (no MIDI)
-  notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands)
+                        NotationMidiInput: the real-time advance (no MIDI); NotationPlayback (notationplayback.ts:
+                        the events of the MIDI renderer in seconds, metronome, preview notes, loop boundaries)
+  playback              IPlaybackController (set by the app; the notation scene seeks/plays through it); api.ts
+  notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands),
+                        PlaybackCursor, LoopMarker
   palette               palette tree/palettes/cells with XML read/write and .mpal files (palettecreator: default +
                         master palettes), the user palette tree (paletteprovider.ts: PaletteProvider, UserPaletteController;
                         palettemodel.ts: PaletteTreeModel addressed by PaletteIndex), cell icons (PaletteCellIconEngine,
@@ -72,7 +76,10 @@ musescoreweb/           Vite score editor app "MuseScore Web": React UI (App.tsx
                         the handlers), i18n.ts (MuseScore's translations via vite-plugin-locales.ts), score view
                         (scoreview.ts, DOM code from the viewer; drops of palette cells), dragcontroller.ts (the data of
                         the current drag), session.ts (open/create/save scores), db.ts (IndexedDB via
-                        Dexie), settings.ts (localStorage), panels/ (the left dock: PanelDock.tsx tabs + splitter,
+                        Dexie), settings.ts (localStorage), playback/ (Synthesizer interface, SpessaSynth + MS Basic.sf3
+                        loaded on first use and cached, player.ts scheduler, playbackcontroller.ts = playback actions,
+                        playbackview.ts cursor/pan/loop markers; vite-plugin-sound.ts serves/copies the soundfont;
+                        `?synth=none` = no sound), panels/ (the left dock: PanelDock.tsx tabs + splitter,
                         panels.ts state, palettes/ (palette tree stored as PaletteTree XML in localStorage, dialogs),
                         layout/, inspector/ UIs; editbridge.ts = all score changes of the
                         panels; the Layout panel's commands go through the library's NotationParts port)

@@ -3,7 +3,8 @@
  * Generates src/engraving/dom/instrtemplatedata.ts from share/instruments/instruments.xml: the genres, families,
  * instrument groups and instrument templates. Reads the file like loadInstrumentTemplates / InstrumentGroup::read /
  * InstrumentTemplate::read (src/engraving/dom/instrtemplate.cpp), in the same order.
- * Not generated: MIDI actions and articulations, channel data other than name/bank/program (no playback).
+ * MIDI articulations (global ones and those of the instruments, like InstrumentTemplate::midiArticulations) are generated;
+ * not generated: MIDI actions (instruments.xml has none), channel data other than name/bank/program.
  * <Drum>, <percussionPanelColumns> and <StringData> are stored as xml and read at runtime by the engraving readers.
  *
  * usage: tsx tools/gen/gen-instrumenttemplates.ts <path to MuseScore source tree (v4.7.5)>
@@ -28,6 +29,7 @@ const MIN_PITCH = 0
 const MAX_PITCH = 127
 
 interface Channel { name: string; bank: number; program: number }
+interface Articulation { name: string; velocity: number; gateTime: number }
 interface Template {
     id: string
     soundId: string
@@ -51,6 +53,7 @@ interface Template {
     drumset: string[] | null // xml of <Drum> / <percussionPanelColumns> elements
     stringData: string // xml of <StringData>
     channels: Channel[]
+    midiArticulations: Articulation[]
     genres: string[]
     family: string
     clefs: [string, string][] // concert, transposing (xml names)
@@ -75,7 +78,7 @@ function newTemplate(): Template {
         sequenceOrder: 0, trait: { type: '', name: '', isDefault: false, isHiddenOnScore: false },
         minPitchA: MIN_PITCH, maxPitchA: MAX_PITCH, minPitchP: MIN_PITCH, maxPitchP: MAX_PITCH,
         transposeDiatonic: 0, transposeChromatic: 0, staffGroup: 'standard', staffTypePreset: '', useDrumset: false,
-        drumset: null, stringData: '', channels: [], genres: [], family: '',
+        drumset: null, stringData: '', channels: [], midiArticulations: [], genres: [], family: '',
         clefs: Array.from({ length: MAX_STAVES }, () => ['G', 'G'] as [string, string]),
         staffLines: Array(MAX_STAVES).fill(5), bracket: Array(MAX_STAVES).fill(-1), bracketSpan: Array(MAX_STAVES).fill(0),
         barlineSpan: Array(MAX_STAVES).fill(false), smallStaff: Array(MAX_STAVES).fill(false),
@@ -85,7 +88,33 @@ function newTemplate(): Template {
 
 // InstrumentTemplate::init (copy constructor); midiArticulations are not copied in C++ either
 function copyTemplate(t: Template): Template {
-    return structuredClone(t)
+    const c = structuredClone(t)
+    c.midiArticulations = []
+    return c
+}
+
+const midiArticulations: Articulation[] = [] // global articulations
+
+// TRead::read(MidiArticulation*)
+function readArticulation(a: Articulation, e: XmlReader): void {
+    a.name = e.attribute('name')
+    const readPercent = (): number => {
+        let text = e.readText()
+        if (text.endsWith('%')) {
+            text = text.slice(0, -1)
+        }
+        return parseInt(text, 10) || 0
+    }
+    while (e.readNextStartElement()) {
+        const tag = e.name()
+        if (tag === 'velocity') {
+            a.velocity = readPercent()
+        } else if (tag === 'gateTime') {
+            a.gateTime = readPercent()
+        } else {
+            e.skipCurrentElement()
+        }
+    }
 }
 
 function searchTemplate(id: string): Template | undefined {
@@ -251,8 +280,10 @@ function readTemplate(t: Template, e: XmlReader): void {
             const ttt = searchTemplate(e.readText())
             if (ttt) {
                 const id = t.id
+                const articulations = t.midiArticulations
                 Object.assign(t, copyTemplate(ttt))
                 t.id = id
+                t.midiArticulations = articulations
             }
         } else if (tag === 'musicXMLid') {
             t.musicXmlId = e.readText()
@@ -269,8 +300,17 @@ function readTemplate(t: Template, e: XmlReader): void {
             t.singleNoteDynamics = v === 'true' || (parseInt(v, 10) || 0) !== 0
         } else if (tag === 'glissandoStyle') {
             t.glissandoStyle = e.readText()
+        } else if (tag === 'Articulation') {
+            const a: Articulation = { name: '', velocity: 0, gateTime: 0 }
+            readArticulation(a, e)
+            const i = t.midiArticulations.findIndex(m => m.name === a.name)
+            if (i >= 0) {
+                t.midiArticulations[i] = a
+            } else {
+                t.midiArticulations.push(a)
+            }
         } else {
-            e.skipCurrentElement() // MidiAction, Articulation: not used by the engraving
+            e.skipCurrentElement() // MidiAction: not used
         }
     }
     if (t.channels.length === 0) {
@@ -327,6 +367,8 @@ while (e.readNextStartElement()) {
                     let t = searchTemplate(e.attribute('id'))
                     if (!t) {
                         t = newTemplate()
+                        // init with global articulation
+                        t.midiArticulations.push(...midiArticulations.map(a => ({ ...a })))
                         t.sequenceOrder = group.templates.length
                         group.templates.push(t)
                     }
@@ -351,6 +393,12 @@ while (e.readNextStartElement()) {
                 t.groupId = group.id
             }
             groupNames.set(group.id, group.name)
+        } else if (tag === 'Articulation') {
+            // read global articulation (searchArticulation: starts from an existing one of that name)
+            const name = e.attribute('name')
+            const a: Articulation = { ...(midiArticulations.find(m => m.name === name) ?? { name: '', velocity: 0, gateTime: 0 }) }
+            readArticulation(a, e)
+            midiArticulations.push(a)
         } else if (tag === 'Genre') {
             readNamed(e, genres)
         } else if (tag === 'Family') {
@@ -383,6 +431,8 @@ function templateData(t: Template): Record<string, unknown> {
     if (t.drumset) { d.drumset = t.drumset }
     if (t.stringData) { d.stringData = t.stringData }
     d.channels = t.channels.map(c => [c.name, c.bank, c.program])
+    const arts = t.midiArticulations.map(a => [a.name, a.velocity, a.gateTime])
+    if (JSON.stringify(arts) !== JSON.stringify(GLOBAL_ARTICULATIONS)) { d.midiArticulations = arts }
     if (t.genres.length) { d.genres = t.genres }
     if (t.family) { d.family = t.family }
     if (!t.clefs.every(c => c[0] === 'G' && c[1] === 'G')) { d.clefs = t.clefs }
@@ -397,6 +447,7 @@ function templateData(t: Template): Record<string, unknown> {
     return d
 }
 
+const GLOBAL_ARTICULATIONS = midiArticulations.map(a => [a.name, a.velocity, a.gateTime])
 const count = groups.reduce((n, g) => n + g.templates.length, 0)
 writeFileSync('src/engraving/dom/instrtemplatedata.ts', `/*
  * SPDX-License-Identifier: GPL-3.0-only
@@ -431,6 +482,8 @@ export interface InstrumentTemplateData {
     stringData?: string
     /** [name, bank, program] */
     channels: [string, number, number][]
+    /** [name, velocity, gateTime]; left out: the global articulations (MIDI_ARTICULATION_DATA) */
+    midiArticulations?: [string, number, number][]
     genres?: string[]
     family?: string
     /** per staff (MAX_STAVES): [concert clef, transposing clef] (xml names) */
@@ -445,6 +498,9 @@ export interface InstrumentTemplateData {
     singleNoteDynamics?: number
     glissandoStyle?: string
 }
+
+/** the global MIDI articulations [name, velocity, gateTime] */
+export const MIDI_ARTICULATION_DATA: readonly (readonly [string, number, number])[] = ${JSON.stringify(GLOBAL_ARTICULATIONS)}
 
 /** [id, name] in the order of instruments.xml */
 export const INSTRUMENT_GENRE_DATA: readonly (readonly [string, string])[] = ${JSON.stringify(genres.map(g => [g.id, g.name]))}

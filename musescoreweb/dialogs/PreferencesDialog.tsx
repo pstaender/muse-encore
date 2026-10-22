@@ -1,7 +1,8 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * Preferences (MuseScore's PreferencesDialog.qml): pages in a side bar; for now "General" with the language and
- * "Save & publish" with the auto save (SaveAndPublishPreferencesPage.qml: AutoSaveSection).
+ * Preferences (MuseScore's PreferencesDialog.qml): pages in a side bar; for now "General" with the language,
+ * "Save & publish" with the auto save (SaveAndPublishPreferencesPage.qml: AutoSaveSection) and "Note input" with the
+ * note preview (NoteInputPreferencesPage.qml: NotePreviewSection; there is no MIDI input).
  */
 import { useEffect, useRef, useState } from 'react'
 import { currentLanguage, languageList, qtrc, setLanguage, useLanguage } from '../i18n'
@@ -72,6 +73,48 @@ function SaveAndPublishPage(): React.JSX.Element {
     )
 }
 
+/** NotePreviewSection.qml */
+function NoteInputPage(): React.JSX.Element {
+    useLanguage()
+    const { playback } = useSettings()
+    const play = playback.playNotesWhenEditing
+    const check = (key: 'playChordWhenEditing' | 'playHarmonyWhenEditing' | 'playPreviewNotesInInputByDuration' | 'playPreviewNotesWithScoreDynamics',
+                   text: string): React.JSX.Element => (
+        <label className="check">
+            <input type="checkbox" disabled={!play} checked={play && playback[key]}
+                onChange={e => updateSettings('playback', { [key]: e.target.checked })} />
+            {qtrc('preferences', text)}
+        </label>
+    )
+    return (
+        <section className="preferences-section" aria-labelledby="pref-note-preview">
+            <h3 id="pref-note-preview">{qtrc('preferences', 'Note preview')}</h3>
+            <label className="check">
+                <input type="checkbox" checked={play} onChange={e => updateSettings('playback', { playNotesWhenEditing: e.target.checked })} />
+                {qtrc('preferences', 'Hear playback when adding, editing, and selecting notes')}
+            </label>
+            <div className="autosave-row">
+                <span>{qtrc('preferences', 'Playback duration')}</span>
+                <span className="number-with-unit">
+                    <input type="number" min={0} max={10000} step={1} disabled={!play} aria-label={qtrc('preferences', 'Playback duration')}
+                        value={playback.notePlayDuration}
+                        onChange={(e) => {
+                            const v = Math.round(Number(e.target.value))
+                            if (v >= 0 && v <= 10000) {
+                                updateSettings('playback', { notePlayDuration: v })
+                            }
+                        }} />
+                    {' ' + qtrc('global', 'ms')}
+                </span>
+            </div>
+            {check('playChordWhenEditing', 'Play chord when editing')}
+            {check('playHarmonyWhenEditing', 'Play chord symbols and Nashville numbers')}
+            {check('playPreviewNotesInInputByDuration', 'Play when setting pitch (input by duration mode only)')}
+            {check('playPreviewNotesWithScoreDynamics', 'Play preview notes with score dynamics')}
+        </section>
+    )
+}
+
 export function PreferencesDialog({ onClose }: { onClose: () => void }): React.JSX.Element {
     useLanguage()
     const ref = useRef<HTMLDialogElement>(null)
@@ -98,6 +141,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }): React.J
                 <div className="preferences-page" role="tabpanel">
                     {page === 'general' && <GeneralPage />}
                     {page === 'cloud' && <SaveAndPublishPage />}
+                    {page === 'note-input' && <NoteInputPage />}
                 </div>
             </div>
             <form method="dialog" className="dialog-buttons">

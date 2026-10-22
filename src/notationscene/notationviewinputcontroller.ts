@@ -11,10 +11,11 @@
  * The mouse and key events of the editing (drag of elements and grips, lasso, text editing, double/triple click)
  * are in the section at the end of the class.
  *
- * TODO(port): playback (seek and play), context menu, Alt+click paste, drag of ranges/elements to other
+ * TODO(port): context menu, Alt+click paste, drag of ranges/elements to other
  * applications.
  */
 
+import { playbackController } from '../playback/iplaybackcontroller'
 import { nidx, type staff_idx_t } from '../engraving/types/types'
 import { SelectType } from '../engraving/dom/select'
 import { ExpandSelectionMode, MoveDirection, MoveSelectionType, NotationInteraction } from '../notation/internal/notationinteraction'
@@ -33,6 +34,23 @@ export interface KeyboardModifiers {
     shift: boolean
     ctrl: boolean
     alt: boolean
+}
+
+function seekAllowed(element: EngravingItem | null): boolean {
+    if (!element) {
+        return false
+    }
+
+    switch (element.type()) {
+    case ElementType.NOTE:
+    case ElementType.REST:
+    case ElementType.MMREST:
+    case ElementType.MEASURE:
+    case ElementType.BAR_LINE:
+        return true
+    default:
+        return false
+    }
 }
 
 export class NotationViewInputController {
@@ -335,6 +353,7 @@ export class NotationViewInputController {
     private m_hitElementWasAlreadySingleSelected = false
     private m_isCanvasDragged = false
     private m_tripleClickPending = false
+    private m_notesBeingDragged: EngravingItem[] = []
     private m_hitWidth = 1
 
     /** hitWidth: C++ hitWidth() = configuration()->selectionProximity() * 0.5 / currentScaling() */
@@ -381,6 +400,11 @@ export class NotationViewInputController {
             }
         }
 
+        if (playbackController()?.isPlaying()) {
+            playbackController()!.seekElement(hitElement)
+            return
+        }
+
         const ctx: ClickContext = {
             logicClickPos: logicPos,
             hitElement,
@@ -416,6 +440,9 @@ export class NotationViewInputController {
 
         // Select
         this.mousePressConsiderSelectCtx(ctx)
+
+        // Seek
+        this.mousePressSeekSelection(ctx)
 
         // Misc
         if (button === MouseButton.LeftButton) {
@@ -493,7 +520,7 @@ export class NotationViewInputController {
         }
 
         this.viewInteraction().select([ctx.hitElement], SelectType.SINGLE, ctx.hitStaff)
-        // TODO(port): playbackController()->seekElement
+        playbackController()?.seekElement(ctx.hitElement)
         this.m_mouseDownInfo.dragAction = DragAction.DragOutgoingElement
 
         return true
@@ -517,6 +544,40 @@ export class NotationViewInputController {
         return false
     }
 
+    /** C++ mousePress_seekSelection */
+    private mousePressSeekSelection(ctx: ClickContext): void {
+        const selection = this.viewInteraction().score().selection()
+        const elements = selection.elements()
+        if (elements.length === 0) {
+            return
+        }
+
+        if (!selection.isRange()) {
+            playbackController()?.seekElement(elements[elements.length - 1])
+            return
+        }
+
+        let elementToSeek = ctx.hitElement
+
+        for (const element of elements) {
+            if (!element || element === elementToSeek) {
+                continue
+            }
+
+            if (!seekAllowed(element)) {
+                continue
+            }
+
+            if (elementToSeek && elementToSeek.tick().le(element.tick())) {
+                continue
+            }
+
+            elementToSeek = element
+        }
+
+        playbackController()?.seekElement(elementToSeek)
+    }
+
     private handleLeftClick(ctx: ClickContext): void {
         const interaction = this.viewInteraction()
         if (!ctx.hitElement || !ctx.hitElement.selected()) {
@@ -529,7 +590,9 @@ export class NotationViewInputController {
             interaction.startEditElement(ctx.hitElement)
         }
 
-        // TODO(port): playback (playElements)
+        if (ctx.hitElement.isPlayable()) {
+            playbackController()?.playElements([ctx.hitElement])
+        }
 
         if (interaction.isTextSelected()) {
             this.updateTextCursorPosition()
@@ -614,9 +677,12 @@ export class NotationViewInputController {
                     mode = DragMode.OnlyX
                 }
 
+                const oldPitches = this.pitchesBeingDragged()
                 interaction.drag(this.m_mouseDownInfo.logicalBeginPoint, logicPos, mode, event.modifiers)
 
-                // TODO(port): play the dragged notes when their pitches change
+                if (oldPitches.length && oldPitches.join() !== this.pitchesBeingDragged().join()) {
+                    playbackController()?.playElements(this.m_notesBeingDragged)
+                }
 
                 return none
             } else if (hitElement === null && event.shift) {
@@ -655,6 +721,20 @@ export class NotationViewInputController {
         }
 
         interaction.startDrag(elements, elementsOffset, isDraggable, modifiers)
+
+        if (!interaction.isDragStarted()) {
+            return
+        }
+
+        for (const item of elements) {
+            if (item.isNote()) {
+                this.m_notesBeingDragged.push(item)
+            }
+        }
+    }
+
+    private pitchesBeingDragged(): number[] {
+        return this.m_notesBeingDragged.map(item => (item as unknown as Note).pitch())
     }
 
     mouseReleaseEvent(event: ViewMouseEvent): void {
@@ -688,11 +768,12 @@ export class NotationViewInputController {
         }
 
         this.m_mouseDownInfo.dragAction = DragAction.Nothing
+        this.m_notesBeingDragged = []
     }
 
     private handleLeftClickRelease(event: ViewMouseEvent): void {
         const interaction = this.viewInteraction()
-        if (interaction.noteInput().isNoteInputMode()) {
+        if (interaction.noteInput().isNoteInputMode() || playbackController()?.isPlaying()) {
             return
         }
 

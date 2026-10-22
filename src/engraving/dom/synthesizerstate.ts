@@ -3,7 +3,7 @@
  * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
- * Port of src/engraving/dom/synthesizerstate.h/.cpp (read and write only; not used for playback)
+ * Port of src/engraving/dom/synthesizerstate.h/.cpp
  */
 
 import type { XmlReader } from '../rw/xmlreader'
@@ -24,6 +24,77 @@ export class SynthesizerGroup {
 export class SynthesizerState {
     groups: SynthesizerGroup[] = []
     private m_isDefault = true
+
+    group(name: string): SynthesizerGroup {
+        for (const g of this.groups) {
+            if (g.name() === name) {
+                return g
+            }
+        }
+        return new SynthesizerGroup()
+    }
+
+    /** check if synthesizer state uses default synth and default font only */
+    isDefaultSynthSoundfont(): boolean {
+        const fluid = this.group('Fluid')
+        if (fluid.values.length === 1) {
+            if (fluid.values[0].data === 'MS Basic.sf3') {
+                return true
+            }
+        }
+        return false
+    }
+
+    ccToUse(): number {
+        const g = this.group('master')
+
+        let method = 1
+        let cc = -1
+
+        for (const idVal of g.values) {
+            if (idVal.id === 4) {
+                method = parseInt(idVal.data, 10) || 0
+            } else if (idVal.id === 5) {
+                switch (parseInt(idVal.data, 10) || 0) {
+                case 0:
+                    cc = 1
+                    break
+                case 1:
+                    cc = 2
+                    break
+                case 2:
+                    cc = 4
+                    break
+                case 3:
+                    cc = 11
+                    break
+                default:
+                    break
+                }
+            }
+        }
+
+        if (method === 0) { // velocity only
+            return -1
+        }
+
+        return cc
+    }
+
+    method(): number {
+        const g = this.group('master')
+
+        let method = -1
+
+        for (const idVal of g.values) {
+            if (idVal.id === 4) {
+                method = parseInt(idVal.data, 10) || 0
+                break
+            }
+        }
+
+        return method
+    }
 
     isDefault(): boolean { return this.m_isDefault }
     setIsDefault(v: boolean): void { this.m_isDefault = v }

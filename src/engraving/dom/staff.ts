@@ -7,12 +7,14 @@
  */
 
 import { SortedMap } from '../../framework/global/sortedmap'
+import { Constants } from '../types/constants'
+import { TConv } from '../types/typesconv'
 import { Color } from '../../framework/draw/types/color'
 import { Spatium } from '../types/dimension'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import {
-    AutoOnOff, BracketType, CapoParams, CapoTransposeMode, ClefType, ElementType, Key, MeasureNumberPlacement, StaffGroup, VOICES, nidx,
+    AutoOnOff, BracketType, CapoParams, DurationType, type SwingParameters, CapoTransposeMode, ClefType, ElementType, Key, MeasureNumberPlacement, StaffGroup, VOICES, nidx,
     type staff_idx_t,
 } from '../types/types'
 import { Sid } from '../style/styledef'
@@ -64,6 +66,8 @@ export class Staff extends EngravingItem {
     private m_visibilityVoices = [true, true, true, true]
     private m_pitchOffsetMap = new Map<number, number>()
     private m_capoMap = new SortedMap<CapoParams>()
+    private m_swingMap = new SortedMap<SwingParameters>()
+    private m_channelList: SortedMap<number>[] = Array.from({ length: VOICES }, () => new SortedMap<number>())
 
     constructor(part: Part) {
         super(ElementType.STAFF, null)
@@ -641,7 +645,77 @@ export class Staff extends EngravingItem {
         return this.isSystemObjectStaff() && this.isLastOfScore() && this.style().styleB(Sid.systemObjectsBelowBottomStaff)
     }
 
-    isPrimaryStaff(): boolean { return true }
+    /**
+     * if there are linked staves, the primary staff is the one who is played back and it's not a tab staff
+     * because we don't have enough information to play e.g ornaments. NOTE: it's not necessarily the top staff!
+     */
+    isPrimaryStaff(): boolean {
+        const links = this.links()
+        if (!links) {
+            return true
+        }
+
+        const linkedStavesInThisScore: Staff[] = []
+        const linkedNonTabStavesInThisScore: Staff[] = []
+
+        for (const linked of links) {
+            const staff = linked as Staff
+            if (staff.score() === this.score()) {
+                linkedStavesInThisScore.push(staff)
+
+                if (!staff.isTabStaff(new Fraction(0, 1))) {
+                    linkedNonTabStavesInThisScore.push(staff)
+                }
+            }
+        }
+
+        if (!linkedStavesInThisScore.length) {
+            return true
+        }
+
+        if (linkedNonTabStavesInThisScore.length) {
+            return linkedNonTabStavesInThisScore[0] === this
+        }
+
+        return linkedStavesInThisScore[0] === this
+    }
+
+    clearChannelList(voice: number): void { this.m_channelList[voice].clear() }
+    insertIntoChannelList(voice: number, tick: Fraction, channelId: number): void {
+        this.m_channelList[voice].insert(tick.ticks(), channelId)
+    }
+    clearSwingMap(): void { this.m_swingMap.clear() }
+    insertIntoSwingMap(tick: Fraction, sp: SwingParameters): void { this.m_swingMap.insert(tick.ticks(), sp) }
+
+    swing(tick: Fraction): SwingParameters {
+        let swingUnit = 0
+        const unit = TConv.fromXmlDurationType(this.style().styleSt(Sid.swingUnit), DurationType.V_INVALID)
+        const swingRatio = this.style().styleI(Sid.swingRatio)
+        if (unit === DurationType.V_EIGHTH) {
+            swingUnit = Constants.DIVISION / 2
+        } else if (unit === DurationType.V_16TH) {
+            swingUnit = Constants.DIVISION / 4
+        } else if (unit === DurationType.V_ZERO) {
+            swingUnit = 0
+        }
+        const sp: SwingParameters = { swingRatio, swingUnit }
+        if (this.m_swingMap.empty()) {
+            return sp
+        }
+
+        const i = this.m_swingMap.upperBound(tick.ticks()) - 1
+        return i < 0 ? sp : this.m_swingMap.valueAt(i)
+    }
+
+    channel(tick: Fraction, voice: number): number {
+        const map = this.m_channelList[voice]
+        if (map.empty()) {
+            return 0
+        }
+
+        const i = map.upperBound(tick.ticks()) - 1
+        return i < 0 ? 0 : map.valueAt(i)
+    }
 
     updateOttava(): void {
         const staffIdx = this.idx()

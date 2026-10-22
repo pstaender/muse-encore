@@ -27,6 +27,7 @@ import { SegmentType, type Segment } from './segment'
 import type { EngravingObject } from './engravingobject'
 import type { Measure } from './measure'
 import type { Note } from './note'
+import type { NoteEvent } from './noteevent'
 import type { Stem } from './stem'
 import type { StemSlash } from './stemslash'
 import type { Hook } from './hook'
@@ -206,7 +207,6 @@ export class Chord extends ChordRest {
     private m_allowKerningBelow = true
     private m_combineVoice: AutoOnOff = AutoOnOff.AUTO
     private m_articulations: Articulation[] = []
-    private m_isChordPlayable = true
 
     constructor(parent: EngravingObject | null) {
         super(ElementType.CHORD, parent)
@@ -238,7 +238,6 @@ export class Chord extends ChordRest {
         this.m_endingSpanners = new Set()
         this.m_allowKerningAbove = true
         this.m_allowKerningBelow = true
-        this.m_isChordPlayable = true
 
         for (const onote of original.m_notes) {
             this.add(onote.clone())
@@ -781,22 +780,28 @@ export class Chord extends ChordRest {
         return this.notes()[this.notes().length - 1]
     }
 
-    graceNotesBefore(): GraceNotesGroup {
+    graceNotesBefore(filterUnplayable = false): GraceNotesGroup {
         this.m_graceNotesBefore.clear()
         for (const c of this.m_graceNotes) {
             if (c.noteType() & (NoteType.ACCIACCATURA | NoteType.APPOGGIATURA | NoteType.GRACE4 | NoteType.GRACE16
                                 | NoteType.GRACE32)) {
+                if (filterUnplayable && !c.isChordPlayable()) {
+                    continue
+                }
                 this.m_graceNotesBefore.push(c)
             }
         }
         return this.m_graceNotesBefore
     }
 
-    graceNotesAfter(): GraceNotesGroup {
+    graceNotesAfter(filterUnplayable = false): GraceNotesGroup {
         this.m_graceNotesAfter.clear()
         for (let i = this.m_graceNotes.length - 1; i >= 0; i--) {
             const c = this.m_graceNotes[i]
             if (c.noteType() & (NoteType.GRACE8_AFTER | NoteType.GRACE16_AFTER | NoteType.GRACE32_AFTER)) {
+                if (filterUnplayable && !c.isChordPlayable()) {
+                    continue
+                }
                 this.m_graceNotesAfter.push(c)
             }
         }
@@ -1437,10 +1442,67 @@ export class Chord extends ChordRest {
         return chord1.shouldCombineVoice() && chord2.shouldCombineVoice()
     }
 
+    /** Set contents of all NoteEventLists for all notes in the chord. */
+    setNoteEventLists(ell: NoteEvent[][]): void {
+        if (!this.notes().length) {
+            return
+        }
+        if (ell.length !== this.notes().length) {
+            return
+        }
+        for (let i = 0; i < ell.length; i++) {
+            this.notes()[i].setPlayEvents(ell[i])
+        }
+    }
+
     playEventType(): PlayEventType { return this.m_playEventType }
     setPlayEventType(v: PlayEventType): void { this.m_playEventType = v }
-    isChordPlayable(): boolean { return this.m_isChordPlayable }
-    setIsChordPlayable(v: boolean): void { this.m_isChordPlayable = v }
+    /**
+     * Now every related to chord element has it's own "PLAY" property,
+     * However, there is no way to control these properties outside the scope of the chord since the new inspector.
+     * So we'll use a chord as a proxy entity for "PLAY" property handling
+     */
+    isChordPlayable(): boolean {
+        if (this.m_notes.length) {
+            if (this.m_notes[0].isPreBendOrDiveStart()) {
+                return false
+            }
+
+            return this.m_notes[0].getProperty(Pid.PLAY) as boolean
+        } else if (this.tremoloTwoChord()) {
+            return this.tremoloTwoChord()!.getProperty(Pid.PLAY) as boolean
+        } else if (this.tremoloSingleChord()) {
+            return this.tremoloSingleChord()!.getProperty(Pid.PLAY) as boolean
+        } else if (this.m_arpeggio) {
+            return this.m_arpeggio.getProperty(Pid.PLAY) as boolean
+        }
+
+        return false
+    }
+
+    /**
+     * C++ changes the PLAY property of the notes, arpeggio and tremolos with undoChangeProperty (from within
+     * setProperty); here they are set directly: the chord's own ChangeProperty restores them on undo.
+     */
+    setIsChordPlayable(isPlayable: boolean): void {
+        for (const note of this.m_notes) {
+            note.setProperty(Pid.PLAY, isPlayable)
+        }
+
+        if (this.m_arpeggio) {
+            this.m_arpeggio.setProperty(Pid.PLAY, isPlayable)
+        }
+
+        if (this.tremoloTwoChord()) {
+            this.tremoloTwoChord()!.setProperty(Pid.PLAY, isPlayable)
+        }
+
+        if (this.tremoloSingleChord()) {
+            this.tremoloSingleChord()!.setProperty(Pid.PLAY, isPlayable)
+        }
+
+        this.triggerLayout()
+    }
 
     articulations(): Articulation[] { return this.m_articulations }
 

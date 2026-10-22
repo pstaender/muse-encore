@@ -69,7 +69,10 @@ export class Breath extends EngravingItem {
     override setProperty(propertyId: Pid, v: PropertyValue): boolean {
         switch (propertyId) {
         case Pid.SYMBOL: this.setSymId(v as SymId); break
-        case Pid.PAUSE: this.setPause(v as number); break
+        case Pid.PAUSE:
+            this.setPause(v as number)
+            this.score().setUpTempoMapLater()
+            break
         default:
             if (!super.setProperty(propertyId, v)) {
                 return false
@@ -94,5 +97,13 @@ export class Breath extends EngravingItem {
 
     override accessibleInfo(): string {
         return SymNames.translatedUserNameForSymId(this.symId())
+    }
+
+    override added(): void {
+        this.score().setUpTempoMapLater()
+    }
+
+    override removed(): void {
+        this.score().setUpTempoMapLater()
     }
 }

@@ -66,15 +66,21 @@ function pageCenterOffset(page: Page, idx = 0): Promise<[number, number]> {
     }, idx)
 }
 
-async function spaceDrag(page: Page, dx: number, dy: number): Promise<void> {
+/** the hand tool: Space + drag in the viewer; the middle mouse button in the editor (Space plays there) */
+async function handDrag(page: Page, app: string, dx: number, dy: number): Promise<void> {
+    const space = app === 'webviewer'
     await page.mouse.move(640, 400)
-    await page.keyboard.down(' ')
-    await page.mouse.down()
+    if (space) {
+        await page.keyboard.down(' ')
+    }
+    await page.mouse.down({ button: space ? 'left' : 'middle' })
     for (let i = 1; i <= 10; ++i) {
         await page.mouse.move(640 + dx * i / 10, 400 + dy * i / 10)
     }
-    await page.mouse.up()
-    await page.keyboard.up(' ')
+    await page.mouse.up({ button: space ? 'left' : 'middle' })
+    if (space) {
+        await page.keyboard.up(' ')
+    }
 }
 
 describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%s', (app) => {
@@ -219,7 +225,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
     it('moves the view beyond the pages and centers the page again', async () => {
         const { page, context } = await newPage()
         await openScore(page, 'amazing.mscz')
-        await spaceDrag(page, 1500, 1200)
+        await handDrag(page, app, 1500, 1200)
         const moved = await page.evaluate(() => {
             const v = document.getElementById('viewport')!.getBoundingClientRect()
             const p = document.querySelector('.page')!.getBoundingClientRect()

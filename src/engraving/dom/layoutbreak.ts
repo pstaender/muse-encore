@@ -111,6 +111,7 @@ export class LayoutBreak extends EngravingItem {
             break
         case Pid.PAUSE:
             this.setPause(v as number)
+            this.score().setUpTempoMapLater()
             break
         case Pid.START_WITH_LONG_NAMES:
             this.setStartWithLongNames(!!v)
@@ -152,5 +153,13 @@ export class LayoutBreak extends EngravingItem {
 
     override accessibleInfo(): string {
         return this.translatedSubtypeUserName()
+    }
+
+    override added(): void {
+        this.score().setUpTempoMapLater()
+    }
+
+    override removed(): void {
+        this.score().setUpTempoMapLater()
     }
 }
