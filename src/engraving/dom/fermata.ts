@@ -6,6 +6,7 @@
  * Port of src/engraving/dom/fermata.h/.cpp
  */
 
+import { LineF } from '../../framework/draw/types/geometry'
 import type { PropertyValue } from '../types/propertyvalue'
 import { SymId } from '../types/symid'
 import { SymNames } from '../types/symnames'
@@ -178,5 +179,11 @@ export class Fermata extends EngravingItem {
 
     override removed(): void {
         this.score().setUpTempoMapLater()
+    }
+
+    override dragAnchorLines(): LineF[] {
+        const result: LineF[] = []
+        result.push(new LineF(this.canvasPos(), this.parentItem()!.canvasPos()))
+        return result
     }
 }

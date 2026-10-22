@@ -6,7 +6,7 @@
  * Port of src/engraving/dom/bsymbol.h/.cpp
  */
 
-import { PointF } from '../../framework/draw/types/geometry'
+import { LineF, PointF } from '../../framework/draw/types/geometry'
 import { Align, AlignH, AlignV, type ElementType } from '../types/types'
 import { EngravingItem, ElementFlag } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
@@ -82,5 +82,9 @@ export abstract class BSymbol extends EngravingItem {
             return pos
         }
         return super.canvasPos()
+    }
+
+    override dragAnchorLines(): LineF[] {
+        return this.genericDragAnchorLines()
     }
 }

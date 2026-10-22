@@ -10,7 +10,8 @@
  * The C++ controller registers its handlers in the ActionsDispatcher; here dispatch(code) runs them.
  *
  * TODO(port): text/lyrics/grip editing and nudging, tablature (string selection, TAB pad
- * notes), copy/paste, the dialogs (tuplet-dialog, custom-tuplet), MIDI input (real-time input uses the note name keys).
+ * notes), copy/paste, MIDI input (real-time input uses the note name keys). The dialogs (tuplet-dialog, select-dialog,
+ * insert-measures, staff-properties, ...) are registered by the app.
  */
 
 import type { Harmony } from '../engraving/dom/harmony'
@@ -21,7 +22,7 @@ import { Pid } from '../engraving/dom/property'
 import { AccidentalType } from '../engraving/dom/accidentaldata'
 import { UpDownMode } from '../engraving/dom/mscore'
 import { Pad } from '../engraving/dom/score'
-import { BracketsType, FilterElementsOptions, NoteAddingMode, NoteName } from '../notation/notationtypes'
+import { AddBoxesTarget, BoxType, BracketsType, FilterElementsOptions, NoteAddingMode, NoteName } from '../notation/notationtypes'
 import { NotationElements } from '../notation/internal/notationelements'
 import { SelectType } from '../engraving/dom/select'
 import { MoveDirection, MoveSelectionType, type NotationInteraction } from '../notation/internal/notationinteraction'
@@ -245,6 +246,23 @@ export class NotationActionController {
         this.registerAction('select-similar', () => this.selectAllSimilarElements(), () => this.hasSelection())
         this.registerAction('select-similar-staff', () => this.selectAllSimilarElementsInStaff(), () => this.hasSelection())
         this.registerAction('select-similar-range', () => this.selectAllSimilarElementsInRange(), () => this.hasSelection())
+        this.registerAction('insert-measure', () => this.addBoxes(BoxType.Measure, 1, AddBoxesTarget.BeforeSelection),
+            () => this.hasSelection())
+        this.registerAction('append-measure', () => this.addBoxes(BoxType.Measure, 1, AddBoxesTarget.AtEndOfScore))
+        // insert-measures, insert-measures-after-selection, insert-measures-at-start-of-score, append-measures
+        // (addMeasures with the number of measures of SelectMeasuresCountDialog) are registered by the app
+
+        this.registerAction('insert-hbox', () => this.addBoxes(BoxType.Horizontal, 1, AddBoxesTarget.BeforeSelection))
+        this.registerAction('insert-vbox', () => this.addBoxes(BoxType.Vertical, 1, AddBoxesTarget.BeforeSelection))
+        this.registerAction('insert-textframe', () => this.addBoxes(BoxType.Text, 1, AddBoxesTarget.BeforeSelection))
+        this.registerAction('insert-fretframe', () => this.addBoxes(BoxType.Fret, 1, AddBoxesTarget.BeforeSelection))
+        this.registerAction('append-hbox', () => this.addBoxes(BoxType.Horizontal, 1, AddBoxesTarget.AtEndOfScore))
+        this.registerAction('append-vbox', () => this.addBoxes(BoxType.Vertical, 1, AddBoxesTarget.AtEndOfScore))
+        this.registerAction('append-textframe', () => this.addBoxes(BoxType.Text, 1, AddBoxesTarget.AtEndOfScore))
+        this.registerAction('append-fretframe', () => this.addBoxes(BoxType.Fret, 1, AddBoxesTarget.AtEndOfScore))
+
+        this.registerAction('add-fretboard-diagram', () => this.interaction().addFretboardDiagram())
+
         // select-dialog (openSelectionMoreOptions) is registered by the app, which shows the dialogs (createSelectDialog)
         this.registerAction('first-element', () => this.withPlayMode(PlayMode.PlayChord, () => this.interaction().selectFirstElement(false)))
         this.registerAction('last-element', () => this.withPlayMode(PlayMode.PlayChord, () => this.interaction().selectLastElement()))
@@ -897,6 +915,15 @@ export class NotationActionController {
         return result
     }
 
+    /** C++ addMeasures(actionData, target) with the number of measures (the app asks for it) */
+    addMeasures(count: number, target: AddBoxesTarget): void {
+        this.addBoxes(BoxType.Measure, count, target)
+    }
+
+    private addBoxes(boxType: BoxType, count: number, target: AddBoxesTarget): void {
+        this.interaction().addBoxes(boxType, count, target)
+    }
+
     private selectAllSimilarElements(): void {
         const notationElements = this.currentNotationElements()
         const interaction = this.interaction()
@@ -1266,7 +1293,8 @@ export class NotationActionController {
         for (const [code, n] of TUPLET_ACTIONS) {
             this.registerAction(code, () => this.putTupletCount(n), () => this.noteOrRestSelected())
         }
-        // TODO(port): "custom-tuplet" (TupletOptions as action data) and "tuplet-dialog" (OtherTupletDialog)
+        // "custom-tuplet" (TupletOptions as action data): putTuplet(); "tuplet-dialog" (TupletDialog) is registered by
+        // the app, which shows the dialog
 
         this.registerAction('add-slur', () => this.addSlur())
 
@@ -1434,7 +1462,7 @@ export class NotationActionController {
         return tiedNotes.length > 0 && tiedNotes.every(n => n.laissezVib())
     }
 
-    private noteOrRestSelected(): boolean {
+    noteOrRestSelected(): boolean {
         if (this.isNoteInputMode()) {
             return true
         }

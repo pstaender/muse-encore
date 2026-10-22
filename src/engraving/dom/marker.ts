@@ -6,6 +6,7 @@
  * Port of src/engraving/dom/marker.h/.cpp
  */
 
+import { LineF, PointF } from '../../framework/draw/types/geometry'
 import type { PropertyValue } from '../types/propertyvalue'
 import { ElementType, MarkerType, PlacementV, TextStyleType } from '../types/types'
 import { Sid } from '../style/styledef'
@@ -195,5 +196,21 @@ export class Marker extends TextBase {
 
     override accessibleInfo(): string {
         return `${this.translatedTypeUserName()}: ${this.markerTypeUserName()}`
+    }
+
+    override dragAnchorLines(): LineF[] {
+        const measure = this.parentItem() ? this.parentItem() as unknown as Measure : null
+
+        const lines = super.dragAnchorLines()
+
+        if (!measure || !this.isRightMarker()) {
+            return lines
+        }
+
+        for (const l of lines) {
+            l.setP1(l.p1().plus(new PointF(measure.width(), 0.0)))
+        }
+
+        return lines
     }
 }

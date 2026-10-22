@@ -31,6 +31,9 @@ import { Sid } from './engraving/style/styledef'
 import { fontProvider } from './engraving/infrastructure/engravingcontext'
 import { MscLoader, loadScore as loadMasterScore } from './engraving/rw/mscloader'
 import { SelectDialog, SelectNoteDialog } from './notationscene/selectdialog'
+import { TupletBracketType, TupletNumberType } from './engraving/dom/tuplet'
+import { AddBoxesTarget } from './notation/notationtypes'
+import { TupletOptions } from './notation/notationtypes'
 import { ProjectMigrator, migrationTypeFromMscVersion } from './project/internal/projectmigrator'
 import { MigrationType, MigrationOptions } from './project/types/projecttypes'
 import type { TemplateFileProvider } from './project/internal/mdlmigrator'
@@ -812,6 +815,53 @@ export function selectAll(score: MasterScore): void {
 }
 
 export { TransposeMode, TransposeDirection, AutoOnOff, PreferSharpFlat } from './engraving/types/types'
+
+/**
+ * The actions insert-measures, insert-measures-after-selection, insert-measures-at-start-of-score and append-measures
+ * with the number of measures (MuseScore asks for it with its SelectMeasuresCountDialog): NotationActionController::
+ * addMeasures. Returns false if the target needs a selection and there is none.
+ */
+export function addMeasures(score: MasterScore, count: number, target: AddBoxesTarget): boolean {
+    const actions = notationState(score).actions
+    if ((target === AddBoxesTarget.BeforeSelection || target === AddBoxesTarget.AfterSelection) && !hasSelection(score)) {
+        return false
+    }
+    actions.addMeasures(count, target)
+    return true
+}
+export { AddBoxesTarget, BoxType } from './notation/notationtypes'
+
+/** the action tuplet-dialog ("Other…" of the tuplets) can be used: a note or rest is selected */
+export function canAddCustomTuplet(score: MasterScore): boolean {
+    return notationState(score).actions.noteOrRestSelected()
+}
+
+/** the defaults of MuseScore's TupletDialog: the number and bracket types of the score's style */
+export function customTupletDefaults(score: MasterScore): { numberType: TupletNumberType; bracketType: TupletBracketType } {
+    return {
+        numberType: score.style().styleI(Sid.tupletNumberType) as TupletNumberType,
+        bracketType: score.style().styleI(Sid.tupletBracketType) as TupletBracketType,
+    }
+}
+
+/**
+ * The action custom-tuplet (TupletDialog::apply): a tuplet with the ratio actualNotes/normalNotes on the selection
+ * (or the note input position); false if it can not be added.
+ */
+export function addCustomTuplet(score: MasterScore, actualNotes: number, normalNotes: number, numberType: TupletNumberType,
+    bracketType: TupletBracketType): boolean {
+    const actions = notationState(score).actions
+    if (!actions.noteOrRestSelected()) {
+        return false
+    }
+    const options = new TupletOptions()
+    options.ratio = new Fraction(actualNotes, normalNotes)
+    options.numberType = numberType
+    options.bracketType = bracketType
+    actions.putTuplet(options)
+    return true
+}
+export { TupletNumberType, TupletBracketType } from './engraving/dom/tuplet'
 import type { TransposeOptions } from './notation/notationtypes'
 export type { TransposeOptions }
 

@@ -158,6 +158,22 @@ export function formatInstrumentTitle(instrumentName: string, trait: Trait): str
     }
 }
 
+export enum BoxType {
+    Unknown,
+    Vertical,
+    Horizontal,
+    Measure,
+    Text,
+    Fret,
+}
+
+export enum AddBoxesTarget {
+    AfterSelection,
+    BeforeSelection,
+    AtStartOfScore,
+    AtEndOfScore,
+}
+
 export class FilterElementsOptions {
     elementType = ElementType.INVALID
     staffStart = -1

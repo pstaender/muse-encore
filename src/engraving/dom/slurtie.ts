@@ -7,10 +7,10 @@
  */
 
 import { Color } from '../../framework/draw/types/color'
-import { PointF } from '../../framework/draw/types/geometry'
+import { LineF, PointF } from '../../framework/draw/types/geometry'
 import { PainterPath } from '../../framework/draw/types/painterpath'
 import type { PropertyValue } from '../types/propertyvalue'
-import { DirectionV, SlurStyleType, type ElementType } from '../types/types'
+import { DirectionV, SlurStyleType, SpannerSegmentType, type ElementType } from '../types/types'
 import { Grip, type EditData } from '../editing/editdata'
 import { ElementFlag, LayoutData } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
@@ -169,6 +169,48 @@ export abstract class SlurTieSegment extends SpannerSegment {
         default:
             return super.propertyDefault(id)
         }
+    }
+
+    override gripAnchorLines(grip: Grip): LineF[] {
+        const result: LineF[] = []
+
+        const system = this.system()
+        if (!system || (grip !== Grip.START && grip !== Grip.END)) {
+            return result
+        }
+
+        const sp = system.pagePos()
+        const pp = this.pagePos()
+        const p1 = this.ups(Grip.START).p.plus(pp)
+        const p2 = this.ups(Grip.END).p.plus(pp)
+
+        let anchorPosition: PointF
+        const gripIndex = grip
+
+        switch (this.spannerSegmentType()) {
+        case SpannerSegmentType.SINGLE:
+            anchorPosition = grip === Grip.START ? p1 : p2
+            break
+
+        case SpannerSegmentType.BEGIN:
+            anchorPosition = grip === Grip.START ? p1 : system.pageBoundingRect().topRight()
+            break
+
+        case SpannerSegmentType.MIDDLE:
+            anchorPosition = grip === Grip.START ? sp : system.pageBoundingRect().topRight()
+            break
+
+        case SpannerSegmentType.END:
+        default:
+            anchorPosition = grip === Grip.START ? sp : p2
+            break
+        }
+
+        const p = system.page()
+        const pageOffset = p ? p.pos() : new PointF()
+        result.push(new LineF(anchorPosition, this.gripsPositions()[gripIndex]).translated(pageOffset))
+
+        return result
     }
 }
 

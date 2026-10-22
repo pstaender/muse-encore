@@ -8,6 +8,7 @@
  * C++ curColor() colors invalid hammer-ons/pull-offs only when MScore::warnGuitarBends is set (off by default).
  */
 
+import { LineF, PointF } from '../../framework/draw/types/geometry'
 import { propertyValueEquals, type PropertyValue } from '../types/propertyvalue'
 import { textStyle } from '../style/textstyle'
 import { ElementType, PlacementV, TextStyleType, type track_idx_t } from '../types/types'
@@ -65,6 +66,23 @@ export class HammerOnPullOffText extends TextBase {
             }
         }
         return super.isUserModified()
+    }
+
+    override dragAnchorLines(): LineF[] {
+        const result: LineF[] = []
+
+        const p1 = this.canvasPos()
+
+        const hopoSeg = this.parent() as unknown as HammerOnPullOffSegment
+        const hopoSegShape = hopoSeg.ldata().shape()
+        const x = this.ldata().pos().x() // + hopoSegShape.bbox().x();
+        const y = hopoSeg.hammerOnPullOff().up() ? hopoSegShape.topAtX(x) : hopoSegShape.bottomAtX(x)
+
+        const p2 = new PointF(x, y).plus(hopoSeg.canvasPos())
+
+        result.push(new LineF(p1, p2))
+
+        return result
     }
 }
 

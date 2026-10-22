@@ -21,6 +21,10 @@ import { registerPanelActions } from '../panels/PanelDock'
 import { isPanelOpen, onPanelsChanged, togglePanel } from '../panels/panels'
 import { canOpenStaffProperties, openStaffProperties } from '../dialogs/EditStaffDialog'
 import { openSelectDialog } from '../dialogs/SelectDialog'
+import { openTupletDialog } from '../dialogs/TupletDialog'
+import { openSelectMeasuresCountDialog } from '../dialogs/SelectMeasuresCountDialog'
+import { AddBoxesTarget, canAddCustomTuplet, hasSelection } from '../../src/index'
+import { currentScore } from '../scoreview'
 import { actionsChanged, isActionEnabled, registerAction, triggerAction } from './actions'
 import { registerNotationActions } from './notationactions'
 import { registerPlaybackActions } from '../playback/playbackcontroller'
@@ -54,6 +58,25 @@ export function registerAppActions(): void {
     // NotationActionController::openStaffProperties
     registerAction('staff-properties', { run: openStaffProperties, enabled: () => scoreShown() && canOpenStaffProperties(), context: 'notation' })
     // NotationActionController::openSelectionMoreOptions (enabled with a selection like C++ hasSelection)
+    // NotationActionController::openTupletOtherDialog (enabled with a selected note or rest)
+    registerAction('tuplet-dialog', {
+        run: openTupletDialog,
+        enabled: () => { const s = currentScore(); return !!s && scoreShown() && canAddCustomTuplet(s) },
+        context: 'notation',
+    })
+    // NotationActionController::addMeasures: the number of measures from SelectMeasuresCountDialog
+    for (const [code, target, needsSelection] of [
+        ['insert-measures', AddBoxesTarget.BeforeSelection, true],
+        ['insert-measures-after-selection', AddBoxesTarget.AfterSelection, true],
+        ['insert-measures-at-start-of-score', AddBoxesTarget.AtStartOfScore, false],
+        ['append-measures', AddBoxesTarget.AtEndOfScore, false],
+    ] as const) {
+        registerAction(code, {
+            run: () => openSelectMeasuresCountDialog(target),
+            enabled: () => { const s = currentScore(); return !!s && scoreShown() && (!needsSelection || hasSelection(s)) },
+            context: 'notation',
+        })
+    }
     registerAction('select-dialog', { run: openSelectDialog, enabled: () => scoreShown() && canOpenStaffProperties(), context: 'notation' })
 
     // ---- tools ----

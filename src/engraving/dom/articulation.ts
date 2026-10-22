@@ -8,6 +8,7 @@
  * TODO(port): articulation texts (ArticulationTextType), split/join/flip helpers, playback names
  */
 
+import { LineF } from '../../framework/draw/types/geometry'
 import type { PropertyValue } from '../types/propertyvalue'
 import { SymId } from '../types/symid'
 import { SymNames } from '../types/symnames'
@@ -543,6 +544,12 @@ export class Articulation extends EngravingItem {
 
     override accessibleInfo(): string {
         return `${this.translatedTypeUserName()}: ${this.translatedSubtypeUserName()}`
+    }
+
+    override dragAnchorLines(): LineF[] {
+        const result: LineF[] = []
+        result.push(new LineF(this.canvasPos(), this.parentItem()!.canvasPos()))
+        return result
     }
 }
 

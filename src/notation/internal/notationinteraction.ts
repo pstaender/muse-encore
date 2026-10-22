@@ -52,7 +52,7 @@ import type { NoteDot } from '../../engraving/dom/notedot'
 import type { KeySig } from '../../engraving/dom/keysig'
 import type { TimeSig } from '../../engraving/dom/timesig'
 // (imports of the palette section)
-import { staff2track } from '../../engraving/types/types'
+import { staff2track, track2staff } from '../../engraving/types/types'
 import { Factory } from '../../engraving/dom/factory'
 import { filterTargetElements } from '../../engraving/dom/utils'
 import { scoreDummy } from '../../engraving/compat/dummyelement'
@@ -83,6 +83,9 @@ import type { ElementGroup } from '../../engraving/dom/elementgroup'
 import type { PaintOptions } from '../../engraving/rendering/paintoptions'
 import type { TBox } from '../../engraving/dom/box'
 import type { FretDiagram } from '../../engraving/dom/fret'
+import type { MeasureBase } from '../../engraving/dom/measurebase'
+import { InsertMeasureOptions } from '../../engraving/editing/edit'
+import { AddBoxesTarget, BoxType } from '../notationtypes'
 import { readType } from '../../engraving/dom/paste'
 import { ActionIconType, type ActionIcon } from '../../engraving/dom/actionicon'
 import type { StaffLines } from '../../engraving/dom/stafflines'
@@ -846,6 +849,8 @@ export class NotationInteraction {
         this.startEdit(new TranslatableString('undoableAction', 'Flip direction'))
         this.score().cmdFlip()
         this.apply()
+
+        this.updateGripAnchorLines()
     }
 
     addTieToSelection(): void {
@@ -3641,6 +3646,7 @@ export class NotationInteraction {
         }
 
         this.doEndEditElement()
+        this.resetAnchorLines()
 
         this.m_isEditingElementChanged.notify()
         this.notifyAboutNotationChanged()
@@ -3687,6 +3693,8 @@ export class NotationInteraction {
         this.m_editData.grips = 0
         this.m_editData.curGrip = Grip.NO_GRIP
         this.m_editData.grip = []
+
+        this.resetAnchorLines()
     }
 
     // ---------------------------------------------------------------------------------
@@ -4316,6 +4324,247 @@ export class NotationInteraction {
         this.showItem(lyrics)
     }
 
+    addBoxes(boxType: BoxType, count: number, target: AddBoxesTarget): void {
+        let beforeBoxIndex = -1
+        let moveSignaturesClefs = target !== AddBoxesTarget.AfterSelection
+        let selectedItem: EngravingItem | null = null
+        let selectedItemMeasure: MeasureBase | null = null
+
+        switch (target) {
+        case AddBoxesTarget.AfterSelection:
+        case AddBoxesTarget.BeforeSelection: {
+            const selection = this.score().selection()
+            if (selection.isNone()) {
+                MScore.setError(MsError.NO_MEASURE_SELECTED)
+                this.checkAndShowError()
+                return
+            }
+
+            if (selection.isRange()) {
+                const range = selection.measureRange()
+                const startMeasureIndex = range ? range.m1.index() : 0
+                const endMeasureIndex = range && range.m2 ? range.m2.index() + 1 : 0
+
+                beforeBoxIndex = target === AddBoxesTarget.BeforeSelection
+                    ? startMeasureIndex
+                    : endMeasureIndex
+                break
+            }
+
+            const elements = selection.elements()
+            if (elements.length === 0) {
+                // This would contradict the fact that selection()->isNone() == false at this point
+                MScore.setError(MsError.NO_MEASURE_SELECTED)
+                this.checkAndShowError()
+                return
+            }
+
+            for (const item of elements) {
+                const itemMeasure = item.findMeasureBase()
+                if (!itemMeasure) {
+                    continue
+                }
+
+                const itemMeasureIndex = itemMeasure.index()
+                if (itemMeasureIndex < 0) {
+                    continue
+                }
+
+                if (target === AddBoxesTarget.BeforeSelection) {
+                    if (beforeBoxIndex < 0 || itemMeasureIndex < beforeBoxIndex) {
+                        beforeBoxIndex = itemMeasureIndex
+                        selectedItem = item
+                        selectedItemMeasure = itemMeasure
+                    }
+                } else {
+                    if (itemMeasureIndex + 1 > beforeBoxIndex) {
+                        beforeBoxIndex = itemMeasureIndex + 1
+                        selectedItem = item
+                        selectedItemMeasure = itemMeasure
+                    }
+                }
+            }
+
+            const selectedIsValid = selectedItem && selectedItemMeasure
+            const selectedItemType = selectedIsValid ? selectedItem!.type() : ElementType.INVALID
+
+            // special cases for "between measures elements"
+            switch (selectedItemType) {
+            case ElementType.CLEF:
+            case ElementType.BAR_LINE:
+            case ElementType.TIMESIG:
+            case ElementType.KEYSIG: {
+                const itemTick = selectedItem!.tick()
+                const measureTick = selectedItemMeasure!.tick()
+                const measureLastTick = measureTick.plus(selectedItemMeasure!.ticks())
+
+                if (itemTick.eq(measureTick)) {
+                    if (target === AddBoxesTarget.AfterSelection) {
+                        beforeBoxIndex -= 1
+                    }
+                    moveSignaturesClefs = target === AddBoxesTarget.AfterSelection
+                } else if (itemTick.eq(measureLastTick)) {
+                    if (target === AddBoxesTarget.BeforeSelection) {
+                        beforeBoxIndex += 1
+                    }
+                    moveSignaturesClefs = target === AddBoxesTarget.AfterSelection
+                }
+                break
+            }
+            default: break
+            }
+
+            if (beforeBoxIndex < 0) {
+                MScore.setError(MsError.NO_MEASURE_SELECTED)
+                this.checkAndShowError()
+                return
+            }
+            break
+        }
+        case AddBoxesTarget.AtStartOfScore: {
+            const firstMeasure = this.score().firstMeasure()
+            beforeBoxIndex = firstMeasure ? firstMeasure.index() : -1
+            break
+        }
+        case AddBoxesTarget.AtEndOfScore:
+            beforeBoxIndex = -1
+            break
+        }
+
+        this.addBoxesAt(boxType, count, beforeBoxIndex, moveSignaturesClefs)
+    }
+
+    /** C++ addBoxes(BoxType, int count, int beforeBoxIndex, bool moveSignaturesClef) (renamed: no overloads in TS) */
+    addBoxesAt(boxType: BoxType, count: number, beforeBoxIndex: number, moveSignaturesClef: boolean): void {
+        if (count < 1) {
+            return
+        }
+
+        const boxTypeToElementType = (boxType: BoxType): ElementType => {
+            switch (boxType) {
+            case BoxType.Horizontal: return ElementType.HBOX
+            case BoxType.Vertical: return ElementType.VBOX
+            case BoxType.Text: return ElementType.TBOX
+            case BoxType.Fret: return ElementType.FBOX
+            case BoxType.Measure: return ElementType.MEASURE
+            case BoxType.Unknown: return ElementType.INVALID
+            }
+
+            return ElementType.INVALID
+        }
+
+        const elementType = boxTypeToElementType(boxType)
+        if (elementType === ElementType.INVALID) {
+            return
+        }
+
+        const boxTypeDescription = (boxType: BoxType): TranslatableString => {
+            switch (boxType) {
+            case BoxType.Horizontal: return new TranslatableString('undoableAction', 'Add horizontal frame')
+            case BoxType.Vertical: return new TranslatableString('undoableAction', 'Add vertical frame')
+            case BoxType.Text: return new TranslatableString('undoableAction', 'Add text frame')
+            case BoxType.Fret: return new TranslatableString('undoableAction', 'Add fretboard diagram legend')
+            case BoxType.Measure: return new TranslatableString('undoableAction', 'Add %Ln measure(s)', '', count)
+            case BoxType.Unknown: break
+            }
+
+            return new TranslatableString()
+        }
+
+        this.startEdit(boxTypeDescription(boxType))
+
+        const beforeBox = beforeBoxIndex >= 0 ? this.score().measure(beforeBoxIndex) : null
+
+        const options = new InsertMeasureOptions()
+        options.createEmptyMeasures = false
+        options.moveSignaturesClef = moveSignaturesClef
+        options.needDeselectAll = false
+        options.cloneBoxToAllParts = boxType !== BoxType.Fret
+
+        for (let i = 0; i < count; ++i) {
+            this.score().insertMeasure(elementType, beforeBox, options)
+        }
+
+        this.apply()
+
+        const indexOfFirstAddedMeasure = beforeBoxIndex >= 0 ? beforeBoxIndex : this.score().measures().size() - count
+        const firstAddedMeasure = this.score().measure(indexOfFirstAddedMeasure)
+        this.doSelect([firstAddedMeasure!], SelectType.REPLACE, 0, false)
+        this.showItem(firstAddedMeasure)
+
+        // For other box types, it makes little sense to select them all
+        if (boxType === BoxType.Measure) {
+            this.doSelect([this.score().measure(indexOfFirstAddedMeasure + count - 1)!], SelectType.RANGE, 0, false)
+        }
+
+        this.notifyAboutSelectionChangedIfNeed()
+    }
+
+    addFretboardDiagram(): void {
+        const score = this.score()
+
+        const selection = score.selection()
+        const filteredElements: EngravingItem[] = []
+
+        if (selection && !selection.isNone()) {
+            let selectedElements: readonly EngravingItem[]
+
+            const element = selection.element()
+            if (element) {
+                selectedElements = [element]
+            } else {
+                selectedElements = selection.elements()
+            }
+
+            for (const element of selectedElements) {
+                if (!element || !element.isHarmony()) {
+                    continue
+                }
+
+                if (!element.explicitParent()!.isFretDiagram()) {
+                    filteredElements.push(element)
+                }
+            }
+        }
+
+        if (filteredElements.length === 0) {
+            MScore.setError(MsError.NO_NOTE_REST_HARMONY_SELECTED)
+            this.checkAndShowError()
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add fretboard diagram'))
+
+        let lastAddedDiagram: FretDiagram | null = null
+        const created: FretDiagram[] = []
+
+        for (const element of filteredElements) {
+            const diagram = Factory.createItem(ElementType.FRET_DIAGRAM, scoreDummy(score).segment()) as unknown as FretDiagram
+            diagram.setTrack(element.track())
+
+            const harmony = element as unknown as Harmony
+            diagram.updateDiagram(harmony.harmonyName())
+
+            diagram.setParent(harmony.parent())
+            score.undoAddElement(diagram)
+            created.push(diagram)
+            lastAddedDiagram = diagram
+        }
+
+        for (let i = created.length - 1; i >= 0; --i) {
+            const diagram = created[i]
+            const harmony = filteredElements[i]
+
+            score.undoChangeParent(harmony, diagram, track2staff(filteredElements[i].track()))
+        }
+
+        this.apply()
+
+        if (lastAddedDiagram) {
+            this.select([lastAddedDiagram], SelectType.SINGLE)
+        }
+    }
+
     addFiguredBass(): void {
         const REQUIRED_TYPES = [
             ElementType.NOTE,
@@ -4865,7 +5114,15 @@ export class NotationInteraction {
 
         this.score().update()
 
-        // TODO(port): anchor lines (updateGripAnchorLines / updateDragAnchorLines)
+        if (this.isGripEditStarted()) {
+            if (this.m_editData.element!.isDynamic() && !this.m_editData.isStartEndGrip()) {
+                this.updateDragAnchorLines()
+            } else {
+                this.updateGripAnchorLines()
+            }
+        } else {
+            this.updateDragAnchorLines()
+        }
 
         if (this.m_dragData.elements.length === 0) {
             this.doDragLasso(toPos)
@@ -4888,6 +5145,12 @@ export class NotationInteraction {
         }
 
         this.m_dragData.reset()
+
+        if (this.m_dropData) {
+            this.setDropTarget(null, false)
+        } else {
+            this.resetAnchorLines()
+        }
     }
 
     endDrag(): void {
@@ -4929,9 +5192,38 @@ export class NotationInteraction {
         this.m_editData.element = element
         this.m_editData.curGrip = grip
 
+        this.updateGripAnchorLines()
         this.m_editData.element.startEdit(this.m_editData)
 
         this.notifyAboutNotationChanged()
+    }
+
+    updateGripAnchorLines(): void {
+        if (!this.m_editData.element) {
+            return
+        }
+
+        const lines: LineF[] = []
+        const anchorLinesGrip = this.m_editData.curGrip === Grip.NO_GRIP
+            ? this.m_editData.element.defaultGrip() : this.m_editData.curGrip
+        const anchorLines = this.m_editData.element.gripAnchorLines(anchorLinesGrip)
+
+        for (const line of anchorLines) {
+            if (!line.p1().equals(line.p2())) {
+                lines.push(line)
+            }
+        }
+
+        this.setAnchorLines(lines)
+    }
+
+    updateDragAnchorLines(): void {
+        const anchorLines: LineF[] = []
+        for (const e of this.score().selection().elements()) {
+            anchorLines.push(...e.dragAnchorLines())
+        }
+
+        this.setAnchorLines(anchorLines)
     }
 
     endEditGrip(): void {

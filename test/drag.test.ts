@@ -102,6 +102,31 @@ describe.skipIf(!hasSubmodule)('drag', () => {
         undo(score)
     })
 
+    it('shows the anchor line of the dragged element while dragging (MuseScore\'s drag anchor lines)', () => {
+        let tempo: EngravingItem | null = null
+        score.scanElements(e => {
+            if (!tempo && e.isTempoText()) {
+                tempo = e
+            }
+        })
+        const t = tempo! as EngravingItem
+        // the formatting color (#C31989) of the dotted line and its end points in the overlay of the page
+        const pink = (): number => (drawPageSvg(score, 0, { printing: false }).match(/#c31989/gi) ?? []).length
+        score.select(t)
+        const before = pink()
+        const c = t.canvasBoundingRect().center()
+        const sp = score.style().spatium()
+        viewMousePress(score, pointer(score, c.x(), c.y()))
+        for (let i = 1; i <= 4; ++i) {
+            viewMouseMove(score, pointer(score, c.x() + i * sp, c.y() + i * sp))
+        }
+        expect(isDragging(score)).toBe(true)
+        expect(pink()).toBeGreaterThan(before)
+        viewMouseRelease(score, pointer(score, c.x() + 4 * sp, c.y() + 4 * sp, { buttons: 0 }))
+        expect(pink()).toBe(before)
+        undo(score)
+    })
+
     it('lasso: Shift+drag on empty space selects the elements in the rectangle', () => {
         const chord = firstChord(score)
         const system = chord.measure()!.system()!

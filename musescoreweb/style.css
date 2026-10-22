@@ -1287,6 +1287,22 @@ dialog.edit-staff .icon-button, dialog.edit-string-data .icon-button {
     font-family: "MusescoreIcon"; font-size: 16px; min-width: 32px;
 }
 
+dialog.tuplet-dialog { width: min(420px, calc(100vw - 32px)); }
+dialog.tuplet-dialog form { text-align: left; display: flex; flex-direction: column; gap: 12px; }
+dialog.tuplet-dialog .groupbox {
+    border: 1px solid var(--border); border-radius: 6px; margin: 0; padding: 8px 12px 12px; min-width: 0;
+    display: flex; flex-direction: column; gap: 6px;
+}
+dialog.tuplet-dialog .groupbox legend { padding: 0 4px; font-weight: 600; }
+dialog.tuplet-dialog .ratio { display: flex; align-items: center; gap: 8px; }
+dialog.tuplet-dialog .ratio input { width: 72px; }
+dialog.tuplet-dialog .format { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+dialog.tuplet-dialog .dialog-buttons .spacer, dialog.measures-count-dialog .dialog-buttons .spacer { flex: 1; }
+dialog.measures-count-dialog { width: min(420px, calc(100vw - 32px)); }
+dialog.measures-count-dialog form { text-align: left; display: flex; flex-direction: column; gap: 20px; }
+dialog.measures-count-dialog .measures-count { display: flex; align-items: center; gap: 12px; font-weight: 600; }
+dialog.measures-count-dialog .measures-count span { flex: 1; }
+dialog.measures-count-dialog .measures-count input { width: 96px; }
 dialog.select-dialog { width: min(440px, calc(100vw - 32px)); }
 dialog.select-dialog form { text-align: left; display: flex; flex-direction: column; gap: 12px; }
 dialog.select-dialog .groupbox {

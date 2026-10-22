@@ -849,6 +849,45 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('adds measures with the number dialog and a tuplet with the tuplet dialog (Add menu)', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const box = (await page.locator('.page').first().boundingBox())!
+
+        // Add > Measures > Insert at end of score…: 30 measures (one undo step)
+        await page.click('.menubar > button:has-text("Add")')
+        await page.hover('.menu-item:has-text("Measures")')
+        await page.click('.menu-item:has-text("Insert at end of score…")')
+        await page.waitForSelector('dialog.measures-count-dialog[open]')
+        await page.fill('dialog.measures-count-dialog input[type="number"]', '30')
+        await page.click('dialog.measures-count-dialog .dialog-buttons .primary')
+        await page.waitForSelector('dialog.measures-count-dialog', { state: 'detached' })
+        await page.waitForFunction(() => document.getElementById('title')!.textContent!.startsWith('*'))
+        // the added measures (from 18) are selected
+        expect(await page.textContent('#status')).toMatch(/^Range selection; Start measure: 18;/)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => !document.getElementById('title')!.textContent!.startsWith('*'))
+
+        // Add > Tuplets > Other…: disabled without a note or rest, a 5:4 tuplet on the first rest of the soprano
+        await page.mouse.click(box.x + box.width * 0.22, box.y + box.height * 0.155)
+        await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Rest;'))
+        await page.click('.menubar > button:has-text("Add")')
+        await page.hover('.menu-item:has-text("Tuplets")')
+        await page.click('.menu-item:has-text("Other…")')
+        await page.waitForSelector('dialog.tuplet-dialog[open]')
+        expect(await page.textContent('dialog.tuplet-dialog h2')).toBe('Create tuplet')
+        await page.fill('dialog.tuplet-dialog .ratio input >> nth=0', '5')
+        await page.fill('dialog.tuplet-dialog .ratio input >> nth=1', '4')
+        await page.click('dialog.tuplet-dialog .dialog-buttons .primary')
+        await page.waitForSelector('dialog.tuplet-dialog', { state: 'detached' })
+        await page.waitForFunction(() => /^(Rest|Note|Chord);.*Tuplet/i.test(document.getElementById('status')!.textContent!)
+            || document.getElementById('title')!.textContent!.startsWith('*'))
+        expect(await page.textContent('#title')).toMatch(/^\*/)
+        await context.close()
+    }, 120000)
+
     it('selects similar elements from the context menu (Select > Similar, More…)', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)

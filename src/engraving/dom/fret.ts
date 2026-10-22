@@ -10,7 +10,7 @@
 
 import { Font, FontType } from '../../framework/draw/types/font'
 import type { PainterPath } from '../../framework/draw/types/painterpath'
-import { PointF } from '../../framework/draw/types/geometry'
+import { LineF, PointF } from '../../framework/draw/types/geometry'
 import { Align, AlignH, AlignV, ElementType, FontStyle, NoteSpellingType, Orientation, type track_idx_t } from '../types/types'
 import { P_TYPE, type PropertyValue } from '../types/propertyvalue'
 import { Sid } from '../style/styledef'
@@ -1154,4 +1154,8 @@ export class FretDiagram extends EngravingItem {
     }
 
     override allowTimeAnchor(): boolean { return !!this.explicitParent() && this.parent()!.isSegment() }
+
+    override dragAnchorLines(): LineF[] {
+        return this.genericDragAnchorLines()
+    }
 }

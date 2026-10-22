@@ -1326,14 +1326,25 @@ Score.prototype.clearSystemLocks = function (this: Score): void {
 
 /**
  * Create a new MeasureBase of Measure type and insert before measure. If measure is zero, append new MeasureBase.
- * TODO(port): inserting before existing measures (moving clefs, key and time signatures, barlines, repeats)
  */
 MasterScore.prototype.insertMeasureInMaster = function (this: MasterScore, beforeMeasure: MeasureBase | null = null,
     options: InsertMeasureOptions = new InsertMeasureOptions()): Measure | null {
     let tick: Fraction
     if (beforeMeasure) {
-        // TODO(port): mm rests, measure repeat groups and the moved elements below
-        throw new Error('TODO(port): MasterScore::insertMeasure before a measure')
+        if (beforeMeasure.isMeasure()) {
+            if ((beforeMeasure as Measure).isMMRest()) {
+                beforeMeasure = (beforeMeasure as Measure).prev()
+                beforeMeasure = beforeMeasure ? beforeMeasure.next() : this.firstMeasure()
+                this.deselectAll()
+            }
+            for (let staffIdx = 0; staffIdx < this.nstaves(); ++staffIdx) {
+                if ((beforeMeasure as Measure).isMeasureRepeatGroupWithPrevM(staffIdx)) {
+                    MScore.setError(MsError.CANNOT_SPLIT_MEASURE_REPEAT)
+                    return null
+                }
+            }
+        }
+        tick = beforeMeasure!.tick()
     } else {
         tick = this.last() ? this.last()!.endTick() : new Fraction(0, 1)
     }
@@ -1342,42 +1353,260 @@ MasterScore.prototype.insertMeasureInMaster = function (this: MasterScore, befor
 
     // Use nominal time signature of current or previous measure, depending on whether
     // the time sig from `beforeMeasure` will be moved to the newly created measure
-    const currentTimeSig = this.sigmap().timesig(tick).nominal() // (prevMeasure()->tick() when inserting before a measure)
+    const currentTimeSig = this.sigmap().timesig(!options.moveSignaturesClef && !isBeginning && beforeMeasure && beforeMeasure.prevMeasure()
+        ? beforeMeasure.prevMeasure()!.tick().ticks()
+        : tick.ticks()).nominal()
 
     let masterMeasure: Measure | null = null
     let ticks = new Fraction(0, 1)
 
     for (const score of [this as Score]) { // TODO(port): scoreList() (excerpts)
-        const actualBeforeMeasure: MeasureBase | null = null
+        let actualBeforeMeasure: MeasureBase | null = null
+
+        if (beforeMeasure) {
+            if (beforeMeasure.score() === score) {
+                actualBeforeMeasure = beforeMeasure
+            } else if (!beforeMeasure.isMeasure() && beforeMeasure.links()) {
+                for (const m of beforeMeasure.links()!) {
+                    if (m && m.isMeasureBase() && m.score() === score) {
+                        actualBeforeMeasure = m as unknown as MeasureBase
+                        break
+                    }
+                }
+            }
+            // if beforeMeasure is measure; or if din't find linked frame, use measure
+            if (!actualBeforeMeasure) {
+                actualBeforeMeasure = score.tick2measure(tick)
+            }
+        }
 
         const newMeasure = Factory.createItem(ElementType.MEASURE, score.dummySystem()) as Measure
         newMeasure.setTick(tick)
 
+        if (actualBeforeMeasure) {
+            actualBeforeMeasure = actualBeforeMeasure.top() // don't try to insert in front of nested frame
+        }
         newMeasure.setNext(actualBeforeMeasure)
-        newMeasure.setPrev(score.last())
+        newMeasure.setPrev(actualBeforeMeasure ? actualBeforeMeasure.prev() : score.last())
 
         newMeasure.setTimesig(currentTimeSig)
         newMeasure.setTicks(currentTimeSig)
 
-        score.undo(new InsertMeasures(newMeasure, newMeasure, options.moveStaffTypeChanges))
+        this.undo(new InsertMeasures(newMeasure, newMeasure, options.moveStaffTypeChanges))
 
         ticks = newMeasure.ticks()
-        const measureInsert: Measure | null = null // insert before
+        let measureInsert: Measure | null = null // insert before
+        if (actualBeforeMeasure) {
+            if (actualBeforeMeasure.isMeasure()) {
+                measureInsert = actualBeforeMeasure as Measure
+            } else {
+                measureInsert = score.tick2measure(actualBeforeMeasure.tick())
+            }
+        }
 
         if (score.isMaster()) {
             masterMeasure = newMeasure
         }
 
+        const timeSigList: TimeSig[] = []
+        const keySigList: KeySig[] = []
+        const initClefList: Clef[] = []
+        const previousClefList: Clef[] = []
+        const specialCaseClefs: Clef[] = []
+        const afterBarlineClefs: Clef[] = []
+        const previousBarLinesList: BarLine[] = []
+
         const pm = newMeasure.prevMeasure()
 
-        if (!measureInsert && tick.eq(new Fraction(0, 1))) {
+        //
+        // remove clefs, barlines, time and key signatures
+        //
+        let headerKeySig = false
+        if (measureInsert) {
+            // if inserting before first measure, always preserve clefs and signatures
+            // at the begining of the score (move them back)
+
+            if (pm && !options.moveSignaturesClef && !isBeginning) {
+                const ps = pm.findSegment(SegmentType.Clef, tick)
+                if (ps && ps.enabled()) {
+                    for (let staffIdx = 0; staffIdx < score.nstaves(); ++staffIdx) {
+                        const pc = ps.element(staffIdx * VOICES)
+                        if (pc) {
+                            previousClefList.push(pc as unknown as Clef)
+                            this.doUndoRemoveElement(pc)
+                            if (ps.empty()) {
+                                this.undoRemoveElement(ps)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (options.moveSignaturesClef || isBeginning) {
+                for (let staffIdx = 0; staffIdx < score.nstaves(); ++staffIdx) {
+                    for (let s = measureInsert.first(); s && s.rtick().isZero(); s = s.next()) {
+                        if (!s.enabled()) {
+                            continue
+                        }
+                        const e = s.element(staffIdx * VOICES)
+                        let specialCase = false
+                        let initClef = false
+                        let moveClef = false
+                        let moveOther = false
+                        if (e && e.isClef()) {
+                            if (s.isHeaderClefType()) {
+                                // if it's a header clef, we only add if it's an init clef
+                                // (other header clefs are handled by undo(new InsertMeasures())
+                                initClef = isBeginning && !(e as unknown as Clef).forInstrumentChange()
+                                moveClef = initClef
+                            } else {
+                                const clefPos = (e as unknown as Clef).clefToBarlinePosition()
+                                if (isBeginning) {
+                                    // special case:
+                                    // there is a non-header clef at global tick 0, and we are inserting at the beginning of the score.
+                                    // this clef will be moved with the measure it accompanies, but it will be moved before the barline.
+                                    specialCase = true
+                                    moveClef = true
+                                } else if (clefPos === ClefToBarlinePosition.AFTER) {
+                                    // non header clef at the begining of the measure
+                                    moveClef = true
+                                }
+                            }
+                        } else {
+                            // otherwise, we only add if e is not generated
+                            moveOther = !!e && (!e.generated() || tick.isZero())
+                        }
+                        if (!moveClef && !moveOther) {
+                            continue // this item will remain with the old measure
+                        }
+                        // otherwise, this item is moved back to the new measure
+                        let ee: EngravingItem | null = null
+                        if (e!.isKeySig()) {
+                            const ks = e as unknown as KeySig
+                            if (ks.forInstrumentChange()) {
+                                continue
+                            }
+                            keySigList.push(ks)
+                            // if instrument change on that place, set correct key signature for instrument change
+                            const ic = s.next(SegmentType.ChordRest)!.findAnnotation(ElementType.INSTRUMENT_CHANGE,
+                                e!.part()!.startTrack(), e!.part()!.endTrack() - 1)
+                            if (ic) {
+                                const ke = ks.keySigEvent().clone()
+                                ke.setForInstrumentChange(true)
+                                this.undoChangeKeySig(ks.staff()!, e!.tick(), ke)
+                            } else {
+                                ee = e
+                            }
+                            if (s.header()) {
+                                headerKeySig = true
+                            }
+                        } else if (e!.isTimeSig()) {
+                            const ts = e as unknown as TimeSig
+                            timeSigList.push(ts)
+                            ee = e
+                        } else if (e!.isClef()) {
+                            const clef = e as unknown as Clef
+                            if (specialCase) {
+                                specialCaseClefs.push(clef)
+                            } else if (initClef) {
+                                initClefList.push(clef)
+                            } else {
+                                afterBarlineClefs.push(clef)
+                            }
+                            ee = e
+                        }
+                        if (ee) {
+                            this.doUndoRemoveElement(ee)
+                            if (s.empty() && s.isTimeSigType()) {
+                                this.undoRemoveElement(s)
+                            }
+                        }
+                    }
+                }
+
+                if (masterMeasure && measureInsert.repeatStart()) {
+                    masterMeasure.undoChangeProperty(Pid.REPEAT_START, true)
+                    measureInsert.undoChangeProperty(Pid.REPEAT_START, false)
+                }
+            }
+        } else if (!measureInsert && tick.eq(new Fraction(0, 1))) {
             // If inserting measure into an empty score, restore default C key signature
             // and 4/4 time signature
             score.restoreInitialKeySigAndTimeSig()
         }
 
         if (pm && !options.moveSignaturesClef && !options.ignoreBarLines) {
-            // TODO(port): move the end barlines of the previous measure (only when inserting before a measure)
+            const pbs = pm.findSegment(SegmentType.EndBarLine, tick)
+            if (pbs && pbs.enabled()) {
+                for (let staffIdx = 0; staffIdx < score.nstaves(); ++staffIdx) {
+                    const pb = pbs.element(staffIdx * VOICES)
+                    if (pb && !pb.generated()) {
+                        previousBarLinesList.push(pb as unknown as BarLine)
+                        this.doUndoRemoveElement(pb)
+                        if (pbs.empty()) {
+                            pbs.setEnabled(false)
+                        }
+                    }
+                }
+            }
+            if (masterMeasure && pm.repeatEnd()) {
+                masterMeasure.undoChangeProperty(Pid.REPEAT_END, true)
+                pm.undoChangeProperty(Pid.REPEAT_END, false)
+            }
+        }
+
+        //
+        // move clef, barline, time, key signatures
+        //
+        for (const ts of timeSigList) {
+            const nts = ts.clone() as TimeSig // Factory::copyTimeSig
+            const s = newMeasure.undoGetSegmentR(SegmentType.TimeSig, new Fraction(0, 1))
+            nts.setParent(s)
+            this.doUndoAddElement(nts)
+        }
+        for (const ks of keySigList) {
+            const nks = ks.clone() as KeySig // Factory::copyKeySig
+            const s = newMeasure.undoGetSegmentR(SegmentType.KeySig, new Fraction(0, 1))
+            if (headerKeySig || newMeasure.tick().isZero()) {
+                s.setHeader(true)
+            }
+            nks.setParent(s)
+            if (!nks.isAtonal()) {
+                nks.setKey(nks.concertKey()) // to set correct (transposing) key
+            }
+            this.doUndoAddElement(nks)
+        }
+        for (const clef of initClefList) {
+            const nClef = clef.clone() as Clef // Factory::copyClef
+            const s = newMeasure.undoGetSegmentR(SegmentType.HeaderClef, new Fraction(0, 1))
+            s.setHeader(true)
+            nClef.setParent(s)
+            this.doUndoAddElement(nClef)
+        }
+        for (const clef of afterBarlineClefs) {
+            const nClef = clef.clone() as Clef
+            const s = newMeasure.undoGetSegmentR(SegmentType.Clef, new Fraction(0, 1))
+            s.setHeader(true)
+            nClef.setParent(s)
+            this.doUndoAddElement(nClef)
+        }
+        for (const clef of previousClefList) {
+            const nClef = clef.clone() as Clef
+            const s = newMeasure.undoGetSegmentR(SegmentType.Clef, newMeasure.ticks())
+            nClef.setParent(s)
+            this.doUndoAddElement(nClef)
+        }
+        for (const clef of specialCaseClefs) {
+            const nClef = clef.clone() as Clef
+            const s = newMeasure.undoGetSegmentR(SegmentType.Clef, newMeasure.ticks())
+            nClef.setParent(s)
+            this.doUndoAddElement(nClef)
+        }
+        for (const barLine of previousBarLinesList) {
+            const nBarLine = barLine.clone() as BarLine // Factory::copyBarLine
+            const s = newMeasure.undoGetSegmentR(SegmentType.EndBarLine, newMeasure.ticks())
+            nBarLine.setParent(s)
+            this.doUndoAddElement(nBarLine)
         }
     }
 
@@ -1398,7 +1627,9 @@ MasterScore.prototype.insertMeasureInMaster = function (this: MasterScore, befor
         }
     }
 
-    // TODO(port): deselectAll()
+    if (options.needDeselectAll) {
+        this.deselectAll()
+    }
 
     return masterMeasure
 }
@@ -5510,7 +5741,7 @@ function isLetter(c: string | undefined): boolean {
 // =====================================================================================================================
 
 // (imports of this section; ES imports are hoisted)
-import { SpannerSegmentType } from '../types/types'
+import { ClefToBarlinePosition, SpannerSegmentType } from '../types/types'
 import { ChordRest as NoteInputChordRest } from '../dom/chordrest'
 import { TupletBracketType, TupletNumberType, type Tuplet as NoteInputTuplet } from '../dom/tuplet'
 import { HairpinType } from '../dom/hairpin'

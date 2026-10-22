@@ -2188,6 +2188,17 @@ export class Score extends EngravingObject {
         return m ? m.last() : null
     }
 
+    measure(idx: number): MeasureBase | null {
+        let mb = this.m_measures.first()
+        for (let i = 0; i < idx; ++i) {
+            mb = mb!.next()
+            if (!mb) {
+                return null
+            }
+        }
+        return mb
+    }
+
     crMeasure(idx: number): Measure | null {
         let i = -1
         for (let mb = this.m_measures.first(); mb; mb = mb.next()) {

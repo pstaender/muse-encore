@@ -1316,3 +1316,22 @@
 - Editor: dialogs/SelectDialog.tsx (grid layout of the .ui files), action select-dialog.
 - Tests: test/selectsimilar.test.ts; copypastesymbollist tests use selectSimilar like C++; e2e: Select > Similar and
   More… from the context menu.
+
+### Add menu: measures, frames, fretboard diagrams, tuplet dialog; drag anchor lines
+- MasterScore.insertMeasureInMaster before a measure (the whole C++ MasterScore::insertMeasure: mm rests, measure
+  repeat groups, moving clefs/key/time signatures/end barlines and repeats to the new measure, deselectAll); MuseScore's
+  measure_tests insert tests (test/measure.test.ts: middle, begin, end, at beginning, before clef/key changes with undo,
+  spanners). TODO(port): scoreList() (excerpts).
+- NotationInteraction.addBoxes(boxType, count, target) / addBoxesAt (BoxType, AddBoxesTarget in notationtypes) and
+  addFretboardDiagram; Score.measure(idx). Actions insert-measure, append-measure, insert/append-hbox, -vbox, -textframe,
+  -fretframe (fretboard diagram legend), add-fretboard-diagram. Library: addMeasures(score, count, target),
+  addCustomTuplet / customTupletDefaults / canAddCustomTuplet (custom-tuplet of TupletDialog).
+- Editor: dialogs/SelectMeasuresCountDialog.tsx (insert-measures, insert-measures-after-selection,
+  insert-measures-at-start-of-score, append-measures), dialogs/TupletDialog.tsx (tuplet-dialog, "Create tuplet").
+- Anchor lines while dragging (the formatting colored dotted lines with dots): NotationInteraction
+  updateDragAnchorLines / updateGripAnchorLines (drag, startEditGrip, flip; reset at the end of the drag and edit),
+  dragAnchorLines/gripAnchorLines of LineSegment (leftAnchorPosition/rightAnchorPosition), SlurTieSegment, Articulation,
+  Fermata, BSymbol, FretDiagram, Marker, HammerOnPullOffText; GuitarBend segments have none.
+  TODO(port): Arpeggio grip anchor lines (arpeggio grips are not ported).
+- Tests: test/addmenu.test.ts, test/measure.test.ts, drag test of the anchor lines; e2e: Add > Measures > Insert at end
+  of score… and Add > Tuplets > Other….

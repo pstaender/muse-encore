@@ -9,7 +9,8 @@
  */
 
 import { PainterPath } from '../../framework/draw/types/painterpath'
-import { PointF, PolygonF } from '../../framework/draw/types/geometry'
+import { LineF, PointF, PolygonF } from '../../framework/draw/types/geometry'
+import type { Grip } from '../editing/editdata'
 import type { Color } from '../../framework/draw/types/color'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
@@ -790,6 +791,8 @@ export class GuitarBendSegment extends LineSegment {
         const modified = !this.vertexPointOff().isNull() || (this.m_text && this.m_text.isUserModified())
         return modified || super.isUserModified()
     }
+
+    override gripAnchorLines(_grip: Grip): LineF[] { return [] }
 }
 
 export class GuitarBendHold extends SLine {
@@ -862,6 +865,8 @@ export class GuitarBendHoldSegment extends LineSegment {
 
     /** C++ double lineWidth() (hides LineSegment::lineWidth()) */
     bendLineWidth(): number { return this.guitarBendHold().bendLineWidth() }
+
+    override gripAnchorLines(_grip: Grip): LineF[] { return [] }
 }
 
 const guitarBendStyle: ElementStyle = []

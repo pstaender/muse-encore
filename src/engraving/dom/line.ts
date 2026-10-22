@@ -13,7 +13,7 @@ import { Color } from '../../framework/draw/types/color'
 import { LineF, PointF, type RectF } from '../../framework/draw/types/geometry'
 import { Spatium } from '../types/dimension'
 import type { PropertyValue } from '../types/propertyvalue'
-import { ElementType, LineType } from '../types/types'
+import { ElementType, LineType, PlacementV } from '../types/types'
 import { Sid } from '../style/styledef'
 import { Grip, KeyboardModifier, type EditData } from '../editing/editdata'
 import { ElementFlag } from './engravingitem'
@@ -105,8 +105,98 @@ export abstract class LineSegment extends SpannerSegment {
         this.triggerLayout()
     }
 
+    /** C++ leftAnchorPosition(systemPositionY): page coordinates */
+    leftAnchorPosition(systemPositionY: number): PointF {
+        if (this.isMiddleType() || this.isEndType()) {
+            return new PointF(this.system()!.firstMeasure()!.pageBoundingRect().left(), systemPositionY)
+        }
+
+        let result = new PointF()
+
+        const startSeg = this.line().startSegment()
+        if (!startSeg) {
+            return result
+        }
+
+        const s = startSeg.measure().system()
+        result = startSeg.pos().plus(startSeg.measure().pos())
+        result.setY(result.y() + systemPositionY - this.system()!.pos().y())
+
+        if (s) {
+            result = result.plus(s.pos()) // to page coordinates
+        }
+        return result
+    }
+
+    /** C++ rightAnchorPosition(systemPositionY): page coordinates */
+    rightAnchorPosition(systemPositionY: number): PointF {
+        const sys = this.system()
+        if (!sys) {
+            return new PointF()
+        }
+
+        const endsAtSystemEnd = this.isSingleEndType() && this.line().tick2().eq(sys.endTick())
+        if (this.isMiddleType() || this.isBeginType() || endsAtSystemEnd) {
+            return new PointF(sys.endingXForOpenEndedLines() + sys.x(), systemPositionY)
+        }
+
+        let result = new PointF()
+
+        const endSeg = this.line().endSegment()
+        if (!endSeg) {
+            return result
+        }
+
+        const s = endSeg.measure().system()
+        result = endSeg.pos().plus(endSeg.measure().pos())
+        result.setY(result.y() + systemPositionY - this.system()!.pos().y())
+
+        if (s) {
+            result = result.plus(s.pos()) // to page coordinates
+        }
+        return result
+    }
+
+    /** return page coordinates */
+    override gripAnchorLines(grip: Grip): LineF[] {
+        const result: LineF[] = []
+
+        // Middle or aperture grip have no anchor
+        const system = this.system()
+        if (!system || grip === Grip.APERTURE) {
+            return result
+        }
+
+        const stIdx = this.staffIdx()
+        let y = system.staffYpage(stIdx)
+        if (this.line().placement() === PlacementV.BELOW) {
+            y += system.staff(stIdx)!.bbox().height()
+        }
+        // adjust Y to staffType offset
+        y += this.staffOffsetY()
+
+        const p = system.page()
+        const pageOffset = p ? p.pos() : new PointF()
+        switch (grip) {
+        case Grip.START:
+            result.push(new LineF(this.leftAnchorPosition(y), this.gripsPositions()[Grip.START]).translated(pageOffset))
+            break
+        case Grip.END:
+            result.push(new LineF(this.rightAnchorPosition(y), this.gripsPositions()[Grip.END]).translated(pageOffset))
+            break
+        case Grip.MIDDLE:
+            result.push(new LineF(this.leftAnchorPosition(y), this.gripsPositions()[Grip.START]).translated(pageOffset))
+            result.push(new LineF(this.rightAnchorPosition(y), this.gripsPositions()[Grip.END]).translated(pageOffset))
+            break
+        default:
+            break
+        }
+
+        return result
+    }
+
     override dragAnchorLines(): LineF[] {
-        return [] // TODO(port): gripAnchorLines(Grip::MIDDLE)
+        return this.gripAnchorLines(Grip.MIDDLE)
     }
 
     override drag(ed: EditData): RectF {
