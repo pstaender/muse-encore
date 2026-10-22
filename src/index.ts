@@ -30,6 +30,7 @@ import { NotationProject, ProjectCreateOptions } from './project/internal/notati
 import { Sid } from './engraving/style/styledef'
 import { fontProvider } from './engraving/infrastructure/engravingcontext'
 import { MscLoader, loadScore as loadMasterScore } from './engraving/rw/mscloader'
+import { SelectDialog, SelectNoteDialog } from './notationscene/selectdialog'
 import { ProjectMigrator, migrationTypeFromMscVersion } from './project/internal/projectmigrator'
 import { MigrationType, MigrationOptions } from './project/types/projecttypes'
 import type { TemplateFileProvider } from './project/internal/mdlmigrator'
@@ -1543,6 +1544,22 @@ export function createEditStaff(score: MasterScore): EditStaff | null {
     const editStaff = new EditStaff(notationState(score).interaction, notationParts(score))
     return editStaff.isValid() ? editStaff : null
 }
+/**
+ * "Select > More…" (NotationActionController::openSelectionMoreOptions, action "select-dialog"): MuseScore's Select
+ * notes dialog for a note, else its Select dialog, for the context item (the selected element or the right-clicked
+ * one); null without a context item. The dialog edits values and calls apply() on OK.
+ */
+export function createSelectDialog(score: MasterScore): SelectDialog | SelectNoteDialog | null {
+    const interaction = notationState(score).interaction
+    const item = interaction.contextItem()
+    if (!item) {
+        return null
+    }
+    return item.isNote() ? new SelectNoteDialog(interaction) : new SelectDialog(interaction)
+}
+export {
+    SelectDialog, SelectNoteDialog, type SelectDialogAction, type SelectDialogValues, type SelectNoteDialogValues,
+} from './notationscene/selectdialog'
 export { EditStaff, type EditStaffValues, type EditStaffString } from './notationscene/editstaff'
 export {
     EditStaffType, NOTEHEAD_SCHEMES, type EditStaffTypeValues, type EditStaffTypeEnabled, type TabNoteValues,

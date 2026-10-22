@@ -162,6 +162,7 @@ export class NotationInteraction {
     private m_score: Score
     private m_notationChanged = new Notification()
     private m_selectionChanged = new Notification()
+    private m_lastElementHit: EngravingItem | null = null // C++ NotationSelection::m_lastElementHit
     private m_noteInputStateChanged = new Notification()
     private m_undoStack: NotationUndoStack
     private m_noteInput: NotationNoteInput
@@ -1139,8 +1140,12 @@ export class NotationInteraction {
         if (elements.length === 0) {
             return null
         }
+        this.m_lastElementHit = elements[elements.length - 1] // C++ m_selection->onElementHit()
         return elements[elements.length - 1]
     }
+
+    /** C++ NotationSelection::lastElementHit() */
+    lastElementHit(): EngravingItem | null { return this.m_lastElementHit }
 
     hitStaff(pos: PointF): Staff | null {
         return this.hitMeasure(pos).staff

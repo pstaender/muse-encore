@@ -1293,8 +1293,8 @@
   element context); dialogs/EditStaffDialog.tsx (action staff-properties), EditStaffTypeDialog.tsx (preview canvas,
   samples bundled from the submodule), EditPitchDialog.tsx (Note selection, pitchToString), EditStringDataDialog.tsx.
   Nested <dialog>s: React passes the close event of an inner dialog to the outer onClose, the handlers check the target.
-  Many context menu items are disabled: their actions are not ported (select similar, the Style dialog, measure
-  properties, insert measures dialogs, ...).
+  Many context menu items are disabled: their actions are not ported (the Style dialog, measure properties, insert
+  measures dialogs, ...).
 - MasterNotationParts.replaceInstrument renames the part's excerpt (ChangeExcerptTitle, formatUniqueExcerptName);
   ChangePatch (instrumentchange_tests testMixer).
 - MasterScore.setExcerptsChanged/excerptsChanged (CmdState.excerptsChanged): set by addExcerpt/removeExcerpt,
@@ -1303,3 +1303,16 @@
   EditPart.replaceInstrument passes reflectTranspositionInLinkedTab to ChangeStaff.
 - Tests: test/editstaff.test.ts; instrumentchange testMixer; notationparts excerpt rename; e2e: context menu of an
   instrument name -> Staff/Part properties -> Advanced style properties (preview) -> OK, undo.
+
+### Select similar (context menu "Select")
+- Score.selectSimilar, static collectMatch (all of ElementPattern: system, rest duration, measure, beat) and
+  collectNoteMatch (NotePattern); ElementPattern/NotePattern in select.ts; EngravingItem.beat(); Score.crMeasure.
+- notation/internal/notationelements.ts: NotationElements.elements(FilterElementsOptions | FilterNotesOptions)
+  (notationtypes; -1 -> nidx), rehearsalMark/measure/page. TODO(port): search() (SearchCommandsParser).
+- NotationActionController: select-similar, select-similar-staff, select-similar-range (the last element hit:
+  NotationInteraction.lastElementHit, set by hitElement like C++ NotationSelection::onElementHit).
+- notationscene/selectdialog.ts: SelectDialog / SelectNoteDialog (the logic of "More…": labels, enabled states, the
+  options, apply with replace/add/subtract). Library: createSelectDialog(score) (the note dialog for a note).
+- Editor: dialogs/SelectDialog.tsx (grid layout of the .ui files), action select-dialog.
+- Tests: test/selectsimilar.test.ts; copypastesymbollist tests use selectSimilar like C++; e2e: Select > Similar and
+  More… from the context menu.

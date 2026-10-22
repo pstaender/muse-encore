@@ -21,7 +21,9 @@ import { Pid } from '../engraving/dom/property'
 import { AccidentalType } from '../engraving/dom/accidentaldata'
 import { UpDownMode } from '../engraving/dom/mscore'
 import { Pad } from '../engraving/dom/score'
-import { BracketsType, NoteAddingMode, NoteName } from '../notation/notationtypes'
+import { BracketsType, FilterElementsOptions, NoteAddingMode, NoteName } from '../notation/notationtypes'
+import { NotationElements } from '../notation/internal/notationelements'
+import { SelectType } from '../engraving/dom/select'
 import { MoveDirection, MoveSelectionType, type NotationInteraction } from '../notation/internal/notationinteraction'
 import type { NotationNoteInput } from '../notation/internal/notationnoteinput'
 import type { Score } from '../engraving/dom/score'
@@ -240,6 +242,10 @@ export class NotationActionController {
         this.registerAction(REDO_ACTION_CODE, () => this.interaction().redo(), () => this.canRedo())
 
         this.registerAction('notation-select-all', () => this.interaction().selectAll())
+        this.registerAction('select-similar', () => this.selectAllSimilarElements(), () => this.hasSelection())
+        this.registerAction('select-similar-staff', () => this.selectAllSimilarElementsInStaff(), () => this.hasSelection())
+        this.registerAction('select-similar-range', () => this.selectAllSimilarElementsInRange(), () => this.hasSelection())
+        // select-dialog (openSelectionMoreOptions) is registered by the app, which shows the dialogs (createSelectDialog)
         this.registerAction('first-element', () => this.withPlayMode(PlayMode.PlayChord, () => this.interaction().selectFirstElement(false)))
         this.registerAction('last-element', () => this.withPlayMode(PlayMode.PlayChord, () => this.interaction().selectLastElement()))
 
@@ -889,6 +895,86 @@ export class NotationActionController {
         }
 
         return result
+    }
+
+    private selectAllSimilarElements(): void {
+        const notationElements = this.currentNotationElements()
+        const interaction = this.interaction()
+
+        const selectedElement = this.score().selection().element()
+        if (!selectedElement) {
+            return
+        }
+
+        const options = this.elementsFilterOptions(selectedElement)
+        const elements = notationElements.elements(options)
+        if (elements.length === 0) {
+            return
+        }
+
+        interaction.clearSelection()
+
+        interaction.select(elements, SelectType.ADD)
+    }
+
+    private selectAllSimilarElementsInStaff(): void {
+        const notationElements = this.currentNotationElements()
+        const interaction = this.interaction()
+
+        const selectedElement = this.score().selection().element()
+        if (!selectedElement) {
+            return
+        }
+
+        const options = this.elementsFilterOptions(selectedElement)
+        options.staffStart = selectedElement.staffIdx()
+        options.staffEnd = options.staffStart + 1
+
+        const elements = notationElements.elements(options)
+        if (elements.length === 0) {
+            return
+        }
+
+        interaction.clearSelection()
+
+        interaction.select(elements, SelectType.ADD)
+    }
+
+    private selectAllSimilarElementsInRange(): void {
+        const lastHit = this.interaction().lastElementHit()
+        if (!lastHit) {
+            return
+        }
+
+        const score = this.score()
+        score.selectSimilarInRange(lastHit)
+        if (score.selectionChanged()) {
+            this.interaction().notifyAboutSelectionChangedIfNeed()
+        }
+    }
+
+    /** C++ currentNotationElements() */
+    private currentNotationElements(): NotationElements {
+        return new NotationElements(this.score())
+    }
+
+    private elementsFilterOptions(element: EngravingItem): FilterElementsOptions {
+        const options = new FilterElementsOptions()
+        options.elementType = element.type()
+
+        if (element.isNote()) {
+            const note = element as unknown as Note
+            if (note.chord().isGrace()) {
+                options.subtype = -1
+            } else {
+                options.subtype = element.subtype()
+            }
+        } else if (element.isHairpinSegment() || element.isHarmony()) {
+            options.subtype = element.subtype()
+            options.bySubtype = true
+        }
+
+        return options
     }
 
     /** C++ registerAction(code, handler, PlayMode): the handler, then seekSelectedElement and playSelectedElement */

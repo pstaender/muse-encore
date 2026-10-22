@@ -849,6 +849,38 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('selects similar elements from the context menu (Select > Similar, More…)', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const status = (): Promise<string> => page.textContent('#status').then(t => t ?? '')
+        const box = (await page.locator('.page').first().boundingBox())!
+        // the rest at the start of the soprano staff
+        const openSelectMenu = async (): Promise<void> => {
+            await page.mouse.click(box.x + box.width * 0.22, box.y + box.height * 0.155, { button: 'right' })
+            await page.waitForSelector('.menu-popup')
+            await page.hover('.menu-popup .menu-item:has-text("Select")')
+            await page.waitForSelector('.menu-popup >> nth=1')
+        }
+        await openSelectMenu()
+        await page.click('.menu-popup >> nth=1 >> .menu-item:has-text("Similar") >> nth=0')
+        await page.waitForFunction(() => document.getElementById('status')!.textContent === 'List selection')
+
+        // More…: the Select dialog of the rest (same duration only for rests)
+        await page.mouse.click(box.x + box.width * 0.22, box.y + box.height * 0.155)
+        await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Rest;'))
+        await openSelectMenu()
+        await page.click('.menu-popup >> nth=1 >> .menu-item:has-text("More…")')
+        await page.waitForSelector('dialog.select-dialog[open]')
+        expect(await page.textContent('dialog.select-dialog h2')).toBe('Select')
+        expect(await page.isDisabled('dialog.select-dialog label:has-text("Same duration") input')).toBe(false)
+        await page.check('dialog.select-dialog label:has-text("Same staff") input')
+        await page.click('dialog.select-dialog .dialog-buttons .primary')
+        await page.waitForSelector('dialog.select-dialog', { state: 'detached' })
+        expect(await status()).toBe('List selection')
+        await context.close()
+    }, 120000)
+
     it('edits the instruments in the Layout panel: hides a part, undoes, removes and adds instruments', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)

@@ -7,7 +7,7 @@
  */
 
 import { Fraction } from '../engraving/types/fraction'
-import { DurationType, Key, TextStyleType, TransposeDirection, TransposeMode, type AutoOnOff } from '../engraving/types/types'
+import { DurationType, ElementType, INVALID_STRING_INDEX, Key, NoteHeadGroup, TextStyleType, TransposeDirection, TransposeMode, type AutoOnOff } from '../engraving/types/types'
 import { TimeSigType } from '../engraving/dom/timesig'
 import { ScoreOrder } from '../engraving/dom/scoreorder'
 import { TupletBracketType, TupletNumberType } from '../engraving/dom/tuplet'
@@ -17,6 +17,11 @@ import type { Spatium } from '../engraving/types/dimension'
 import type { ClefTypeList } from '../engraving/dom/clefinfo'
 import type { StaffType } from '../engraving/dom/stafftype'
 import { arg, qtrc } from '../framework/global/translation'
+import { TDuration } from '../engraving/dom/durationtype'
+import { NoteType } from '../engraving/dom/chordrest'
+import { Tpc } from '../engraving/dom/pitchspelling'
+import type { System } from '../engraving/dom/system'
+import type { Measure } from '../engraving/dom/measure'
 
 export enum BracketsType {
     Brackets,
@@ -151,6 +156,33 @@ export function formatInstrumentTitle(instrumentName: string, trait: Trait): str
     default:
         return instrumentName // Example: "Flute"
     }
+}
+
+export class FilterElementsOptions {
+    elementType = ElementType.INVALID
+    staffStart = -1
+    staffEnd = -1
+    voice = -1
+    system: System | null = null
+    durationTicks = new Fraction(-1, 1)
+    beat = new Fraction(0, 0)
+    measure: Measure | null = null
+
+    bySubtype = false
+    subtype = -1
+
+    isValid(): boolean {
+        return this.elementType !== ElementType.INVALID
+    }
+}
+
+export class FilterNotesOptions extends FilterElementsOptions {
+    pitch = -1
+    string = INVALID_STRING_INDEX
+    tpc: number = Tpc.TPC_INVALID
+    notehead = NoteHeadGroup.HEAD_INVALID
+    durationType = new TDuration()
+    noteType = NoteType.INVALID
 }
 
 export interface StaffConfig {

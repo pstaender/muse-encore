@@ -520,6 +520,16 @@ export abstract class EngravingItem extends EngravingObject {
         return { bar: bar + 1, displayedBar: displayedBar + 1, beat: Math.fround(beat + 1 + ticks / Math.fround(ticksB)) }
     }
 
+    /** a fraction of ticks for use as a "Beat" reference in the Select All Similar filter */
+    beat(): Fraction {
+        const tsm = this.score().sigmap()
+        let [, beat, ticks] = tsm.tickValues(this.tick().ticks())
+        const ticksB = ticks_beat(tsm.timesig(this.tick().ticks()).timesig().denominator())
+
+        const complexFraction = new Fraction((++beat * ticksB) + ticks, ticksB)
+        return complexFraction.reduced()
+    }
+
     formatBarsAndBeats(): string {
         let result = ''
         const barbeat = this.barbeat()

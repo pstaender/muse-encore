@@ -8,7 +8,6 @@ import { executeAction, layoutScore, loadScore, redo, setClipboardContents, clip
 import { SegmentType } from '../src/engraving/dom/segment'
 import { SelectType } from '../src/engraving/dom/select'
 import type { Chord } from '../src/engraving/dom/chord'
-import type { EngravingItem } from '../src/engraving/dom/engravingitem'
 import { ElementType } from '../src/engraving/types/types'
 import { Factory } from '../src/engraving/dom/factory'
 import { scoreDummy } from '../src/engraving/compat/dummyelement'
@@ -136,15 +135,7 @@ describe.skipIf(!hasData)('copy/paste of symbol lists (MuseScore copypastesymbol
             await initFonts()
             const score = loadScore(readFileSync(`${SYMBOL_DATA}copypastesymbollist-${name}.mscx`))
             layoutScore(score)
-            // C++ score->selectSimilar(el, false): all elements of the type
-            const items: EngravingItem[] = []
-            score.scanElements(e => {
-                if (e.type() === type) {
-                    items.push(e)
-                }
-            })
-            score.select(null)
-            score.select(items, SelectType.ADD, 0)
+            score.selectSimilar(Factory.createItem(type, scoreDummy(score))!, false)
             pasteSymbolList(score, name)
         })
     }

@@ -63,7 +63,8 @@ src/
   notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands),
                         PlaybackCursor, LoopMarker, ContinuousPanel (left edge of the horizontal continuous view),
                         NotationContextMenuModel (the score's context menu), EditStaff/EditStaffType (the logic of the
-                        Staff/Part properties and Edit staff type dialogs; the app's dialogs show them)
+                        Staff/Part properties and Edit staff type dialogs; the app's dialogs show them), SelectDialog/
+                        SelectNoteDialog ("Select > More…"; NotationElements filters the elements)
   palette               palette tree/palettes/cells with XML read/write and .mpal files (palettecreator: default +
                         master palettes), the user palette tree (paletteprovider.ts: PaletteProvider, UserPaletteController;
                         palettemodel.ts: PaletteTreeModel addressed by PaletteIndex), cell icons (PaletteCellIconEngine,

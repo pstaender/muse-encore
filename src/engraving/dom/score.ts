@@ -42,10 +42,13 @@ import type { TimeSig } from './timesig'
 import { KeyList, KeySigEvent } from './key'
 import { Transpose } from '../editing/transpose'
 import { Interval } from './interval'
-import { Selection, SelectType, SelState } from './select'
+import { ElementPattern, NotePattern, Selection, SelectType, SelState } from './select'
 import { SelectionFilter } from './selectionfilter'
 import { PointF, type RectF } from '../../framework/draw/types/geometry'
-import { nidx, type CapoParams } from '../types/types'
+import { DurationType, INVALID_STRING_INDEX, NoteHeadGroup, nidx, type CapoParams } from '../types/types'
+import { NoteType } from './chordrest'
+import { Tpc } from './pitchspelling'
+import type { Rest } from './rest'
 import { CHORD_REST_OR_TIME_TICK_TYPE } from './segment'
 import { y2pitch } from './utils'
 import { TranslatableString } from '../../framework/global/types/translatablestring'
@@ -854,27 +857,25 @@ export class Score extends EngravingObject {
         return true
     }
 
-    /** C++ collectMatch (ElementPattern without beat and duration, which selectSimilarInRange does not set) */
-    private collectMatch(p: { type: ElementType; subtype: number; subtypeValid: boolean; staffStart: staff_idx_t;
-        staffEnd: staff_idx_t; voice: number; el: EngravingItem[] }, e: EngravingItem): void {
+    static collectMatch(p: ElementPattern, e: EngravingItem): void {
         if (p.type !== ElementType.INVALID && p.type !== e.type()) {
             return
         }
 
         if (p.type === ElementType.NOTE) {
-            const isGrace = (e as unknown as Note).chord().isGrace()
             if (p.subtype < 0) {
-                if (!isGrace) {
+                if (!(e as unknown as Note).chord().isGrace()) {
                     return
                 }
-            } else if (isGrace || p.subtype !== e.subtype()) {
+            } else if ((e as unknown as Note).chord().isGrace() || p.subtype !== e.subtype()) {
                 return
             }
         } else if (p.subtypeValid && p.subtype !== e.subtype()) {
             return
         }
 
-        if (p.staffStart !== nidx && (p.staffStart > e.staffIdx() || p.staffEnd <= e.staffIdx())) {
+        if (p.staffStart !== nidx
+            && (p.staffStart > e.staffIdx() || p.staffEnd <= e.staffIdx())) {
             return
         }
 
@@ -882,16 +883,131 @@ export class Score extends EngravingObject {
             return
         }
 
+        if (p.system) {
+            let ee: EngravingItem | null = e
+            do {
+                if (ee.isSystem()) {
+                    if (p.system !== (ee as unknown as System)) {
+                        return
+                    }
+                    break
+                }
+                ee = ee.parentItem()
+            } while (ee)
+        }
+
+        if (e.isRest() && !p.durationTicks.eq(new Fraction(-1, 1))) {
+            const r = e as unknown as Rest
+            if (!p.durationTicks.eq(r.actualTicks())) {
+                return
+            }
+        }
+
+        if (p.measure) {
+            let eMeasure = e.findMeasure()
+            if (!eMeasure && e.isSpannerSegment()) {
+                const s = (e as unknown as SpannerSegment).spanner()
+                if (s) {
+                    const se = s.startElement()
+                    if (se) {
+                        const mse = se.findMeasure()
+                        if (mse) {
+                            eMeasure = mse
+                        }
+                    }
+                }
+            }
+            if (p.measure !== eMeasure) {
+                return
+            }
+        }
+
+        if (p.beat.isValid() && !p.beat.eq(e.beat())) {
+            return
+        }
+
         p.el.push(e)
+    }
+
+    static collectNoteMatch(p: NotePattern, e: EngravingItem): void {
+        if (!e.isNote()) {
+            return
+        }
+        const n = e as unknown as Note
+        if (p.noteType !== NoteType.INVALID && p.noteType !== n.noteType()) {
+            return
+        }
+        if (p.pitch !== -1 && p.pitch !== n.pitch()) {
+            return
+        }
+        if (p.string !== INVALID_STRING_INDEX && p.string !== n.string()) {
+            return
+        }
+        if (p.tpc !== Tpc.TPC_INVALID && p.tpc !== n.tpc()) {
+            return
+        }
+        if (p.notehead !== NoteHeadGroup.HEAD_INVALID && p.notehead !== n.headGroup()) {
+            return
+        }
+        if (p.durationType.type() !== DurationType.V_INVALID && !p.durationType.equals(n.chord().actualDurationType())) {
+            return
+        }
+        if (!p.durationTicks.eq(new Fraction(-1, 1)) && !p.durationTicks.eq(n.chord().actualTicks())) {
+            return
+        }
+        if (p.staffStart !== nidx
+            && (p.staffStart > e.staffIdx() || p.staffEnd <= e.staffIdx())) {
+            return
+        }
+        if (p.voice !== nidx && p.voice !== e.voice()) {
+            return
+        }
+        if (p.system && p.system !== n.chord().segment()!.system()) {
+            return
+        }
+        if (p.measure && p.measure !== n.findMeasure()) {
+            return
+        }
+        if (p.beat.isValid() && !p.beat.eq(n.beat())) {
+            return
+        }
+        p.el.push(n)
+    }
+
+    selectSimilar(e: EngravingItem, sameStaff: boolean): void {
+        const score = e.score()
+
+        const pattern = new ElementPattern()
+        pattern.type = e.type()
+        pattern.subtype = 0
+        pattern.subtypeValid = false
+        if (e.isNote()) {
+            if ((e as unknown as Note).chord().isGrace()) {
+                pattern.subtype = -1 // hack
+            } else {
+                pattern.subtype = e.subtype()
+            }
+        } else if (e.isHairpinSegment() || e.isHarmony()) {
+            pattern.subtype = e.subtype()
+            pattern.subtypeValid = true
+        }
+        pattern.staffStart = sameStaff ? e.staffIdx() : nidx
+        pattern.staffEnd = sameStaff ? e.staffIdx() + 1 : nidx
+        pattern.voice = nidx
+
+        score.scanElements(item => Score.collectMatch(pattern, item))
+
+        score.select(null, SelectType.SINGLE, 0)
+        score.select(pattern.el, SelectType.ADD, 0)
     }
 
     selectSimilarInRange(e: EngravingItem): void {
         const score = e.score()
 
-        const pattern = {
-            type: e.type(), subtype: 0, subtypeValid: false, staffStart: this.selection().staffStart(),
-            staffEnd: this.selection().staffEnd(), voice: nidx, el: [] as EngravingItem[],
-        }
+        const pattern = new ElementPattern()
+        pattern.type = e.type()
+        pattern.subtype = 0
+        pattern.subtypeValid = false
         if (e.isNote()) {
             if ((e as unknown as Note).chord().isGrace()) {
                 pattern.subtype = -1 // hack
@@ -903,8 +1019,11 @@ export class Score extends EngravingObject {
             pattern.subtype = e.subtype()
             pattern.subtypeValid = true
         }
+        pattern.staffStart = this.selection().staffStart()
+        pattern.staffEnd = this.selection().staffEnd()
+        pattern.voice = nidx
 
-        score.scanElementsInRange(item => this.collectMatch(pattern, item))
+        score.scanElementsInRange(item => Score.collectMatch(pattern, item))
 
         score.select(null, SelectType.SINGLE, 0)
         score.select(pattern.el, SelectType.ADD, 0)
@@ -2067,6 +2186,19 @@ export class Score extends EngravingObject {
     lastSegment(): Segment | null {
         const m = this.lastMeasure()
         return m ? m.last() : null
+    }
+
+    crMeasure(idx: number): Measure | null {
+        let i = -1
+        for (let mb = this.m_measures.first(); mb; mb = mb.next()) {
+            if (mb.isMeasure()) {
+                ++i
+                if (i === idx) {
+                    return mb as unknown as Measure
+                }
+            }
+        }
+        return null
     }
 
     lastMeasure(): Measure | null {

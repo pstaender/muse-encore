@@ -5,14 +5,17 @@
  *
  * Port of src/engraving/dom/select.h/.cpp (and SelectType of mscore.h)
  *
- * TODO(port): ElementPattern/NotePattern, lock reasons are
+ * TODO(port): lock reasons are
  * kept but not checked by callers (no editing yet). There is no refresh rectangle tracking (Score::addRefresh):
  * the UI repaints the selection bounds.
  */
 
 import { Fraction } from '../types/fraction'
 import { Sid } from '../style/styledef'
-import { VOICES, nidx, staff2track, type staff_idx_t, type track_idx_t } from '../types/types'
+import { INVALID_STRING_INDEX, NoteHeadGroup, VOICES, nidx, staff2track, type staff_idx_t, type track_idx_t, type voice_idx_t } from '../types/types'
+import { TDuration } from './durationtype'
+import { NoteType } from './chordrest'
+import { Tpc } from './pitchspelling'
 import { collectElementsAnchoredToChordRest, collectElementsAnchoredToNote, noteAnchoredSpannerIsInRange } from './utils'
 import type { Score } from './score'
 import type { EngravingItem } from './engravingitem'
@@ -42,6 +45,30 @@ import type { Dynamic } from './dynamic'
 import type { TremoloTwoChord } from './tremolotwochord'
 
 /** C++ SelectType (mscore.h) */
+export class ElementPattern {
+    el: EngravingItem[] = []
+    type = 0
+    subtype = 0
+    staffStart: staff_idx_t = 0
+    staffEnd: staff_idx_t = 0 // exclusive
+    voice: voice_idx_t = 0
+    subtypeValid = false
+    durationTicks = new Fraction(-1, 1)
+    beat = new Fraction(0, 0)
+    measure: Measure | null = null
+    system: System | null = null
+}
+
+export class NotePattern extends ElementPattern {
+    declare el: Note[]
+    pitch = -1
+    string = INVALID_STRING_INDEX
+    tpc: number = Tpc.TPC_INVALID
+    notehead = NoteHeadGroup.HEAD_INVALID
+    durationType = new TDuration()
+    noteType = NoteType.INVALID // C++ type (hides ElementPattern::type)
+}
+
 export enum SelectType {
     SINGLE, RANGE, ADD, REPLACE,
 }

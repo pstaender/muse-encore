@@ -15,6 +15,7 @@ import { AboutDialog } from './dialogs/AboutDialog'
 import { TransposeDialog } from './dialogs/TransposeDialog'
 import { SelectInstrumentHost } from './dialogs/SelectInstrumentDialog'
 import { EditStaffHost } from './dialogs/EditStaffDialog'
+import { SelectDialogHost } from './dialogs/SelectDialog'
 import { ScoreContextMenuHost } from './components/ScoreContextMenu'
 import { PreferencesDialog } from './dialogs/PreferencesDialog'
 import { SaveScoreDialog } from './dialogs/SaveScoreDialog'
@@ -193,6 +194,7 @@ export function App(): React.JSX.Element {
             {session.dialog === 'about' && <AboutDialog onClose={() => showDialog(null)} />}
             {session.dialog === 'transpose' && <TransposeDialog onClose={() => showDialog(null)} />}
             <EditStaffHost />
+            <SelectDialogHost />
             <ScoreContextMenuHost />
             <SelectInstrumentHost />
             {session.dialog === 'saveChanges' && <SaveChangesDialog key={session.question} onClose={answer} />}

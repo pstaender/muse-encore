@@ -20,6 +20,7 @@ import { currentLanguage } from '../i18n'
 import { registerPanelActions } from '../panels/PanelDock'
 import { isPanelOpen, onPanelsChanged, togglePanel } from '../panels/panels'
 import { canOpenStaffProperties, openStaffProperties } from '../dialogs/EditStaffDialog'
+import { openSelectDialog } from '../dialogs/SelectDialog'
 import { actionsChanged, isActionEnabled, registerAction, triggerAction } from './actions'
 import { registerNotationActions } from './notationactions'
 import { registerPlaybackActions } from '../playback/playbackcontroller'
@@ -52,6 +53,8 @@ export function registerAppActions(): void {
 
     // NotationActionController::openStaffProperties
     registerAction('staff-properties', { run: openStaffProperties, enabled: () => scoreShown() && canOpenStaffProperties(), context: 'notation' })
+    // NotationActionController::openSelectionMoreOptions (enabled with a selection like C++ hasSelection)
+    registerAction('select-dialog', { run: openSelectDialog, enabled: () => scoreShown() && canOpenStaffProperties(), context: 'notation' })
 
     // ---- tools ----
     // NotationActionController::openTransposeDialog

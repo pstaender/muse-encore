@@ -1287,6 +1287,17 @@ dialog.edit-staff .icon-button, dialog.edit-string-data .icon-button {
     font-family: "MusescoreIcon"; font-size: 16px; min-width: 32px;
 }
 
+dialog.select-dialog { width: min(440px, calc(100vw - 32px)); }
+dialog.select-dialog form { text-align: left; display: flex; flex-direction: column; gap: 12px; }
+dialog.select-dialog .groupbox {
+    border: 1px solid var(--border); border-radius: 6px; margin: 0; padding: 8px 12px 12px; min-width: 0;
+}
+dialog.select-dialog .groupbox legend { padding: 0 4px; font-weight: 600; }
+dialog.select-dialog .select-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; align-items: center; }
+dialog.select-dialog .select-grid hr { border: none; border-top: 1px solid var(--border); margin: 2px 0; }
+dialog.select-dialog .value.disabled, dialog.select-dialog .label { color: var(--muted); }
+dialog.select-dialog .dialog-buttons .spacer { flex: 1; }
+
 dialog.edit-pitch { width: min(640px, calc(100vw - 32px)); }
 dialog.edit-pitch form, dialog.edit-pitch .dialog-buttons { margin-top: 12px; }
 .pitch-table { border-collapse: collapse; font-size: 12px; width: 100%; }
