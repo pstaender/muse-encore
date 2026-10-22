@@ -148,3 +148,9 @@ export function rangeSelectionPartIds(score: MasterScore): string[] {
     }
     return ids
 }
+
+/** the number of systems with staves on a page (AbstractNotationPaintView::needAdjustCanvasVerticallyWhilePlayback) */
+export function pageSystemCount(score: MasterScore, pageIdx: number): number {
+    const page = score.pages()[pageIdx]
+    return page ? page.systems().filter(s => s.staves().length > 0).length : 0
+}

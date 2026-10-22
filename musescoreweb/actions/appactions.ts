@@ -20,6 +20,8 @@ import { registerPanelActions } from '../panels/PanelDock'
 import { isPanelOpen, onPanelsChanged, togglePanel } from '../panels/panels'
 import { actionsChanged, isActionEnabled, registerAction, triggerAction } from './actions'
 import { registerNotationActions } from './notationactions'
+import { registerPlaybackActions } from '../playback/playbackcontroller'
+import '../playback/playbackview'
 
 const scoreShown = (): boolean => scoreViewState().hasScore && session().view === 'score'
 const hasScore = (): boolean => !!session().current
@@ -56,6 +58,10 @@ export function registerAppActions(): void {
     registerAction('toggle-noteinput', {
         run: () => setToolBarVisible('noteInputBar', !isToolBarVisible('noteInputBar')),
         checked: () => isToolBarVisible('noteInputBar'),
+    })
+    registerAction('toggle-transport', {
+        run: () => setToolBarVisible('playbackToolBar', !isToolBarVisible('playbackToolBar')),
+        checked: () => isToolBarVisible('playbackToolBar'),
     })
     registerAction('toggle-viewtoolbar', {
         run: () => setToolBarVisible('viewToolBar', !isToolBarVisible('viewToolBar')),
@@ -98,6 +104,9 @@ export function registerAppActions(): void {
     registerAction('view-center-page', { run: () => centerPage(), enabled: scoreShown },
         { title: [null, 'Center page'], icon: 0xF48C })
     registerAction('view-shortcuts-help', { run: showShortcutsHelp }, { title: [null, '?'], description: [null, 'Keyboard shortcuts'] })
+
+    // ---- playback (PlaybackController) ----
+    registerPlaybackActions()
 
     // ---- help (ApplicationActionController) ----
     registerAction('online-handbook', { run: () => openUrl(`https://handbook.musescore.org?tag=handbook&locale=${currentLanguage()}`) })

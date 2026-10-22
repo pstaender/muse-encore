@@ -18,6 +18,7 @@ import { Context, HarmonyChannelSetting } from '../../engraving/compat/midi/comp
 import { EventsHolder } from '../../engraving/compat/midi/event'
 import { ME_CONTROLLER, ME_NOTEON, ME_PITCHBEND } from '../../engraving/compat/midi/midicoreevent'
 import type { Chord } from '../../engraving/dom/chord'
+import type { Dynamic } from '../../engraving/dom/dynamic'
 import type { EngravingItem } from '../../engraving/dom/engravingitem'
 import type { Harmony } from '../../engraving/dom/harmony'
 import type { MasterScore } from '../../engraving/dom/masterscore'
@@ -337,9 +338,13 @@ export class NotationPlayback {
      * the notes of the items (notes, chords, chord symbols) to play now (C++ triggerEventsForItems: PlaybackModel);
      * duration in seconds
      */
-    triggerEventsForItems(items: readonly EngravingItem[], duration: number): PreviewNote[] {
+    triggerEventsForItems(items: readonly EngravingItem[], duration: number, useScoreDynamics = false): PreviewNote[] {
         const result: PreviewNote[] = []
-        const velocity = 80 // mpe::DynamicType::Natural
+        const natural = 80 // mpe::DynamicType::Natural
+        let velocity = natural
+        if (useScoreDynamics && items.length) {
+            velocity = this.dynamicVelocityAt(items[0]) ?? natural
+        }
         const addNote = (note: Note): void => {
             if (!note.play()) {
                 return
@@ -368,6 +373,31 @@ export class NotationPlayback {
                 }
                 for (const [pitch] of h.getRealizedHarmony().notes()) {
                     result.push({ channel: c.channel(), pitch, velocity, duration })
+                }
+            }
+        }
+        return result
+    }
+
+    /**
+     * the velocity of the last dynamic before the item on its staff (C++ PlaybackContext::appliableDynamicLevel;
+     * TODO(port): hairpins)
+     */
+    private dynamicVelocityAt(item: EngravingItem): number | null {
+        const staffIdx = item.staffIdx()
+        const tick = item.tick()
+        const first = this.m_score.firstMeasure()
+        if (!first) {
+            return null
+        }
+        let result: number | null = null
+        for (let s = first.first(); s && s.tick().le(tick); s = s.next1()) {
+            for (const e of s.annotations()) {
+                if (e.isDynamic() && e.staffIdx() === staffIdx) {
+                    const v = (e as unknown as Dynamic).velocity()
+                    if (v > 0) {
+                        result = Math.min(Math.max(v, 1), 127)
+                    }
                 }
             }
         }

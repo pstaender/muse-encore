@@ -1081,3 +1081,58 @@ dialog.about h2 { font-size: 20px; }
     white-space: pre;
     caret-color: transparent;
 }
+
+/* ---- playback: the toolbar (PlaybackToolBar.qml), the cursor and the loop markers on the pages ---- */
+
+.playback-time {
+    width: 76px;
+    height: 24px;
+    margin: 0 4px;
+    padding: 0 4px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+}
+.playback-measure-beat { display: inline-flex; align-items: center; gap: 1px; font-variant-numeric: tabular-nums; }
+.playback-measure-beat input { width: 46px; height: 24px; padding: 0 2px; text-align: center; }
+.tempo-button { min-width: 64px; justify-content: center; font-variant-numeric: tabular-nums; }
+.tempo-note { font-family: "Leland"; font-size: 22px; line-height: 0; position: relative; top: 5px; }
+.playback-loading { display: inline-flex; align-items: center; gap: 4px; margin: 0 4px; font-size: 11px; }
+.playback-loading progress { width: 64px; height: 6px; }
+.playback-loading.error { color: var(--danger); }
+
+.speed-popup {
+    position: fixed;
+    z-index: 15;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px 12px;
+    width: 280px;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .2);
+    outline: none;
+}
+.speed-popup .number-with-unit input { width: 64px; }
+.speed-popup input[type="range"] { grid-column: 1 / -1; width: 100%; }
+
+/* NotationConfiguration::playbackCursorColor: the selection color of voice 1 (#0065BF) with alpha 178 */
+.playback-cursor {
+    position: absolute;
+    z-index: 2;
+    pointer-events: none;
+    background: rgba(0, 101, 191, .7);
+}
+.loop-marker { position: absolute; z-index: 2; pointer-events: none; overflow: visible; }
+.mute-button .tool-icon { position: relative; }
+.mute-button.muted .tool-icon::after {
+    content: "";
+    position: absolute;
+    left: -2px;
+    right: -2px;
+    top: 50%;
+    border-top: 2px solid currentColor;
+    transform: rotate(-45deg);
+}

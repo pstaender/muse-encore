@@ -271,6 +271,109 @@ export function setScoreName(name: string): void {
     publishName()
 }
 
+const pagesBuiltListeners = new Set<() => void>()
+
+/** the page elements were made again (overlays like the playback cursor are added to them again) */
+export function onPagesBuilt(listener: () => void): () => void {
+    pagesBuiltListeners.add(listener)
+    return () => pagesBuiltListeners.delete(listener)
+}
+
+/** the element of a page (null if there is none): overlays are positioned in percent of it */
+export function pageElement(idx: number): HTMLDivElement | null {
+    return pages[idx] ?? null
+}
+
+/** the size of a page in inches */
+export function pageInches(idx: number): { width: number; height: number } | null {
+    return score && idx >= 0 && idx < pageCount(score) ? pageSize(score, idx) : null
+}
+
+let s_programmaticScroll = 0
+
+/**
+ * C++ AbstractNotationPaintView::adjustCanvasPosition (and alignToCurrentPageBorder): moves the view so that a
+ * rectangle of a page (inches) is visible, with a border; returns true if the view moved
+ */
+export function adjustViewToRect(pageIdx: number, r: { x: number; y: number; width: number; height: number }, adjustVertically: boolean,
+                                 borderInches: number): boolean {
+    const el = pages[pageIdx]
+    if (!el || !score) {
+        return false
+    }
+    const pr = el.getBoundingClientRect()
+    const f = pr.width / pageSize(score, pageIdx).width
+    const vr = viewport.getBoundingClientRect()
+    const view = { left: vr.left, top: vr.top, width: viewport.clientWidth, height: viewport.clientHeight }
+    const show = { left: pr.left + r.x * f, top: pr.top + r.y * f, width: r.width * f, height: r.height * f }
+    const right = (b: { left: number; width: number }): number => b.left + b.width
+    const bottom = (b: { top: number; height: number }): number => b.top + b.height
+
+    if (view.width * view.height < show.width * show.height) {
+        return false
+    }
+    if (show.left >= view.left && right(show) <= right(view) && show.top >= view.top && bottom(show) <= bottom(view)) {
+        return false
+    }
+
+    const border = borderInches * f
+    const pos = { x: view.left, y: view.top }
+
+    if (show.left < view.left) {
+        pos.x = show.left - border
+    } else if (show.left > right(view)) {
+        pos.x = right(show) - view.width + border
+    } else if (view.width >= show.width && right(show) > right(view)) {
+        pos.x = show.left - border
+    }
+
+    if (adjustVertically) {
+        if (show.top < view.top && bottom(show) < bottom(view)) {
+            pos.y = show.top - border
+        } else if (show.top > bottom(view)) {
+            pos.y = bottom(show) - view.height + border
+        } else if (view.height >= show.height && bottom(show) > bottom(view)) {
+            pos.y = show.top - border
+        }
+    }
+
+    // alignToCurrentPageBorder
+    if (pos.x < pr.left || view.width >= pr.width) {
+        pos.x = pr.left
+    } else if (view.width < pr.width && view.width + pos.x > pr.right) {
+        pos.x = pr.right - view.width
+    }
+    if (pos.y < pr.top || view.height >= pr.height) {
+        pos.y = pr.top
+    } else if (view.height < pr.height && view.height + pos.y > pr.bottom) {
+        pos.y = pr.bottom - view.height
+    }
+
+    const dx = Math.round(pos.x - view.left)
+    const dy = Math.round(pos.y - view.top)
+    if (!dx && !dy) {
+        return false
+    }
+    s_programmaticScroll++
+    viewport.scrollBy(dx, dy)
+    requestAnimationFrame(() => { s_programmaticScroll = Math.max(0, s_programmaticScroll - 1) })
+    return true
+}
+
+const userMovedListeners = new Set<() => void>()
+
+/** the user moved the view (wheel, scroll bars, the hand tool): the automatic panning pauses (C++ moveCanvas) */
+export function onUserMovedView(listener: () => void): () => void {
+    userMovedListeners.add(listener)
+    return () => userMovedListeners.delete(listener)
+}
+
+function userMovedView(): void {
+    for (const l of userMovedListeners) {
+        l()
+    }
+}
+
 function buildPages(keepPosition = false): void {
     const scroll = { left: viewport.scrollLeft, top: viewport.scrollTop }
     observer.disconnect()
@@ -309,6 +412,9 @@ function buildPages(keepPosition = false): void {
     updateControls()
     updatePan()
     applyZoom(computeZoom())
+    for (const l of pagesBuiltListeners) {
+        l()
+    }
     if (keepPosition) {
         viewport.scrollTo(scroll.left, scroll.top)
         return
@@ -733,6 +839,9 @@ function updatePageInfo(): void {
 }
 
 viewport.addEventListener('scroll', () => {
+    if (!s_programmaticScroll) {
+        userMovedView()
+    }
     updatePageInfo()
     scheduleRender(60) // tiles of zoomed-in pages follow the view
 }, { passive: true })
@@ -1397,8 +1506,8 @@ viewport.addEventListener('contextmenu', (e) => {
     }
 })
 
-// hand tool: hold space (or use the middle mouse button) and drag
-let spaceDown = false
+// hand tool: the middle mouse button drags the view (Space plays, like in MuseScore: the "play" action)
+const spaceDown = false
 let drag: { x: number; y: number; left: number; top: number; id: number } | null = null
 
 function setHand(on: boolean): void {
@@ -1569,16 +1678,6 @@ document.addEventListener('keydown', (e) => {
         return
     }
 
-    if (key === ' ' && !mod && !isTextInput(e.target)) {
-        // Space starts playback in MuseScore; there is no playback here, so it is the hand tool
-        e.preventDefault()
-        if (!spaceDown) {
-            spaceDown = true
-            setHand(true)
-        }
-        return
-    }
-
     let handled = true
     if (isTextInput(e.target) || e.target instanceof HTMLButtonElement) {
         handled = false
@@ -1610,16 +1709,6 @@ document.addEventListener('keydown', (e) => {
     }
 })
 
-document.addEventListener('keyup', (e) => {
-    if (e.key === ' ') {
-        spaceDown = false
-        setHand(false)
-    }
-})
-window.addEventListener('blur', () => {
-    spaceDown = false
-    setHand(false)
-})
 
 // ---------------------------------------------------------------------------------
 //   help, drag and drop
@@ -1630,13 +1719,6 @@ export function showShortcutsHelp(): void {
 }
 
 helpDialog.addEventListener('close', () => viewport.focus({ preventScroll: true }))
-
-// space must not activate a focused toolbar button (it is the hand tool)
-document.addEventListener('keyup', (e) => {
-    if (e.key === ' ' && e.target instanceof HTMLButtonElement && e.target.closest('#chrome') && score) {
-        e.preventDefault()
-    }
-}, { capture: true })
 
 // a file can be dropped anywhere (also on the home screen)
 let dragDepth = 0

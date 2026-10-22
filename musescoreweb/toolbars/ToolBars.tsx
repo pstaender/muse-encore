@@ -13,6 +13,7 @@ import { MenuPopup } from '../components/Menu'
 import { qtrc, stripMnemonic, trString, useLanguage } from '../i18n'
 import type { MenuItem } from '../menus/appmenu'
 import { ZOOM_LEVELS, setFitMode, useScoreView, zoomAt, type FitMode } from '../scoreview'
+import { PlaybackToolBar } from './PlaybackToolBar'
 import {
     BOTTOM_DOCK, DEFAULT_NOTE_INPUT_BAR, TOOLBARS, dockOf, moveToolBar, noteInputBarConfig, rowSequence, setNoteInputBarConfig,
     toolBarLayout, topRowCount, topRowId, useNoteInputBarConfig, useToolBarLayout, type DockId, type ToolConfigItem,
@@ -318,6 +319,7 @@ function ViewToolBar(): React.JSX.Element {
 
 const CONTENT: Record<string, () => React.JSX.Element> = {
     notationToolBar: NotationToolBar,
+    playbackToolBar: PlaybackToolBar,
     undoRedoToolBar: UndoRedoToolBar,
     noteInputBar: NoteInputBar,
     viewToolBar: ViewToolBar,
@@ -538,7 +540,7 @@ export function ToolBarRows(): React.JSX.Element {
     return <>{rows.map(r => <ToolBarDock key={r} dock={r} className="dock-top" />)}</>
 }
 
-/** the hidden toolbars can be shown again (View > Toolbars) */
+/** the hidden toolbars can be shown again (View > Toolbars; AppMenuModel::makeToolbarsItems: playback controls first) */
 export function toolbarMenuItems(): MenuItem[] {
     const items: MenuItem[] = TOOLBARS.filter(t => t.toggleAction).map(t => ({ kind: 'action', code: t.toggleAction! }))
     return [...items, { kind: 'action', code: 'toggle-statusbar' }]
