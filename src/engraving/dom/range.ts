@@ -8,7 +8,6 @@
  * repeats, spacers, jumps and markers of a range of segments), used to rewrite measures (Score::rewriteMeasures).
  *
  * The C++ destructors only delete the copies; here the garbage collector does that.
- * TODO(port): linked staves (Excerpt::cloneStaff2 in ScoreRange::write)
  */
 
 import { Fraction } from '../types/fraction'
@@ -40,6 +39,8 @@ import type { Spanner } from './spanner'
 import type { Tie } from './tie'
 import type { Tuplet } from './tuplet'
 import type { Volta } from './volta'
+import type { Staff } from './staff'
+import { Excerpt } from './excerpt'
 
 /** C++ TrackList::ClonedChordMap (std::map<Chord*, Chord*>) */
 type ClonedChordMap = Map<Chord, Chord>
@@ -973,7 +974,18 @@ export class ScoreRange {
             }
             if ((track % VOICES) === VOICES - 1) {
                 // clone staff if appropriate after all voices have been copied
-                // TODO(port): linked staves (Excerpt::cloneStaff2(ostaff, nstaff, tick, tick + dl->ticks()))
+                const staffIdx = Math.floor(track / VOICES)
+                const ostaff = score.staff(staffIdx)!
+                const linkedStaves = ostaff.links()
+                if (linkedStaves) {
+                    for (const le of [...linkedStaves]) {
+                        const nstaff = le as Staff
+                        if (nstaff === ostaff) {
+                            continue
+                        }
+                        Excerpt.cloneStaff2(ostaff, nstaff, tick, tick.plus(dl.ticks()))
+                    }
+                }
             }
         }
         for (const s of this.m_spanner) {

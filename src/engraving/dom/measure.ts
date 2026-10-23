@@ -1829,7 +1829,7 @@ export class Measure extends MeasureBase {
                         return null
                     }
                 }
-                for (const lscore of [this.score()]) { // TODO(port): scoreList()
+                for (const lscore of this.score().scoreList()) {
                     const lmeasure = lscore.tick2measure(m2.tick())
                     if (lmeasure) {
                         lmeasure.undoChangeProperty(Pid.REPEAT_START, true)
@@ -1843,7 +1843,7 @@ export class Measure extends MeasureBase {
                         return null
                     }
                 }
-                for (const lscore of [this.score()]) { // TODO(port): scoreList()
+                for (const lscore of this.score().scoreList()) {
                     const lmeasure = lscore.tick2measure(m2.tick())
                     if (lmeasure) {
                         lmeasure.undoChangeProperty(Pid.REPEAT_END, true)
@@ -1858,7 +1858,7 @@ export class Measure extends MeasureBase {
                         return null
                     }
                 }
-                for (const lscore of [this.score()]) { // TODO(port): scoreList()
+                for (const lscore of this.score().scoreList()) {
                     let lmeasure = lscore.tick2measure(m2.tick())
                     if (lmeasure) {
                         lmeasure.undoChangeProperty(Pid.REPEAT_END, true)

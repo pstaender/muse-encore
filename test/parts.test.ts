@@ -192,8 +192,7 @@ describe.skipIf(!existsSync(DATA))('parts (MuseScore parts tests)', () => {
         saveCompareScore(score, `${test}-parts.mscx`, `${test}-parts.mscx`)
     })
 
-    // TODO(port): EngravingItem::unlinkPropertyFromMaster etc. (properties of linked elements in parts)
-    it.skip('partPropertyLinking', () => {
+    it('partPropertyLinking', () => {
         const masterScore = open('partPropertyLinking.mscx')
         const partScore = createPart(masterScore)
         saveCompareScore(partScore, 'partPropertyLinking-part-0.mscx', 'partPropertyLinking-part-0.mscx')
@@ -266,8 +265,7 @@ describe.skipIf(!existsSync(DATA))('parts (MuseScore parts tests)', () => {
         saveCompareScore(partScore, 'partExclusion-part-1.mscx', 'partExclusion-part-1.mscx')
     })
 
-    // TODO(port): linked editing (Score::scoreList() in insertMeasure: the measures of the parts)
-    it.skip('appendMeasure', () => {
+    it('appendMeasure', () => {
         const score = open('part-all.mscx')
         createParts(score, 2)
         score.startCmd(TranslatableString.untranslatable('Engraving parts tests'))
@@ -278,7 +276,7 @@ describe.skipIf(!existsSync(DATA))('parts (MuseScore parts tests)', () => {
         saveCompareScore(score, 'part-all-uappendmeasures.mscx', 'part-all-uappendmeasures.mscx')
     })
 
-    it.skip('insertMeasure', () => {
+    it('insertMeasure', () => {
         const score = open('part-all.mscx')
         createParts(score, 2)
         score.startCmd(TranslatableString.untranslatable('Engraving parts tests'))
@@ -311,8 +309,7 @@ describe.skipIf(!existsSync(DATA))('parts (MuseScore parts tests)', () => {
     }
 
     const addRemoveTests = (name: string, doAdd: () => MasterScore, doRemove: () => MasterScore): void => {
-        // TODO(port): linked editing (Score::undoAddElement adds the element to the linked staves of the parts)
-        it.skip(`add${name}`, () => {
+        it(`add${name}`, () => {
             const score = doAdd()
             saveCompareScore(score, `add-${name}.mscx`, `part-${name.toLowerCase()}-add.mscx`)
         })
@@ -321,7 +318,7 @@ describe.skipIf(!existsSync(DATA))('parts (MuseScore parts tests)', () => {
             score.undoRedo(true, null)
             saveCompareScore(score, `uadd-${name}.mscx`, `part-${name.toLowerCase()}-uadd.mscx`)
         })
-        it.skip(`undoRedoAdd${name}`, () => {
+        it(`undoRedoAdd${name}`, () => {
             const score = doAdd()
             score.undoRedo(true, null)
             score.undoRedo(false, null)
@@ -403,8 +400,7 @@ describe.skipIf(!existsSync(DATA))('parts (MuseScore parts tests)', () => {
         return score
     })
 
-    // TODO(port): linked editing (note input in a part is cloned to the score: undoAddCR with linked staves)
-    it.skip('inputFromParts', () => {
+    it('inputFromParts', () => {
         const score = open('input-from-parts.mscz')
         const staves = { Flute: 0, Oboe: 1, 'Clarinet in B♭': 2, Bassoon: 3 } as Record<string, number>
         const parts = new Map<string, Score>()

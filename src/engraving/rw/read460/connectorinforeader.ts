@@ -152,7 +152,23 @@ export class ConnectorInfoReader extends ConnectorInfo {
                 spanner.setStartElement(item)
                 if (pasteMode) {
                     item.score().undoAddElement(spanner)
-                    // TODO(port): the linked spanners of parts (excerpts)
+                    for (const linkedSpanner of spanner.linkList()) {
+                        if (linkedSpanner === spanner) {
+                            continue
+                        }
+                        const ls = linkedSpanner as unknown as Spanner
+                        ls.setTick(spanner.tick())
+                        for (const linkedCR of item.linkList()) {
+                            const cr = linkedCR as unknown as ChordRest
+                            if (cr.score() === linkedSpanner.score() && cr.staffIdx() === ls.staffIdx()) {
+                                ls.setTrack(cr.track())
+                                if (ls.isSlur()) {
+                                    ls.setStartElement(cr)
+                                }
+                                break
+                            }
+                        }
+                    }
                 } else {
                     item.score().addSpanner(spanner)
                 }
@@ -160,7 +176,25 @@ export class ConnectorInfoReader extends ConnectorInfo {
                 spanner.setTrack2(l.track())
                 spanner.setTick2(item.tick())
                 spanner.setEndElement(item)
-                // TODO(port): pasteMode: the linked spanners of parts (excerpts)
+                if (pasteMode) {
+                    for (const linkedSpanner of spanner.linkList()) {
+                        if (linkedSpanner === spanner) {
+                            continue
+                        }
+                        const ls = linkedSpanner as unknown as Spanner
+                        ls.setTick2(spanner.tick2())
+                        for (const linkedCR of item.linkList()) {
+                            const cr = linkedCR as unknown as ChordRest
+                            if (cr.score() === linkedSpanner.score() && cr.staffIdx() === ls.staffIdx()) {
+                                ls.setTrack2(cr.track())
+                                if (ls.isSlur()) {
+                                    ls.setEndElement(cr)
+                                }
+                                break
+                            }
+                        }
+                    }
+                }
             }
             break
         }

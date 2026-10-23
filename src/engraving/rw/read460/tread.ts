@@ -1269,7 +1269,6 @@ export class TRead {
         }
     }
 
-    /** TODO(port): note sorting on percussion staves, linked parentheses */
     static readNoteParenGroup(ch: Chord, e: XmlReader, ctx: ReadContext): void {
         const staff = ctx.staff(ch.staffIdx())
         const staffGroup = staff ? staff.staffTypeForElement(ch).group() : StaffGroup.STANDARD
@@ -1337,6 +1336,21 @@ export class TRead {
             rightParen.setDirection(DirectionH.RIGHT)
             rightParen.setParent(ch)
             rightParen.setTrack(ctx.track())
+        }
+
+        const links = ch.links()
+        if (links && linkedObjectsMainElement(links) !== ch) {
+            const mainChord = linkedObjectsMainElement(links) as unknown as Chord
+            const firstNote = notes[0]
+            const mainNote = firstNote ? firstNote.findLinkedInStaff(mainChord.staff()!) as Note | null : null
+            const mainNoteParenInfo = mainChord && mainNote ? mainChord.findNoteParenthesisInfo(mainNote) : null
+            const mainLeftParen = mainNoteParenInfo ? mainNoteParenInfo.leftParen() : null
+            const mainRightParen = mainNoteParenInfo ? mainNoteParenInfo.rightParen() : null
+
+            if (mainLeftParen && mainRightParen) {
+                leftParen.linkTo(mainLeftParen)
+                rightParen.linkTo(mainRightParen)
+            }
         }
 
         ch.addNoteParenthesisInfo(new NoteParenthesisInfo(leftParen, rightParen, notes))

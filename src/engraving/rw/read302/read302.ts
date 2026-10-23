@@ -7,7 +7,7 @@
  *
  * C++ reads the elements of 3.x files with the read400 readers; here the shared (read460) readers are used,
  * which contain the read400/read410 compat code (see claude_history.md).
- * TODO(port): excerpts (<Score> recursion), Audio, instrument id recognition
+ * TODO(port): Audio, instrument id recognition
  * tempo map, MIDI mapping
  */
 

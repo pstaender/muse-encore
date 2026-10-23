@@ -90,7 +90,7 @@ export class SplitJoinMeasure {
         masterScore.insertMeasureInMaster(m2, options)
         const m1 = m2.prev() as Measure
 
-        for (const s of [masterScore as Score]) { // TODO(port): scoreList() (excerpts)
+        for (const s of masterScore.scoreList()) {
             const m = s.tick2measure(tick)!
             s.undoRemoveMeasures(m, m, true, false)
         }
@@ -131,7 +131,7 @@ export class SplitJoinMeasure {
         m2.adjustToLen(ticks2, false)
 
         // set correct barline types if needed
-        for (const linkedScore of [masterScore as Score]) { // TODO(port): scoreList()
+        for (const linkedScore of masterScore.scoreList()) {
             const sM1 = linkedScore.tick2measure(m1.tick())!
             const sM2 = linkedScore.tick2measure(m2.tick())!
             // TODO: handle other end barline types; they may differ per staff
@@ -259,7 +259,7 @@ export class SplitJoinMeasure {
 
         // The loop since measures are not currently linked in MuseScore
         // change nominal time sig, as inserted measure took it from next measure
-        for (const linkedScore of [masterScore as Score]) { // TODO(port): scoreList()
+        for (const linkedScore of masterScore.scoreList()) {
             const ins = linkedScore.tick2measure(startTick)!
             ins.undoChangeProperty(Pid.TIMESIG_NOMINAL, newTimesig)
             // set correct barline types if needed

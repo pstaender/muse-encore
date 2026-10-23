@@ -1071,6 +1071,41 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         // creating the parts is a change of the score
         await page.waitForFunction(() => document.getElementById('title')!.textContent!.startsWith('*'))
 
+        // linked editing: deleting the first measure's notes in the part changes the score; undo restores it
+        const scorePage = async (): Promise<Buffer> => {
+            await page.waitForTimeout(300) // the redraw
+            return page.locator('.page').first().screenshot()
+        }
+        await page.click('.notation-tab >> nth=0')
+        const scoreBefore = await scorePage()
+        await page.click('.notation-tab >> nth=2') // Tenor
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+f')
+        await page.keyboard.type('1')
+        await page.keyboard.press('Enter')
+        await page.waitForFunction(() => /^Range selection/.test(document.getElementById('status')!.textContent!))
+        await page.keyboard.press('Delete')
+        await page.click('.notation-tab >> nth=0')
+        expect((await scorePage()).equals(scoreBefore)).toBe(false)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        expect((await scorePage()).equals(scoreBefore)).toBe(true)
+        // and the other way round: deleting in the score (Find selects the measure in the top staff) changes the part
+        await page.click('.notation-tab >> nth=1') // Alto
+        const partBefore = await scorePage()
+        await page.click('.notation-tab >> nth=0')
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+f')
+        await page.keyboard.type('1')
+        await page.keyboard.press('Enter')
+        await page.waitForFunction(() => /^Range selection/.test(document.getElementById('status')!.textContent!))
+        await page.keyboard.press('Delete')
+        await page.click('.notation-tab >> nth=1')
+        expect((await scorePage()).equals(partBefore)).toBe(false)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        expect((await scorePage()).equals(partBefore)).toBe(true)
+
         // editing in the part: one more undo step, undo reverts it
         await page.focus('#viewport')
         await page.keyboard.press('ControlOrMeta+f')

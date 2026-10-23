@@ -15,7 +15,7 @@ import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import {
     AutoOnOff, BracketType, CapoParams, DurationType, type SwingParameters, CapoTransposeMode, ClefType, ElementType, Key, MeasureNumberPlacement, StaffGroup, VOICES, nidx,
-    type staff_idx_t,
+    type staff_idx_t, type track_idx_t, staff2track, track2staff, track2voice,
 } from '../types/types'
 import { Sid } from '../style/styledef'
 import { EngravingItem } from './engravingitem'
@@ -524,8 +524,87 @@ export class Staff extends EngravingItem {
         }
     }
 
-    /** list of linked staves; TODO(port): linked staves (excerpts) */
-    staffList(): Staff[] { return [this] }
+    /** list of linked staves (in all scores), or only this staff */
+    staffList(): Staff[] {
+        const links = this.links()
+        return links ? links.map(e => e as Staff) : [this]
+    }
+
+    getLinkedTrackInStaff(linkedStaff: Staff, originalTrack: track_idx_t): track_idx_t {
+        if (originalTrack === nidx) {
+            return nidx
+        }
+
+        const thisScore = this.score()
+        const linkedStaffScore = linkedStaff.score()
+        const linkedStaffIdx = linkedStaff.idx()
+
+        if (thisScore === linkedStaffScore) {
+            // For staves linked within the same score, voices are always mapped 1 to 1
+            const voice = track2voice(originalTrack)
+            return staff2track(linkedStaffIdx, voice)
+        }
+
+        // NOTE 1: if linkedStaff has a different id than *this, it means that there isn't direct voice mapping between
+        // the two (e.g. guitar+TAB): the correct voice mapping must be obtained by looking for the staff with same id
+        // in thisScore.
+
+        let refTrack = originalTrack
+        if (linkedStaff.id() !== this.id()) {
+            const correspondingStaffInThisScore = linkedStaff.findLinkedInScore(thisScore)
+            if (!correspondingStaffInThisScore) {
+                return nidx
+            }
+            const originalVoice = track2voice(originalTrack)
+            refTrack = staff2track(correspondingStaffInThisScore.idx(), originalVoice)
+        }
+
+        // NOTE 2: TracksMap is a map from a track in the *score* to track(s) in the *part*.
+
+        if (thisScore.isMaster()) {
+            const tracksMap = linkedStaffScore.excerpt()!.tracksMapping()
+            for (const [key, track] of tracksMap) {
+                if (key === refTrack && track2staff(track) === linkedStaffIdx) {
+                    return track
+                }
+            }
+
+            return nidx
+        }
+
+        const thisTracksMap = thisScore.excerpt()!.tracksMapping()
+        let linkedTrackInScore = nidx
+        for (const [trackInScore, trackInPart] of thisTracksMap) {
+            if (trackInPart === refTrack) {
+                linkedTrackInScore = trackInScore
+                break
+            }
+        }
+
+        if (linkedStaffScore.isMaster() || linkedTrackInScore === nidx) {
+            return linkedTrackInScore
+        }
+
+        const linkedTracksMap = linkedStaffScore.excerpt()!.tracksMapping()
+        for (const [key, track] of linkedTracksMap) {
+            if (key === linkedTrackInScore && track2staff(track) === linkedStaffIdx) {
+                return track
+            }
+        }
+
+        return nidx
+    }
+
+    trackHasLinksInVoiceZero(track: track_idx_t): boolean {
+        for (const linkedStaff of this.staffList()) {
+            const linkedTrack = this.getLinkedTrackInStaff(linkedStaff, track)
+            if (linkedTrack !== nidx && track2voice(linkedTrack) === 0) {
+                return true
+            }
+        }
+
+        return false
+    }
 
     insertTime(tick: Fraction, len: Fraction): void {
         if (len.isZero()) {

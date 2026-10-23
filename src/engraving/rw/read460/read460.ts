@@ -686,7 +686,7 @@ export class Read460 {
             }
         }
 
-        for (const s of [score]) { // for all parts; TODO(port): scoreList() (excerpts)
+        for (const s of score.scoreList()) { // for all parts
             s.connectTies()
             // TODO(port): undoRemoveStaleTieJumpPoints(false)
 

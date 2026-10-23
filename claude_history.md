@@ -1449,3 +1449,32 @@
 - TODO(port) (stage 3): linked editing — Staff.staffList() is only the staff itself, the scoreList()/linked staff
   TODOs in edit.ts/cmd.ts/splitjoinmeasure.ts etc. (adding elements, measures, time signatures... in the score is
   not yet done in the parts and vice versa); unlinkPropertyFromMaster; the tabs' context menu.
+
+### Parts stage 3: linked editing
+- Staff.staffList() returns the linked staves of all scores; Staff.getLinkedTrackInStaff (tracks mapping of the
+  excerpts), trackHasLinksInVoiceZero; Score.uniqueStaves skips linked staves.
+- edit.ts: undoAddElement fully ported (linked parents for notes/fingerings/texts/glissandos, section breaks in linked
+  frames and all scores, clones in the linked staves with their linked tracks for articulations, chord lines, lyrics,
+  segment annotations, spanners/slurs, ties, tremolos, arpeggios, instrument changes, breath; findLinkedChord);
+  undoAddCR (linked staves, tuplets, lyrics); undoChangeParent (linked items in parts, recreated on another staff);
+  undoExchangeVoice/cmdExchangeVoice (excerpts: CloneVoice); changeSelectedElementsVoice (isOperationValid, invisible
+  voices of linked staves); cmdAddTimeSig (local time signatures of linked staves, links to the master's);
+  insertMeasure, deleteMeasures, adjustToLen, time deletion, barlines, splitting/joining measures, the unmanaged
+  spanners, insertTime of note entry: all scores of scoreList().
+- Property linking: EngravingItem.propertyPropagation (text properties, UNLINK from parts),
+  unlinkPropertyFromMaster, relinkPropertiesToMaster/relinkPropertyToMaster, isUnlinkedFromMaster (selection color),
+  TextBase/SpannerSegment.isPropertyLinkedToMaster, POSITION/APPEARANCE/TEXT_LINKED_TO_MASTER relink the values;
+  linkHooks.undoChangePropertyCommand (set by editing/addremoveelement.ts).
+- ScoreRange.write clones the linked staves (Excerpt.cloneStaff2); pasted slurs get their linked start/end elements;
+  linked note parentheses (read460); Harmony.endEdit transposes linked chord symbols of parts with another concert
+  pitch setting; arpeggioHiddenInStdIfTab; staff texts excluded from parts in old files.
+- Reading 2.x parts (read206 <Score> recursion, assignInitialPartToExcerpts).
+- MasterNotationParts.appendStaff/appendLinkedStaff add the staff to the parts (NotationParts.appendStaffLinkedToMaster,
+  appendLinkedStaff); AddPartToExcerpt; MasterNotation lays out all scores after creating a score.
+- dom/mcursor.ts (MCursor, for tests), Part.initFromInstrTemplate.
+- Tests: test/parts.test.ts (all of MuseScore's parts tests except createPartImage: image store), test/links.test.ts
+  (links_tests), test/linkedediting.test.ts (note input in score/part, delete, transpose, measures, time signatures,
+  property unlinking in parts, undo/redo); e2e: editing in a part changes the score and vice versa.
+- TODO(port): the Properties panel's parts section (SECTION_PARTS), the Layout panel of a part (excerpt parts, adding
+  instruments to a part), replaceDrumset in parts, part playback settings (PartChannelSettingsLink),
+  setParenthesesMode adds the parentheses directly (not with undoAddElement).

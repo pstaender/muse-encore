@@ -99,7 +99,7 @@ function changeProperties(object: EngravingObject, propertyId: Pid, propertyValu
             changeProperty(linkedObject, propertyId, propertyValue, propertyFlag)
             break
         case PropertyPropagation.UNLINK:
-            // TODO(port): item->unlinkPropertyFromMaster(propertyId) (excerpts)
+            item.unlinkPropertyFromMaster(propertyId)
             break
         default:
             break
@@ -115,8 +115,13 @@ export enum PropertyPropagation {
  * C++ score()->undo(new Link(e1, e2)) for the DOM (editing/addremoveelement.ts sets it to the undo command Link; the
  * DOM cannot create undo commands): links e1 to e2
  */
-export const linkHooks: { undoLink: (e1: EngravingObject, e2: EngravingObject) => void } = {
+export const linkHooks: {
+    undoLink: (e1: EngravingObject, e2: EngravingObject) => void
+    /** C++ score()->undo(new ChangeProperty(e, pid, v)) (editing/editproperty.ts) */
+    undoChangePropertyCommand: (e: EngravingObject, pid: Pid, v: PropertyValue) => void
+} = {
     undoLink: (e1, e2) => e1.linkTo(e2),
+    undoChangePropertyCommand: (e, pid, v) => { e.setProperty(pid, v) },
 }
 
 /** the original of the linked copy being made (C++ copy constructors with `bool link = true`) */

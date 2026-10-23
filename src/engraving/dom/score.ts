@@ -1627,9 +1627,28 @@ export class Score extends EngravingObject {
         markInstrumentsAsPrimary(this.m_parts)
     }
 
-    /** staves which are not linked to another staff; TODO(port): linked staves */
+    /** staves which are not linked to another staff (of this score) */
     uniqueStaves(): staff_idx_t[] {
-        return this.m_staves.map((_s, i) => i)
+        const sl: staff_idx_t[] = []
+
+        for (let staffIdx = 0; staffIdx < this.nstaves(); ++staffIdx) {
+            const s = this.staff(staffIdx)!
+            const links = s.links()
+            if (links) {
+                let alreadyInList = false
+                for (const idx of sl) {
+                    if (links.includes(this.staff(idx)!)) {
+                        alreadyInList = true
+                        break
+                    }
+                }
+                if (alreadyInList) {
+                    continue
+                }
+            }
+            sl.push(staffIdx)
+        }
+        return sl
     }
 
     isSpannerStartEnd(tick: Fraction, track: track_idx_t): boolean {

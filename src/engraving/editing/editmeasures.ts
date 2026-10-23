@@ -338,7 +338,7 @@ export class InsertTimeUnmanagedSpanner extends UndoCommand {
     override objectItems(): Score[] { return [this.score] }
 
     protected override flip(_ed: EditData | null): void {
-        for (const s of [this.score]) { // TODO(port): scoreList()
+        for (const s of this.score.scoreList()) {
             for (const sp of [...s.unmanagedSpanners()]) {
                 sp.insertTimeUnmanaged(this.tick, this.len)
             }

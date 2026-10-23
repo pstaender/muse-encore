@@ -208,12 +208,16 @@ describe.skipIf(!hasSubmodule)('NotationParts on real scores', () => {
         expect(score.excerpts()).toEqual([excerpt])
         // the part score's staves are linked to the main score's again: the score with its part can be saved
         expect(saveMscz(score).length).toBeGreaterThan(0)
-        // removing a staff removes it in the part score too
+        // adding and removing a staff adds/removes it in the part score too (MasterNotationParts::appendStaff:
+        // appendStaffLinkedToMaster)
         const staffCount = excerpt.excerptScore()!.nstaves()
         expect(appendStaff(score, part.id())).toBe(true)
+        expect(excerpt.excerptScore()!.nstaves()).toBe(staffCount + 1)
+        const newStaff = excerpt.excerptScore()!.staves()[staffCount]
+        expect(newStaff.links()?.includes(part.staff(1)!)).toBe(true)
         expect(removeStaves(score, [part.staff(0)!.id()])).toBe(true)
-        expect(excerpt.excerptScore()!.nstaves()).toBe(staffCount - 1)
-        expect(undo(score)).toBe(true)
         expect(excerpt.excerptScore()!.nstaves()).toBe(staffCount)
+        expect(undo(score)).toBe(true)
+        expect(excerpt.excerptScore()!.nstaves()).toBe(staffCount + 1)
     }, 60000)
 })

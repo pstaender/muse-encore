@@ -22,6 +22,9 @@ import type { Spanner, SpannerSegment } from '../dom/spanner'
 import type { KeySig } from '../dom/keysig'
 import { CommandType, UndoCommand, UndoCommandFilter, compoundObjects, updateStaffTextCache } from './undo'
 import type { EditData } from './editdata'
+import { ChangeProperty } from './editproperty'
+import type { Pid } from '../dom/property'
+import type { PropertyValue } from '../types/propertyvalue'
 
 function undoRemoveTuplet(cr: DurationElement): void {
     const tuplet = cr.tuplet()
@@ -459,6 +462,10 @@ staffTextHooks.undoLink = (e1: EngravingItem, e2: EngravingItem): void => {
 
 linkHooks.undoLink = (e1: EngravingObject, e2: EngravingObject): void => {
     e2.score().undo(new Link(e1, e2))
+}
+
+linkHooks.undoChangePropertyCommand = (e: EngravingObject, pid: Pid, v: PropertyValue): void => {
+    e.score().undo(new ChangeProperty(e, pid, v))
 }
 
 /** link e1 to e2 */

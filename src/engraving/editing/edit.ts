@@ -41,7 +41,7 @@ import { ChangeSpannerElements, ChangeStartEndSpanner } from './editspanner'
 import { MoveTremolo } from './edittremolo'
 import { ScoreRange } from '../dom/range'
 import { ChangeChordStaffMove } from './editchord'
-import { ExchangeVoice } from './editvoicing'
+import { CloneVoice, ExchangeVoice } from './editvoicing'
 import { InsertPart, RemovePart } from './editpart'
 import { InsertStaff, RemoveStaff } from './editstaff'
 import { AddBracket, RemoveBracket } from './editbrackets'
@@ -63,7 +63,7 @@ import {
 } from '../dom/utils'
 import { propertyValueEquals } from '../types/propertyvalue'
 import { TranslatableString } from '../../framework/global/types/translatablestring'
-import type { PointF } from '../../framework/draw/types/geometry'
+import { PointF } from '../../framework/draw/types/geometry'
 import type { DurationElement } from '../dom/durationelement'
 import type { Beam } from '../dom/beam'
 import type { LayoutBreak } from '../dom/layoutbreak'
@@ -105,6 +105,13 @@ import type { SymId } from '../types/symid'
 import { ChangePageNumberOffset } from './editscoreproperties'
 import { EditSystemLocks } from './editsystemlocks'
 import type { SystemLockIndicator } from '../dom/indicatoricon'
+import { LayoutBreakType } from '../types/types'
+import type { GuitarBend } from '../dom/guitarbend'
+import type { Box } from '../dom/box'
+import type { ChordLine } from '../dom/chordline'
+import type { StringTunings } from '../dom/stringtunings'
+import { StringData } from '../dom/stringdata'
+import type { Breath } from '../dom/breath'
 
 /** C++ Score::InsertMeasureOptions */
 export class InsertMeasureOptions {
@@ -272,14 +279,90 @@ function isSystemTextLine(element: EngravingItem | null): boolean {
     return !!element && element.isTextLineBase() && element.systemFlag()
 }
 
-/**
- * TODO(port): linked staves and excerpts: Staff::staffList() only has the staff itself, so the element is only added
- * to its own staff (and system objects to the system object staves of this score); the C++ code for the clones in
- * the other linked staves (articulations, segment annotations, spanners, ties, tremolos, ...) is not ported.
- */
+/** the element types added to the linked staves (the other ones are only added to their own staff) */
+const LINKED_STAFF_TYPES: ReadonlySet<ElementType> = new Set([
+    ElementType.ARTICULATION, ElementType.ORNAMENT, ElementType.TAPPING, ElementType.CHORDLINE, ElementType.LYRICS,
+    ElementType.SLUR, ElementType.HAMMER_ON_PULL_OFF, ElementType.TIE, ElementType.NOTE, ElementType.INSTRUMENT_CHANGE,
+    ElementType.HAIRPIN, ElementType.OTTAVA, ElementType.TRILL, ElementType.VIBRATO, ElementType.TEXTLINE,
+    ElementType.PEDAL, ElementType.LET_RING, ElementType.PALM_MUTE, ElementType.WHAMMY_BAR,
+    ElementType.PARTIAL_LYRICSLINE, ElementType.BREATH, ElementType.DYNAMIC, ElementType.EXPRESSION,
+    ElementType.STAFF_TEXT, ElementType.SYSTEM_TEXT, ElementType.TRIPLET_FEEL, ElementType.PLAYTECH_ANNOTATION,
+    ElementType.CAPO, ElementType.STRING_TUNINGS, ElementType.STICKING, ElementType.TREMOLO_SINGLECHORD,
+    ElementType.TREMOLO_TWOCHORD, ElementType.ARPEGGIO, ElementType.CHORD_BRACKET, ElementType.SYMBOL,
+    ElementType.IMAGE, ElementType.TREMOLOBAR, ElementType.FRET_DIAGRAM, ElementType.FERMATA, ElementType.HARMONY,
+    ElementType.HARP_DIAGRAM, ElementType.FIGURED_BASS, ElementType.CLEF, ElementType.AMBITUS,
+    ElementType.PLAY_COUNT_TEXT,
+])
+
+// Some elements in voice 1 of a staff should be copied to every track which has a linked voice in this staff
+const VOICE1_COPY_TYPES: ReadonlySet<ElementType> = new Set([
+    ElementType.SYMBOL, ElementType.IMAGE, ElementType.TREMOLOBAR, ElementType.DYNAMIC, ElementType.EXPRESSION,
+    ElementType.STAFF_TEXT, ElementType.PLAYTECH_ANNOTATION, ElementType.CAPO, ElementType.STRING_TUNINGS,
+    ElementType.STICKING, ElementType.FRET_DIAGRAM, ElementType.HARMONY, ElementType.HAIRPIN, ElementType.OTTAVA,
+    ElementType.TRILL, ElementType.SLUR, ElementType.HAMMER_ON_PULL_OFF, ElementType.VIBRATO, ElementType.TEXTLINE,
+    ElementType.PEDAL, ElementType.LYRICS, ElementType.PARTIAL_LYRICSLINE, ElementType.CLEF, ElementType.AMBITUS,
+])
+
+/** C++ static findLinkedChord (edit.cpp): the chord linked to c in the staff nstaff */
+export function findLinkedChord(c: Chord, nstaff: Staff): Chord | null {
+    const se = c.score().excerpt()
+    const de = nstaff.score().excerpt()
+    let strack = c.track()
+
+    if (se) {
+        // muse::key: the first key with the value (default 0)
+        strack = se.tracksMapping().find(([, v]) => v === strack)?.[0] ?? 0
+    }
+    let dtrack = nstaff.idx() * VOICES + strack % VOICES
+
+    if (de) {
+        const l = de.tracksMapping().filter(([k]) => k === strack).map(([, v]) => v)
+        if (!l.length) {
+            // simply return the first linked chord whose staff is equal to nstaff
+            for (const ee of c.linkList()) {
+                const ch = ee as Chord
+                if (ch.staff() === nstaff) {
+                    return ch
+                }
+            }
+            return null
+        }
+        for (const i of l) {
+            if (nstaff.idx() * VOICES <= i && (nstaff.idx() + 1) * VOICES > i) {
+                dtrack = i
+                break
+            }
+        }
+    }
+
+    const s = c.segment()
+    const nm = nstaff.score().tick2measure(s.tick())
+    const ns = nm ? nm.findSegment(s.segmentType(), s.tick()) : null
+    const ne = ns ? ns.element(dtrack) : null
+    if (!ne || !ne.isChord()) {
+        return null
+    }
+    let nc = ne as Chord
+    if (c.isGrace()) {
+        const pc = c.explicitParent() as unknown as Chord
+        let index = 0
+        for (const gc of pc.graceNotes()) {
+            if (c === gc) {
+                break
+            }
+            index++
+        }
+        if (index < nc.graceNotes().length) {
+            nc = nc.graceNotes()[index]
+        }
+    }
+    return nc
+}
+
 Score.prototype.undoAddElement = function (this: Score, element: EngravingItem, addToLinkedStaves = true,
     ctrlModifier = false, elementToRelink: EngravingItem | null = null): void {
     const ostaff = element.staff()
+    const strack = element.track()
     const et = element.type()
 
     //
@@ -306,7 +389,7 @@ Score.prototype.undoAddElement = function (this: Score, element: EngravingItem, 
             staffList = [...ostaff!.staffList()]
             element.setSystemFlag(false)
         } else {
-            for (const s of [this as Score]) { // TODO(port): scoreList() (excerpts)
+            for (const s of this.scoreList()) {
                 staffList.push(s.staff(0)) // system objects always appear on the top staff
                 for (const staff of s.systemObjectStaves()) {
                     if (staff.idx() === nidx) {
@@ -396,38 +479,484 @@ Score.prototype.undoAddElement = function (this: Score, element: EngravingItem, 
         || et === ElementType.PARTIAL_TIE
         || et === ElementType.PARENTHESIS
     ) {
-        // TODO(port): add linked clones to the linked parents (parent->links())
+        const parent = element.parentItem()
+        let links = parent ? parent.links() : null
+
+        // don't link part name
+        if (et === ElementType.TEXT) {
+            const t = element as unknown as Text
+            if (t.textStyleType() === TextStyleType.INSTRUMENT_EXCERPT) {
+                links = null
+            }
+        }
+        if (!links || !addToLinkedStaves) {
+            this.doUndoAddElement(element)
+            return
+        }
+        for (const ee of [...links]) {
+            const e = ee as EngravingItem
+            let ne: EngravingItem
+            if (e === parent) {
+                ne = element
+            } else {
+                if (element.isGlissando() || element.isGuitarBend() || element.isNoteLine()) { // and other spanners with Anchor::NOTE
+                    const newEnd = SpannerClass.endElementFromSpanner(element as unknown as Spanner, e)
+                    if (newEnd) {
+                        ne = element.linkedClone();
+                        (ne as unknown as Spanner).setNoteSpan(e as unknown as Note, newEnd)
+                        if (element.isGuitarBend() && element.staffType()!.isTabStaff()) {
+                            (ne as unknown as GuitarBend).endNote()!.setVisible(true)
+                        }
+                    } else { // couldn't find suitable start note
+                        continue
+                    }
+                } else if (element.isFingering()) {
+                    const tabFingering = e.staff()!.staffType(e.tick())!.showTabFingering()
+                    if (e.staff()!.isTabStaff(e.tick()) && !tabFingering) {
+                        continue
+                    }
+                    ne = element.linkedClone()
+                } else {
+                    ne = element.linkedClone()
+                }
+            }
+            ne.setScore(e.score())
+            ne.setSelected(false)
+            ne.setParent(e)
+            this.doUndoAddElement(ne)
+        }
+        return
+    }
+
+    if (et === ElementType.LAYOUT_BREAK) {
+        const lb = element as unknown as LayoutBreak
+        if (lb.layoutBreakType() === LayoutBreakType.SECTION) {
+            this.doUndoAddElement(lb)
+            let m: MeasureBase | null = lb.measure()
+            if (m.isBox()) {
+                // for frames, use linked frames
+                const links = m.links()
+                if (links) {
+                    for (const lo of [...links]) {
+                        if (lo.isBox()) {
+                            const box = lo as unknown as Box
+                            const score = box.score()
+                            if (score !== lb.score()) {
+                                const e = lb.linkedClone()
+                                e.setScore(score)
+                                e.setParent(box)
+                                this.doUndoAddElement(e)
+                            }
+                        }
+                    }
+                    return
+                } else { // if thera are not linked frames, use previous measure
+                    m = m.prevMeasure()
+                    if (!m) {
+                        return
+                    }
+                }
+            }
+            for (const s of this.scoreList()) {
+                if (s !== lb.score()) {
+                    const e = lb.linkedClone()
+                    e.setScore(s)
+                    const nm = s.tick2measure(m.tick())
+                    e.setParent(nm)
+                    this.doUndoAddElement(e)
+                }
+            }
+            return
+        }
+    }
+
+    if (!ostaff || !LINKED_STAFF_TYPES.has(et)) {
         this.doUndoAddElement(element)
         return
     }
 
-    // TODO(port): section breaks in linked frames/excerpts (LAYOUT_BREAK of type SECTION)
-
-    // the remaining element types are added to the linked staves (C++: ostaff->staffList()); here this is only
-    // the staff itself, so the element is added as it is
-    if (element.isInstrumentChange()) {
-        const nis = element as unknown as InstrumentChange
-        const s1 = nis.segment()
-        const tickStart = s1.tick()
-        const part = nis.part()!
-        const oldV = nis.staff()!.transpose(tickStart).clone()
-        // ws: instrument should not be changed here
-        const ch0 = nis.instrument().channel(0)
-        if (!nis.instrument().channels().length || ch0!.program() === -1) {
-            nis.setInstrument(ostaff!.part().instrument(s1.tick()))
-        }
-        this.doUndoAddElement(nis)
-        element.styleChanged()
-        // transpose root score; parts will follow
-        if (this.isMaster() && !nis.staff()!.transpose(tickStart).equals(oldV)) {
-            const i = part.instruments().upperBound(tickStart.ticks())
-            const tickEnd = i === part.instruments().size() ? new Fraction(-1, 1) : Fraction.fromTicks(part.instruments().keyAt(i))
-            Transpose.transpositionChanged(this, part, oldV, tickStart, tickEnd)
-        }
-        return
+    let staves: Staff[]
+    if (addToLinkedStaves) {
+        staves = ostaff.staffList()
+    } else {
+        staves = [ostaff]
     }
-    this.doUndoAddElement(element)
-    element.styleChanged()
+
+    if (elementToRelink) {
+        staves = staves.filter(st => st !== ostaff)
+    }
+
+    for (const staff of staves) {
+        const score = staff.score()
+        const staffIdx = staff.idx()
+
+        let linkedTrack = ostaff.getLinkedTrackInStaff(staff, strack)
+        if (linkedTrack === nidx) {
+            if (track2voice(strack) === 0 && VOICE1_COPY_TYPES.has(et)) {
+                linkedTrack = staff2track(staffIdx)
+            } else {
+                continue
+            }
+        }
+
+        let ne: EngravingItem
+        if (staff === ostaff) {
+            ne = element
+        } else {
+            if (staff.rstaff() !== ostaff.rstaff()) {
+                switch (element.type()) {
+                // exclude certain element types except on corresponding staff in part
+                // this should be same list excluded in cloneStaff()
+                case ElementType.STAFF_TEXT:
+                case ElementType.SYSTEM_TEXT:
+                case ElementType.TRIPLET_FEEL:
+                case ElementType.PLAYTECH_ANNOTATION:
+                case ElementType.CAPO:
+                case ElementType.STRING_TUNINGS:
+                case ElementType.FRET_DIAGRAM:
+                case ElementType.HARMONY:
+                case ElementType.FIGURED_BASS:
+                case ElementType.DYNAMIC:
+                case ElementType.EXPRESSION:
+                case ElementType.LYRICS: // not normally segment-attached
+                case ElementType.PARTIAL_LYRICSLINE:
+                case ElementType.PLAY_COUNT_TEXT:
+                case ElementType.WHAMMY_BAR:
+                    continue
+                default:
+                    break
+                }
+            }
+            ne = element.linkedClone()
+            ne.setScore(score)
+            ne.setSelected(false)
+            ne.setTrack(linkedTrack)
+
+            if (ne.isFretDiagram()) {
+                const fd = ne as unknown as FretDiagram
+                const fdHarmony = fd.harmony()
+                if (fdHarmony) {
+                    fdHarmony.setScore(score)
+                    fdHarmony.setSelected(false)
+                    fdHarmony.setTrack(linkedTrack)
+                }
+            }
+        }
+
+        if (element.isArticulationFamily()) {
+            const a = element as unknown as Articulation
+            let segment: Segment
+            let st: SegmentType
+            let m: Measure | null
+            let tick: Fraction
+            if (a.explicitParent()!.isChordRest()) {
+                const cr = a.chordRest()!
+                segment = cr.segment()
+                st = SegmentType.ChordRest
+                tick = segment.tick()
+                m = score.tick2measure(tick)
+            } else {
+                segment = a.explicitParent()!.explicitParent() as unknown as Segment
+                st = SegmentType.EndBarLine
+                tick = segment.tick()
+                m = score.tick2measure(tick)
+                if (m && m.tick().eq(tick)) {
+                    m = m.prevMeasure()
+                }
+            }
+            const seg = m ? m.findSegment(st, tick) : null
+            if (!seg) {
+                console.warn('undoAddSegment: segment not found')
+                break
+            }
+            const na = ne as unknown as Articulation
+            na.setTrack(linkedTrack)
+            if (a.explicitParent()!.isChordRest()) {
+                const cr = a.chordRest()!
+                let ncr: ChordRest | null
+                if (cr.isGrace()) {
+                    ncr = findLinkedChord(cr as Chord, score.staff(staffIdx)!)
+                } else {
+                    ncr = seg.element(linkedTrack) as ChordRest | null
+                }
+                na.setParent(ncr)
+            } else {
+                const bl = seg.element(linkedTrack) as BarLine | null
+                na.setParent(bl)
+            }
+            this.doUndoAddElement(na)
+        } else if (element.isChordLine() || element.isLyrics()) {
+            const cr = element.explicitParent() as unknown as ChordRest
+            const segment = cr.segment()
+            const tick = segment.tick()
+            const m = score.tick2measure(tick)
+            const seg = m ? m.findSegment(SegmentType.ChordRest, tick) : null
+            if (!seg) {
+                console.warn('undoAddSegment: segment not found')
+                break
+            }
+            ne.setTrack(linkedTrack)
+            let ncr = seg.element(linkedTrack) as ChordRest | null
+            ne.setParent(ncr)
+            if (element.isChordLine()) {
+                if (cr.isGrace()) {
+                    ncr = findLinkedChord(cr as Chord, score.staff(staffIdx)!)
+                    ne.setParent(ncr)
+                }
+                const oldChordLine = element as unknown as ChordLine
+                const newChordLine = ne as unknown as ChordLine
+                // Chordline also needs to know the new note
+                const oldNote = oldChordLine.note()
+                const newNote = oldNote ? (ncr as Chord).findNote(oldNote.pitch()) : null
+                newChordLine.setNote(newNote)
+            }
+            this.doUndoAddElement(ne)
+        } else if (element.isHarmony() && element.explicitParent()!.isFretDiagram()) {
+            const parentFd = element.parentItem()!
+            if (parentFd.score() !== score) {
+                // Find linked fret diagram
+                const linkedFd = parentFd.findLinkedInScore(score)
+                ne.setParent(linkedFd)
+            }
+            this.doUndoAddElement(ne)
+        } else if (element.isSymbol()
+            || element.isImage()
+            || element.isTremoloBar()
+            || element.isDynamic()
+            || element.isExpression()
+            || element.isStaffText()
+            || element.isPlayTechAnnotation()
+            || element.isCapo()
+            || element.isStringTunings()
+            || element.isSticking()
+            || element.isFretDiagram()
+            || element.isFermata()
+            || element.isHarmony() // Case with parent FretDiagram handled above, so we know it has parent Segment
+            || element.isHarpPedalDiagram()
+            || element.isFiguredBass()
+            || element.isClef()
+            || element.isAmbitus()) {
+            //
+            // elements with Segment as parent
+            //
+            const segment = element.explicitParent() as unknown as Segment
+            const tick = segment.tick()
+            let m = score.tick2measure(tick)!
+            const addClefToPrevMeasure = (segment.segmentType() & SegmentType.Clef) !== 0 && element.isClef() && !(element as unknown as Clef).isHeader()
+            const addBlToPrevMeasure = (segment.segmentType() & SegmentType.EndBarLine) !== 0
+            if (m.tick().eq(tick) && (addClefToPrevMeasure || addBlToPrevMeasure) && m.prevMeasure()) {
+                m = m.prevMeasure()!
+            }
+            const seg = m.undoGetSegment(segment.segmentType(), tick)
+            ne.setTrack(linkedTrack)
+            ne.setParent(seg)
+
+            if (ne.isStringTunings()) {
+                const stringTunings = ne as unknown as StringTunings
+                if (stringTunings.stringData().isNull()) {
+                    const stringData = stringTunings.part()!.stringData(tick, staff.idx())!
+                    const frets = stringData.frets()
+                    const stringList = stringData.stringList()
+
+                    stringTunings.setStringData(StringData.fromStrings(frets, stringList))
+                }
+            }
+
+            this.doUndoAddElement(ne)
+            // transpose harmony if necessary
+            if (element.isHarmony() && ne !== element) {
+                const h = ne as unknown as Harmony
+                if (score.style().styleB(Sid.concertPitch) !== element.style().styleB(Sid.concertPitch)) {
+                    const staffDest = h.staff()!
+                    const interval = staffDest.transpose(tick).clone()
+                    if (!interval.isZero()) {
+                        if (!score.style().styleB(Sid.concertPitch)) {
+                            interval.flip()
+                        }
+                        Transpose.undoTransposeHarmony(score, h, interval)
+                    }
+                }
+            }
+        } else if (element.isSlur()
+            || element.isHairpin()
+            || element.isOttava()
+            || element.isTrill()
+            || element.isVibrato()
+            || element.isTextLine()
+            || element.isPedal()
+            || element.isLetRing()
+            || element.isPalmMute()
+            || element.isWhammyBar()
+            || element.isPartialLyricsLine()) {
+            const sp = element as unknown as Spanner
+            const nsp = ne as unknown as Spanner
+            const tr2 = sp.effectiveTrack2()
+            const diff = tr2 - sp.track()
+            nsp.setTrack2(linkedTrack + diff)
+            nsp.setTrack(linkedTrack)
+
+            // determine start/end element for slurs
+            // this is only necessary if start/end element is
+            //   a grace note, otherwise the element can be set to zero
+            //   and will later be calculated from tick/track values
+            //
+            if (element.isSlur() && sp !== nsp) {
+                if (sp.startElement()) {
+                    for (const ee of sp.startElement()!.linkList()) {
+                        const e = ee as EngravingItem
+                        if (e.score() === nsp.score() && e.track() === nsp.track()) {
+                            nsp.setStartElement(e)
+                            break
+                        }
+                    }
+                }
+                if (sp.endElement()) {
+                    for (const ee of sp.endElement()!.linkList()) {
+                        const e = ee as EngravingItem
+                        if (e.score() === nsp.score() && e.track() === nsp.track2()) {
+                            nsp.setEndElement(e)
+                            break
+                        }
+                    }
+                }
+            }
+
+            if (sp.isTextLine() && sp !== nsp) {
+                const parent = sp.parentItem()
+                if (parent && parent.isNote()) {
+                    nsp.setParent(parent.findLinkedInStaff(staff))
+                }
+                const endEl = sp.endElement()
+                if (endEl && endEl.isNote()) {
+                    nsp.setEndElement(endEl.findLinkedInStaff(staff))
+                }
+            }
+
+            this.doUndoAddElement(nsp)
+        } else if ((et as ElementType) === ElementType.GLISSANDO || (et as ElementType) === ElementType.GUITAR_BEND
+            || (et as ElementType) === ElementType.NOTELINE) {
+            this.doUndoAddElement(ne)
+        } else if (element.isType(ElementType.TREMOLO_TWOCHORD)) {
+            const tremolo = element as unknown as TremoloTwoChord
+            const cr1 = tremolo.chord1()!
+            const cr2 = tremolo.chord2()!
+            const diff = cr2.track() - cr1.track()
+            const s1 = cr1.segment()
+            const s2 = cr2.segment()
+            const m1 = s1.measure()
+            const m2 = s2.measure()
+            const nm1 = score.tick2measure(m1.tick())!
+            const nm2 = score.tick2measure(m2.tick())!
+            const ns1 = nm1.findSegment(s1.segmentType(), s1.tick())!
+            const ns2 = nm2.findSegment(s2.segmentType(), s2.tick())!
+            const c1 = ns1.element(linkedTrack) as Chord
+            const c2 = ns2.element(linkedTrack + diff) as Chord
+            const ntremolo = ne as unknown as TremoloTwoChord
+            ntremolo.setChords(c1, c2)
+            ntremolo.setParent(c1)
+            this.doUndoAddElement(ntremolo)
+        } else if (element.isType(ElementType.TREMOLO_SINGLECHORD)) {
+            const cr = element.explicitParent() as unknown as Chord
+            const c1 = findLinkedChord(cr, score.staff(staffIdx)!)
+            ne.setParent(c1)
+            this.doUndoAddElement(ne)
+        } else if (element.isArpeggio() || element.isChordBracket()) {
+            const cr = element.explicitParent() as unknown as ChordRest
+            const s = cr.segment()
+            const m = s.measure()
+            const nm = score.tick2measure(m.tick())!
+            const ns = nm.findSegment(s.segmentType(), s.tick())!
+            const c1 = ns.element(linkedTrack) as Chord
+            ne.setParent(c1)
+            this.doUndoAddElement(ne)
+        } else if (element.isTie()) {
+            const tie = element as unknown as Tie
+            const n1 = tie.startNote()!
+            const n2 = tie.endNote()
+            const cr1 = n1.chord()
+            const cr2 = n2 ? n2.chord() : null
+
+            // find corresponding notes in linked staff
+            // accounting for grace notes and cross-staff notation
+            let sm = 0
+            if (cr2 && cr1.staffIdx() !== cr2.staffIdx()) {
+                sm = cr2.staffIdx() - cr1.staffIdx()
+            }
+            const c1 = findLinkedChord(cr1, score.staff(staffIdx)!)
+            const c2 = cr2 && score.staff(staffIdx + sm) ? findLinkedChord(cr2, score.staff(staffIdx + sm)!) : null
+
+            if (!c1) {
+                return
+            }
+
+            const nn1 = c1.findNote(n1.pitch(), n1.unisonIndex())
+            const nn2 = c2 && n2 ? c2.findNote(n2.pitch(), n2.unisonIndex()) : null
+
+            const track1 = c1.track()
+            const track2 = c2 ? c2.track() : track1
+
+            // create tie
+            const ntie = ne as unknown as Tie
+            ntie.eraseSpannerSegments()
+            ntie.setTrack(track1)
+            ntie.setTrack2(track2)
+            ntie.setStartNote(nn1)
+            ntie.setEndNote(nn2)
+            this.doUndoAddElement(ntie)
+        } else if (element.isInstrumentChange()) {
+            const is = element as unknown as InstrumentChange
+            const s1 = is.segment()
+            const m1 = s1.measure()
+            const nm1 = score.tick2measure(m1.tick())!
+            const ns1 = nm1.findSegment(s1.segmentType(), s1.tick())
+            const nis = ne as unknown as InstrumentChange
+            nis.setParent(ns1)
+            const tickStart = nis.segment().tick()
+            const part = nis.part()!
+            const oldV = nis.staff()!.transpose(tickStart).clone()
+            // ws: instrument should not be changed here
+            const ch0 = is.instrument().channel(0)
+            if (!is.instrument().channels().length || ch0!.program() === -1) {
+                nis.setInstrument(staff.part().instrument(s1.tick()))
+            } else if (nis !== is) {
+                nis.setInstrument(is.instrument())
+            }
+            this.doUndoAddElement(nis)
+            // transpose root score; parts will follow
+            if (score.isMaster() && !nis.staff()!.transpose(tickStart).equals(oldV)) {
+                const i = part.instruments().upperBound(tickStart.ticks())
+                const tickEnd = i === part.instruments().size() ? new Fraction(-1, 1) : Fraction.fromTicks(part.instruments().keyAt(i))
+                Transpose.transpositionChanged(this, part, oldV, tickStart, tickEnd)
+            }
+        } else if (element.isBreath()) {
+            const breath = element as unknown as Breath
+            const tick = breath.segment()!.tick()
+            let m = score.tick2measure(tick)!
+            // breath appears before barline
+            if (m.tick().eq(tick)) {
+                m = m.prevMeasure()!
+            }
+            const seg = m.undoGetSegment(SegmentType.Breath, tick)
+            const nbreath = ne as unknown as Breath
+            nbreath.setScore(score)
+            nbreath.setTrack(linkedTrack)
+            nbreath.setParent(seg)
+            this.doUndoAddElement(nbreath)
+        } else {
+            console.warn(`undoAddElement: unhandled: <${element.typeName()}>`)
+        }
+        ne.styleChanged()
+
+        if (elementToRelink) {
+            const links = ne.links()
+            if (!links) {
+                ne.linkTo(elementToRelink)
+            } else {
+                elementToRelink.setLinks(links as EngravingObject[])
+                ;(links as EngravingObject[]).push(elementToRelink)
+            }
+        }
+    }
 }
 
 /** removeLinked: also remove the linked elements */
@@ -752,7 +1281,7 @@ Score.prototype.undoAddBracket = function (this: Score, staff: Staff, level: num
     this.undo(new AddBracket(staff, level, type, span))
 }
 
-/** acts on the linked scores as well (TODO(port): linked scores) */
+/** (the linked spanners of the parts follow through the property propagation) */
 Score.prototype.undoInsertTime = function (this: Score, tick: Fraction, len: Fraction): void {
     if (len.isZero()) {
         return
@@ -891,14 +1420,25 @@ Score.prototype.undoInsertTime = function (this: Score, tick: Fraction, len: Fra
 }
 
 Score.prototype.undoAddCR = function (this: Score, cr: ChordRest, measure: Measure, tick: Fraction): void {
-    // TODO(port): lyrics, linked staves, tuplets
+    if (cr.lyrics().length) {
+        // Add chordrest and lyrics separately for correct
+        // handling of adding lyrics to linked staves.
+        const lyrics = [...cr.lyrics()]
+        cr.lyrics().length = 0
+        this.undoAddCR(cr, measure, tick)
+        for (const l of lyrics) {
+            this.undoAddElement(l)
+        }
+        return
+    }
+
     const ostaff = cr.staff()!
     const strack = cr.track()
 
     const segmentType = SegmentType.ChordRest
 
     for (const staff of ostaff.staffList()) {
-        const linkedTrack: track_idx_t = strack // ostaff->getLinkedTrackInStaff(staff, strack)
+        const linkedTrack = ostaff.getLinkedTrackInStaff(staff, strack)
 
         if (linkedTrack === nidx || linkedTrack < staff.part().startTrack() || linkedTrack >= staff.part().endTrack()) {
             continue
@@ -916,6 +1456,28 @@ Score.prototype.undoAddCR = function (this: Score, cr: ChordRest, measure: Measu
 
         newcr.setTrack(linkedTrack)
         newcr.setParent(seg)
+
+        // Climb up the (possibly nested) tuplets from this chordRest
+        // Make sure all tuplets are cloned and correctly nested
+        let elementBelow: DurationElement = cr
+        let tupletAbove = elementBelow.tuplet()
+        while (tupletAbove) {
+            const linkedElementBelow = elementBelow.findLinkedInStaff(staff) as DurationElement | null
+            if (!linkedElementBelow) { // shouldn't happen
+                break
+            }
+            let linkedTuplet = tupletAbove.findLinkedInStaff(staff) as Tuplet | null
+            if (!linkedTuplet) {
+                linkedTuplet = tupletAbove.linkedClone() as Tuplet
+                linkedTuplet.setScore(score)
+                linkedTuplet.setTrack(newcr.track())
+                linkedTuplet.setParent(m)
+            }
+            linkedElementBelow.setTuplet(linkedTuplet)
+
+            elementBelow = tupletAbove
+            tupletAbove = tupletAbove.tuplet()
+        }
 
         if (newcr.isRest() && (newcr as Rest).isGap() && !(newcr.track() % VOICES)) {
             (newcr as Rest).setGap(false)
@@ -1073,8 +1635,15 @@ Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: st
 
     const getStaffIdxRange = (score: Score): [staff_idx_t, staff_idx_t] => {
         if (local) {
-            // TODO(port): linked staves in other scores
-            return [staffIdx, staffIdx + 1]
+            if (score === this) {
+                return [staffIdx, staffIdx + 1]
+            }
+            const thisStaff = this.staff(staffIdx)!
+            const linkedStaff = thisStaff.findLinkedInScore(score)
+            if (linkedStaff) {
+                return [linkedStaff.idx(), linkedStaff.idx() + 1]
+            }
+            return [0, 0]
         }
         return [0, score.nstaves()]
     }
@@ -1086,7 +1655,7 @@ Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: st
         //
         const nts = this.staff(staffIdx)!.nextTimeSig(tick.plus(Fraction.eps()))
         const lmTick = nts ? nts.segment().tick() : new Fraction(-1, 1)
-        for (const score of [this]) { // TODO(port): scoreList()
+        for (const score of this.scoreList()) {
             const mf = score.tick2measure(tick)
             const lm = !lmTick.eq(new Fraction(-1, 1)) ? score.tick2measure(lmTick) : null
             for (let m = mf; m && m !== lm; m = m.nextMeasure()) {
@@ -1110,7 +1679,7 @@ Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: st
                 nsig.undoChangeProperty(Pid.TIMESIG_STRETCH, ts.stretch())
                 nsig.undoChangeProperty(Pid.GROUP_NODES, ts.groups().nodes())
                 nsig.setSelected(false)
-                // TODO(port): nsig->setDropTarget(false)
+                nsig.setDropTarget(false)
             }
         }
     } else {
@@ -1154,7 +1723,8 @@ Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: st
             }
         }
         // add the time signatures
-        for (const score of [this]) { // TODO(port): scoreList(), links to the master time signatures
+        const masterTimeSigs = new Map<track_idx_t, TimeSig>()
+        for (const score of this.scoreList()) {
             const nfm = score.tick2measure(tick)!
             seg = nfm.undoGetSegment(SegmentType.TimeSig, nfm.tick())
             const [first, end] = getStaffIdxRange(score)
@@ -1170,6 +1740,13 @@ Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: st
                     nsig.setParent(seg)
                     nsig.styleChanged()
                     this.undoAddElement(nsig)
+                    if (score.excerpt()) {
+                        const masterTrack = score.excerpt()!.tracksMapping().find(([, v]) => v === nsig!.track())?.[0] ?? 0
+                        const masterTimeSig = masterTimeSigs.get(masterTrack)
+                        if (masterTimeSig) {
+                            this.undo(new Link(masterTimeSig, nsig))
+                        }
+                    }
                 } else {
                     nsig.undoChangeProperty(Pid.SHOW_COURTESY, ts.showCourtesySig())
                     nsig.undoChangeProperty(Pid.TIMESIG_TYPE, ts.timeSigType())
@@ -1182,7 +1759,11 @@ Score.prototype.cmdAddTimeSig = function (this: Score, fm: Measure, staffIdx: st
                     nsig.undoChangeProperty(Pid.TIMESIG_STRETCH, ts.stretch())
                     nsig.undoChangeProperty(Pid.GROUP_NODES, ts.groups().nodes())
                     nsig.setSelected(false)
-                    // TODO(port): nsig->setDropTarget(false)
+                    nsig.setDropTarget(false) // DEBUG
+                }
+
+                if (score.isMaster()) {
+                    masterTimeSigs.set(nsig.track(), nsig)
                 }
             }
         }
@@ -1430,7 +2011,7 @@ MasterScore.prototype.insertMeasureInMaster = function (this: MasterScore, befor
     let masterMeasure: Measure | null = null
     let ticks = new Fraction(0, 1)
 
-    for (const score of [this as Score]) { // TODO(port): scoreList() (excerpts)
+    for (const score of this.scoreList()) {
         let actualBeforeMeasure: MeasureBase | null = null
 
         if (beforeMeasure) {
@@ -1716,7 +2297,7 @@ Measure.prototype.adjustToLen = function (this: Measure, nf: Fraction, appendRes
 
     this.score().undoInsertTime(startTick, diff)
 
-    for (const s of [this.score()]) { // TODO(port): scoreList()
+    for (const s of this.score().scoreList()) {
         s.undo(new InsertTime(s, startTick, diff))
         const m = s.tick2measure(this.tick())!
         s.undo(new ChangeMeasureLen(m, nf))
@@ -2072,8 +2653,7 @@ Score.prototype.setRests = function (this: Score, tick_: Fraction, track: track_
         // Don't fill a full measure with rests on a non-zero voice, *unless* it has links in voice zero
         const fullMeasure = tick.eq(measure.tick()) && f.eq(measure.stretchedLen(staff))
         const emptyNonZeroVoice = track2voice(track) !== 0 && !measure.hasVoice(track)
-        // TODO(port): staff->trackHasLinksInVoiceZero(track) (linked staves)
-        if (emptyNonZeroVoice && fullMeasure) {
+        if (emptyNonZeroVoice && fullMeasure && !staff.trackHasLinksInVoiceZero(track)) {
             l = l.minus(f)
             measure = measure.nextMeasure()
             if (!measure) {
@@ -2946,8 +3526,7 @@ Score.prototype.deleteItem = function (this: Score, el: EngravingItem | null): v
             // delete them really when only gap rests are in the actual measure.
             const m = rest.measure()
             const track = el.track()
-            // TODO(port): staff->trackHasLinksInVoiceZero(track) (linked staves)
-            if (m.isOnlyDeletedRests(track)) {
+            if (m.isOnlyDeletedRests(track) && !el.staff()!.trackHasLinksInVoiceZero(track)) {
                 const st = SegmentType.ChordRest
                 for (let s = m.first(st); s; s = s.next(st)) {
                     const del = s.element(track)
@@ -3050,7 +3629,7 @@ Score.prototype.deleteItem = function (this: Score, el: EngravingItem | null): v
         } else {
             if (bl.barLineType() === BarLineType.START_REPEAT) {
                 const m2 = m.isMMRest() ? m.mmRestFirst()! : m
-                for (const lscore of [this as Score]) { // TODO(port): scoreList()
+                for (const lscore of this.scoreList()) {
                     const lmeasure = lscore.tick2measure(m2.tick())
                     if (lmeasure) {
                         lmeasure.undoChangeProperty(Pid.REPEAT_START, false)
@@ -3062,7 +3641,7 @@ Score.prototype.deleteItem = function (this: Score, el: EngravingItem | null): v
                 }
             } else if (bl.barLineType() === BarLineType.END_REPEAT) {
                 const m2 = m.isMMRest() ? m.mmRestLast()! : m
-                for (const lscore of [this as Score]) { // TODO(port): scoreList()
+                for (const lscore of this.scoreList()) {
                     const lmeasure = lscore.tick2measure(m2.tick())
                     if (lmeasure) {
                         lmeasure.undoChangeProperty(Pid.REPEAT_END, false)
@@ -3936,7 +4515,9 @@ Score.prototype.cmdExchangeVoice = function (this: Score, s: voice_idx_t, d: voi
     let m1 = this.tick2measure(t1)
     let m2 = this.tick2measure(t2)
 
-    // TODO(port): excerpts (selection().score()->excerpt())
+    if (this.selection().score().excerpt()) {
+        return
+    }
 
     if (m2 && t2.gt(m2.tick())) {
         m2 = m2.nextMeasure()
@@ -3953,15 +4534,82 @@ Score.prototype.cmdExchangeVoice = function (this: Score, s: voice_idx_t, d: voi
 
 Score.prototype.undoExchangeVoice = function (this: Score, measure: Measure, srcVoice: voice_idx_t, dstVoice: voice_idx_t,
     srcStaff: staff_idx_t, dstStaff: staff_idx_t): void {
+    const tick = measure.tick()
+
     for (let staffIdx = srcStaff; staffIdx < dstStaff; ++staffIdx) {
+        const staffList = new Set<Staff>(this.staff(staffIdx)!.staffList())
+
         const srcStaffTrack = staffIdx * VOICES
         const srcTrack = srcStaffTrack + srcVoice
         const dstTrack = srcStaffTrack + dstVoice
+        const trackDiff = dstVoice - srcVoice
 
         //handle score and complete measures first
         this.undo(new ExchangeVoice(measure, srcTrack, dstTrack, staffIdx))
 
-        // TODO(port): linked staves and excerpts (CloneVoice)
+        for (const st of staffList) {
+            const staffTrack = st.idx() * VOICES
+            const measure2 = st.score().tick2measure(tick)!
+            const ex = st.score().excerpt()
+
+            if (ex) {
+                const tracks = ex.tracksMapping()
+                const values = (key: track_idx_t): track_idx_t[] => tracks.filter(([k]) => k === key).map(([, v]) => v)
+                let srcTrackList = values(srcTrack)
+                let dstTrackList = values(dstTrack)
+
+                for (const srcTrack2 of [...srcTrackList]) {
+                    // don't care about other linked staves
+                    if (!(staffTrack <= srcTrack2) || !(srcTrack2 < staffTrack + VOICES)) {
+                        continue
+                    }
+
+                    const tempTrack = srcTrack
+                    const testTracks = values(tempTrack + trackDiff)
+                    let hasVoice = false
+                    for (const testTrack of testTracks) {
+                        if (staffTrack <= testTrack && testTrack < staffTrack + VOICES && dstTrackList.includes(testTrack)) {
+                            hasVoice = true
+                            // voice is simply exchangeable now (deal directly)
+                            this.undo(new ExchangeVoice(measure2, srcTrack2, testTrack, Math.floor(staffTrack / 4)))
+                        }
+                    }
+
+                    // only source voice is in this staff
+                    if (!hasVoice) {
+                        this.undo(new CloneVoice(measure.first()!, measure2.endTick(), measure2.first()!, tempTrack, srcTrack2,
+                            tempTrack + trackDiff))
+                        srcTrackList = srcTrackList.filter(t => t !== srcTrack2)
+                    }
+                }
+
+                for (const dstTrack2 of [...dstTrackList]) {
+                    // don't care about other linked staves
+                    if (!(staffTrack <= dstTrack2) || !(dstTrack2 < staffTrack + VOICES)) {
+                        continue
+                    }
+
+                    const tempTrack = dstTrack
+                    const testTracks = values(tempTrack - trackDiff)
+                    let hasVoice = false
+                    for (const testTrack of testTracks) {
+                        if (staffTrack <= testTrack && testTrack < staffTrack + VOICES && srcTrackList.includes(testTrack)) {
+                            hasVoice = true
+                        }
+                    }
+
+                    // only destination voice is in this staff
+                    if (!hasVoice) {
+                        this.undo(new CloneVoice(measure.first()!, measure2.endTick(), measure2.first()!, tempTrack, dstTrack2,
+                            tempTrack - trackDiff))
+                        dstTrackList = dstTrackList.filter(t => t !== dstTrack2)
+                    }
+                }
+            } else if (srcStaffTrack !== staffTrack) {
+                // linked staff in same score (all voices present can be assumed)
+                this.undo(new ExchangeVoice(measure2, staffTrack + srcVoice, staffTrack + dstVoice, st.idx()))
+            }
+        }
     }
 
     // make sure voice 0 is complete
@@ -4029,7 +4677,7 @@ Score.prototype.undoPropertyChangedItem = function (this: Score, item: Engraving
             }
             break
         case PropertyPropagation.UNLINK:
-            // TODO(port): item->unlinkPropertyFromMaster(propId) (excerpts)
+            item.unlinkPropertyFromMaster(propId)
             break
         default:
             break
@@ -4088,7 +4736,6 @@ Score.prototype.undoChangeStyleValues = function (this: Score, values: Map<Sid, 
     this.undo(new ChangeStyleValues(this, values))
 }
 
-/** TODO(port): linked elements in parts/excerpts (only the element itself is moved) */
 Score.prototype.undoChangeParent = function (this: Score, element: EngravingItem | null, parent: EngravingItem | null,
     staffIdx: staff_idx_t): void {
     if (!element || !parent) {
@@ -4099,13 +4746,79 @@ Score.prototype.undoChangeParent = function (this: Score, element: EngravingItem
         return
     }
 
-    for (const obj of element.linkList()) {
+    const destStaff = this.staff(staffIdx)!
+    let recreateItemNeeded = false
+
+    for (const obj of [...element.linkList()]) {
         const item = obj as EngravingItem
+        const linkedScore = item.score()
+        const linkedOrigin = item.staff()
+        // don't allow staff-change of linked elements within the same score
+        let linkedDest = linkedScore !== this && destStaff !== element.staff() ? destStaff.findLinkedInScore(linkedScore) : linkedOrigin
+        if (!linkedDest && element.systemFlag()) {
+            linkedDest = linkedScore.staff(0)
+        }
+
+        if (!linkedScore) {
+            continue
+        }
         if (item === element) {
             // Master score
             this.undo(new ChangeParent(element, parent, staffIdx))
+        } else if (linkedOrigin && linkedDest) {
+            // Part - origin and destination staves are in this part
+            let linkedParent: EngravingItem | null
+            if (parent.isSegment()) {
+                // Get parent segment in linked score
+                const oldSeg = parent as unknown as Segment
+                const oldMeas = oldSeg.measure()
+                const newMeas = linkedScore.tick2measure(oldMeas.tick())!
+                linkedParent = newMeas.tick2segment(oldSeg.tick(), oldSeg.segmentType())
+                if (!linkedParent && (oldSeg.segmentType() & CHORD_REST_OR_TIME_TICK_TYPE)) {
+                    // A ChordRest segment that exists in the score may not exist in the part.
+                    // In that case we create a TimeTick segment as new parent for the linked item.
+                    linkedParent = newMeas.getSegment(SegmentType.TimeTick, oldSeg.tick())
+                }
+            } else {
+                linkedParent = parent.findLinkedInStaff(linkedDest)
+            }
+            if (!linkedParent) {
+                continue
+            }
+            linkedScore.undo(new ChangeParent(item, linkedParent, linkedScore.staffIdx(linkedDest)))
+        } else if (linkedOrigin && !linkedDest) {
+            // Part - move is to a different staff
+            // Remove original item
+            linkedScore.undoRemoveElement(item, false)
+            recreateItemNeeded = true
         }
-        // C++: linked items in parts get the corresponding parent, or are removed and recreated
+    }
+
+    if (recreateItemNeeded) {
+        // Need to create item in some parts
+        for (const obj of destStaff.linkList()) {
+            const linkedDest = obj as Staff
+            const linkedScore = linkedDest.score()
+            if (linkedDest !== destStaff && !element.findLinkedInScore(linkedScore)) {
+                // Item should be in this score and isn't already
+                const newItem = element.linkedClone()
+                let linkedParent: EngravingItem | null
+
+                if (parent.isSegment()) {
+                    // Get parent segment in linked score
+                    const oldSeg = parent as unknown as Segment
+                    const m = linkedScore.tick2measure(oldSeg.tick())!
+                    linkedParent = m.tick2segment(oldSeg.tick(), oldSeg.segmentType())
+                } else {
+                    linkedParent = parent.findLinkedInScore(linkedScore)
+                }
+
+                newItem.setParent(linkedParent)
+                newItem.setTrack(linkedScore.staffIdx(linkedDest) * VOICES)
+                newItem.setOffset(new PointF())
+                linkedParent!.undoAddElement(newItem, false)
+            }
+        }
     }
 }
 
@@ -4372,15 +5085,36 @@ Score.prototype.canReselectItem = function (this: Score, item: EngravingItem | n
 
 /**
  * C++ Score::changeSelectedElementsVoice (score.cpp): moves selected notes into specified voice if possible
- * TODO(port): excerpts (isOperationValid, linked staves with invisible voices), parentheses of note groups, lyrics
+ * TODO(port): parentheses of note groups, lyrics
  */
 Score.prototype.changeSelectedElementsVoice = function (this: Score, voice: voice_idx_t): void {
+    const isOperationValid = (score: Score, origTrack: track_idx_t, dstTrack: track_idx_t): boolean => {
+        const excerpt = score.excerpt()
+        if (!excerpt) {
+            return true
+        }
+
+        // muse::key(map, value, muse::nidx)
+        const key = (value: track_idx_t): track_idx_t => excerpt.tracksMapping().find(([, v]) => v === value)?.[0] ?? nidx
+        const dstTrackMapped = key(dstTrack)
+        if (dstTrackMapped === nidx) {
+            return false
+        }
+
+        const origTrackMapped = key(origTrack)
+        if (origTrackMapped === dstTrack) {
+            return false
+        }
+
+        return true
+    }
+
     const newElements: EngravingItem[] = []
     const oel = [...this.selection().elements()] // make copy
     for (let e of oel) {
         if (e.isNote()) {
-            const note = e as unknown as Note
-            const chord = note.chord()
+            let note = e as unknown as Note
+            let chord = note.chord()
 
             // move grace notes with main chord only
             if (chord.isGrace() || chord.isTrillCueNote()) {
@@ -4391,13 +5125,24 @@ Score.prototype.changeSelectedElementsVoice = function (this: Score, voice: voic
                 continue
             }
 
-            const score: Score = this
+            let score: Score = this
+            if (this.excerpt() && !chord.staff()!.isVoiceVisible(voice)) {
+                // We are on a linked stave with the desired voice not visible
+                // Get note in main score to continue
+                note = note.findLinkedInScore(this.masterScore()) as unknown as Note
+                chord = note.chord()
+                score = this.masterScore()
+            }
             const s = chord.segment()
             const m = s.measure()
             const notes = chord.notes().length
             const dstTrack = chord.staffIdx() * VOICES + voice
             const dstCR = s.element(dstTrack) as unknown as ChordRest | null
             let dstChord: Chord | null = null
+
+            if (!isOperationValid(score, chord.track(), dstTrack)) {
+                continue
+            }
 
             // set up destination chord
 
@@ -4772,7 +5517,7 @@ Score.prototype.undoChangeBarLineType = function (this: Score, bl: BarLine, barT
     } else if (bl.barLineType() === BarLineType.START_REPEAT) {
         if (m.system() && m.isFirstInSystem()) {
             if (barType !== BarLineType.END_REPEAT) {
-                for (const lscore of [this as Score]) { // TODO(port): scoreList()
+                for (const lscore of this.scoreList()) {
                     const lmeasure = lscore.tick2measure(m.tick())
                     if (lmeasure) {
                         lmeasure.undoChangeProperty(Pid.REPEAT_START, false)
@@ -4899,13 +5644,18 @@ Score.prototype.undoChangeBarLineType = function (this: Score, bl: BarLine, barT
                             lscore.undo(new Link(lbl, sbl))
                         } else if (lbl !== sbl && generated && lbl.isLinked(sbl)) {
                             lscore.undo(new Unlink(lbl))
-                            // TODO(port): remove an additional link on the covering mmRest (findLinkedInScore)
+                            let linkedOnCoveringMMRest: EngravingItem | null
+                            while ((linkedOnCoveringMMRest = sbl.findLinkedInScore(lscore))) {
+                                // Edge case: an additional link of this barline exists on the covering mmRest of lbl's measure
+                                lscore.undo(new Unlink(linkedOnCoveringMMRest))
+                                lscore.doUndoRemoveElement(linkedOnCoveringMMRest)
+                            }
                         }
                     }
                 }
             }
         } else if (segmentType === SegmentType.BeginBarLine) {
-            for (const lscore of [m2!.score()]) { // TODO(port): scoreList()
+            for (const lscore of m2!.score().scoreList()) {
                 const lmeasure = lscore.tick2measure(m2!.tick())!
                 const segment1 = lmeasure.undoGetSegmentR(SegmentType.BeginBarLine, new Fraction(0, 1))
                 for (const e of segment1.elist()) {
@@ -4927,7 +5677,7 @@ Score.prototype.undoChangeBarLineType = function (this: Score, bl: BarLine, barT
                 return
             }
         }
-        for (const lscore of [m2!.score()]) { // TODO(port): scoreList()
+        for (const lscore of m2!.score().scoreList()) {
             let lmeasure = lscore.tick2measure(m2!.tick())
             if (lmeasure) {
                 lmeasure.undoChangeProperty(Pid.REPEAT_START, true)
@@ -4946,7 +5696,7 @@ Score.prototype.undoChangeBarLineType = function (this: Score, bl: BarLine, barT
                 return
             }
         }
-        for (const lscore of [m2!.score()]) { // TODO(port): scoreList()
+        for (const lscore of m2!.score().scoreList()) {
             let lmeasure = lscore.tick2measure(m2!.tick())
             if (lmeasure) {
                 lmeasure.undoChangeProperty(Pid.REPEAT_END, true)
@@ -4965,7 +5715,7 @@ Score.prototype.undoChangeBarLineType = function (this: Score, bl: BarLine, barT
                 return
             }
         }
-        for (const lscore of [m2!.score()]) { // TODO(port): scoreList()
+        for (const lscore of m2!.score().scoreList()) {
             let lmeasure = lscore.tick2measure(m2!.tick())
             if (lmeasure) {
                 lmeasure.undoChangeProperty(Pid.REPEAT_END, true)
@@ -5162,7 +5912,7 @@ function rewriteMeasuresRange(score: Score, startMeasure: Measure, endMeasure: M
     const fill = newDuration.minus(ticks)
     range.fill(fill)
 
-    for (const s of [score]) { // TODO(port): scoreList() (excerpts)
+    for (const s of score.scoreList()) {
         const m1 = s.tick2measure(startMeasure.tick())!
         const m2 = s.tick2measure(endMeasure.tick())!
 
@@ -5209,7 +5959,7 @@ function rewriteMeasuresRange(score: Score, startMeasure: Measure, endMeasure: M
         return false
     }
 
-    for (const s of [score]) { // TODO(port): scoreList()
+    for (const s of score.scoreList()) {
         s.connectTies(true)
     }
 
@@ -6446,7 +7196,7 @@ Score.prototype.deleteMeasures = function (this: Score, mbStart: MeasureBase, mb
     const startTick = mbStart.tick()
     const endTick = mbEnd.tick()
 
-    for (const score of [this as Score]) { // TODO(port): scoreList() (excerpts)
+    for (const score of this.scoreList()) {
         const startMeasure = score.tick2measure(startTick)!
         const endMeasure = score.tick2measure(endTick)!
 
@@ -6923,7 +7673,7 @@ Score.prototype.doTimeDeleteForMeasure = function (this: Score, m: Measure, star
 
     const emptySegments: Segment[] = []
 
-    for (const score of [this.masterScore() as Score]) { // TODO(port): scoreList() (excerpts)
+    for (const score of this.masterScore().scoreList()) {
         const localMeasure = score.tick2measure(abstick)!
 
         this.undo(new InsertTime(score, abstick, len.neg()))

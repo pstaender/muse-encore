@@ -7,7 +7,7 @@
  *
  * Like C++, the elements that did not change are read with the read400 readers (here: the shared read460
  * readers, which contain the read400/read410 compat code).
- * TODO(port): excerpts (<Score> recursion), Audio,
+ * TODO(port): Audio,
  * MIDI data of instrument channels,
  * tempo map, MIDI mapping, <ticklen> (< 1.12, needs the compat time sig map)
  */
@@ -117,6 +117,8 @@ import type { Trill } from '../../dom/trill'
 import type { Tuplet } from '../../dom/tuplet'
 import { XmlReader } from '../xmlreader'
 import { CompatUtils } from '../compat/compatutils'
+import { DefaultStyle } from '../../style/defaultstyle'
+import { Excerpt } from '../../dom/excerpt'
 import { ReadChordListHook } from '../compat/readchordlisthook'
 import { CompatConversions } from '../compat/compatconversions'
 import type { TremoloCompat } from '../compat/tremolocompat'
@@ -1371,11 +1373,32 @@ export class Read206 {
                 }
                 score.addSpanner(s)
             } else if (tag === 'Score') { // recursion
-                e.skipCurrentElement() // TODO(port): excerpts
+                ctx.tracks().clear()
+                ctx.clearUserTextStyles()
+                const m = score.masterScore()
+                const s = m.createScore()
+                // ReadStyleHook::setupDefaultStyle(s)
+                const defaultsVersion = m.style().defaultStyleVersion()
+                s.setStyle(DefaultStyle.resolveStyleDefaults(defaultsVersion))
+                s.style().setDefaultStyleVersion(defaultsVersion)
+                const ex = new Excerpt(m)
+
+                ex.setExcerptScore(s)
+                ctx.setLastMeasure(null)
+                const exCtx = new ReadContext(s)
+
+                s.setIsOpen(true)
+                Read206.readScoreTag(s, e, exCtx)
+
+                ex.setTracksMapping([...ctx.tracks()])
+                m.addExcerpt(ex)
             } else if (tag === 'PageList') {
                 e.skipCurrentElement()
             } else if (tag === 'name') {
-                e.skipCurrentElement() // only used by excerpts
+                const n = e.readText()
+                if (!score.isMaster()) { //ignore the name if it's not a child score
+                    score.excerpt()!.setName(n, /*saveAndNotify=*/ false)
+                }
             } else if (tag === 'layoutMode') {
                 if (ctx.forcePageMode()) {
                     e.skipCurrentElement()
@@ -1401,7 +1424,11 @@ export class Read206 {
 
         score.setUpTempoMap()
 
-        // TODO(port): harmony channels, MIDI mapping, assignInitialPartToExcerpts
+        // TODO(port): harmony channels, MIDI mapping
+
+        if (score.isMaster()) {
+            CompatUtils.assignInitialPartToExcerpts(score.masterScore().excerpts())
+        }
 
         return true
     }

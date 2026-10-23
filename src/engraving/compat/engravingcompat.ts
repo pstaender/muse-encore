@@ -111,7 +111,13 @@ export class EngravingCompat {
                     }
                     if (item.excludeFromOtherParts()) {
                         item.setProperty(Pid.EXCLUDE_FROM_OTHER_PARTS, false)
-                        // TODO(port): linked items in excerpts
+                        for (const linkedItem of item.linkList()) {
+                            if (linkedItem === item && !linkedItem.score().isMaster()) {
+                                item.setAppearanceLinkedToMaster(false)
+                            } else if (linkedItem !== item) {
+                                linkedItem.setProperty(Pid.VISIBLE, false)
+                            }
+                        }
                     }
                 }
             }

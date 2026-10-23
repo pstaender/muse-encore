@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/spanner.h/.cpp
  *
- * TODO(port): navigation, links
+ * TODO(port): navigation
  */
 
 import { PointF } from '../../framework/draw/types/geometry'
@@ -16,7 +16,7 @@ import { ElementType, SpannerSegmentType, VOICES, nidx, track2staff, type track_
 import { Sid } from '../style/styledef'
 import { EngravingItem, ElementFlag } from './engravingitem'
 import type { EngravingObject } from './engravingobject'
-import { Pid } from './property'
+import { Pid, PropertyGroup } from './property'
 import { SegmentType, type Segment } from './segment'
 import { EditTimeTickAnchors } from './anchors'
 import type { Chord } from './chord'
@@ -216,6 +216,16 @@ export abstract class SpannerSegment extends EngravingItem {
         if (this.offsetIsSpatiumDependent()) {
             this.m_offset2 = this.m_offset2.times(nv / ov)
         }
+    }
+
+    override isPropertyLinkedToMaster(id: Pid): boolean {
+        const linkedForSpannerSegment = super.isPropertyLinkedToMaster(id)
+        if (!linkedForSpannerSegment) {
+            return false
+        }
+
+        // The property is linked for the spanner segment, but may be unlinked for the spanner, in which case we consider it unlinked
+        return this.spanner().isPropertyLinkedToMaster(id)
     }
 }
 
@@ -502,6 +512,24 @@ export abstract class Spanner extends EngravingItem {
             break
         case Pid.ANCHOR:
             this.setAnchor(v as SpannerAnchor)
+            break
+        case Pid.POSITION_LINKED_TO_MASTER:
+            this.setPositionLinkedToMaster(!!v)
+            if (this.isPositionLinkedToMaster()) {
+                for (const seg of this.spannerSegments()) {
+                    seg.relinkPropertiesToMaster(PropertyGroup.POSITION)
+                }
+                this.relinkPropertiesToMaster(PropertyGroup.POSITION)
+            }
+            break
+        case Pid.APPEARANCE_LINKED_TO_MASTER:
+            this.setAppearanceLinkedToMaster(!!v)
+            if (this.isAppearanceLinkedToMaster()) {
+                for (const seg of this.spannerSegments()) {
+                    seg.relinkPropertiesToMaster(PropertyGroup.APPEARANCE)
+                }
+                this.relinkPropertiesToMaster(PropertyGroup.APPEARANCE)
+            }
             break
         default:
             return super.setProperty(propertyId, v)

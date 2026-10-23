@@ -29,7 +29,7 @@ import { Shape } from '../infrastructure/shape'
 import { engravingFonts } from '../infrastructure/engravingfont'
 import { EngravingItem, ElementFlag, LayoutData } from './engravingitem'
 import type { ElementStyle, EngravingObject } from './engravingobject'
-import { Pid, PropertyFlags } from './property'
+import { Pid, PropertyFlags, PropertyGroup, propertyGroup } from './property'
 import type { PaintOptions } from '../rendering/paintoptions'
 import type { TranslatableString } from '../../framework/global/types/translatablestring'
 import { TConv } from '../types/typesconv'
@@ -1311,6 +1311,23 @@ export abstract class TextBase extends EngravingItem {
     override mutldata(): TextBaseLayoutData { return super.ldata() as TextBaseLayoutData }
 
     isTextLinkedToMaster(): boolean { return this.m_isTextLinkedToMaster }
+
+    override isPropertyLinkedToMaster(id: Pid): boolean {
+        if (propertyGroup(id) === PropertyGroup.TEXT) {
+            return this.isTextLinkedToMaster()
+        }
+
+        return super.isPropertyLinkedToMaster(id)
+    }
+
+    override isUnlinkedFromMaster(): boolean {
+        const parent = this.parentItem()
+        if (parent && parent.isUnlinkedFromMaster()) {
+            return true
+        }
+
+        return !(this.getProperty(Pid.TEXT_LINKED_TO_MASTER) as boolean) || super.isUnlinkedFromMaster()
+    }
     setTextLinkedToMaster(v: boolean): void { this.m_isTextLinkedToMaster = v }
 
     align(): Align { return this.m_align }
@@ -2066,6 +2083,12 @@ export abstract class TextBase extends EngravingItem {
             this.m_cursor.setFormat(FormatId.Valign, v as number)
             break
         case Pid.TEXT_LINKED_TO_MASTER:
+            if (this.isTextLinkedToMaster() === !!v) {
+                break
+            }
+            if (!this.isTextLinkedToMaster()) {
+                this.relinkPropertiesToMaster(PropertyGroup.TEXT)
+            }
             this.setTextLinkedToMaster(!!v)
             break
         case Pid.DIRECTION:

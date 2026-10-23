@@ -6,7 +6,7 @@
  * Port of src/engraving/rw/mscloader.h/.cpp
  *
  * Readers: read460 (4.x, incl. the read400/read410 differences), read302 (3.x), read206 (2.x).
- * TODO(port): read114 (1.x files), excerpts of pre-4.0 files (read302/read206), audio
+ * TODO(port): read114 (1.x files), audio
  */
 
 import { imageStore } from '../dom/imagestore'

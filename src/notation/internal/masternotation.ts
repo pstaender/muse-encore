@@ -36,7 +36,7 @@ import type { ScoreCreateOptions } from '../notationtypes'
 import '../../engraving/editing/edit'
 
 function clearMeasures(masterScore: MasterScore): void {
-    for (const score of [masterScore]) { // TODO(port): scoreList() (excerpts)
+    for (const score of masterScore.scoreList()) {
         for (const _part of score.parts()) {
             // TODO(port): part->removeNonPrimaryInstruments() (instrument changes)
         }
@@ -223,7 +223,7 @@ export class MasterNotation {
             }
 
             if (nvb) {
-                // TODO(port): nvb->manageExclusionFromParts(false) (excerpts)
+                nvb.manageExclusionFromParts(/*exclude*/ false)
             }
         }
 
@@ -295,8 +295,10 @@ export class MasterNotation {
         score.setUpTempoMap()
         score.autoUpdateSpatium()
 
-        // TODO(port): ScoreLoad; excerpts (scoreList())
-        ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
+        // C++ ScoreLoad sl: no undo while laying out
+        for (const s of score.scoreList()) {
+            ScoreRenderer.layoutScore(s, new Fraction(0, 1), new Fraction(-1, 1))
+        }
 
         // TODO(port): m_notationPlayback->reload()
     }

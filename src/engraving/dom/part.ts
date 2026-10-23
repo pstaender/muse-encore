@@ -11,6 +11,7 @@ import type { PropertyValue } from '../types/propertyvalue'
 import { AutoOnOff, ElementType, PreferSharpFlat, VOICES, nidx, type staff_idx_t, type track_idx_t } from '../types/types'
 import { EngravingObject } from './engravingobject'
 import { InstrChannel, Instrument, InstrumentList, type StaffNameList } from './instrument'
+import type { InstrumentTemplate } from './instrtemplate'
 import { SegmentType } from './segment'
 import type { FretDiagram } from './fret'
 import { Pid } from './property'
@@ -365,6 +366,12 @@ export class Part extends EngravingObject {
     isVisible(): boolean { return this.m_show }
     soloist(): boolean { return this.m_soloist }
     setSoloist(val: boolean): void { this.m_soloist = val }
+    /** C++ initFromInstrTemplate(const InstrumentTemplate*) */
+    initFromInstrTemplate(t: InstrumentTemplate): void {
+        this.m_partName = t.longNames.length ? t.longNames[0].name() : t.trackName
+        this.setInstrument(Instrument.fromTemplate(t))
+    }
+
     partName(): string { return this.m_partName }
     setPartName(s: string): void { this.m_partName = s }
     color(): number { return this.m_color }

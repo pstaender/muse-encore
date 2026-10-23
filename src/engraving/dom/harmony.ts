@@ -30,6 +30,7 @@ import type { Segment } from './segment'
 import { TextBase, TextBaseLayoutData, isTextNavigationKey, textBaseRenderer } from './textbase'
 import { KeyboardKey, KeyboardModifier, type EditData } from '../editing/editdata'
 import type { FretDiagram } from './fret'
+import { Transpose } from '../editing/transpose'
 
 const FALLBACK_SYMBOLTEXT_FONT = 'Bravura Text'
 
@@ -1269,6 +1270,38 @@ export class Harmony extends TextBase {
 
         super.endEdit(ed)
 
-        // TODO(port): transposing the linked chord symbols of parts with another concert pitch setting
+        const links = this.links()
+        if (links) {
+            for (const e of links) {
+                if (e === this) {
+                    continue
+                }
+                const h = e as Harmony
+                // transpose if necessary
+                // at this point chord will already have been rendered in same key as original
+                // (as a result of TextBase::endEdit() calling setText() for linked elements)
+                // we may now need to change the TPC's and the text, and re-render
+                if (this.style().styleB(Sid.concertPitch) !== h.style().styleB(Sid.concertPitch)) {
+                    const staffDest = h.staff()!
+                    const segment = this.getParentSeg()
+                    const tick = segment ? segment.tick() : new Fraction(-1, 1)
+                    const interval = staffDest.transpose(tick).clone()
+                    if (!interval.isZero()) {
+                        if (!h.style().styleB(Sid.concertPitch)) {
+                            interval.flip()
+                        }
+                        for (const info of h.m_chords) {
+                            const rootTpc = Transpose.transposeTpc(info.rootTpc(), interval, true)
+                            const bassTpc = Transpose.transposeTpc(info.bassTpc(), interval, true)
+                            info.setRootTpc(rootTpc)
+                            info.setBassTpc(bassTpc)
+                            h.setPlainText(h.harmonyName())
+                            h.setHarmony(h.plainText())
+                            h.triggerLayout()
+                        }
+                    }
+                }
+            }
+        }
     }
 }

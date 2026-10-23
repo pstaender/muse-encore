@@ -2634,7 +2634,15 @@ export class TLayout {
 
     static layoutArpeggio(item: Arpeggio, ctx: LayoutContext): void {
         const ldata = item.mutldata()
-        // TODO(port): Sid::arpeggioHiddenInStdIfTab (linked staves); C++ resets isSkipDraw right after anyway
+        if (ctx.conf().styleB(Sid.arpeggioHiddenInStdIfTab)) {
+            if (item.staff() && item.staff()!.isPitchedStaff(item.tick())) {
+                for (const s of item.staff()!.staffList()) {
+                    if (s.onSameScore(item) && s.isTabStaff(item.tick()) && s.visible()) {
+                        ldata.setIsSkipDraw(true)
+                    }
+                }
+            }
+        }
         ldata.setIsSkipDraw(false)
         if (!ldata.isSetPos()) {
             ldata.setPos(new PointF())

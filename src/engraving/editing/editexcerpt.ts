@@ -14,6 +14,7 @@ import { CommandType, UndoCommand } from './undo'
 import { Unlink } from './addremoveelement'
 import type { EngravingObject } from '../dom/engravingobject'
 import type { EditData } from './editdata'
+import type { Part } from '../dom/part'
 import { Score } from '../dom/score'
 import { Excerpt, type TracksMap } from '../dom/excerpt'
 import { Sid } from '../style/styledef'
@@ -217,4 +218,45 @@ export class ChangeExcerptTitle extends UndoCommand {
         this.excerpt.setName(s)
         this.excerpt.masterScore()!.setExcerptsChanged(true)
     }
+}
+
+// ---------------------------------------------------------
+//   AddPartToExcerpt
+// ---------------------------------------------------------
+
+export class AddPartToExcerpt extends UndoCommand {
+    constructor(private m_excerpt: Excerpt, private m_part: Part, private m_targetPartIdx: number) {
+        super()
+    }
+
+    override undo(_ed: EditData | null): void {
+        const parts = this.m_excerpt.parts()
+        const i = parts.indexOf(this.m_part)
+        if (i >= 0) {
+            parts.splice(i, 1)
+        }
+
+        const score = this.m_excerpt.excerptScore()
+        if (score) {
+            score.removePart(this.m_part)
+        }
+    }
+
+    override redo(_ed: EditData | null): void {
+        const excerptParts = this.m_excerpt.parts()
+        if (this.m_targetPartIdx < excerptParts.length) {
+            excerptParts.splice(this.m_targetPartIdx, 0, this.m_part)
+        } else {
+            excerptParts.push(this.m_part)
+        }
+
+        const score = this.m_excerpt.excerptScore()
+        if (score) {
+            score.insertPart(this.m_part, this.m_targetPartIdx)
+        }
+    }
+
+    override type(): CommandType { return CommandType.AddPartToExcerpt }
+    override name(): string { return 'AddPartToExcerpt' }
+    override objectItems(): EngravingObject[] { return [this.m_part] }
 }

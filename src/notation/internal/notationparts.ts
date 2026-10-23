@@ -9,9 +9,8 @@
  * The notifications (partList()/staffList() NotifyLists, partsChanged, ...) are not ported: the UI reloads the
  * Layout panel's tree after every change.
  * TODO(port): setInstrumentName, setInstrumentAbbreviature, setVoiceVisible, setStaffType,
- * setStaffConfig (other than the visibility), replacePart, replaceDrumset, appendLinkedStaff and
- * appendStaffLinkedToMaster (Excerpt::cloneStaff/cloneStaff2), insertPart/doInsertPart (parts from another score),
- * AddPartToExcerpt, EditSystemLocks::removeSystemLocksContainingMMRests (system locks)
+ * setStaffConfig (other than the visibility), replacePart, replaceDrumset, insertPart/doInsertPart (parts from another
+ * score), EditSystemLocks::removeSystemLocksContainingMMRests (system locks)
  */
 
 import { Fraction } from '../../engraving/types/fraction'
@@ -34,6 +33,9 @@ import { Pid } from '../../engraving/dom/property'
 import { PreferSharpFlat } from '../../engraving/types/types'
 import type { NotationInteraction } from './notationinteraction'
 import '../../engraving/editing/edit'
+import { Excerpt } from '../../engraving/dom/excerpt'
+import { Link } from '../../engraving/editing/addremoveelement'
+import { AddPartToExcerpt } from '../../engraving/editing/editexcerpt'
 
 /** INotationParts::InsertMode */
 export enum InsertMode {
@@ -271,6 +273,43 @@ export class NotationParts {
 
         this.startEdit(new TranslatableString('undoableAction', 'Add staff'))
         this.doAppendStaff(staff, destinationPart)
+        this.apply()
+
+        return true
+    }
+
+    /** the staff of a part score linked to the master score's staff (the master's MasterNotationParts::appendStaff) */
+    appendStaffLinkedToMaster(staff: Staff, masterSourceStaff: Staff, destinationPartId: string): boolean {
+        const destinationPart = this.partModifiable(destinationPartId)
+        if (!destinationPart) {
+            return false
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add staff'))
+
+        this.doAppendStaff(staff, destinationPart, /*createRests*/ false)
+        this.score().undo(new Link(staff, masterSourceStaff))
+
+        Excerpt.cloneStaff2(masterSourceStaff, staff, new Fraction(0, 1), this.score().endTick())
+
+        return true
+    }
+
+    appendLinkedStaff(staff: Staff, sourceStaffId: string, destinationPartId: string): boolean {
+        const sourceStaff = this.staffModifiable(sourceStaffId)
+        const destinationPart = this.partModifiable(destinationPartId)
+        if (!sourceStaff || !destinationPart) {
+            return false
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add linked staff'))
+
+        this.doAppendStaff(staff, destinationPart, false)
+
+        ///! NOTE: need to unlink before linking
+        staff.setLinks(null)
+        Excerpt.cloneStaff(sourceStaff, staff)
+
         this.apply()
 
         return true
@@ -519,8 +558,9 @@ export class NotationParts {
             part.setLongName(formattedLongName)
             part.setShortName(formattedShortName)
 
-            if (this.score().excerpt()) {
-                throw new Error('TODO(port): AddPartToExcerpt')
+            const excerpt = this.score().excerpt()
+            if (excerpt) {
+                this.score().undo(new AddPartToExcerpt(excerpt, part, partIdx))
             } else {
                 this.score().undoInsertPart(part, partIdx)
             }

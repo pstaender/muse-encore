@@ -355,7 +355,14 @@ Score.prototype.putNote = function (this: Score, pos: PointF | Position, replace
     is.setTrack(p.staffIdx * VOICES + is.voice())
     is.setSegment(s)
 
-    // TODO(port): excerpts (tracks mapping of the excerpt)
+    const excerpt = this.score().excerpt()
+    if (excerpt) {
+        const tracks = excerpt.tracksMapping()
+
+        if (tracks.length && !tracks.some(([, v]) => v === is.track())) {
+            return false
+        }
+    }
 
     let stemDirection = DirectionV.AUTO
     const nval = this.noteValForPosition(p, is.accidentalType())
@@ -1281,7 +1288,7 @@ Score.prototype.insertChordByInsertingTime = function (this: Score, pos: Positio
     // insert time to the middle of the measure rather than to the end.
     this.undoInsertTime(tick, len)
 
-    for (const score of [this as Score]) { // TODO(port): scoreList() (excerpts)
+    for (const score of this.scoreList()) {
         score.undo(new InsertTime(score, tick, len))
         const m = score.tick2measure(tick)!
         this.undo(new ChangeMeasureLen(m, targetMeasureLen))

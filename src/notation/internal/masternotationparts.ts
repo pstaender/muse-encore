@@ -7,8 +7,7 @@
  * the part scores (excerpts). There are no excerpt notations in the port: the excerpts' parts are changed through
  * NotationParts of the excerpt scores (without interaction; the master score's undo stack is locked meanwhile, so the
  * changes are recorded in the master command, like in C++).
- * TODO(port): appendStaff/appendLinkedStaff in the excerpts (appendStaffLinkedToMaster: Excerpt::cloneStaff2),
- * replaceDrumset; the part scores are not laid out after a change (Score::update: scoreList())
+ * TODO(port): replaceDrumset
  */
 
 import { TranslatableString } from '../../framework/global/types/translatablestring'
@@ -111,7 +110,31 @@ export class MasterNotationParts extends NotationParts {
 
         super.appendStaff(staff, destinationPartId)
 
-        // TODO(port): excerpts (parts->appendStaffLinkedToMaster(staff->clone(), staff, destinationPartId))
+        for (const parts of this.excerptsParts()) {
+            const excerptStaff = staff.clone() as Staff
+            if (!parts.appendStaffLinkedToMaster(excerptStaff, staff, destinationPartId)) {
+                excerptStaff.undoUnlink()
+            }
+        }
+
+        this.endGlobalEdit()
+        return true
+    }
+
+    override appendLinkedStaff(staff: Staff, sourceStaffId: string, destinationPartId: string): boolean {
+        this.startGlobalEdit(new TranslatableString('undoableAction', 'Add linked staff'))
+
+        //! NOTE: will be generated later after adding to the score
+        staff.setId('')
+
+        super.appendLinkedStaff(staff, sourceStaffId, destinationPartId)
+
+        for (const parts of this.excerptsParts()) {
+            const excerptStaff = staff.clone() as Staff
+            if (!parts.appendLinkedStaff(excerptStaff, sourceStaffId, destinationPartId)) {
+                excerptStaff.unlink()
+            }
+        }
 
         this.endGlobalEdit()
         return true

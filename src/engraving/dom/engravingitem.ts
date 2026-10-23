@@ -673,6 +673,8 @@ export abstract class EngravingItem extends EngravingObject {
 
     isPositionLinkedToMaster(): boolean { return this.m_isPositionLinkedToMaster }
     isAppearanceLinkedToMaster(): boolean { return this.m_isAppearanceLinkedToMaster }
+    setPositionLinkedToMaster(v: boolean): void { this.m_isPositionLinkedToMaster = v }
+    setAppearanceLinkedToMaster(v: boolean): void { this.m_isAppearanceLinkedToMaster = v }
     excludeFromOtherParts(): boolean { return this.m_excludeFromOtherParts }
     setExcludeFromOtherParts(v: boolean): void { this.m_excludeFromOtherParts = v }
 
@@ -1023,8 +1025,7 @@ export abstract class EngravingItem extends EngravingObject {
                     voiceForColorChoice = VOICES
                 }
             }
-            // TODO(port): isUnlinkedFromMaster() (excerpts)
-            return EngravingConfiguration.selectionColor(voiceForColorChoice, isVisible, false)
+            return EngravingConfiguration.selectionColor(voiceForColorChoice, isVisible, this.isUnlinkedFromMaster())
         }
 
         if (!isVisible) {
@@ -1345,6 +1346,60 @@ export abstract class EngravingItem extends EngravingObject {
         return true
     }
 
+    isUnlinkedFromMaster(): boolean {
+        return !(this.getProperty(Pid.POSITION_LINKED_TO_MASTER) as boolean
+            && this.getProperty(Pid.APPEARANCE_LINKED_TO_MASTER) as boolean)
+    }
+
+    unlinkPropertyFromMaster(id: Pid): void {
+        if (propertyGroup(id) === PropertyGroup.POSITION) {
+            linkHooks.undoChangePropertyCommand(this, Pid.POSITION_LINKED_TO_MASTER, false)
+        } else if (propertyGroup(id) === PropertyGroup.APPEARANCE) {
+            linkHooks.undoChangePropertyCommand(this, Pid.APPEARANCE_LINKED_TO_MASTER, false)
+        }
+    }
+
+    private masterElementForRelink(): EngravingObject | null {
+        for (const element of this.linkListForPropertyPropagation()) {
+            if (element.score().isMaster()) {
+                return element
+            }
+        }
+        return null
+    }
+
+    relinkPropertiesToMaster(propGroup: PropertyGroup): void {
+        const masterElement = this.masterElementForRelink()
+        if (!masterElement) {
+            return
+        }
+
+        for (let i = 0; i < Pid.END; ++i) {
+            const propertyId = i as Pid
+            if (propertyGroup(propertyId) !== propGroup) {
+                continue
+            }
+            const masterValue = masterElement.getProperty(propertyId)
+            const masterFlags = masterElement.propertyFlags(propertyId)
+            if (!propertyValueEquals(this.getProperty(propertyId), masterValue)) {
+                this.setProperty(propertyId, masterValue)
+            }
+            if (this.propertyFlags(propertyId) !== masterFlags) {
+                this.setPropertyFlags(propertyId, masterFlags)
+            }
+        }
+    }
+
+    relinkPropertyToMaster(propertyId: Pid): void {
+        const masterElement = this.masterElementForRelink()
+        if (!masterElement) {
+            return
+        }
+
+        this.setProperty(propertyId, masterElement.getProperty(propertyId))
+        this.setPropertyFlags(propertyId, masterElement.propertyFlags(propertyId))
+    }
+
     propertyPropagation(destinationItem: EngravingItem, propertyId: Pid): PropertyPropagation {
         if (propertyLink(propertyId)) {
             return PropertyPropagation.PROPAGATE // These properties are always linked, no matter what
@@ -1375,7 +1430,25 @@ export abstract class EngravingItem extends EngravingObject {
             return PropertyPropagation.PROPAGATE
         }
 
-        // TODO(port): linked elements in excerpts (text properties, unlinking in parts)
+        const isTextProperty = propertyGroup(propertyId) === PropertyGroup.TEXT
+        if (isTextProperty) {
+            if (sourceScore.isMaster() && destinationItem.isPropertyLinkedToMaster(propertyId)) {
+                // From master score - check if destination part follows master
+                return PropertyPropagation.PROPAGATE
+            }
+
+            if (!sourceScore.isMaster() && this.isPropertyLinkedToMaster(propertyId)) {
+                // From part - check if source part follows master
+                return PropertyPropagation.PROPAGATE
+            }
+        }
+
+        if (!sourceScore.isMaster()) {
+            // Properties are only propagated when being edited from master. If this is being edited
+            // from a part score, we mark it as unlinked so it becomes independent in the part.
+            return PropertyPropagation.UNLINK
+        }
+
         if (this.systemFlag() && !this.isTopSystemObject()) {
             // Let only the top system object propagate
             return PropertyPropagation.NONE
@@ -1446,7 +1519,10 @@ export abstract class EngravingItem extends EngravingObject {
     rightParen(): EngravingItem | null { return this.m_rightParenthesis }
     paren(dirLeft: boolean): EngravingItem | null { return dirLeft ? this.m_leftParenthesis : this.m_rightParenthesis }
 
-    /** C++ EngravingItem::setParenthesesMode() (TODO(port): linked elements) */
+    /**
+     * C++ EngravingItem::setParenthesesMode(): the parentheses are added/removed directly (C++ with undoAddElement while
+     * the HAS_PARENTHESES change is applied); linked elements get the property through the property propagation
+     */
     setParenthesesMode(v: ParenthesesMode, _addToLinked = true, generated = false): void {
         this.setHasParenthesis(true, !!(v & ParenthesesMode.LEFT), generated)
         this.setHasParenthesis(false, !!(v & ParenthesesMode.RIGHT), generated)
@@ -1583,9 +1659,21 @@ export abstract class EngravingItem extends EngravingObject {
             this.setSizeIsSpatiumDependent(!!v)
             break
         case Pid.POSITION_LINKED_TO_MASTER:
+            if (this.m_isPositionLinkedToMaster === !!v) {
+                break
+            }
+            if (!this.m_isPositionLinkedToMaster) {
+                this.relinkPropertiesToMaster(PropertyGroup.POSITION)
+            }
             this.m_isPositionLinkedToMaster = !!v
             break
         case Pid.APPEARANCE_LINKED_TO_MASTER:
+            if (this.m_isAppearanceLinkedToMaster === !!v) {
+                break
+            }
+            if (!this.m_isAppearanceLinkedToMaster) {
+                this.relinkPropertiesToMaster(PropertyGroup.APPEARANCE)
+            }
             this.m_isAppearanceLinkedToMaster = !!v
             break
         case Pid.EXCLUDE_FROM_OTHER_PARTS:
