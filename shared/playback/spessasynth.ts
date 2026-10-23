@@ -35,6 +35,11 @@ export class SpessaSynthesizer implements Synthesizer {
     private m_loading: Promise<void> | null = null
     private m_loaded = false
     private m_muted = false
+    /**
+     * the channels of the synthesizer in the worklet: SpessaSynth's own count (channelCount) is not reliable, its
+     * "channelAdded" event adds another channel to the list of the main thread for each added channel
+     */
+    private m_channelCount = 16
 
     /** soundFontUrl: the URL of MS Basic.sf3 (soundfont.ts) */
     constructor(private readonly m_soundFontUrl: string) {}
@@ -89,8 +94,9 @@ export class SpessaSynthesizer implements Synthesizer {
         if (!s) {
             return null
         }
-        while (s.channelCount <= channel) {
+        while (this.m_channelCount <= channel) {
             s.addNewChannel()
+            ++this.m_channelCount
         }
         return s
     }

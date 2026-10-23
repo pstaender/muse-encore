@@ -1904,6 +1904,39 @@ describe.skipIf(!CHROME || !hasSubmodule)('editor', () => {
     const playButton = '[data-toolbar="playbackToolBar"] .tool-button[data-action="play"]'
     const muteButton = '[data-toolbar="playbackToolBar"] .tool-button[data-action="playback-mute"]'
 
+    it('plays all instruments with SpessaSynth after channels were added before (MIDI import)', async () => {
+        const { page, context } = await newPage()
+        await context.route('http://imports.test/**', route => route.fulfill({
+            body: readFileSync(`${ROOT}MuseScore/src/importexport/midi/tests/midiimport_data/instrument_channels.mid`),
+            headers: { 'access-control-allow-origin': '*' },
+        }))
+        await page.goto(`${base}?synth=spessasynth&url=${encodeURIComponent('http://imports.test/instrument_channels.mid')}`)
+        await scoreShown(page)
+        type Spessa = { load(): Promise<void>; setupChannel(c: number, s: object): void
+            m_synth: { midiChannels: { voiceCount: number }[] } | null }
+        // another score (or a preview note) added the channels up to 16 before; the channels that sound are recorded
+        await page.evaluate(async () => {
+            const w = window as unknown as { __museencorePlayback: { synth: Spessa }; __voiced: number[] }
+            const synth = w.__museencorePlayback.synth
+            await synth.load()
+            synth.setupChannel(16, { program: 0, bank: 0, drum: false, volume: 100, pan: 64, reverb: 0, chorus: 0 })
+            w.__voiced = []
+            setInterval(() => synth.m_synth!.midiChannels.forEach((c, i) => {
+                if (c.voiceCount > 0 && !w.__voiced.includes(i)) {
+                    w.__voiced.push(i)
+                }
+            }), 20)
+        })
+        await page.waitForTimeout(500)
+        await page.click(playButton)
+        await page.waitForFunction(() => !(window as unknown as { __museencorePlayback: { state: () => { playing: boolean } } })
+            .__museencorePlayback.state().playing, null, { timeout: 30000 })
+        const voiced = await page.evaluate(() => (window as unknown as { __voiced: number[] }).__voiced)
+        // the channels above the ones added before sound too
+        expect(Math.max(...voiced)).toBeGreaterThan(16)
+        await context.close()
+    }, 120000)
+
     it('plays the score from the toolbar and with Shift+Space, moves the playback cursor, mutes and plays notes on click', async () => {
         const layout = await amazingGraceLayout()
         const { page, context, box } = await openAmazingGrace()
