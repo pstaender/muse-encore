@@ -2,15 +2,8 @@
 
 ### A browser-native port of MuseScore
 
-<div align = center>
-
-[<kbd> <br> Run the Editor right now in your browser 🚀 <br> </kbd>][Editor]
-
-– or – <br>
-
-[<kbd> <br> Run the Viewer right now in your browser 🚀 <br> </kbd>][Viewer]
-
-</div>
+* [Run the Editor right now in your browser 🚀](https://pstaender.github.io/musescoreweb/editor/)
+* [Run the Viewer right now in your browser 🚀](https://pstaender.github.io/musescoreweb/viewer/)
 
 Overview of demos: [pstaender.github.io/musescoreweb](https://pstaender.github.io/musescoreweb/)
 
@@ -42,6 +35,10 @@ Like MuseScore, this project is licensed under the GNU General Public License v3
   (both can be changed in the settings). In the viewer, Space starts and stops the playback, and holding Space while
   dragging moves the score.
 
+<img width="1616" height="648" alt="Screenshot 2026-10-23 at 11 03 02" src="https://github.com/user-attachments/assets/7901780a-4f20-412c-8dac-33f057f1deb5" />
+<img width="1573" height="799" alt="Screenshot 2026-10-23 at 11 04 20" src="https://github.com/user-attachments/assets/e3f33b44-9f1b-49f9-a225-95449a9bb388" />
+
+
 ## Missing parts
 
 A list of the parts that are not ported yet will follow.
@@ -65,6 +62,3 @@ npm test                  # library tests
 ```
 
 See [CLAUDE.md](CLAUDE.md) for the project structure and commands and [test/README.md](test/README.md) for the tests.
-
-[Editor]: https://pstaender.github.io/musescoreweb/editor/
-[Viewer]: https://pstaender.github.io/musescoreweb/viewer/
