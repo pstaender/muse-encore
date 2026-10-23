@@ -23,6 +23,11 @@ const SCORES: Record<string, string> = {
     'landscape.mscz': `${VTEST}/mmrest-measure-repeat-custom-staves.mscz`,
     'chopin.mscz': `${TEST_FILES}/Chopin_-_Nocturne_Op_9_No_2_E_Flat_Major.mscz`,
     'onesided.mscz': `${DEMOS}/All_Dudes.mscz`,
+    // import formats
+    'hello.musicxml': `${ROOT}MuseScore/src/importexport/musicxml/tests/data/testHello.xml`,
+    'lyrics.mid': `${ROOT}MuseScore/src/importexport/midi/tests/midiimport_data/lyrics_voice_1.mid`,
+    'test1.cap': `${ROOT}MuseScore/src/importexport/capella/tests/data/test1.cap`,
+    'bend.gpx': `${ROOT}MuseScore/src/importexport/guitarpro/tests/data/basic-bend.gpx`,
 }
 const SCORE_HOST = 'http://scores.test/'
 
@@ -86,8 +91,8 @@ function pageCenterOffset(page: Page, idx = 0): Promise<[number, number]> {
 }
 
 /**
- * the hand tool: Space + drag (in the editor the default setting "Hold Space and drag to move the score"), or the
- * middle mouse button in the editor
+ * the hand tool: Space + drag (in the editor the default setting "Hold Space and drag to move the score"; in the viewer
+ * a plain drag moves the view too), or the middle mouse button in the editor
  */
 async function handDrag(page: Page, app: string, dx: number, dy: number, middleButton = false): Promise<void> {
     const space = app === 'viewer' || !middleButton
@@ -159,6 +164,17 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         await page.waitForFunction(() => $v('busy')!.hidden, null, { timeout: 60000 })
         expect(chooser).toBe(false)
         expect(await text(page, 'status')).toMatch(/2 pages/)
+        await context.close()
+    })
+
+    it('opens MusicXML, MIDI, Capella and Guitar Pro files', async () => {
+        const { page, context } = await newPage()
+        for (const name of ['hello.musicxml', 'lyrics.mid', 'test1.cap', 'bend.gpx']) {
+            await openScore(page, name)
+            expect(await text(page, 'status')).toMatch(new RegExp(`^${name.replace('.', '\\.')} · \\d+ pages?`))
+            expect(await text(page, 'title')).toBe(name.replace(/\.[^.]+$/, ''))
+            expect(await page.evaluate(() => $vqa('.page:not(.placeholder)').length)).toBeGreaterThan(0)
+        }
         await context.close()
     })
 

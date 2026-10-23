@@ -1589,3 +1589,43 @@
   differing (new: gliss-5, whose glissandos lose their hidden text on a re-save in MuseScore too).
 - TODO(port): audio (MP3/WAV/OGG/FLAC/AAC), MP4, Braille, MEI, MNX, LRC; tremolo bars in MusicXML; fallback text in
   PDFs; GIF/BMP/WebP/SVG images in PDFs; SvgWriter's concatenated staff lines and beat colors; trimming of PNG/SVG.
+
+## 2026-10-23 — Import: MusicXML, MIDI, Capella, Guitar Pro (File > Open)
+
+- NotationProject.doImport (src/project/internal/notationproject.ts) with the readers of NotationReadersRegister by
+  suffix (src/project/inotationreader.ts, importexport/readers.ts): a new MasterScore, checkChordList, the reader,
+  EngravingProject::setupMasterScore, the "originalFormat" meta tag. Library API: importScore(data, fileName),
+  openScoreFile (MuseScore file or import), isMuseScoreFile, importSuffixes, openFileAccept, scoreBaseName,
+  NotationReadError. Not ported: the import style setting (styleFileImportPath), unrolling repeats, the import error
+  dialogs (the import goes on like MuseScore without GUI).
+- Apps: the editor's File > Open (MuseScore's file type filters), dropping files and ?url= open the import formats; an
+  imported score is "newly created" like in MuseScore (not modified, Save goes through Save as and makes a .mscz). The
+  viewer opens them too (also the npm package's load()).
+- MusicXML (agent): importmusicxml, pass1, pass2, note duration/pitch, part, tuplet state, voice desc, logger
+  (.xml, .musicxml, .mxl); validation is a stub (no XSD). 294 of the 302 C++ tests (import -> .mscx, round trips)
+  pass; skipped: the 5 disabled in C++, noteAttributes2 (TextCursor::changeSelectionFormat does not lay out the text
+  like layoutText1), inferredCredits1/2 (title frame height, font metrics). getPlayingTechnique uses libstdc++'s
+  unordered_map order (the references are made on Linux).
+- MIDI (agent): the whole midiimport (quantization, tuplets, voices, meter, drums, lyrics, BeatRoot beat tracker in
+  thirdparty/beatroot), MidiFile reading, NotationMidiReader with MuseScore's default operations; all 111 C++
+  tests pass. Not ported: the import panel (TracksModel) and operations files.
+- Capella (agent): .cap (binary) and .capx (zip, ISO-8859-1 XML); all 34 C++ tests pass. rtf2html is a simplified
+  stand-in; .capx drawing objects are skipped like in C++.
+- Guitar Pro / Power Tab (agent): GP1-5, GP6 (.gpx, BCFZ), GP7 (.gp, zip), .ptb, the GP DOM builders and converter,
+  bend import, drumset, gp-style.mss (fonts/styles); 259 of the C++ tests pass (6 disabled in C++ too). New DOM
+  elements: HarmonicMark, Rasgueado, PickScrape, DeadSlapped, TripletFeel (read/write/layout/draw).
+- Engine changes on the way: Instrument() has C++'s default channel (readers clear it); Instrument.fromTemplate sets
+  the user bank controller (drumsets write controller 32 like MuseScore); TDuration::toDurationList of 4.7.5;
+  XmlReader drops whitespace-only text (pugixml), normalizes line ends, detects UTF-16/Latin-1; test mode of the
+  writer like C++ (style in the score, no version/platform tags, beam l1/l2); Score::getCreateMeasure; framework
+  helpers stdmap.ts/orderedmap.ts (C++ map/set iterators), xmldom.ts, io/buffer.ts; engravingerrors.ts (Err).
+- Tests: test/musicxmlimport.test.ts, midiimport.test.ts, capellaimport.test.ts, guitarproimport.test.ts,
+  guitarprodom.test.ts; e2e: both apps open the import formats, the editor saves an imported score as .mscz.
+
+## 2026-10-23 — Viewer: dragging without Space, zoom entries of the continuous views
+
+- The viewer moves the view with a plain mouse drag (Space + drag and the middle button as before; touch keeps the
+  browser's scrolling); tapping Space plays/pauses.
+- Zoom box (viewer and editor): the page view offers "Page width" and "Whole page"; the continuous views one entry
+  "Fit to window height" (horizontal) / "Fit to window width" (vertical), which fits their long page across; "Fit to
+  window" has none (the page is always as wide as the window). The new strings are in editor/locales/webstrings.json.

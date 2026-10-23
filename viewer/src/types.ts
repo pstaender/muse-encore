@@ -42,7 +42,7 @@ export interface MuseEncoreViewerOptions {
     /** the toolbar groups to show */
     toolbarGroups?: MuseEncoreViewerToolbarGroups
     /**
-     * MuseScore's keyboard shortcuts (zoom, pages, print, full screen, Space: play or hold and drag to move the view)
+     * MuseScore's keyboard shortcuts (zoom, pages, print, full screen, Space: play; Space + drag also moves the view)
      * while the viewer has the focus, and the "?" button with their list; default false
      */
     keyboardShortcuts?: boolean

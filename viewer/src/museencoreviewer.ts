@@ -1,14 +1,14 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * The MuseEncore Viewer component: shows a .mscz/.mscx file in an element of a web page (in a shadow root), with the
- * page view (pages side by side, vertically or as two-page spreads) and MuseScore's continuous views, zoom, printing,
- * full screen and the playback. The MuseEncore Viewer app (viewer/main.ts) and the npm package (applyMuseEncoreViewer,
+ * The MuseEncore Viewer component: shows a .mscz/.mscx file (or a MusicXML, MIDI, Capella or Guitar Pro file, imported
+ * like MuseScore's File > Open) in an element of a web page (in a shadow root), with the page view (pages side by side,
+ * vertically or as two-page spreads) and MuseScore's continuous views, zoom, printing, full screen and the playback. The MuseEncore Viewer app (viewer/main.ts) and the npm package (applyMuseEncoreViewer,
  * index.ts) use it. Keyboard shortcuts follow MuseScore Studio (src/app/configs/data/shortcuts.xml) where they make
  * sense for a viewer.
  */
 /// <reference types="vite/client" />
 import {
-    drawContinuousPanel, drawPage, drawPageSvg, initEngravingFonts, isTwoSided, layoutScore, loadScore, onImageDecoded, pageCount,
+    drawContinuousPanel, drawPage, drawPageSvg, initEngravingFonts, isTwoSided, layoutScore, onImageDecoded, openFileAccept, openScoreFile, scoreBaseName, pageCount,
     pageSize, playbackCursorBounds, scoreTitle, setViewMode as setScoreViewMode, SvgGlyphDefs, withPageView, type MasterScore,
 } from '../../src/index'
 import { SOUNDFONT_CDN_URL } from '../../shared/playback/soundfont'
@@ -107,7 +107,7 @@ function template(appTitle: string): string {
         <button id="open" class="icon" title="Open… (Ctrl+O)" aria-label="Open file">${ICON.open}</button>
         <span id="title" class="title">${appTitle}</span>
         <button id="clear" class="icon" title="Close file" aria-label="Close file" hidden>${ICON.close}</button>
-        <input type="file" id="file" accept=".mscz,.mscx" hidden>
+        <input type="file" id="file" accept="${openFileAccept()}" hidden>
     </div>
 
     <div class="group" id="nav-group" data-group="pageNavigation">
@@ -132,10 +132,7 @@ function template(appTitle: string): string {
 
     <div class="group" data-group="zoom">
         <button id="zoom-out" class="icon" title="Zoom out (Ctrl+−)" aria-label="Zoom out">${ICON.zoomOut}</button>
-        <select id="zoom" title="Zoom" aria-label="Zoom">
-            <option value="page-width">Page width</option>
-            <option value="whole-page">Whole page</option>
-        </select>
+        <select id="zoom" title="Zoom" aria-label="Zoom"></select>
         <button id="zoom-in" class="icon" title="Zoom in (Ctrl++)" aria-label="Zoom in">${ICON.zoomIn}</button>
         <button id="center" class="icon" title="Center page" aria-label="Center page">${ICON.center}</button>
     </div>
@@ -160,7 +157,7 @@ function template(appTitle: string): string {
         <div id="drop-target" class="drop-target">
             <div class="drop-icon">${ICON.open}</div>
             <p><strong>Open a MuseScore file</strong></p>
-            <p class="muted">Drop a .mscz or .mscx file here, or <button id="open2" class="link">browse</button></p>
+            <p class="muted">Drop a MuseScore, MusicXML, MIDI, Capella or Guitar Pro file here, or <button id="open2" class="link">browse</button></p>
         </div>
         <p id="empty-message" class="muted"></p>
     </div>
@@ -188,7 +185,7 @@ function template(appTitle: string): string {
         <tr><td><kbd>Ctrl</kbd> <kbd>0</kbd></td><td>Zoom to 100%</td></tr>
         <tr><td>Mouse wheel, pinch</td><td>Zoom at pointer</td></tr>
         <tr><td><kbd>Shift</kbd> + wheel, trackpad</td><td>Scroll</td></tr>
-        <tr><td>Hold <kbd>Space</kbd> + drag</td><td>Move the view (also beyond the pages)</td></tr>
+        <tr><td>Drag (or hold <kbd>Space</kbd> + drag)</td><td>Move the view (also beyond the pages)</td></tr>
         <tr><td><kbd>Ctrl</kbd> <kbd>PgDn</kbd> / <kbd>Ctrl</kbd> <kbd>PgUp</kbd></td><td>Next / previous page</td></tr>
         <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td>First / last page</td></tr>
         <tr><td>Arrow keys</td><td>Scroll</td></tr>
@@ -750,7 +747,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         }
         try {
             const t0 = performance.now()
-            const s = loadScore(data)
+            const s = await openScoreFile(data, name)
             layoutScore(s)
             const n = pageCount(s) // the pages of the page view
             const t1 = performance.now()
@@ -839,7 +836,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         this.emptyDiv.hidden = !!score
         this.btn.clear.hidden = !score
         // like MuseScore's tab: the file name without extension; the score title as tooltip
-        this.titleEl.textContent = score ? this.fileName.replace(/\.mscx?z?$/i, '') : this.m_appTitle
+        this.titleEl.textContent = score ? scoreBaseName(this.fileName) : this.m_appTitle
         this.titleEl.title = score ? [scoreTitle(score), this.fileName].filter(Boolean).join(' – ') : ''
 
         if (score) {
@@ -1049,9 +1046,29 @@ html, body { margin: 0; padding: 0; background: #fff; }
         for (const o of zoomSelect.querySelectorAll<HTMLOptionElement>('option[data-level]')) {
             o.selected = false
         }
+        // the fit modes of the view mode: the page view fits the page's width or the whole page; the continuous views fit
+        // their one long page across (both modes zoom alike: one entry); "Fit to window" makes the page as wide as the
+        // view, fitting has no effect there
+        const viewMode = this.settings.viewMode
+        const fitOptions: [FitMode, string][] = viewMode === 'page' ? [['page-width', 'Page width'], ['whole-page', 'Whole page']]
+            : viewMode === 'continuous-horizontal' ? [['page-width', 'Fit to window height']]
+            : viewMode === 'continuous-vertical' ? [['page-width', 'Fit to window width']]
+            : []
+        const shown = [...zoomSelect.querySelectorAll<HTMLOptionElement>('option[data-fit]')]
+        if (shown.map(o => o.value + o.textContent).join() !== fitOptions.map(([m, t]) => m + t).join()) {
+            shown.forEach(o => o.remove())
+            const first = zoomSelect.querySelector('option[data-level]')
+            for (const [m, title] of fitOptions) {
+                const o = document.createElement('option')
+                o.value = m
+                o.textContent = title
+                o.dataset.fit = '1'
+                zoomSelect.insertBefore(o, first)
+            }
+        }
         const mode = this.fitMode()
-        if (mode) {
-            zoomSelect.value = mode
+        if (mode && fitOptions.length) {
+            zoomSelect.value = fitOptions.find(([m]) => m === mode)?.[0] ?? fitOptions[0][0]
             custom?.remove()
             return
         }
@@ -1161,6 +1178,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         // the continuous views have one page: no page layout
         btn.layoutH.disabled = btn.layoutV.disabled = !has || !pageView
         this.zoomSelect.disabled = !has
+        this.updateZoomSelect() // the fit modes of the view mode
         this.updatePageInfo()
     }
 
@@ -1652,13 +1670,21 @@ html, body { margin: 0; padding: 0; background: #fff; }
             }
         })
 
-        // hand tool: hold space (or use the middle mouse button) and drag
+        // drag the view with the mouse (left or middle button; touch scrolls natively); holding Space shows the hand
         on(viewport, 'pointerdown', (e) => {
-            if (!this.score || !(this.spaceDown && e.button === 0) && e.button !== 1) {
+            if (!this.score || (e.button !== 0 && e.button !== 1) || (e.pointerType === 'touch' && !this.spaceDown)) {
+                return
+            }
+            // not on the scroll bars
+            const r = viewport.getBoundingClientRect()
+            if (e.clientX - r.left >= viewport.clientLeft + viewport.clientWidth
+                || e.clientY - r.top >= viewport.clientTop + viewport.clientHeight) {
                 return
             }
             e.preventDefault()
-            this.spaceUsed = true
+            if (this.spaceDown) {
+                this.spaceUsed = true
+            }
             this.drag = { x: e.clientX, y: e.clientY, left: viewport.scrollLeft, top: viewport.scrollTop, id: e.pointerId }
             viewport.setPointerCapture(e.pointerId)
             viewport.classList.add('hand', 'dragging')

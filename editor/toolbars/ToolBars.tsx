@@ -11,7 +11,7 @@ import {
 } from '../actions/actions'
 import { MenuPopup } from '../components/Menu'
 import { ViewModeControl } from '../components/ViewModeControl'
-import { qtrc, stripMnemonic, trString, useLanguage } from '../i18n'
+import { qtrc, stripMnemonic, trString, useLanguage, webtr } from '../i18n'
 import type { MenuItem } from '../menus/appmenu'
 import { ZOOM_LEVELS, setFitMode, useScoreView, zoomAt, type FitMode } from '../scoreview'
 import { PlaybackToolBar } from './PlaybackToolBar'
@@ -281,7 +281,16 @@ function CustomisePopup({ anchor, onClose }: { anchor: HTMLElement; onClose: () 
 function ViewToolBar(): React.JSX.Element {
     useLanguage()
     const v = useScoreView()
-    const zoomValue = v.fitMode ?? (ZOOM_LEVELS.find(l => Math.abs(l - v.zoom) < 0.5) !== undefined ? String(ZOOM_LEVELS.find(l => Math.abs(l - v.zoom) < 0.5)) : 'custom')
+    // the fit modes of the view mode: the page view fits the page's width or the whole page; the continuous views fit
+    // their one long page across (both modes zoom alike: one entry), "Fit to window" is always as wide as the window
+    const fitOptions: [FitMode, string][] = v.viewMode === 'page'
+        ? [['page-width', qtrc('notation', 'Page width')], ['whole-page', qtrc('notation', 'Whole page')]]
+        : v.viewMode === 'continuous-horizontal' ? [['page-width', webtr('Fit to window height')]]
+        : v.viewMode === 'continuous-vertical' ? [['page-width', webtr('Fit to window width')]]
+        : []
+    const level = ZOOM_LEVELS.find(l => Math.abs(l - v.zoom) < 0.5)
+    const zoomValue = v.fitMode && fitOptions.length ? fitOptions.find(([m]) => m === v.fitMode)?.[0] ?? fitOptions[0][0]
+        : level !== undefined ? String(level) : 'custom'
     return (
         <>
             <ActionButton code="page-prev" />
@@ -305,8 +314,7 @@ function ViewToolBar(): React.JSX.Element {
                     document.getElementById('viewport')?.focus({ preventScroll: true })
                 }}>
                 {zoomValue === 'custom' && <option value="custom">{`${Math.round(v.zoom)}%`}</option>}
-                <option value="page-width">{qtrc('notation', 'Page width')}</option>
-                <option value="whole-page">{qtrc('notation', 'Whole page')}</option>
+                {fitOptions.map(([m, title]) => <option key={m} value={m}>{title}</option>)}
                 {ZOOM_LEVELS.map(l => <option key={l} value={String(l)}>{`${l}%`}</option>)}
             </select>
             <ActionButton code="zoomin" />
