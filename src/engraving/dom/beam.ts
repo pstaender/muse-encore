@@ -396,4 +396,15 @@ export class Beam extends BeamBase {
         default: return super.propertyDefault(id)
         }
     }
+
+    override spatiumChanged(oldValue: number, newValue: number): void {
+        const idx = this.directionIdx()
+        if (this.userModified()) {
+            const diff = newValue / oldValue
+            for (const f of this.m_fragments) {
+                f.py1[idx] = f.py1[idx] * diff
+                f.py2[idx] = f.py2[idx] * diff
+            }
+        }
+    }
 }

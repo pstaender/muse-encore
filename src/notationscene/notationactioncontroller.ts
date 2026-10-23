@@ -40,6 +40,8 @@ interface ActionEntry {
     enabled?: () => boolean
 }
 
+const STRETCH_STEP = 0.1
+
 const UNDO_ACTION_CODE = 'action://notation/undo'
 const REDO_ACTION_CODE = 'action://notation/redo'
 
@@ -313,6 +315,23 @@ export class NotationActionController {
         this.registerAction('page-break', () => this.interaction().toggleLayoutBreak(LayoutBreakType.PAGE), toggleLayoutBreakAvailable)
         this.registerAction('section-break', () => this.interaction().toggleLayoutBreak(LayoutBreakType.SECTION), toggleLayoutBreakAvailable)
 
+        this.registerAction('apply-system-lock', () => this.interaction().applySystemLock())
+        this.registerAction('move-measure-to-prev-system', () => this.interaction().moveMeasureToPrevSystem())
+        this.registerAction('move-measure-to-next-system', () => this.interaction().moveMeasureToNextSystem())
+        this.registerAction('toggle-system-lock', () => this.interaction().toggleSystemLock())
+        this.registerAction('toggle-score-lock', () => this.interaction().toggleScoreLock())
+        this.registerAction('make-into-system', () => this.interaction().makeIntoSystem())
+
+        // the Format menu (edit-style, page-settings, measures-per-system, load-style and save-style open dialogs:
+        // registered by the app)
+        this.registerAction('stretch-', () => this.addStretch(-STRETCH_STEP))
+        this.registerAction('stretch+', () => this.addStretch(STRETCH_STEP))
+        this.registerAction('reset-stretch', () => this.resetStretch())
+        this.registerAction('reset-text-style-overrides', () => this.interaction().resetTextStyleOverrides())
+        this.registerAction('reset-beammode', () => this.resetBeamMode())
+        this.registerAction('reset', () => this.interaction().resetShapesAndPosition(), () => this.hasSelection())
+        this.registerAction('reset-to-default-layout', () => this.interaction().resetToDefaultLayout())
+
         this.initEditingActions()
         this.initNoteInputActions()
     }
@@ -401,6 +420,29 @@ export class NotationActionController {
 
         if (!this.score().selection().isNone()) {
             this.interaction().clearSelection()
+        }
+    }
+
+    private addStretch(value: number): void {
+        if (!this.score().selection().isRange()) {
+            return
+        }
+
+        this.interaction().addStretch(value)
+    }
+
+    private resetStretch(): void {
+        if (!this.score().selection().isRange()) {
+            return
+        }
+
+        this.interaction().resetStretch()
+    }
+
+    private resetBeamMode(): void {
+        const selection = this.score().selection()
+        if (selection.isNone() || selection.isRange()) {
+            this.interaction().resetBeamMode()
         }
     }
 

@@ -5,7 +5,7 @@
  */
 
 // the File System Access API is not in TypeScript's DOM library yet
-interface FilePickerType {
+export interface FilePickerType {
     description: string
     accept: Record<string, string[]>
 }
@@ -46,8 +46,8 @@ export function canPickFiles(): boolean {
 
 const MSCZ_TYPE: FilePickerType = { description: 'MuseScore file', accept: { 'application/x-musescore': ['.mscz'] } }
 
-function download(bytes: Uint8Array, fileName: string): void {
-    const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/x-musescore' }))
+function download(bytes: Uint8Array, fileName: string, mimeType: string): void {
+    const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: mimeType }))
     const a = document.createElement('a')
     a.href = url
     a.download = fileName
@@ -59,22 +59,24 @@ function download(bytes: Uint8Array, fileName: string): void {
  * "Save to computer": asks where to save the file (showSaveFilePicker) and writes it; without the File System Access
  * API the file is downloaded. Resolves to null if the user cancelled, otherwise with the file's handle (if there is one).
  */
-export async function saveToComputer(bytes: Uint8Array, fileName: string): Promise<{ handle?: FileSystemFileHandle } | null> {
+export async function saveToComputer(bytes: Uint8Array, fileName: string, type: FilePickerType = MSCZ_TYPE):
+    Promise<{ handle?: FileSystemFileHandle } | null> {
+    const mimeType = Object.keys(type.accept)[0] ?? 'application/octet-stream'
     const picker = fsWindow().showSaveFilePicker
     if (!picker) {
-        download(bytes, fileName)
+        download(bytes, fileName, mimeType)
         return {}
     }
     let handle: FileSystemFileHandle
     try {
-        handle = await picker.call(window, { suggestedName: fileName, types: [MSCZ_TYPE] })
+        handle = await picker.call(window, { suggestedName: fileName, types: [type] })
     } catch (e) {
         if ((e as Error).name === 'AbortError') {
             return null
         }
         // e.g. not allowed in this context: download instead
         console.warn('showSaveFilePicker failed', e)
-        download(bytes, fileName)
+        download(bytes, fileName, mimeType)
         return {}
     }
     if (!(await writeFile(handle, bytes))) {
@@ -123,4 +125,31 @@ export async function pickFileToOpen(): Promise<{ file: File; handle: FileSystem
         console.warn('showOpenFilePicker failed', e)
         return null
     }
+}
+
+/**
+ * Chooses a file of the type to read (IInteractive::selectOpeningFile): showOpenFilePicker, or an <input type="file">
+ * without it; null if the user cancelled.
+ */
+export async function pickFile(type: FilePickerType): Promise<File | null> {
+    const picker = fsWindow().showOpenFilePicker
+    if (picker) {
+        try {
+            const [handle] = await picker.call(window, { types: [type] })
+            return handle ? await handle.getFile() : null
+        } catch (e) {
+            if ((e as Error).name === 'AbortError') {
+                return null
+            }
+            console.warn('showOpenFilePicker failed', e)
+        }
+    }
+    return new Promise(resolve => {
+        const input = document.createElement('input')
+        input.type = 'file'
+        input.accept = Object.values(type.accept).flat().join(',')
+        input.addEventListener('change', () => resolve(input.files?.[0] ?? null))
+        input.addEventListener('cancel', () => resolve(null))
+        input.click()
+    })
 }

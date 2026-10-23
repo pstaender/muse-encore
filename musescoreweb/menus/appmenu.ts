@@ -7,7 +7,7 @@
 import type { TrString } from '../actions/uiactiondata'
 
 export type MenuItem =
-    | { kind: 'action'; code: string; title?: TrString }
+    | { kind: 'action'; code: string; title?: TrString; args?: readonly string[] }
     | { kind: 'menu'; id: string; title: TrString; items: MenuItem[] | (() => MenuItem[]) }
     | { kind: 'separator' }
 

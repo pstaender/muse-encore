@@ -914,6 +914,138 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('formats the score with Page settings and Measures per system (Format menu, undoable)', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const pages = await page.locator('.page').count()
+        const openFormat = async (title: string): Promise<void> => {
+            await page.click('.menubar > button:has-text("Format")')
+            await page.click(`.menu-popup .menu-item:has-text("${title}")`)
+        }
+
+        // Page settings: a larger staff space gives more pages at once; Cancel reverts it
+        await openFormat('Page settings…')
+        await page.waitForSelector('dialog.page-settings[open]')
+        expect(await page.textContent('dialog.page-settings h2')).toBe('Page settings')
+        const spatium = Number(await page.inputValue('dialog.page-settings input[data-name="spatiumEntry"]'))
+        await page.fill('dialog.page-settings input[data-name="spatiumEntry"]', String(spatium * 2))
+        await page.press('dialog.page-settings input[data-name="spatiumEntry"]', 'Enter')
+        await page.waitForFunction(n => document.querySelectorAll('.page').length > n, pages)
+        await page.click('dialog.page-settings .dialog-buttons button:has-text("Cancel")')
+        await page.waitForSelector('dialog.page-settings', { state: 'detached' })
+        await page.waitForFunction(n => document.querySelectorAll('.page').length === n, pages)
+        expect(await page.textContent('#title')).not.toMatch(/^\*/)
+
+        // landscape, OK: one undo step
+        await openFormat('Page settings…')
+        await page.waitForSelector('dialog.page-settings[open]')
+        await page.check('dialog.page-settings input[name="orientation"] >> nth=1')
+        await page.click('dialog.page-settings .dialog-buttons .primary')
+        await page.waitForSelector('dialog.page-settings', { state: 'detached' })
+        await page.waitForFunction(() => document.getElementById('title')!.textContent!.startsWith('*'))
+        const landscape = await page.locator('.page').first().boundingBox()
+        expect(landscape!.width).toBeGreaterThan(landscape!.height)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => !document.getElementById('title')!.textContent!.startsWith('*'))
+
+        // Measures per system: 2 measures per system for the whole score
+        await openFormat('Measures per system…')
+        await page.waitForSelector('dialog.breaks-dialog[open]')
+        await page.fill('dialog.breaks-dialog input[type="number"]', '2')
+        await page.click('dialog.breaks-dialog .dialog-buttons .primary')
+        await page.waitForSelector('dialog.breaks-dialog', { state: 'detached' })
+        await page.waitForFunction(() => document.getElementById('title')!.textContent!.startsWith('*'))
+        await page.waitForFunction(n => document.querySelectorAll('.page').length > n, pages)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => !document.getElementById('title')!.textContent!.startsWith('*'))
+        await context.close()
+    }, 120000)
+
+    it('edits the style with the Style dialog', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const pages = await page.locator('.page').count()
+        const openStyle = async (): Promise<void> => {
+            await page.click('.menubar > button:has-text("Format")')
+            await page.click('.menu-popup .menu-item:has-text("Style…")')
+            await page.waitForSelector('dialog.edit-style[open]')
+        }
+        const staffDistance = 'dialog.edit-style input[data-name="staffDistance"]'
+
+        // a larger distance between staves gives more pages at once; Cancel reverts it
+        await openStyle()
+        expect(await page.textContent('dialog.edit-style h2')).toBe('Style')
+        await page.click('dialog.edit-style .es-pagelist [role="option"]:has-text("Spacing")')
+        expect(await page.isDisabled('dialog.edit-style button[data-name="resetStaffDistance"]')).toBe(true)
+        await page.fill(staffDistance, '20')
+        await page.press(staffDistance, 'Enter')
+        await page.waitForFunction(n => document.querySelectorAll('.page').length > n, pages)
+        expect(await page.isDisabled('dialog.edit-style button[data-name="resetStaffDistance"]')).toBe(false)
+        await page.click('dialog.edit-style .dialog-buttons button:has-text("Cancel")')
+        await page.waitForSelector('dialog.edit-style', { state: 'detached' })
+        await page.waitForFunction(n => document.querySelectorAll('.page').length === n, pages)
+        expect(await page.textContent('#title')).not.toMatch(/^\*/)
+
+        // the dialog opens on the last page; a check box and OK: one undo step
+        await openStyle()
+        expect(Number(await page.inputValue(staffDistance))).toBe(6.5)
+        await page.fill(staffDistance, '20')
+        await page.press(staffDistance, 'Enter')
+        await page.waitForFunction(n => document.querySelectorAll('.page').length > n, pages)
+        await page.click('dialog.edit-style .es-pagelist [role="option"]:text-is("Score")')
+        await page.check('dialog.edit-style input[data-name="hideEmptyStaves"]')
+        await page.click('dialog.edit-style .dialog-buttons .primary')
+        await page.waitForSelector('dialog.edit-style', { state: 'detached' })
+        await page.waitForFunction(() => document.getElementById('title')!.textContent!.startsWith('*'))
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => !document.getElementById('title')!.textContent!.startsWith('*'))
+        await page.waitForFunction(n => document.querySelectorAll('.page').length === n, pages)
+        await context.close()
+    }, 120000)
+
+    it('goes to a measure with Find / Go to and edits the project properties (undoable)', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+
+        // Find / Go to (Ctrl+F): typing selects the measure, Enter closes the bar
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+f')
+        await page.waitForSelector('.search-popup input:focus')
+        await page.keyboard.type('5')
+        await page.waitForFunction(() => /^Range selection; Start measure: 5;/.test(document.getElementById('status')!.textContent!))
+        await page.keyboard.press('Enter')
+        await page.waitForSelector('.search-popup', { state: 'detached' })
+
+        // File > Project properties…: change the title of the work, OK; one undo step
+        await page.click('.menubar > button:has-text("File")')
+        await page.click('.menu-popup .menu-item:has-text("Project properties…")')
+        await page.waitForSelector('dialog.project-properties[open]')
+        expect(await page.textContent('dialog.project-properties h2')).toBe('Project properties')
+        await page.fill('dialog.project-properties input[aria-label="Work title"]', 'A new title')
+        await page.click('dialog.project-properties .dialog-buttons button:has-text("New property")')
+        await page.keyboard.type('myProperty')
+        await page.fill('dialog.project-properties .property-row:last-child input[aria-label="Value"]', 'x')
+        await page.click('dialog.project-properties .dialog-buttons .primary')
+        await page.waitForSelector('dialog.project-properties', { state: 'detached' })
+        await page.waitForFunction(() => document.getElementById('title')!.textContent!.startsWith('*'))
+        await page.click('.menubar > button:has-text("File")')
+        await page.click('.menu-popup .menu-item:has-text("Project properties…")')
+        expect(await page.inputValue('dialog.project-properties input[aria-label="Work title"]')).toBe('A new title')
+        expect(await page.locator('dialog.project-properties input[value="myProperty"]').count()).toBe(1)
+        await page.click('dialog.project-properties .dialog-buttons button:has-text("Cancel")')
+        await page.waitForSelector('dialog.project-properties', { state: 'detached' })
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => !document.getElementById('title')!.textContent!.startsWith('*'))
+        await context.close()
+    }, 120000)
+
     it('selects similar elements from the context menu (Select > Similar, More…)', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)

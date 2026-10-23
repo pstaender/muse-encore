@@ -590,6 +590,18 @@ export abstract class EngravingItem extends EngravingObject {
         return this.sizeIsSpatiumDependent() || this.flag(ElementFlag.ON_STAFF)
     }
 
+    /** the spatium of the score changed (Score::spatiumChanged) */
+    spatiumChanged(oldValue: number, newValue: number): void {
+        this.spatiumChangedItem(oldValue, newValue)
+    }
+
+    /** EngravingItem::spatiumChanged (non-virtual call of the base implementation) */
+    protected spatiumChangedItem(oldValue: number, newValue: number): void {
+        if (this.offsetIsSpatiumDependent()) {
+            this.m_offset = this.m_offset.times(newValue / oldValue)
+        }
+    }
+
     placement(): PlacementV {
         return this.flag(ElementFlag.PLACE_ABOVE) && !this.isSystemObjectBelowBottomStaff() ? PlacementV.ABOVE : PlacementV.BELOW
     }

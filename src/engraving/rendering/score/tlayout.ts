@@ -15,6 +15,7 @@ import { PainterPath } from '../../../framework/draw/types/painterpath'
 import { Font, FontType } from '../../../framework/draw/types/font'
 import type { Color } from '../../../framework/draw/types/color'
 import { FontMetrics } from '../../../framework/draw/fontmetrics'
+import type { IndicatorIcon, IndicatorIconLayoutData, SystemLockIndicator } from '../../dom/indicatoricon'
 import { EngravingConfiguration } from '../../internal/engravingconfiguration'
 import { Fraction } from '../../types/fraction'
 import { SmuflAnchorId, SymId } from '../../types/symid'
@@ -262,6 +263,7 @@ export class TLayout {
         case ElementType.INSTRUMENT_NAME: TLayout.layoutInstrumentName(item as InstrumentName, ctx); break
         case ElementType.KEYSIG: TLayout.layoutKeySig(item as KeySig, ctx); break
         case ElementType.LAYOUT_BREAK: TLayout.layoutLayoutBreak(item as LayoutBreak, ctx); break
+        case ElementType.SYSTEM_LOCK_INDICATOR: TLayout.layoutIndicatorIcon(item as IndicatorIcon, (item as IndicatorIcon).mutldata()); break
         case ElementType.LEDGER_LINE: TLayout.layoutLedgerLine(item as LedgerLine, ctx); break
         case ElementType.LYRICS: TLayout.layoutLyrics(item as Lyrics, ctx); break
         case ElementType.MEASURE_NUMBER: TLayout.layoutMeasureNumber(item as MeasureNumber, ctx); break
@@ -3551,6 +3553,70 @@ export class TLayout {
         const metrics = new FontMetrics(item.font())
         const bbox = metrics.boundingRect(item.iconCode())
         ldata.setShape(new Shape(bbox, item))
+    }
+
+    static layoutIndicatorIcon(item: IndicatorIcon, ldata: IndicatorIconLayoutData): void {
+        if (!EngravingConfiguration.canLayoutIcons()) {
+            return
+        }
+
+        let endMB: MeasureBase
+
+        const shape = new Shape()
+
+        const metrics = new FontMetrics(item.font())
+        const iconBox = metrics.boundingRect(item.iconCode())
+        shape.add(iconBox, item)
+
+        if (item.isSystemLockIndicator()) {
+            const sli = item as SystemLockIndicator
+            endMB = sli.systemLock().endMB()
+            if (item.selected()) {
+                // Draw the range rect...
+                const lock = sli.systemLock()
+
+                const xStart = lock.startMB().x()
+                const xEnd = lock.endMB().x() + lock.endMB().width()
+
+                const width = xEnd - xStart
+                const height = iconBox.height() + sli.spatium()
+
+                const y = iconBox.top() - 0.5 * sli.spatium()
+
+                ldata.rangeRect = new RectF(xStart, y, width, height).translated(-sli.x(), 0.0)
+                shape.add(ldata.rangeRect)
+            }
+        } else {
+            endMB = item.system().last()
+        }
+
+        ldata.setShape(shape)
+
+        const spatium = item.spatium()
+
+        let x = endMB.x() + endMB.width()
+        x -= iconBox.right() + 0.5 * spatium
+
+        let xOffset = endMB.x() + endMB.width()
+        for (const el of endMB.el()) {
+            if (el.isLayoutBreak()) {
+                xOffset = Math.min(xOffset, endMB.x() + el.x() + el.ldata().bbox().left() - spatium)
+            }
+        }
+
+        for (const sli of item.system().lockIndicators()) {
+            if (sli !== item) {
+                // TODO: Rough spacing here
+                xOffset -= (sli.ldata().bbox().width() * 2) - spatium
+            }
+        }
+
+        x = Math.min(x, xOffset - iconBox.right())
+
+        ldata.setPos(new PointF(x, -2.5 * spatium))
+
+        // Ensure it goes behind notation and LayoutBreak
+        item.setZ(-100)
     }
 
     static layoutTabDurationSymbol(item: TabDurationSymbol): void {

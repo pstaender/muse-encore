@@ -184,6 +184,11 @@ export class FontsDatabase {
         this.m_faces.set(key(family), list)
     }
 
+    /** the families of the added fonts (C++: QFontDatabase::families) */
+    families(): string[] {
+        return [...this.m_faces.values()].map(list => list[0].family)
+    }
+
     hasFamily(family: string): boolean {
         return this.m_faces.has(key(family)) || this.m_aliases.has(key(family))
     }

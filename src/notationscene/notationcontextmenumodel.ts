@@ -6,7 +6,6 @@
  * Port of src/notationscene/qml/MuseScore/NotationScene/notationcontextmenumodel.h/.cpp: the items of the score's
  * context menu for the element type of the selection (NotationViewInputController::selectionType). The items are
  * action codes with an optional title (MuseScore's TranslatableString: [context, source]); the app shows them.
- * TODO(port): the arguments of "edit-style" (the style page of the element, EditStyleUtils)
  */
 
 import { ElementType } from '../engraving/types/types'
@@ -17,12 +16,13 @@ import type { GradualTempoChangeSegment } from '../engraving/dom/gradualtempocha
 import type { Harmony } from '../engraving/dom/harmony'
 import type { HairpinSegment } from '../engraving/dom/hairpin'
 import type { NotationInteraction } from '../notation/internal/notationinteraction'
+import { EditStyleUtils } from './editstyleutils'
 
 /** [context, source text] of a translatable title */
 export type ContextMenuTitle = readonly [string, string]
 
 export type ContextMenuItem =
-    | { kind: 'action'; code: string; title?: ContextMenuTitle; checked?: boolean }
+    | { kind: 'action'; code: string; title?: ContextMenuTitle; checked?: boolean; args?: string[] }
     | { kind: 'menu'; title: ContextMenuTitle; items: ContextMenuItem[] }
     | { kind: 'separator' }
 
@@ -353,9 +353,21 @@ export class NotationContextMenuModel {
         return items
     }
 
-    /** TODO(port): the page and sub page of the element (EditStyleUtils::pageCodeForElement) as the action's arguments */
+    /** "Style…" with the page (and text style sub page) of the element as the action's arguments */
     private makeEditStyle(): ContextMenuItem {
-        return makeMenuItem('edit-style')
+        const item = makeMenuItem('edit-style')
+
+        const element = this.m_interaction.score().selection().element()
+        if (element && item.kind === 'action') {
+            const pageCode = EditStyleUtils.pageCodeForElement(element)
+
+            if (pageCode) {
+                const subPageCode = EditStyleUtils.subPageCodeForElement(element)
+                item.args = subPageCode ? [pageCode, subPageCode] : [pageCode]
+            }
+        }
+
+        return item
     }
 
     private isSingleSelection(): boolean {

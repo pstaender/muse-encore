@@ -23,6 +23,12 @@ import { Tpc } from '../engraving/dom/pitchspelling'
 import type { System } from '../engraving/dom/system'
 import type { Measure } from '../engraving/dom/measure'
 
+export enum AddRemoveSystemLockType {
+    AfterEachSystem = -1,
+    None = 0,
+    MeasuresInterval,
+}
+
 export enum BracketsType {
     Brackets,
     Braces,

@@ -85,4 +85,8 @@ export class StaffTypeChange extends EngravingItem {
         default: return super.propertyDefault(id)
         }
     }
+
+    override spatiumChanged(_oldValue: number, _newValue: number): void {
+        this.m_lw = this.spatium() * 0.3
+    }
 }

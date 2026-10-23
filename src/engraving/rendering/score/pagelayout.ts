@@ -339,6 +339,8 @@ export class PageLayout {
                 }
                 MeasureLayout.layout2(m, ctx)
             }
+            SystemLayout.layoutSystemLockIndicators(s, ctx)
+            // TODO(port): StaffVisibilityIndicator
         }
 
         // If we are doing a partial layout, we also relayout the barlines of the first measure of the next page

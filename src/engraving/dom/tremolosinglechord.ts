@@ -193,4 +193,9 @@ export class TremoloSingleChord extends EngravingItem {
     override accessibleInfo(): string {
         return `${this.translatedTypeUserName()}: ${this.translatedSubtypeUserName()}`
     }
+
+    override spatiumChanged(oldValue: number, newValue: number): void {
+        super.spatiumChanged(oldValue, newValue)
+        this.computeShape()
+    }
 }

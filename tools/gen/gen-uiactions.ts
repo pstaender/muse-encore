@@ -32,7 +32,7 @@ interface Action {
 // ---------------------------------------------------------------------------------
 
 const icons = new Map<string, number>()
-for (const m of readFileSync(join(src, 'src/framework/ui/view/iconcodes.h'), 'utf8').matchAll(/^\s*([A-Z0-9_]+)\s*=\s*(0x[0-9A-Fa-f]+)/gm)) {
+for (const m of readFileSync(join(src, 'src/framework/ui/view/iconcodes.h'), 'utf8').matchAll(/^\s*([A-Z0-9_]+)\s*=\s*(0[xX][0-9A-Fa-f]+)/gm)) {
     icons.set(m[1], parseInt(m[2], 16))
 }
 

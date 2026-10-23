@@ -2201,4 +2201,7 @@ export class Measure extends MeasureBase {
     override accessibleInfo(): string {
         return `${this.translatedTypeUserName()}: ${this.no() + 1}`
     }
+
+    override spatiumChanged(_oldValue: number, _newValue: number): void {
+    }
 }

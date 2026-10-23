@@ -10,7 +10,8 @@ import { SHORTCUTS, SHORTCUTS_MAC, UI_ACTIONS, type TrString, type UiActionData 
 import { onSettingsChanged, settings } from '../settings'
 
 export interface ActionHandler {
-    run: () => void
+    /** args: the arguments of the menu item (MuseScore's ActionData), e.g. the page of "edit-style" */
+    run: (args?: readonly string[]) => void
     enabled?: () => boolean
     checked?: () => boolean
     /** a title that replaces MuseScore's (e.g. for actions of this app) */
@@ -68,12 +69,12 @@ export function isCheckable(code: string): boolean {
     return !!definitions.get(code)?.checkable || !!handlers.get(code)?.checked
 }
 
-export function triggerAction(code: string): boolean {
+export function triggerAction(code: string, args?: readonly string[]): boolean {
     const h = handlers.get(code)
     if (!h || !(h.enabled?.() ?? true)) {
         return false
     }
-    h.run()
+    h.run(args)
     actionsChanged()
     return true
 }

@@ -23,7 +23,13 @@ import { canOpenStaffProperties, openStaffProperties } from '../dialogs/EditStaf
 import { openSelectDialog } from '../dialogs/SelectDialog'
 import { openTupletDialog } from '../dialogs/TupletDialog'
 import { openRealizeChordSymbolsDialog } from '../dialogs/RealizeChordSymbolsDialog'
+import { openEditStyleDialog } from '../dialogs/EditStyleDialog'
 import { openSelectMeasuresCountDialog } from '../dialogs/SelectMeasuresCountDialog'
+import { openPageSettingsDialog } from '../dialogs/PageSettingsDialog'
+import { openBreaksDialog } from '../dialogs/BreaksDialog'
+import { loadStyle, saveStyle } from '../stylefiles'
+import { showSearchPopup } from '../components/SearchPopup'
+import { openProjectPropertiesDialog } from '../dialogs/ProjectPropertiesDialog'
 import { AddBoxesTarget, canAddCustomTuplet, hasSelection } from '../../src/index'
 import { currentScore } from '../scoreview'
 import { actionsChanged, isActionEnabled, registerAction, triggerAction } from './actions'
@@ -59,8 +65,18 @@ export function registerAppActions(): void {
     // NotationActionController::openStaffProperties
     registerAction('staff-properties', { run: openStaffProperties, enabled: () => scoreShown() && canOpenStaffProperties(), context: 'notation' })
     // NotationActionController::openSelectionMoreOptions (enabled with a selection like C++ hasSelection)
+    // the Format menu: NotationActionController::openPageSettingsDialog, openBreaksDialog, loadStyle, saveStyle
+    // ProjectActionsController::openProjectProperties
+    registerAction('project-properties', { run: openProjectPropertiesDialog, enabled: scoreShown })
+    // SearchPopupModel: Find / Go to
+    registerAction('find', { run: showSearchPopup, enabled: scoreShown, context: 'notation' })
+    registerAction('page-settings', { run: openPageSettingsDialog, enabled: scoreShown, context: 'notation' })
+    registerAction('measures-per-system', { run: openBreaksDialog, enabled: scoreShown, context: 'notation' })
+    registerAction('load-style', { run: () => void loadStyle(), enabled: scoreShown, context: 'notation' })
+    registerAction('save-style', { run: () => void saveStyle(), enabled: scoreShown, context: 'notation' })
     // NotationActionController::openRealizeChordSymbolsDialog
     registerAction('realize-chord-symbols', { run: openRealizeChordSymbolsDialog, enabled: scoreShown, context: 'notation' })
+    registerAction('edit-style', { run: args => openEditStyleDialog(args?.[0], args?.[1]), enabled: scoreShown, context: 'notation' })
     // NotationActionController::openTupletOtherDialog (enabled with a selected note or rest)
     registerAction('tuplet-dialog', {
         run: openTupletDialog,

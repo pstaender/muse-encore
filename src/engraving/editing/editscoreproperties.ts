@@ -4,7 +4,6 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of parts of src/engraving/editing/editscoreproperties.h/.cpp
- * TODO(port): ChangeMetaTags, ChangePageNumberOffset
  */
 
 import { CommandType, UndoCommand } from './undo'
@@ -12,6 +11,26 @@ import type { EngravingObject } from '../dom/engravingobject'
 import type { Score } from '../dom/score'
 import type { ScoreOrder } from '../dom/scoreorder'
 import type { EditData } from './editdata'
+
+export class ChangeMetaTags extends UndoCommand {
+    private metaTags: Map<string, string>
+
+    constructor(private score: Score, m: ReadonlyMap<string, string>) {
+        super()
+        this.metaTags = new Map(m)
+    }
+
+    protected override flip(_ed: EditData | null): void {
+        const t = new Map(this.score.metaTags())
+        this.score.setMetaTags(this.metaTags)
+        this.score.setLayoutAll()
+        this.metaTags = t
+    }
+
+    override type(): CommandType { return CommandType.ChangeMetaInfo }
+    override name(): string { return 'ChangeMetaTags' }
+    override objectItems(): EngravingObject[] { return [this.score] }
+}
 
 export class ChangeMetaText extends UndoCommand {
     constructor(private score: Score, private id: string, private text: string) {
@@ -46,5 +65,23 @@ export class ChangeScoreOrder extends UndoCommand {
 
     override type(): CommandType { return CommandType.ChangeScoreOrder }
     override name(): string { return 'ChangeScoreOrder' }
+    override objectItems(): EngravingObject[] { return [this.score] }
+}
+
+export class ChangePageNumberOffset extends UndoCommand {
+    constructor(private score: Score, private pageOffset: number) {
+        super()
+    }
+
+    protected override flip(_ed: EditData | null): void {
+        const po = this.score.pageNumberOffset()
+
+        this.score.setPageNumberOffset(this.pageOffset)
+        this.score.setLayoutAll()
+
+        this.pageOffset = po
+    }
+
+    override name(): string { return 'ChangePageNumberOffset' }
     override objectItems(): EngravingObject[] { return [this.score] }
 }

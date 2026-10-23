@@ -15,6 +15,7 @@ import type { EngravingItem } from '../dom/engravingitem'
 import type { Score } from '../dom/score'
 import { CommandType, UndoCommand } from './undo'
 import type { EditData } from './editdata'
+import { EditSystemLocks } from './editsystemlocks'
 
 function changeChordStyle(score: Score): void {
     const style = score.style()
@@ -50,6 +51,12 @@ function scoreStyleChanged(score: Score): void {
         e.setGenerated(v)
     })
     score.setLayoutAll()
+}
+
+/** C++ Score::spatiumChanged (the note head width is computed lazily; the padding table by the layout) */
+function spatiumChanged(score: Score, oldValue: number, newValue: number): void {
+    score.scanElements((e: EngravingItem) => e.spatiumChanged(oldValue, newValue))
+    score.setNoteHeadWidth(null)
 }
 
 // ---------------------------------------------------------
@@ -95,7 +102,9 @@ export class ChangeStyle extends UndoCommand {
         }
         this.score.setStyle(this.style, this.overlap)
         changeChordStyle(this.score)
-        // TODO(port): spatiumChanged() (EngravingItem::spatiumChanged scales user offsets)
+        if (tmp.spatium() !== this.style.spatium()) {
+            spatiumChanged(this.score, tmp.spatium(), this.style.spatium())
+        }
         scoreStyleChanged(this.score)
         this.style = tmp
     }
@@ -105,7 +114,7 @@ export class ChangeStyle extends UndoCommand {
 //   ChangeStyleValues
 // ---------------------------------------------------------
 
-function changeStyleValue(score: Score, idx: Sid, _oldValue: PropertyValue, newValue: PropertyValue): void {
+function changeStyleValue(score: Score, idx: Sid, oldValue: PropertyValue, newValue: PropertyValue): void {
     score.style().set(idx, newValue)
     switch (idx) {
     case Sid.chordExtensionMag:
@@ -119,13 +128,15 @@ function changeStyleValue(score: Score, idx: Sid, _oldValue: PropertyValue, newV
         changeChordStyle(score)
         break
     case Sid.spatium:
-        // TODO(port): Score::spatiumChanged (EngravingItem::spatiumChanged scales user offsets)
+        spatiumChanged(score, oldValue as number, newValue as number)
         break
     case Sid.defaultsVersion:
         score.style().setDefaultStyleVersion(newValue as number)
         break
     case Sid.createMultiMeasureRests:
-        // TODO(port): EditSystemLocks::removeSystemLocksContainingMMRests
+        if (oldValue === true && newValue === false) {
+            EditSystemLocks.removeSystemLocksContainingMMRests(score)
+        }
         break
     default:
         break

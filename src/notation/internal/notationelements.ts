@@ -4,8 +4,7 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/notation/internal/notationelements.h/.cpp: the elements of the score matching the filter options of
- * "Select similar" and the select dialogs.
- * TODO(port): search() (SearchCommandsParser: the "Go to" search of the notation view)
+ * "Select similar" and the select dialogs, and the "Find / Go to" search.
  */
 
 import { ElementPattern, NotePattern } from '../../engraving/dom/select'
@@ -13,6 +12,7 @@ import { Score } from '../../engraving/dom/score'
 import { nidx } from '../../engraving/types/types'
 import { SegmentType } from '../../engraving/dom/segment'
 import { FilterNotesOptions, type FilterElementsOptions } from '../notationtypes'
+import { SearchCommandsParser, SearchDataType } from './searchcommandsparser'
 import type { EngravingItem } from '../../engraving/dom/engravingitem'
 import type { Measure } from '../../engraving/dom/measure'
 import type { Page } from '../../engraving/dom/page'
@@ -40,6 +40,53 @@ export class NotationElements {
             return this.filterNotes(elementsOptions)
         }
         return this.filterElements(elementsOptions)
+    }
+
+    search(searchText: string): EngravingItem[] {
+        const searchData = SearchCommandsParser.parse(searchText)
+
+        switch (searchData.type) {
+        case SearchDataType.Invalid:
+            return []
+        case SearchDataType.RehearsalMark: {
+            const rehearsalMark = this.rehearsalMark(searchData.rehearsalMark)
+            if (rehearsalMark) {
+                return [rehearsalMark as unknown as EngravingItem]
+            }
+            break
+        }
+        case SearchDataType.Measure: {
+            const measureIndex = searchData.measureIndex - 1
+            const measure = this.measure(measureIndex)
+            if (measure) {
+                return [measure]
+            }
+            break
+        }
+        case SearchDataType.MeasureRange: {
+            const [startMeasureIndex, endMeasureIndex] = searchData.measureRange
+            const startMeasure = this.measure(startMeasureIndex - 1)
+            const endMeasure = this.measure(endMeasureIndex - 1)
+            const result: EngravingItem[] = []
+            if (startMeasure) {
+                result.push(startMeasure)
+            }
+            if (endMeasure && endMeasure !== startMeasure) {
+                result.push(endMeasure)
+            }
+            return result
+        }
+        case SearchDataType.Page: {
+            const pageIndex = searchData.pageIndex - 1
+            const page = this.page(pageIndex)
+            if (page) {
+                return [page]
+            }
+            break
+        }
+        }
+
+        return []
     }
 
     rehearsalMark(name: string): RehearsalMark | null {

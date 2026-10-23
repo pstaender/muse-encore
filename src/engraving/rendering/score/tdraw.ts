@@ -88,6 +88,7 @@ import type { GuitarBendHoldSegment, GuitarBendSegment } from '../../dom/guitarb
 import type { VibratoSegment } from '../../dom/vibrato'
 import type { GlissandoSegment } from '../../dom/glissando'
 import type { ChordLine } from '../../dom/chordline'
+import type { IndicatorIcon, SystemLockIndicator } from '../../dom/indicatoricon'
 
 const NOTE_BACKGROUND_COLOR = Color.WHITE
 
@@ -150,6 +151,8 @@ export class TDraw {
         case ElementType.KEYSIG: TDraw.drawKeySig(item as KeySig, painter, opt)
             break
         case ElementType.LAYOUT_BREAK: TDraw.drawLayoutBreak(item as LayoutBreak, painter, opt)
+            break
+        case ElementType.SYSTEM_LOCK_INDICATOR: TDraw.drawIndicatorIcon(item as IndicatorIcon, painter, opt)
             break
         case ElementType.SPACER: TDraw.drawSpacer(item as Spacer, painter, opt)
             break
@@ -700,6 +703,29 @@ export class TDraw {
         painter.setPen(pen)
         painter.setFont(item.font())
         painter.drawSymbol(new PointF(), item.iconCode())
+    }
+
+    static drawIndicatorIcon(item: IndicatorIcon, painter: Painter, opt: PaintOptions): void {
+        if (opt.isPrinting || !item.score().showUnprintable()) {
+            return
+        }
+
+        const pen = new Pen(item.selected() ? EngravingConfiguration.selectionColor() : EngravingConfiguration.formattingColor())
+        painter.setPen(pen)
+        painter.setFont(item.font())
+        painter.drawSymbol(new PointF(), item.iconCode())
+
+        if (item.isSystemLockIndicator() && item.selected()) {
+            const sli = item as SystemLockIndicator
+
+            const lockedAreaColor = EngravingConfiguration.selectionColor().clone()
+            lockedAreaColor.setAlpha(38)
+            painter.setBrush(new Brush(lockedAreaColor))
+            painter.setNoPen()
+            const radius = 0.5 * sli.spatium()
+
+            painter.drawRoundedRect(sli.ldata().rangeRect, radius, radius)
+        }
     }
 
     static drawSpacer(item: Spacer, painter: Painter, opt: PaintOptions): void {

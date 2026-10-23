@@ -32,6 +32,10 @@ export class LedgerLine extends EngravingItem {
     setLen(v: number): void { this.m_len = v }
     setVertical(v: boolean): void { this.m_vertical = v }
     vertical(): boolean { return this.m_vertical }
+
+    override spatiumChanged(oldValue: number, newValue: number): void {
+        this.m_len = (this.m_len / oldValue) * newValue
+    }
 }
 
 // C++ creates ledger lines with score()->dummy() as parent; the layout reparents them

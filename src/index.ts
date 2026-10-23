@@ -7,6 +7,7 @@
  * Framework independent; works in browsers and in node (with a canvas implementation).
  */
 
+import { EditStyle } from './notationscene/editstyle'
 import { CanvasPaintProvider, type Canvas2D } from './framework/draw/canvaspaintprovider'
 import { Painter } from './framework/draw/painter'
 import { Transform } from './framework/draw/types/transform'
@@ -93,6 +94,13 @@ import { InsertMode as PartsInsertMode } from './notation/internal/notationparts
 import './engraving/editing/editpart'
 import './engraving/editing/editharppedaldiagram'
 import { customOrder, type PartInstrumentList } from './notation/notationtypes'
+import { PageSettings } from './notationscene/pagesettings'
+import { NotationStyle } from './notation/internal/notationstyle'
+import type { NotationUndoStack } from './notation/internal/notationundostack'
+import type { AddRemoveSystemLockType } from './notation/notationtypes'
+import { NotationElements } from './notation/internal/notationelements'
+import { ProjectPropertiesModel } from './project/projectpropertiesmodel'
+import { SelectType } from './engraving/dom/select'
 
 export { initEngravingFonts, fontsInitialized, type FontFileLoader } from './engraving/engravingmodule'
 export { MscLoadError } from './engraving/rw/mscloader'
@@ -113,6 +121,7 @@ export { SvgGlyphDefs } from './framework/draw/svgpaintprovider'
 export * from './palette/api'
 export * from './instrumentsscene/api'
 export * from './inspector/api'
+export * from './notationscene/styledialog/api'
 // playback: MIDI events, positions/times, playback cursor, loop markers
 export * from './playback/api'
 export {
@@ -737,6 +746,7 @@ interface NotationState {
     controller: NotationViewInputController
     actions: NotationActionController
     accessibility: NotationAccessibility
+    style: NotationStyle
 }
 
 const s_notationStates = new WeakMap<MasterScore, NotationState>()
@@ -750,6 +760,7 @@ function notationState(score: MasterScore): NotationState {
             controller: new NotationViewInputController(interaction),
             actions: new NotationActionController(interaction),
             accessibility: new NotationAccessibility(score),
+            style: new NotationStyle(() => score, interaction.undoStack()),
         }
         s_notationStates.set(score, st)
     }
@@ -1669,6 +1680,95 @@ export {
     SelectDialog, SelectNoteDialog, type SelectDialogAction, type SelectDialogValues, type SelectNoteDialogValues,
 } from './notationscene/selectdialog'
 export { EditStaff, type EditStaffValues, type EditStaffString } from './notationscene/editstaff'
+
+/**
+ * "Find / Go to" (SearchPopupModel::search, action "find"): selects what the text names (a measure "12", a measure range
+ * "3-7", a page "p2", a rehearsal mark "rA" or its name); the selection is cleared first. Returns the found elements'
+ * count; the app shows the selection (C++ showItem).
+ */
+export function searchNotation(score: MasterScore, text: string): number {
+    const interaction = notationState(score).interaction
+    interaction.clearSelection()
+
+    const elements = new NotationElements(score).search(text)
+    if (elements.length) {
+        const inputState = score.inputState()
+        interaction.select(elements, elements.length === 1 ? SelectType.SINGLE : SelectType.RANGE,
+            inputState.isValid() ? inputState.staffIdx() : 0)
+        interaction.showItem(elements[0])
+    }
+    return elements.length
+}
+
+/** the model of the Project properties dialog (File > Project properties…); filePath: the file the app shows */
+export function createProjectPropertiesModel(score: MasterScore, filePath = ''): ProjectPropertiesModel {
+    return new ProjectPropertiesModel(score, notationState(score).interaction.undoStack(), filePath)
+}
+export { ProjectPropertiesModel, type ProjectProperty, type ProjectMeta } from './project/projectpropertiesmodel'
+
+/** the style of the score (MuseScore's INotationStyle) for the Style and Page Settings dialogs and load/save style */
+export function notationStyle(score: MasterScore): NotationStyle {
+    return notationState(score).style
+}
+
+/**
+ * The undo stack of the notation (INotation::undoStack): the Style and Page Settings dialogs collect their changes
+ * in one command (prepareChanges when shown, commitChanges on OK, rollbackChanges on Cancel).
+ */
+export function notationUndoStack(score: MasterScore): NotationUndoStack {
+    return notationState(score).interaction.undoStack()
+}
+
+/**
+ * The Style dialog (MuseScore's EditStyle, action "edit-style") for the score: the states of the widgets of
+ * editstyle.ui (PAGE_LIST, PAGE_STACK) that the app renders; show() when shown, accept() on OK, reject() on Cancel.
+ */
+export function createEditStyle(score: MasterScore): EditStyle {
+    return new EditStyle(score, notationStyle(score), notationUndoStack(score))
+}
+export {
+    EditStyle, WidgetState, ALL_PAGE_CODES, ALL_TEXT_STYLE_SUBPAGE_CODES, STYLE_WIDGETS, BUTTON_GROUPS, uiText, type ComboItem,
+    type StyleWidget,
+} from './notationscene/editstyle'
+export { Align, AlignH, AlignV, FontStyle } from './engraving/types/types'
+export { Color } from './framework/draw/types/color'
+export { PointF } from './framework/draw/types/geometry'
+export { PAGE_LIST, PAGE_STACK, type UiString, type UiWidget, type UiLayout, type UiLayoutItem, type UiProps } from './notationscene/editstyleui'
+
+/**
+ * BreaksDialog::showEvent (the "Measures per system" dialog, action "measures-per-system"): selects the whole score
+ * if there is no range selection; returns whether it did (pass it to addRemoveSystemLocks).
+ */
+export function prepareBreaksDialog(score: MasterScore): { allSelected: boolean } {
+    const interaction = notationState(score).interaction
+    if (!score.selection().isRange()) {
+        interaction.selectAll()
+        return { allSelected: true }
+    }
+    return { allSelected: false }
+}
+
+/** BreaksDialog::accept: INotationInteraction::addRemoveSystemLocks; the selection of prepareBreaksDialog is cleared */
+export function addRemoveSystemLocks(score: MasterScore, intervalType: AddRemoveSystemLockType, interval: number,
+    allSelected = false): void {
+    const interaction = notationState(score).interaction
+    interaction.addRemoveSystemLocks(intervalType, interval)
+    if (allSelected) {
+        interaction.clearSelection()
+    }
+}
+
+/** the Page Settings dialog (MuseScore's PageSettings) of the score; the dialog calls show() first */
+export function createPageSettings(score: MasterScore, metricUnit: boolean, setMetricUnit: (mm: boolean) => void): PageSettings {
+    return new PageSettings(score, notationState(score).style, notationState(score).interaction.undoStack(), metricUnit, setMetricUnit)
+}
+export {
+    PageSettings, PAGE_SETTINGS_SPIN_BOXES, type PageSettingsSpinBox, type PageSettingsValues, type PageSizeItem,
+} from './notationscene/pagesettings'
+export { NotationStyle } from './notation/internal/notationstyle'
+export type { NotationUndoStack } from './notation/internal/notationundostack'
+export { AddRemoveSystemLockType } from './notation/notationtypes'
+export { Sid } from './engraving/style/styledef'
 export {
     EditStaffType, NOTEHEAD_SCHEMES, type EditStaffTypeValues, type EditStaffTypeEnabled, type TabNoteValues,
 } from './notationscene/editstafftype'

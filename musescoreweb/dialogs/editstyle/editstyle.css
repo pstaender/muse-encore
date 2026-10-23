@@ -1,0 +1,110 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* MuseScore's Style dialog (EditStyleDialog.tsx): the widgets of editstyle.ui */
+
+dialog.edit-style {
+    width: min(1000px, calc(100vw - 32px));
+    height: min(840px, calc(100vh - 32px));
+    display: none;
+    flex-direction: column;
+    text-align: left;
+    padding: 16px 20px;
+}
+dialog.edit-style[open] { display: flex; }
+dialog.edit-style h2 { margin: 0 0 8px; }
+
+.edit-style .es-main { flex: 1; display: flex; gap: 12px; min-height: 0; }
+.edit-style .es-pagelist, .edit-style .es-list {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow-y: auto;
+    padding: 2px;
+    user-select: none;
+}
+.edit-style .es-pagelist { flex: 0 0 190px; }
+.edit-style .es-list { min-width: 170px; max-width: 220px; height: 100%; }
+.edit-style .es-pagelist > div, .edit-style .es-list > div { padding: 4px 8px; border-radius: 4px; cursor: default; }
+.edit-style .es-pagelist > div:hover, .edit-style .es-list > div:hover { background: var(--hover); }
+.edit-style .es-pagelist > div.selected, .edit-style .es-list > div.selected { background: var(--accent); color: #fff; }
+.edit-style .es-page { flex: 1; min-width: 0; overflow: auto; }
+.edit-style .es-buttons { margin-top: 12px; align-items: center; }
+.edit-style .es-buttons .spacer { flex: 1; }
+.edit-style .es-toggle-pagelist { font-family: "MusescoreIcon"; min-width: 30px; padding: 5px 8px; }
+
+/* layouts */
+.edit-style .es-vbox { display: flex; flex-direction: column; gap: 6px; }
+.edit-style .es-hbox { display: flex; flex-direction: row; align-items: center; gap: 6px; flex-wrap: wrap; }
+.edit-style .es-grid { display: grid; gap: 6px 8px; align-items: center; justify-items: start; grid-auto-columns: auto; }
+.edit-style .es-cell { min-width: 0; }
+.edit-style .es-cell-QGroupBox, .edit-style .es-cell-RadioButtonGroupBox, .edit-style .es-cell-QWidget,
+.edit-style .es-cell-QScrollArea, .edit-style .es-cell-QSplitter, .edit-style .es-cell-Line { justify-self: stretch; }
+.edit-style .es-spacer.h { flex: 1; min-width: 0; }
+.edit-style .es-spacer.v { flex: 1; min-height: 0; }
+.edit-style .es-widget, .edit-style .es-scroll { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.edit-style .es-page > .es-widget { min-height: 100%; }
+.edit-style .es-splitter { display: flex; gap: 12px; min-height: 0; height: 100%; }
+.edit-style .es-splitter > :last-child { flex: 1; min-width: 0; }
+
+/* widgets */
+.edit-style .es-group {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.edit-style .es-group.flat { border-width: 1px 0 0; border-radius: 0; padding: 8px 0 0; }
+.edit-style .es-group legend { padding: 0 4px; font-weight: 600; }
+.edit-style .es-label { white-space: nowrap; }
+.edit-style .es-label.wrap, .edit-style .es-rich { white-space: normal; }
+.edit-style .es-label.disabled, .edit-style .es-check.disabled { opacity: .5; }
+.edit-style .es-rich table { border-collapse: collapse; }
+.edit-style .es-rich td { padding: 1px 0; }
+.edit-style .es-check { display: inline-flex; align-items: center; gap: 6px; }
+.edit-style .es-spin { display: inline-flex; align-items: center; gap: 4px; }
+.edit-style .es-spin input { width: 78px; }
+.edit-style .es-suffix { color: var(--muted); }
+.edit-style select { max-width: 260px; }
+.edit-style .es-textedit { width: 100%; min-width: 120px; resize: vertical; font: inherit; }
+.edit-style .es-reset {
+    font-family: "MusescoreIcon";
+    font-size: 14px;
+    min-width: 26px;
+    height: 26px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: none;
+    color: var(--fg);
+}
+.edit-style .es-reset:hover:not(:disabled) { background: var(--hover); border-color: var(--border); }
+.edit-style .es-reset:disabled { opacity: .3; }
+.edit-style .es-line { border: none; border-top: 1px solid var(--border); margin: 4px 0; width: 100%; }
+.edit-style .es-line.v { border-top: none; border-left: 1px solid var(--border); height: 100%; width: 0; margin: 0 4px; }
+.edit-style .es-offset { display: inline-flex; gap: 12px; flex-wrap: wrap; }
+.edit-style .es-offset-axis { display: inline-flex; align-items: center; gap: 4px; }
+.edit-style .es-align { display: inline-flex; flex-direction: column; gap: 4px; }
+.edit-style .es-button-row { display: inline-flex; gap: 2px; align-items: center; }
+.edit-style .es-gap { width: 12px; }
+.edit-style .es-toggle {
+    font-family: "MusescoreIcon";
+    font-size: 16px;
+    min-width: 30px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--panel);
+    color: var(--fg);
+}
+.edit-style .es-toggle.checked { background: var(--accent); color: #fff; border-color: var(--accent); }
+.edit-style .es-color { width: 48px; height: 26px; padding: 0 2px; }
+.edit-style .es-qml { min-width: 0; }
+.edit-style input:disabled, .edit-style select:disabled, .edit-style textarea:disabled { opacity: .5; }
+/* group boxes fill their grid cells (like the Qt layouts) */
+.edit-style .es-grid > .es-cell-QGroupBox, .edit-style .es-grid > .es-cell-RadioButtonGroupBox {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+}
+.edit-style .es-grid > .es-cell-QGroupBox > fieldset, .edit-style .es-grid > .es-cell-RadioButtonGroupBox > fieldset { flex: 1; }

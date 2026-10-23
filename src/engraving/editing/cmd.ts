@@ -59,6 +59,7 @@ import type { Beam } from '../dom/beam'
 import type { Slur } from '../dom/slur'
 import type { Clef } from '../dom/clef'
 import type { TimeSig } from '../dom/timesig'
+import { EditSystemLocks } from './editsystemlocks'
 
 declare module '../dom/score' {
     interface Score {
@@ -2612,7 +2613,9 @@ Score.prototype.cmdToggleLayoutBreak = function (this: Score, type: LayoutBreakT
         switch (type) {
         case LayoutBreakType.LINE:
             val = !mb.lineBreak()
-            // TODO(port): EditSystemLocks::removeSystemLocksOnAddLayoutBreak
+            if (val) {
+                EditSystemLocks.removeSystemLocksOnAddLayoutBreak(this, type, mb)
+            }
             mb.undoSetBreak(val, type)
             // remove page break if appropriate
             if (val && mb.pageBreak()) {
@@ -2621,7 +2624,9 @@ Score.prototype.cmdToggleLayoutBreak = function (this: Score, type: LayoutBreakT
             break
         case LayoutBreakType.PAGE:
             val = !mb.pageBreak()
-            // TODO(port): EditSystemLocks::removeSystemLocksOnAddLayoutBreak
+            if (val) {
+                EditSystemLocks.removeSystemLocksOnAddLayoutBreak(this, type, mb)
+            }
             mb.undoSetBreak(val, type)
             // remove line break if appropriate
             if (val && mb.lineBreak()) {
@@ -2630,7 +2635,9 @@ Score.prototype.cmdToggleLayoutBreak = function (this: Score, type: LayoutBreakT
             break
         case LayoutBreakType.SECTION:
             val = !mb.sectionBreak()
-            // TODO(port): EditSystemLocks::removeSystemLocksOnAddLayoutBreak
+            if (val) {
+                EditSystemLocks.removeSystemLocksOnAddLayoutBreak(this, type, mb)
+            }
             mb.undoSetBreak(val, type)
             break
         case LayoutBreakType.NOBREAK:
@@ -3838,3 +3845,237 @@ Score.prototype.cmdRealizeChordSymbols = function (this: Score, literal = true, 
     }
 }
 
+import { BeamMode, staff2track } from '../types/types'
+import type { LayoutBreak } from '../dom/layoutbreak'
+
+declare module '../dom/score' {
+    interface Score {
+        resetUserStretch(): void
+        cmdAddStretch(val: number): void
+        cmdResetToDefaultLayout(): void
+        cmdResetBeamMode(): void
+        cmdResetTextStyleOverrides(): void
+        cmdResetAllStyles(exceptTheseOnes?: ReadonlySet<Sid>): void
+        /** Removes system/page breaks and spacers */
+        cmdResetMeasuresLayout(): void
+    }
+}
+
+// ---------------------------------------------------------
+//   the Format menu (cmd.cpp)
+// ---------------------------------------------------------
+
+function resetTextProperties(e: EngravingItem): void {
+    if (e.generated() || !e.isTextBase()) {
+        return
+    }
+
+    for (const pid of TEXT_STYLE_TO_RESET) {
+        // TODO: use undoResetProperty: https://github.com/musescore/MuseScore/issues/16516
+        // But for now, we'll use resetPropety since undoResetProperty leads to various problems
+        e.resetProperty(pid)
+    }
+}
+
+const TEXT_STYLE_TO_RESET: readonly Pid[] = [
+    Pid.FONT_FACE,
+    Pid.FONT_SIZE,
+    Pid.FONT_STYLE,
+    Pid.SIZE_SPATIUM_DEPENDENT,
+    Pid.FRAME_TYPE,
+    Pid.TEXT_LINE_SPACING,
+    Pid.FRAME_FG_COLOR,
+    Pid.FRAME_BG_COLOR,
+    Pid.FRAME_WIDTH,
+    Pid.FRAME_PADDING,
+    Pid.FRAME_ROUND,
+    Pid.ALIGN,
+]
+
+Score.prototype.resetUserStretch = function (this: Score): void {
+    let m1: Measure | null = null
+    let m2: Measure | null = null
+    // retrieve span of selection
+    const s1 = this.selection().startSegment()
+    const s2 = this.selection().endSegment()
+    // if either segment is not returned by the selection
+    // (for instance, no selection) fall back to first/last measure
+    if (!s1) {
+        m1 = this.firstMeasureMM()
+    } else {
+        m1 = s1.measure()
+    }
+    if (!s2) {
+        m2 = this.lastMeasureMM()
+    } else {
+        m2 = s2.measure()
+    }
+    if (!m1 || !m2) { // should not happen!
+        return
+    }
+
+    for (let m: Measure | null = m1; m; m = m.nextMeasureMM()) {
+        m.undoChangeProperty(Pid.USER_STRETCH, 1.0)
+        if (m === m2) {
+            break
+        }
+    }
+}
+
+Score.prototype.cmdAddStretch = function (this: Score, val: number): void {
+    if (!this.selection().isRange()) {
+        return
+    }
+    const startTick = this.selection().tickStart()
+    const endTick = this.selection().tickEnd()
+    for (let m = this.firstMeasureMM(); m; m = m.nextMeasureMM()) {
+        if (m.tick().lt(startTick)) {
+            continue
+        }
+        if (m.tick().ge(endTick)) {
+            break
+        }
+        let stretch = m.userStretch()
+        stretch += val
+        if (stretch < 0) {
+            stretch = 0
+        }
+        m.undoChangeProperty(Pid.USER_STRETCH, stretch)
+    }
+}
+
+Score.prototype.cmdResetToDefaultLayout = function (this: Score): void {
+    const dontResetTheseStyles = new Set<Sid>([
+         Sid.lyricsPlacement, Sid.repeatBarTips, Sid.startBarlineSingle, Sid.startBarlineMultiple, Sid.dividerLeft,
+         Sid.dividerRightY, Sid.useStraightNoteFlags, Sid.mrNumberSeries, Sid.mrNumberEveryXMeasures,
+         Sid.mrNumberSeriesWithParentheses, Sid.oneMeasureRepeatShow1, Sid.fourMeasureRepeatShowExtenders,
+         Sid.useWideBeams, Sid.hairpinPlacement, Sid.pedalPlacement, Sid.trillPlacement, Sid.vibratoPlacement,
+         Sid.harmonyPlacement, Sid.romanNumeralPlacement, Sid.nashvilleNumberPlacement, Sid.harmonyVoiceLiteral,
+         Sid.harmonyVoicing, Sid.harmonyDuration, Sid.capoPosition, Sid.fretNumPos, Sid.fretPlacement, Sid.fretStrings,
+         Sid.fretFrets, Sid.fretNut, Sid.fretOrientation, Sid.showPageNumber, Sid.showPageNumberOne,
+         Sid.pageNumberOddEven, Sid.showMeasureNumber, Sid.showMeasureNumberOne, Sid.measureNumberInterval,
+         Sid.measureNumberSystem, Sid.measureNumberPlacementMode, Sid.genClef, Sid.hideTabClefAfterFirst, Sid.genKeysig,
+         Sid.genCourtesyTimesig, Sid.genCourtesyKeysig, Sid.genCourtesyClef, Sid.swingRatio, Sid.swingUnit,
+         Sid.chordSymbolSpelling, Sid.automaticCapitalization, Sid.lowerCaseMinorChords, Sid.lowerCaseBassNotes,
+         Sid.allCapsNoteNames, Sid.chordStyle, Sid.chordsXmlFile, Sid.chordDescriptionFile, Sid.concertPitch,
+         Sid.createMultiMeasureRests, Sid.minEmptyMeasures, Sid.hideEmptyStaves, Sid.dontHideStavesInFirstSystem,
+         Sid.enableIndentationOnFirstSystem, Sid.firstSystemIndentationValue, Sid.hideInstrumentNameIfOneInstrument,
+         Sid.gateTime, Sid.tenutoGateTime, Sid.staccatoGateTime, Sid.slurGateTime, Sid.sectionPause, Sid.showHeader,
+         Sid.headerFirstPage, Sid.headerOddEven, Sid.evenHeaderL, Sid.evenHeaderC, Sid.evenHeaderR, Sid.oddHeaderL,
+         Sid.oddHeaderC, Sid.oddHeaderR, Sid.showFooter, Sid.footerFirstPage, Sid.footerOddEven, Sid.evenFooterL,
+         Sid.evenFooterC, Sid.evenFooterR, Sid.oddFooterL, Sid.oddFooterC, Sid.oddFooterR, Sid.tupletOutOfStaff,
+         Sid.tupletDirection, Sid.tupletBracketType, Sid.dynamicsPlacement, Sid.textLinePlacement,
+         Sid.harpPedalDiagramPlacement, Sid.harpPedalTextDiagramPlacement, Sid.expressionPlacement, Sid.tupletNumberType,
+         Sid.mmRestShowMeasureNumberRange, Sid.mmRestRangeBracketType, Sid.mmRestRangeVPlacement, Sid.staffTextPlacement,
+         Sid.repeatLeftPlacement, Sid.repeatRightPlacement, Sid.instrumentChangePlacement, Sid.stickingPlacement,
+         Sid.letRingPlacement, Sid.palmMutePlacement, Sid.pageWidth, Sid.pageHeight, Sid.pagePrintableWidth,
+         Sid.pageEvenTopMargin, Sid.pageEvenBottomMargin, Sid.pageEvenLeftMargin, Sid.pageOddTopMargin,
+         Sid.pageOddBottomMargin, Sid.pageOddLeftMargin, Sid.pageTwosided, Sid.spatium, Sid.concertPitch,
+         Sid.createMultiMeasureRests,
+    ])
+
+    const resetPositionAndTextProperties = (e: EngravingItem): void => {
+        resetElementPosition(e)
+        resetTextProperties(e)
+    }
+
+    this.cmdResetMeasuresLayout()
+    this.scanElements(resetPositionAndTextProperties)
+    this.cmdResetAllStyles(dontResetTheseStyles)
+    EditSystemLocks.undoRemoveAllLocks(this)
+}
+
+Score.prototype.cmdResetBeamMode = function (this: Score): void {
+    const noSelection = this.selection().isNone()
+    if (noSelection) {
+        this.cmdSelectAll()
+    } else if (!this.selection().isRange()) {
+        // C++ LOGD("no system or staff selected")
+        return
+    }
+
+    const firstCr = this.selection().firstChordRest()
+    if (!firstCr) {
+        // C++ LOGD("no chord/rest in selection")
+        return
+    }
+
+    const trackStart = staff2track(this.selection().staffStart())
+    const trackEnd = staff2track(this.selection().staffEnd())
+    const endTick = this.selection().tickEnd()
+
+    for (let seg: Segment | null = firstCr.segment(); seg && seg.tick().lt(endTick); seg = seg.next1(SegmentType.ChordRest)) {
+        for (let track = trackStart; track < trackEnd; ++track) {
+            const cr = seg.element(track) as ChordRest | null
+            if (!cr) {
+                continue
+            }
+            if (cr.isChord()) {
+                if (cr.beamMode() !== BeamMode.AUTO) {
+                    cr.undoChangeProperty(Pid.BEAM_MODE, BeamMode.AUTO)
+                }
+            } else if (cr.isRest()) {
+                if (cr.beamMode() !== BeamMode.NONE) {
+                    cr.undoChangeProperty(Pid.BEAM_MODE, BeamMode.NONE)
+                }
+            }
+        }
+    }
+
+    if (noSelection) {
+        this.deselectAll()
+    }
+}
+
+Score.prototype.cmdResetTextStyleOverrides = function (this: Score): void {
+    this.scanElements(resetTextProperties)
+}
+
+Score.prototype.cmdResetAllStyles = function (this: Score, exceptTheseOnes: ReadonlySet<Sid> = new Set()): void {
+    const stylesToReset = new Set<Sid>()
+
+    for (let idx = Sid.NOSTYLE + 1; idx < Sid.STYLES; idx++) {
+        const styleId = idx as Sid
+        if (!exceptTheseOnes.has(styleId)) {
+            stylesToReset.add(styleId)
+        }
+    }
+
+    this.score().resetStyleValues(stylesToReset)
+}
+
+// Removes system/page breaks and spacers
+Score.prototype.cmdResetMeasuresLayout = function (this: Score): void {
+    const itemsToRemove: EngravingItem[] = []
+
+    for (let mb = this.first(); mb; mb = mb.next()) {
+        if (mb.isMeasure()) {
+            mb.undoResetProperty(Pid.USER_STRETCH)
+
+            for (const staff of (mb as Measure).mstaves()) {
+                const down = staff.vspacerDown()
+                if (down) {
+                    itemsToRemove.push(down)
+                }
+                const up = staff.vspacerUp()
+                if (up) {
+                    itemsToRemove.push(up)
+                }
+            }
+        }
+
+        if (!mb.lineBreak() && !mb.pageBreak()) {
+            continue
+        }
+
+        for (const item of mb.el()) {
+            if (item.isLayoutBreak() && !(item as LayoutBreak).isSectionBreak()) {
+                itemsToRemove.push(item)
+            }
+        }
+    }
+
+    for (const item of itemsToRemove) {
+        this.undoRemoveElement(item)
+    }
+}

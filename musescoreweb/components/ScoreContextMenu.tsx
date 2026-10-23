@@ -23,7 +23,7 @@ function toMenuItems(items: readonly ContextMenuItem[]): MenuItem[] {
     return items.map((it): MenuItem => {
         switch (it.kind) {
         case 'action':
-            return { kind: 'action', code: it.code, title: it.title }
+            return { kind: 'action', code: it.code, title: it.title, args: it.args }
         case 'menu':
             return { kind: 'menu', id: it.title[1], title: it.title, items: toMenuItems(it.items) }
         default:

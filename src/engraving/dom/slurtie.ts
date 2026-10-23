@@ -212,6 +212,14 @@ export abstract class SlurTieSegment extends SpannerSegment {
 
         return result
     }
+
+    override spatiumChanged(oldValue: number, newValue: number): void {
+        this.spatiumChangedItem(oldValue, newValue)
+        const diff = newValue / oldValue
+        for (const u of this.m_ups) {
+            u.off = u.off.times(diff)
+        }
+    }
 }
 
 export abstract class SlurTie extends Spanner {

@@ -690,6 +690,12 @@ export abstract class LineSegment extends SpannerSegment {
         }
         return this.line().absoluteFromSpatium(sp)
     }
+
+    /** C++ calls EngravingItem::spatiumChanged (not SpannerSegment's) and always scales offset2 */
+    override spatiumChanged(ov: number, nv: number): void {
+        this.spatiumChangedItem(ov, nv)
+        this.m_offset2 = this.m_offset2.times(nv / ov)
+    }
 }
 
 export abstract class SLine extends Spanner {

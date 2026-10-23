@@ -141,7 +141,7 @@ export function MenuPopup({ items, anchor, placement, onClose, onLeft, onRight, 
         } else if (it.kind === 'action') {
             onClose(true)
             // after the menu is closed (the action may open a dialog that takes the focus)
-            setTimeout(() => triggerAction(it.code))
+            setTimeout(() => triggerAction(it.code, it.args))
         }
     }
 

@@ -1234,6 +1234,7 @@ export class Score extends EngravingObject {
     metaTag(name: string): string { return this.m_metaTags.get(name) ?? '' }
     setMetaTag(name: string, value: string): void { this.m_metaTags.set(name, value) }
     metaTags(): ReadonlyMap<string, string> { return this.m_metaTags }
+    setMetaTags(tags: ReadonlyMap<string, string>): void { this.m_metaTags = new Map(tags) }
 
     // parts & staves
 

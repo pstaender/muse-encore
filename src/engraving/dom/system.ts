@@ -6,6 +6,8 @@
  * Port of src/engraving/dom/system.h/.cpp
  */
 
+import type { SystemLock } from './systemlock'
+import type { SystemLockIndicator } from './indicatoricon'
 import { SystemDividerType, type SystemDivider } from './systemdivider'
 import { RectF } from '../../framework/draw/types/geometry'
 import { Fraction } from '../types/fraction'
@@ -73,6 +75,7 @@ export class SysStaff {
 export class System extends EngravingItem {
     private m_systemDividerLeft: SystemDivider | null = null // to the next system
     private m_systemDividerRight: SystemDivider | null = null
+    private m_lockIndicators: SystemLockIndicator[] = []
     private m_ml: MeasureBase[] = []
     private m_staves: SysStaff[] = []
     private m_brackets: Bracket[] = []
@@ -333,6 +336,9 @@ export class System extends EngravingItem {
         }
         if (this.m_systemDividerRight) {
             func(this.m_systemDividerRight)
+        }
+        for (const i of this.m_lockIndicators) {
+            func(i)
         }
         for (const st of this.m_staves) {
             if (st.show()) {
@@ -696,6 +702,17 @@ export class System extends EngravingItem {
         return columns
     }
 
-    // TODO(port): system locks, staff visibility indicators
-    isLocked(): boolean { return false }
+    // TODO(port): staff visibility indicators
+    isLocked(): boolean { return this.m_ml[0].isStartOfSystemLock() }
+    systemLock(): SystemLock | null { return this.m_ml[0].systemLock() }
+
+    lockIndicators(): readonly SystemLockIndicator[] { return this.m_lockIndicators }
+
+    addLockIndicator(sli: SystemLockIndicator): void {
+        this.m_lockIndicators.push(sli)
+    }
+
+    deleteLockIndicators(): void {
+        this.m_lockIndicators = []
+    }
 }

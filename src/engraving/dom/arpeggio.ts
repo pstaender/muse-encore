@@ -138,4 +138,9 @@ export class Arpeggio extends EngravingItem {
         default: return super.propertyDefault(propertyId)
         }
     }
+
+    override spatiumChanged(oldValue: number, newValue: number): void {
+        this.m_userLen1 *= (newValue / oldValue)
+        this.m_userLen2 *= (newValue / oldValue)
+    }
 }

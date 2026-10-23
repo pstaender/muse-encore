@@ -102,6 +102,9 @@ import type { SelectionFilter } from '../dom/selectionfilter'
 import type { EngravingObject } from '../dom/engravingobject'
 import type { PropertyValue } from '../types/propertyvalue'
 import type { SymId } from '../types/symid'
+import { ChangePageNumberOffset } from './editscoreproperties'
+import { EditSystemLocks } from './editsystemlocks'
+import type { SystemLockIndicator } from '../dom/indicatoricon'
 
 /** C++ Score::InsertMeasureOptions */
 export class InsertMeasureOptions {
@@ -186,12 +189,14 @@ declare module '../dom/score' {
         undoChangeSpannerElements(spanner: Spanner, startElement: EngravingItem | null, endElement: EngravingItem | null): void
         undoChangeStyleVal(idx: Sid, v: PropertyValue): void
         resetStyleValue(styleToReset: Sid): void
+        resetStyleValues(styleIdSet: ReadonlySet<Sid>): void
         /**
          * C++ Score::loadStyle(IODevice&, ign, overlap) (scorefile.cpp): applies a style file (its content here) through
          * the undo stack; overlap: only its values that are not the defaults
          */
         loadStyle(data: string, ign?: boolean, overlap?: boolean): boolean
         undoChangeStyleValues(values: Map<Sid, PropertyValue>): void
+        undoChangePageNumberOffset(po: number): void
         /** C++ undoPropertyChanged(EngravingObject*, Pid, const PropertyValue&, PropertyFlags) */
         undoPropertyChanged(e: EngravingObject, t: Pid, st: PropertyValue, ps?: PropertyFlags): void
         /** C++ bool undoPropertyChanged(EngravingItem*, Pid, const PropertyValue&, PropertyFlags) (renamed: no overloads in TS) */
@@ -3248,9 +3253,11 @@ Score.prototype.deleteItem = function (this: Score, el: EngravingItem | null): v
         break
     }
 
-    case ElementType.SYSTEM_LOCK_INDICATOR:
-        // TODO(port): EditSystemLocks::undoRemoveSystemLock
+    case ElementType.SYSTEM_LOCK_INDICATOR: {
+        const systemLock = (el as SystemLockIndicator).systemLock()
+        EditSystemLocks.undoRemoveSystemLock(this, systemLock)
         break
+    }
 
     case ElementType.PARENTHESIS:
         if (el.parent() && el.parent()!.isChord()) {
@@ -3983,6 +3990,21 @@ Score.prototype.resetStyleValue = function (this: Score, styleToReset: Sid): voi
     this.undoChangeStyleVal(styleToReset, defStyle.value(styleToReset))
 }
 
+Score.prototype.resetStyleValues = function (this: Score, styleIdSet: ReadonlySet<Sid>): void {
+    if (!styleIdSet.size) {
+        return
+    }
+
+    const values = new Map<Sid, PropertyValue>()
+    const defStyle = DefaultStyle.defaultStyle()
+
+    for (const sid of styleIdSet) {
+        values.set(sid, defStyle.value(sid))
+    }
+
+    this.undoChangeStyleValues(values)
+}
+
 Score.prototype.loadStyle = function (this: Score, data: string, _ign = false, overlap = false): boolean {
     const st = this.style().clone()
     if (st.readDocument(data)) {
@@ -3991,6 +4013,10 @@ Score.prototype.loadStyle = function (this: Score, data: string, _ign = false, o
     }
     console.error('The style data is not compatible with this version of MuseScore Studio.')
     return false
+}
+
+Score.prototype.undoChangePageNumberOffset = function (this: Score, po: number): void {
+    this.undo(new ChangePageNumberOffset(this, po))
 }
 
 Score.prototype.undoChangeStyleValues = function (this: Score, values: Map<Sid, PropertyValue>): void {
@@ -5396,7 +5422,7 @@ Score.prototype.undoRemoveMeasures = function (this: Score, m1: Measure, m2: Mea
         }
     }
 
-    // TODO(port): EditSystemLocks::removeSystemLocksOnRemoveMeasures(this, m1, m2)
+    EditSystemLocks.removeSystemLocksOnRemoveMeasures(this, m1, m2)
 
     this.undo(new RemoveMeasures(m1, m2, moveStaffTypeChanges))
 }

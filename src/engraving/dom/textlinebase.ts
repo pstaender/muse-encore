@@ -133,6 +133,14 @@ export abstract class TextLineBaseSegment extends LineSegment {
         }
         return super.propertyDelegate(pid)
     }
+
+    override spatiumChanged(ov: number, nv: number): void {
+        super.spatiumChanged(ov, nv)
+
+        // TextLineBase::spatiumChanged does nothing
+        this.m_text.spatiumChanged(ov, nv)
+        this.m_endText.spatiumChanged(ov, nv)
+    }
 }
 
 export abstract class TextLineBase extends SLine {

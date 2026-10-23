@@ -210,6 +210,13 @@ export abstract class SpannerSegment extends EngravingItem {
     override accessibleInfo(): string {
         return this.spanner()!.accessibleInfo()
     }
+
+    override spatiumChanged(ov: number, nv: number): void {
+        super.spatiumChanged(ov, nv)
+        if (this.offsetIsSpatiumDependent()) {
+            this.m_offset2 = this.m_offset2.times(nv / ov)
+        }
+    }
 }
 
 // ---------------------------------------------------------

@@ -68,6 +68,7 @@ import type { GuitarBend } from '../../dom/guitarbend'
 import type { TextLineBaseSegment } from '../../dom/textlinebase'
 import type { HammerOnPullOff, HammerOnPullOffSegment } from '../../dom/hammeronpulloff'
 import { GuitarDiveLayout } from './guitardivelayout'
+import { SystemLockIndicator } from '../../dom/indicatoricon'
 
 class MeasureState {
     measure: Measure | null = null
@@ -664,6 +665,24 @@ export class SystemLayout {
             }
         }
         return system
+    }
+
+    static layoutSystemLockIndicators(system: System, _ctx: LayoutContext): void {
+        const lockIndicators = system.lockIndicators()
+        // In PAGE view, at most ONE lock indicator can exist per system.
+        console.assert(lockIndicators.length <= 1)
+        system.deleteLockIndicators()
+
+        const lock = system.systemLock()
+        if (!lock) {
+            return
+        }
+
+        const lockIndicator = new SystemLockIndicator(system, lock)
+        lockIndicator.setParent(system)
+        system.addLockIndicator(lockIndicator)
+
+        TLayout.layoutIndicatorIcon(lockIndicator, lockIndicator.mutldata())
     }
 
     static hideEmptyStaves(system: System, ctx: LayoutContext, isFirstSystem: boolean): void {

@@ -34,6 +34,8 @@ export interface AppSettings {
     ui: {
         /** 'system' or a language code of MuseScore's translations (e.g. "de", "pt_BR") */
         language: string
+        /** IGlobalConfiguration::metricUnit (preference "application/metricUnit"): mm instead of inches (Page settings) */
+        metricUnit: boolean
     }
     /** the toolbars: their docks and order (toolbars.ts checks the ids), hidden ones, the status bar */
     layout: {
@@ -129,7 +131,7 @@ const DEFAULTS: AppSettings = {
     home: { layout: 'grid' },
     newScore: { mode: 'instruments' },
     project: { autoSaveEnabled: true, autoSaveInterval: 5, migration: {} }, // ProjectConfiguration::init
-    ui: { language: 'system' },
+    ui: { language: 'system', metricUnit: false },
     layout: { docks: {}, hidden: [], statusBar: true },
     noteInputBar: null,
     panels: { open: ['palettesPanel', 'instrumentsPanel', 'inspectorPanel'], current: 'palettesPanel', width: 300, collapsed: false },
@@ -169,7 +171,10 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
                 && s.project.autoSaveInterval <= 1000 ? s.project.autoSaveInterval : DEFAULTS.project.autoSaveInterval,
             migration: sanitizeMigration(s.project?.migration),
         },
-        ui: { language: typeof s.ui?.language === 'string' ? s.ui.language : DEFAULTS.ui.language },
+        ui: {
+            language: typeof s.ui?.language === 'string' ? s.ui.language : DEFAULTS.ui.language,
+            metricUnit: typeof s.ui?.metricUnit === 'boolean' ? s.ui.metricUnit : DEFAULTS.ui.metricUnit,
+        },
         layout: {
             docks: s.layout?.docks && typeof s.layout.docks === 'object'
                 ? Object.fromEntries(Object.entries(s.layout.docks).filter(([, v]) => isStringArray(v)))

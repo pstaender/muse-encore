@@ -1385,3 +1385,44 @@
 - Tests: test/tools.test.ts (MuseScore's implodeexplode, tools, join, split, rhythmicgrouping and chord symbol realize
   tests with their reference files; actions), measure.test.ts (measure_tests spanner_A-D, deleteLast; spanners_tests
   09-12: deleting measures with lyrics lines, undo); e2e: Tools menu.
+
+### Format menu
+- All entries of MuseScore's Format menu work:
+  - Style… (`edit-style`): src/notationscene/editstyle.ts = EditStyle (editstyle.cpp: styleWidgets table, button groups,
+    combo fills, value conversions, text styles page, header/footer, resets, enabled states), editstyleui.ts generated
+    from editstyle.ui by tools/gen/gen-editstyle.ts; the QML pages (styledialog/*.qml) are the models in
+    src/notationscene/styledialog/ and the components in musescoreweb/dialogs/editstyle/qml/ (registry qmlpages.tsx by
+    host widget objectName, images from the submodule). App: dialogs/EditStyleDialog.tsx; changes are applied live in
+    one undo command (prepareChanges/commitChanges/rollbackChanges). The context menu's "Style…" opens the page of the
+    element (editstyleutils.ts = EditStyleUtils; menu items carry action arguments).
+  - Page settings…: notationscene/pagesettings.ts = PageSettings (pagesettings.cpp, widgets as values with QDoubleSpinBox
+    rounding), framework/draw/qpagesize.ts (Qt's page size table, QPageSize::id/size/name), ChangePageNumberOffset;
+    the mm/inch choice is the app setting ui.metricUnit. App: dialogs/PageSettingsDialog.tsx.
+  - Measures per system… (BreaksDialog) and the system lock actions (apply-system-lock, toggle-system-lock,
+    toggle-score-lock, make-into-system, move-measure-to-prev/next-system): editing/editsystemlocks.ts =
+    EditSystemLocks with AddSystemLock/RemoveSystemLock (layout breaks remove locks, removing measures updates locks,
+    createMultiMeasureRests off removes locks containing mmrests). System lock indicators (dom/indicatoricon.ts:
+    IndicatorIcon, SystemLockIndicator; SystemLayout.layoutSystemLockIndicators, TLayout.layoutIndicatorIcon,
+    TDraw.drawIndicatorIcon; selectable, deleting one removes its lock). System.isLocked/systemLock are real now.
+  - Stretch (cmdAddStretch, resetUserStretch), Reset text style overrides, Reset beams, Reset shapes and positions,
+    Reset to default layout (cmdResetMeasuresLayout, cmdResetAllStyles, Score.resetStyleValues).
+  - Load style… / Save style… (musescoreweb/stylefiles.ts; .mss chosen/saved on the computer; NotationStyle.loadStyle/
+    saveStyle/isValidStyleFile).
+- notation/internal/notationstyle.ts = NotationStyle (INotationStyle). Score::spatiumChanged is ported
+  (EngravingItem.spatiumChanged and the overrides scale user offsets, slur/tie and beam user positions, arpeggio
+  lengths) for ChangeStyle and ChangeStyleValues.
+- App: components/MessageBox.tsx (IInteractive error/warning), files.ts pickFile and typed saveToComputer.
+- gen-uiactions: icon codes written "0X..." are read too (TIMESIG_STANDARD).
+- Tests: test/format.test.ts (MuseScore's system_locks_tests, Measures per system, stretch, resets, load/save style,
+  QPageSize, PageSettings, spatium change, lock indicators, EditStyleUtils), editstyle.test.ts, styledialog.test.ts;
+  e2e: Page settings + Measures per system, Style dialog.
+- TODO(port): StaffVisibilityIndicator; Style dialog: voicing select, chordsXmlFile, capoPosition widgets (commented out
+  in C++ too); the last shown page is remembered per session only; text style fonts are the registered fonts.
+
+### Find / Go to, Project properties
+- Find / Go to (`find`, Ctrl+F): notation/internal/searchcommandsparser.ts = SearchCommandsParser, NotationElements.search,
+  library searchNotation (SearchPopupModel::search); app components/SearchPopup.tsx below the score view.
+- File > Project properties…: project/projectpropertiesmodel.ts (ProjectMeta tags, projectMetaInfo/setProjectMetaInfo =
+  NotationProject::metaInfo/setMetaInfo, ProjectPropertiesModel; QDate ISO <-> TextDate), ChangeMetaTags,
+  Score.setMetaTags; app dialogs/ProjectPropertiesDialog.tsx (no "open file location" in the browser).
+- Tests: test/search.test.ts, test/projectproperties.test.ts; e2e: Find / Go to + Project properties.

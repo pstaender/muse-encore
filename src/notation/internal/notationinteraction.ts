@@ -122,6 +122,8 @@ import { Instrument } from '../../engraving/dom/instrument'
 import type { InstrumentChange } from '../../engraving/dom/instrchange'
 import type { InstrumentTemplate } from '../../engraving/dom/instrtemplate'
 import type { TransposeOptions } from '../notationtypes'
+import { EditSystemLocks } from '../../engraving/editing/editsystemlocks'
+import { AddRemoveSystemLockType } from '../notationtypes'
 
 /** C++ NotationInteraction::ShadowNoteParams */
 interface ShadowNoteParams {
@@ -4714,6 +4716,126 @@ export class NotationInteraction {
     regroupNotesAndRests(): void {
         this.startEdit(new TranslatableString('undoableAction', 'Regroup rhythms'))
         this.score().cmdResetNoteAndRestGroupings()
+        this.apply()
+    }
+
+    // ---- the Format menu ----
+
+    addStretch(value: number): void {
+        this.startEdit(value >= 0
+            ? new TranslatableString('undoableAction', 'Increase layout stretch')
+            : new TranslatableString('undoableAction', 'Decrease layout stretch'))
+        this.score().cmdAddStretch(value)
+        this.apply()
+    }
+
+    resetStretch(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Reset layout stretch'))
+        this.score().resetUserStretch()
+        this.apply()
+    }
+
+    resetTextStyleOverrides(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Reset text style overrides'))
+        this.score().cmdResetTextStyleOverrides()
+        this.apply()
+    }
+
+    resetBeamMode(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Reset beams'))
+        this.score().cmdResetBeamMode()
+        this.apply()
+    }
+
+    resetShapesAndPosition(): void {
+        const resetItem = (item: EngravingItem): void => {
+            item.reset()
+
+            if (item.isSpanner()) {
+                for (const spannerSegment of (item as Spanner).spannerSegments()) {
+                    spannerSegment.reset()
+                }
+            }
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Reset shapes and positions'))
+
+        const element = this.score().selection().element()
+        if (element) {
+            resetItem(element)
+        } else {
+            for (const item of [...this.score().selection().elements()]) {
+                resetItem(item)
+            }
+        }
+
+        this.apply()
+    }
+
+    resetToDefaultLayout(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Reset to default layout'))
+        this.score().cmdResetToDefaultLayout()
+        this.apply()
+    }
+
+    // ---- system locks ----
+
+    addRemoveSystemLocks(intervalType: AddRemoveSystemLockType, interval: number): void {
+        interval = intervalType === AddRemoveSystemLockType.MeasuresInterval ? interval : 0
+        const afterEachSystem = intervalType === AddRemoveSystemLockType.AfterEachSystem
+
+        this.startEdit(new TranslatableString('undoableAction', 'Measures per system'))
+        EditSystemLocks.addRemoveSystemLocks(this.score(), interval, afterEachSystem)
+        this.apply()
+    }
+
+    applySystemLock(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Apply system lock to selection'))
+        EditSystemLocks.applyLockToSelection(this.score())
+        this.apply()
+    }
+
+    moveMeasureToPrevSystem(): void {
+        const m = this.score().selection().endMeasureBase()
+        if (!m) {
+            return
+        }
+        this.startEdit(new TranslatableString('undoableAction', 'Move measure to previous system'))
+        EditSystemLocks.moveMeasureToPrevSystem(this.score(), m)
+        this.apply()
+    }
+
+    moveMeasureToNextSystem(): void {
+        const m = this.score().selection().startMeasureBase()
+        if (!m) {
+            return
+        }
+        this.startEdit(new TranslatableString('undoableAction', 'Move measure to next system'))
+        EditSystemLocks.moveMeasureToNextSystem(this.score(), m)
+        this.apply()
+    }
+
+    toggleSystemLock(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Lock/unlock selected system(s)'))
+        EditSystemLocks.toggleSystemLock(this.score(), this.score().selection().selectedSystems())
+        this.apply()
+    }
+
+    toggleScoreLock(): void {
+        this.startEdit(new TranslatableString('undoableAction', 'Lock/unlock all systems'))
+        EditSystemLocks.toggleScoreLock(this.score())
+        this.apply()
+    }
+
+    makeIntoSystem(): void {
+        const first = this.score().selection().startMeasureBase()
+        const last = this.score().selection().endMeasureBase()
+        if (!first || !last) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Create system from selection'))
+        EditSystemLocks.makeIntoSystem(this.score(), first, last)
         this.apply()
     }
 

@@ -1367,3 +1367,63 @@ dialog.edit-staff-type .radio-grid { display: grid; grid-template-columns: auto 
 dialog.edit-staff-type .radio-grid > span { color: var(--muted); grid-column: 1; }
 .staff-type-preview { width: 100%; display: block; background: #fff; border-radius: 4px; }
 .staff-type-template { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+/* ---- Page settings (PageSettings), Measures per system (BreaksDialog), message boxes ---- */
+dialog.page-settings { width: min(720px, calc(100vw - 32px)); }
+dialog.page-settings form { text-align: left; display: flex; flex-direction: column; gap: 12px; }
+.page-settings-columns { display: flex; flex-wrap: wrap; gap: 12px; }
+.page-settings-column { flex: 1 1 280px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+dialog.page-settings .groupbox {
+    border: 1px solid var(--border); border-radius: 6px; margin: 0; padding: 8px 12px 12px; min-width: 0;
+    display: flex; flex-direction: column; gap: 8px;
+}
+dialog.page-settings .groupbox legend { padding: 0 4px; font-weight: 600; }
+dialog.page-settings .field-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+dialog.page-settings .radio-row { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+dialog.page-settings .page-spin { display: inline-flex; align-items: center; gap: 4px; }
+dialog.page-settings .page-spin input { width: 80px; text-align: right; }
+dialog.page-settings .page-spin.disabled { opacity: .5; }
+dialog.page-settings .page-spin-suffix { color: var(--muted); min-width: 2em; }
+dialog.page-settings .page-offset { width: 80px; }
+.page-margins {
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-areas: "top top" "left right" "bottom bottom";
+    gap: 6px 12px; justify-items: center;
+}
+.page-margins .top { grid-area: top; }
+.page-margins .left { grid-area: left; justify-self: start; }
+.page-margins .right { grid-area: right; justify-self: end; }
+.page-margins .bottom { grid-area: bottom; }
+dialog.page-settings .dialog-buttons { flex-wrap: wrap; }
+dialog.page-settings .dialog-buttons .spacer, dialog.breaks-dialog .dialog-buttons .spacer { flex: 1; }
+dialog.breaks-dialog { width: min(460px, calc(100vw - 32px)); }
+dialog.breaks-dialog form { text-align: left; display: flex; flex-direction: column; gap: 12px; }
+dialog.breaks-dialog .radio-rows { display: flex; flex-direction: column; gap: 8px; }
+.breaks-interval { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.breaks-interval input[type="number"] { width: 64px; }
+dialog.message-box p strong { color: var(--fg); font-weight: 600; }
+
+/* ---- Find / Go to (SearchPopup) ---- */
+.search-popup {
+    height: 50px; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 0 8px;
+    background: var(--bg); border-top: 1px solid var(--border);
+}
+.search-popup label { display: flex; align-items: center; gap: 8px; }
+.search-popup input { width: min(500px, 60vw); }
+.search-popup .icon-button { min-width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; }
+
+/* ---- Project properties ---- */
+dialog.project-properties { width: min(712px, calc(100vw - 32px)); }
+dialog.project-properties form { text-align: left; display: flex; flex-direction: column; gap: 8px; }
+.property-list { max-height: min(500px, 55vh); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+.property-row { display: flex; align-items: flex-start; gap: 8px; }
+.property-row .property-name { width: 160px; flex-shrink: 0; line-height: 30px; overflow: hidden; text-overflow: ellipsis; }
+.property-row input.property-name { line-height: normal; }
+.property-row > input:not(.property-name), .property-row > textarea { flex: 1; min-width: 0; font: inherit; resize: vertical; }
+.property-row .icon-button { min-width: 30px; height: 30px; }
+dialog.project-properties .file-info { border-top: 1px solid var(--border); padding: 12px 0 8px; display: flex; flex-direction: column; gap: 8px; }
+.file-info-row { display: flex; flex-wrap: wrap; gap: 8px 32px; }
+.property-info { display: flex; gap: 8px; min-width: 0; }
+.property-info .property-name { width: 160px; flex-shrink: 0; }
+.file-info-row .property-info .property-name { width: auto; }
+.property-info .property-value { color: var(--muted); overflow-wrap: anywhere; }
+dialog.project-properties .dialog-buttons .spacer { flex: 1; }

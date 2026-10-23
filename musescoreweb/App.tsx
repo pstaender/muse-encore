@@ -18,7 +18,13 @@ import { EditStaffHost } from './dialogs/EditStaffDialog'
 import { SelectDialogHost } from './dialogs/SelectDialog'
 import { TupletDialogHost } from './dialogs/TupletDialog'
 import { RealizeChordSymbolsDialogHost } from './dialogs/RealizeChordSymbolsDialog'
+import { EditStyleDialogHost } from './dialogs/EditStyleDialog'
 import { SelectMeasuresCountDialogHost } from './dialogs/SelectMeasuresCountDialog'
+import { PageSettingsDialogHost } from './dialogs/PageSettingsDialog'
+import { BreaksDialogHost } from './dialogs/BreaksDialog'
+import { MessageBoxHost } from './components/MessageBox'
+import { SearchPopup } from './components/SearchPopup'
+import { ProjectPropertiesDialogHost } from './dialogs/ProjectPropertiesDialog'
 import { ScoreContextMenuHost } from './components/ScoreContextMenu'
 import { PreferencesDialog } from './dialogs/PreferencesDialog'
 import { SaveScoreDialog } from './dialogs/SaveScoreDialog'
@@ -185,6 +191,7 @@ export function App(): React.JSX.Element {
                 <div className="score-area">
                     <NotationTab />
                     <div ref={viewportHost} className="viewport-host" />
+                    {score && <SearchPopup />}
                 </div>
             </div>
             <div ref={bottomRef} className="bottom-chrome">
@@ -200,7 +207,12 @@ export function App(): React.JSX.Element {
             <SelectDialogHost />
             <TupletDialogHost />
             <RealizeChordSymbolsDialogHost />
+            <EditStyleDialogHost />
             <SelectMeasuresCountDialogHost />
+            <PageSettingsDialogHost />
+            <BreaksDialogHost />
+            <MessageBoxHost />
+            <ProjectPropertiesDialogHost />
             <ScoreContextMenuHost />
             <SelectInstrumentHost />
             {session.dialog === 'saveChanges' && <SaveChangesDialog key={session.question} onClose={answer} />}

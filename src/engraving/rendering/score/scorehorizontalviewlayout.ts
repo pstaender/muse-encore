@@ -40,6 +40,8 @@ import { ChordLayout } from './chordlayout'
 import { ArpeggioLayout } from './arpeggiolayout'
 import { TremoloLayout } from './tremololayout'
 import { SlurTieLayout } from './slurtielayout'
+import { SystemLockIndicator } from '../../dom/indicatoricon'
+import type { System } from '../../dom/system'
 
 export class ScoreHorizontalViewLayout {
     static layoutHorizontalView(score: Score, ctx: LayoutContext, stick: Fraction, etick: Fraction): void {
@@ -220,11 +222,25 @@ export class ScoreHorizontalViewLayout {
         const rm = page.rm()
         const bm = page.bm() + ctx.conf().styleMM(Sid.staffLowerBorder)
 
-        // TODO(port): layoutSystemLockIndicators(system)
+        ScoreHorizontalViewLayout.layoutSystemLockIndicators(system)
 
         page.setPos(0, 0)
         system.setPos(lm, tm)
         page.mutldata().setBbox(0.0, 0.0, lm + system.width() + rm, tm + system.height() + bm)
+    }
+
+    static layoutSystemLockIndicators(system: System): void {
+        // TODO: layout StaffVisibilityIndicator here
+
+        system.deleteLockIndicators()
+
+        const systemLocks = system.score().systemLocks().allLocks()
+        for (const lock of systemLocks) {
+            const lockIndicator = new SystemLockIndicator(system, lock)
+            lockIndicator.setParent(system)
+            system.addLockIndicator(lockIndicator)
+            TLayout.layoutIndicatorIcon(lockIndicator, lockIndicator.mutldata())
+        }
     }
 
     // Append all measures to System. VBox is not included to System

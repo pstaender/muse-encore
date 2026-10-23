@@ -28,6 +28,16 @@ export function allTextStyles(): readonly TextStyleType[] {
     return s_allTextStyles
 }
 
+let s_editableTextStyles: TextStyleType[] | null = null
+
+/** the text styles of the Style dialog (all but dynamics) */
+export function editableTextStyles(): readonly TextStyleType[] {
+    if (!s_editableTextStyles) {
+        s_editableTextStyles = allTextStyles().filter(t => t !== TextStyleType.DYNAMICS)
+    }
+    return s_editableTextStyles
+}
+
 export const PRIMARY_TEXT_STYLES: readonly TextStyleType[] = [
     TextStyleType.TITLE,
     TextStyleType.SUBTITLE,

@@ -1,0 +1,83 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* The QML pages of the Style dialog (styledialog/*.qml) */
+
+.sd-page, .sd-column { display: flex; flex-direction: column; align-items: stretch; min-width: 0; }
+.sd-page { padding: 0; }
+.sd-row { display: flex; flex-direction: row; align-items: center; flex-wrap: wrap; min-width: 0; }
+.sd-column.disabled, .sd-row.disabled, .sd-groupbox.disabled, .sd-label.disabled { opacity: .5; }
+.sd-label { text-align: left; overflow-wrap: anywhere; }
+.sd-label.nowrap { white-space: nowrap; }
+.sd-icon { font-family: "MusescoreIcon"; font-size: 16px; line-height: 1; }
+
+.sd-groupbox { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin: 0; min-width: 0; }
+.sd-groupbox legend { padding: 0 6px; font-weight: 600; }
+
+.sd-control-row { flex-wrap: nowrap; }
+.sd-row-label { flex-shrink: 0; display: flex; align-items: center; }
+.sd-row-control { display: flex; align-items: center; min-width: 0; }
+.sd-grid { display: grid; align-items: center; justify-content: start; }
+
+.sd-spinbox, .sd-dropdown, .sd-text, .sd-flat-button, .sd-flat-radio {
+    height: 30px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 3px;
+    background: var(--panel); color: var(--fg); font: inherit;
+}
+.sd-spinbox { display: inline-flex; align-items: center; padding-left: 6px; flex-shrink: 0; }
+.sd-spinbox:focus-within { border-color: var(--accent); }
+.sd-spinbox.disabled { opacity: .5; }
+.sd-spinbox input { flex: 1; min-width: 0; border: none; background: transparent; color: inherit; font: inherit; padding: 0; outline: none; }
+.sd-spinbox .sd-prefix { margin-right: 4px; color: var(--muted); }
+.sd-unit { color: var(--muted); margin: 0 2px; }
+.sd-steppers { display: flex; flex-direction: column; align-self: stretch; }
+.sd-steppers button {
+    flex: 1; border: none; background: transparent; color: var(--muted); padding: 0 4px; font-family: "MusescoreIcon";
+    font-size: 10px; line-height: 1; cursor: pointer;
+}
+.sd-steppers button:not(:disabled):hover { color: var(--fg); background: var(--hover); }
+
+.sd-dropdown { padding: 0 8px; min-width: 120px; }
+.sd-text { padding: 0 8px; }
+.sd-text:focus, .sd-dropdown:focus { outline: none; border-color: var(--accent); }
+
+.sd-flat-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 12px; cursor: pointer; flex-shrink: 0; }
+.sd-flat-button.icon-only { width: 30px; padding: 0; }
+.sd-flat-button:not(:disabled):hover { background: var(--active); }
+.sd-flat-button:disabled { opacity: .4; cursor: default; }
+
+.sd-flat-radio-group { display: flex; flex-direction: row; flex-wrap: wrap; }
+.sd-flat-radio-group.vertical { flex-direction: column; }
+.sd-flat-radio {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; cursor: pointer; flex: 1;
+    min-width: 30px;
+}
+.sd-flat-radio.stacked { flex-direction: column; gap: 8px; }
+.sd-flat-radio:not(:disabled):hover { background: var(--active); }
+.sd-flat-radio[aria-checked="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+.sd-flat-radio:disabled { opacity: .5; cursor: default; }
+.sd-flat-radio:focus-visible, .sd-flat-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.sd-checkbox, .sd-radio, .sd-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; text-align: left; }
+.sd-checkbox input, .sd-radio input { width: 16px; height: 16px; margin: 0; flex-shrink: 0; accent-color: var(--accent); }
+.sd-checkbox.disabled, .sd-radio.disabled, .sd-toggle.disabled { opacity: .5; cursor: default; }
+
+.sd-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.sd-toggle-track {
+    position: relative; width: 32px; height: 18px; border-radius: 9px; background: var(--border); flex-shrink: 0;
+    transition: background .15s;
+}
+.sd-toggle-track::after {
+    content: ""; position: absolute; left: 2px; top: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff;
+    transition: left .15s;
+}
+.sd-toggle input:checked + .sd-toggle-track { background: var(--accent); }
+.sd-toggle input:checked + .sd-toggle-track::after { left: 16px; }
+.sd-toggle input:focus-visible + .sd-toggle-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.sd-image { background: #ffffff; border: 1px solid var(--border); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.sd-image img { display: block; object-fit: contain; }
+
+.sd-separator { height: 1px; background: var(--border); align-self: stretch; }
+.sd-vseparator { width: 1px; align-self: stretch; background: var(--border); }
+.sd-flat-button.accent { background: var(--accent); color: #fff; border-color: var(--accent); }
+.sd-flat-button.small { width: 20px; height: 20px; font-size: 12px; }
+.sd-courtesy-grid { display: grid; grid-template-columns: 232px 1fr auto; grid-template-rows: auto auto; row-gap: 8px; align-items: center; }
+.sd-courtesy-grid .sd-image { grid-column: 3; grid-row: 1 / span 2; justify-self: end; }

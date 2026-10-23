@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/systemlock.h/.cpp and EditSystemLocks::updateSystemLocksOnCreateMMRests
  *
- * TODO(port): system lock indicators (only shown in the editor)
+ * (the lock indicators of the editor: indicatoricon.ts)
  */
 
 import type { Measure } from './measure'
