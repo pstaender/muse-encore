@@ -27,6 +27,7 @@ import type { EngravingObject } from './engravingobject'
 import { SegmentType as SegmentTypeValue, type Segment, type SegmentType } from './segment'
 import type { BarLine } from './barline'
 import type { Clef } from './clef'
+import type { Breath } from './breath'
 import type { KeySig } from './keysig'
 import type { Spanner } from './spanner'
 import { KeyboardModifier, type EditData } from '../editing/editdata'
@@ -219,6 +220,12 @@ export abstract class ChordRest extends DurationElement {
     }
 
     lyrics(): Lyrics[] { return this.m_lyrics }
+
+    /** C++ hasBreathMark(): the breath mark (or caesura) after this chord or rest, if any */
+    hasBreathMark(): Breath | null {
+        const s = this.measure()!.findSegment(SegmentTypeValue.Breath, this.endTick())
+        return s ? s.element(this.track()) as Breath | null : null
+    }
 
     lyricsVerse(verse: number, p?: PlacementV): Lyrics | null {
         for (const l of this.m_lyrics) {

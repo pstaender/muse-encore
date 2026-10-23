@@ -9,6 +9,7 @@ import { presetNoMigration } from './e2ehelpers'
 import { DEMOS, ROOT, hasSubmodule, openScore } from '../helpers'
 import { SegmentType } from '../../src/engraving/dom/segment'
 import type { Chord } from '../../src/engraving/dom/chord'
+import { unzipSync } from 'fflate'
 
 const CHROME = process.env.CHROME_PATH ?? [
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -2059,6 +2060,56 @@ describe.skipIf(!CHROME || !hasSubmodule)('editor', () => {
         expect(await page.textContent('.statusbar-button[aria-haspopup="menu"]')).toContain('fit to window')
         await chooseViewMode('Page view')
         expect(await page.locator('.page').count()).toBe(pageCount)
+        await context.close()
+    }, 180000)
+
+    it('exports the score and its parts with the Export dialog', async () => {
+        const { page, context } = await newPage()
+        // without the File System Access API the files are downloaded
+        await context.addInitScript(() => { delete (window as { showSaveFilePicker?: unknown }).showSaveFilePicker })
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const openExport = async (): Promise<void> => {
+            await page.click('.menubar > button:has-text("File")')
+            await page.click('.menu-item:has-text("Export…")')
+            await page.waitForSelector('dialog.export-dialog[open]')
+        }
+        const read = async (d: { path(): Promise<string | null> }): Promise<Buffer> => readFileSync((await d.path())!)
+
+        // the main score as PDF (the default format)
+        await openExport()
+        expect(await page.inputValue('#export-format')).toBe('pdf')
+        expect(await page.isChecked('.export-score.main input')).toBe(true)
+        const [pdf] = await Promise.all([page.waitForEvent('download'), page.click('dialog.export-dialog button.primary')])
+        expect(pdf.suggestedFilename()).toBe('amazing.pdf')
+        expect((await read(pdf)).subarray(0, 5).toString()).toBe('%PDF-')
+        await page.waitForFunction(() => !document.querySelector('dialog.export-dialog'))
+
+        // every page of all scores as PNG: several files in a ZIP archive
+        await openExport()
+        await page.selectOption('#export-format', 'png')
+        await page.fill('#export-resolution', '40')
+        await page.press('#export-resolution', 'Enter')
+        await page.click('dialog.export-dialog button:has-text("Select all")')
+        const [zip] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('dialog.export-dialog button.primary')])
+        expect(zip.suggestedFilename()).toBe('amazing.zip')
+        const names = Object.keys(unzipSync(new Uint8Array(await read(zip))))
+        expect(names).toContain('amazing-1.png')
+        expect(names).toContain('amazing-2.png')
+        expect(names.some(n => /^amazing-Soprano-1\.png$/.test(n))).toBe(true)
+
+        // the dialog keeps the format and the scores of the last export; MusicXML has the file types as subtypes
+        await openExport()
+        expect(await page.inputValue('#export-format')).toBe('png')
+        expect(await page.inputValue('#export-resolution')).toBe('40')
+        await page.selectOption('#export-format', 'mxl')
+        expect(await page.inputValue('#export-subtype')).toBe('mxl')
+        await page.click('dialog.export-dialog button:has-text("Clear selection")')
+        expect(await page.isDisabled('dialog.export-dialog button.primary')).toBe(true)
+        await page.check('.export-score:has-text("Soprano") input')
+        const [mxl] = await Promise.all([page.waitForEvent('download'), page.click('dialog.export-dialog button.primary')])
+        expect(mxl.suggestedFilename()).toBe('amazing-Soprano.mxl')
+        expect(Object.keys(unzipSync(new Uint8Array(await read(mxl))))).toContain('META-INF/container.xml')
         await context.close()
     }, 180000)
 })

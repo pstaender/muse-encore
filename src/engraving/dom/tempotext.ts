@@ -12,7 +12,8 @@ import type { PropertyValue } from '../types/propertyvalue'
 import { Fraction } from '../types/fraction'
 import type { PropertyFlags } from './property'
 import { Constants } from '../types/constants'
-import { ElementType, TextStyleType } from '../types/types'
+import { DurationType, ElementType, TextStyleType } from '../types/types'
+import { TDuration } from './durationtype'
 import { Sid } from '../style/styledef'
 import { ElementFlag } from './engravingitem'
 import type { ElementStyle, EngravingObject } from './engravingobject'
@@ -56,6 +57,22 @@ const tp: readonly (readonly [string, number])[] = [
     ['\uECB5', 1.0 / 15360.0], // 1/1024
 ]
 
+/** the durations (type, dots) of the patterns of tp (C++ TempoPattern::d), same order */
+const tpDurations: readonly (readonly [DurationType, number])[] = [
+    [DurationType.V_QUARTER, 2], [DurationType.V_QUARTER, 1], [DurationType.V_QUARTER, 0],
+    [DurationType.V_HALF, 2], [DurationType.V_HALF, 1], [DurationType.V_HALF, 0],
+    [DurationType.V_EIGHTH, 2], [DurationType.V_EIGHTH, 1], [DurationType.V_EIGHTH, 0],
+    [DurationType.V_WHOLE, 1], [DurationType.V_WHOLE, 0],
+    [DurationType.V_16TH, 1], [DurationType.V_16TH, 0],
+    [DurationType.V_32ND, 1], [DurationType.V_32ND, 0],
+    [DurationType.V_BREVE, 0], [DurationType.V_BREVE, 0],
+    [DurationType.V_64TH, 0], [DurationType.V_128TH, 0], [DurationType.V_256TH, 0], [DurationType.V_512TH, 0],
+    [DurationType.V_1024TH, 0],
+]
+
+/** findTempoDuration's regexps: C++ std::regex on the UTF-8 bytes, where \s is an ASCII space */
+const durationRegexps = new Map<string, RegExp>()
+
 const regexps = new Map<string, RegExp>()
 const regexps2 = new Map<string, RegExp>()
 
@@ -84,6 +101,30 @@ export class TempoText extends TextBase {
 
     segment(): Segment { return this.explicitParent() as unknown as Segment }
     measure(): Measure { return this.explicitParent()!.explicitParent() as unknown as Measure }
+
+    /**
+     * C++ static findTempoDuration(s, len, dur): find the duration part (note + dot) of a tempo text in s;
+     * returns the match position (-1 if not found), the match length and the duration. Like C++ the position is
+     * the offset in the UTF-8 encoded string (the length is in UTF-16 units).
+     */
+    static findTempoDuration(s: string): { pos: number; len: number; dur: TDuration } {
+        for (let i = 0; i < tp.length; ++i) {
+            const pattern = tp[i][0]
+            let re = durationRegexps.get(pattern)
+            if (!re) {
+                re = new RegExp(pattern.replaceAll('\\s', '[ \\t\\n\\v\\f\\r]'), 'u')
+                durationRegexps.set(pattern, re)
+            }
+            const match = re.exec(s)
+            if (match) {
+                const [type, dots] = tpDurations[i]
+                const dur = new TDuration(type)
+                dur.setDots(dots)
+                return { pos: new TextEncoder().encode(s.slice(0, match.index)).length, len: match[0].length, dur }
+            }
+        }
+        return { pos: -1, len: 0, dur: new TDuration() }
+    }
 
     tempoTextType(): TempoTextType { return this.m_tempoTextType }
     setTempoTextType(ttt: TempoTextType): void {

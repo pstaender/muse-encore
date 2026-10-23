@@ -198,7 +198,15 @@ export function layoutScore(score: MasterScore, options: LayoutScoreOptions = {}
     // after the chord shapes are filled), so do the same to get identical results.
     // The compatibility conversions for older files run between and after these passes (NotationProject::load).
     const firstLayout = !s_compatDone.has(score)
-    ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
+    // C++ the layouts of the loading run in Score::update(), which sets up the tempo map afterwards if needed
+    const update = (): void => {
+        ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
+        if (score.needSetUpTempoMap()) {
+            score.setUpTempoMap()
+            score.setNeedSetUpTempoMap(false)
+        }
+    }
+    update()
     if (firstLayout) {
         s_compatDone.add(score)
         // NotationProject::doLoad: the migration (its command lays out the changed score)
@@ -206,7 +214,7 @@ export function layoutScore(score: MasterScore, options: LayoutScoreOptions = {}
         EngravingCompat.doPreLayoutCompatIfNeeded(score)
         score.updateCapo(/* ignoreNotationUpdate */ true)
     }
-    ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
+    update()
     if (firstLayout && EngravingCompat.doPostLayoutCompatIfNeeded(score)) {
         ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
     }
@@ -2539,3 +2547,70 @@ export function findAndSelectChordRest(score: Score, tick: number): void {
 export function onNotationChanged(score: Score, listener: () => void): () => void {
     return notationState(score).interaction.notationChanged().onNotify(listener)
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+//   export (File > Export…: PDF, PNG, SVG, MIDI, MusicXML and MuseScore files)
+// ---------------------------------------------------------------------------------------------------------------------
+
+import { ExportDialogModel } from './project/exportdialogmodel'
+import { ExportProjectScenario } from './project/internal/exportprojectscenario'
+import { NotationWritersRegister, type ExportConfiguration } from './project/internal/notationwritersregister'
+import { defaultImagesExportConfiguration } from './importexport/imagesexport/internal/imagesexportconfiguration'
+import { defaultMusicXmlExportOptions } from './importexport/musicxml/api'
+
+/** the default settings of the export formats (MuseScore's) */
+export function defaultExportConfiguration(): ExportConfiguration {
+    return {
+        images: defaultImagesExportConfiguration(),
+        midi: { expandRepeats: true, exportRPNs: true },
+        musicXml: { ...defaultMusicXmlExportOptions },
+    }
+}
+
+/** the export of a project: the writers with the settings and the scenario (C++ ExportProjectScenario) */
+function exportProjectScenario(score: Score, configuration: ExportConfiguration, projectName: string): ExportProjectScenario {
+    const writers = new NotationWritersRegister(configuration, {
+        saveMscz: (s, fileName) => saveMscz(s, fileName),
+        writeMscx: s => writeMscx(s),
+        loadScore: (data) => {
+            const s = loadScore(data)
+            layoutScore(s)
+            return s
+        },
+    })
+    return new ExportProjectScenario(writers, masterNotation(score), projectName, {
+        ensureLaidOut,
+        setPageView: (scores) => {
+            const modes = scores.map(s => ({ s, mode: viewMode(s), width: s.reflowWidth() / DPI }))
+            for (const s of scores) {
+                setViewMode(s, 'page')
+            }
+            return () => {
+                for (const m of modes) {
+                    setViewMode(m.s, m.mode, m.width)
+                }
+            }
+        },
+    })
+}
+
+/**
+ * The model of the Export dialog for the project of `score` (the current notation, selected in the list); call init().
+ * `configuration` holds the settings of the formats (changed by the dialog, onConfigurationChanged: to save them);
+ * `projectName` is the project's file name without suffix (the base of the exported files' names).
+ */
+export function createExportDialogModel(score: Score, configuration: ExportConfiguration, projectName: string,
+    onConfigurationChanged?: () => void): ExportDialogModel {
+    const scenario = exportProjectScenario(score, configuration, projectName)
+    return new ExportDialogModel(masterNotation(score), currentNotation(score), scenario, configuration, onConfigurationChanged)
+}
+
+export { ExportDialogModel, MusicXmlLayoutType, type ExportScoreItem } from './project/exportdialogmodel'
+export { UnitType } from './project/inotationwriter'
+export type { ExportType } from './project/internal/exporttype'
+export type { ExportedFile } from './project/internal/exportprojectscenario'
+export type { ExportConfiguration } from './project/internal/notationwritersregister'
+export type { ImagesExportConfiguration } from './importexport/imagesexport/internal/imagesexportconfiguration'
+export { setExportCanvasFactory, type CanvasFactory } from './importexport/imagesexport/internal/pngwriter'
+export { writeMusicXml, writeMxl, type MusicXmlExportOptions } from './importexport/musicxml/api'
+export { writeMidi, type MidiExportOptions } from './importexport/midi/api'

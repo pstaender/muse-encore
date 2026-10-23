@@ -4,7 +4,7 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/engraving/dom/masterscore.h/.cpp
- * TODO(port): playback score, PartChannelSettingsLink (mixer)
+ * TODO(port): playback score, the PartChannelSettingsLinks of excerpts (m_playbackSettingsLinks)
  */
 
 import { RepeatList } from './repeatlist'
@@ -16,7 +16,7 @@ import { CmdState } from '../editing/cmdstate'
 import type { Excerpt } from './excerpt'
 import type { Staff } from './staff'
 import type { Part } from './part'
-import type { InstrChannel } from './instrument'
+import { PartChannelSettingsLink, type InstrChannel } from './instrument'
 import { Fraction } from '../types/fraction'
 import { DefaultStyle } from '../style/defaultstyle'
 
@@ -43,7 +43,7 @@ export class MidiMapping {
     m_port = 0
     m_channel = 0
     m_masterChannel: InstrChannel | null = null
-    // TODO(port): PartChannelSettingsLink m_link (playback)
+    m_link = new PartChannelSettingsLink()
 
     part(): Part | null { return this.m_part }
     articulation(): InstrChannel { return this.m_articulation! }
@@ -527,7 +527,7 @@ export class MasterScore extends Score {
         mm.m_part = part
         mm.m_masterChannel = channel
         mm.m_articulation = channel.clone()
-        // TODO(port): mm.m_link = PartChannelSettingsLink(...) (playback)
+        mm.m_link = new PartChannelSettingsLink(mm.articulation(), mm.m_masterChannel, /* excerpt */ false)
 
         mm.m_port = midiPort
         mm.m_channel = midiChannel

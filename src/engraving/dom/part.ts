@@ -405,6 +405,9 @@ export class Part extends EngravingObject {
 
     partName(): string { return this.m_partName }
     setPartName(s: string): void { this.m_partName = s }
+
+    midiChannel(): number { return this.masterScore().midiChannel(this.instrument().channel(0)!.channel()) }
+    midiPort(): number { return this.masterScore().midiPort(this.instrument().channel(0)!.channel()) }
     color(): number { return this.m_color }
     setColor(v: number): void { this.m_color = v }
     hideWhenEmpty(): AutoOnOff { return this.m_hideWhenEmpty }

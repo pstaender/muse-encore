@@ -56,6 +56,7 @@ export function decodeEntities(s: string): string {
     })
 }
 
+/** muse::String::toXmlEscaped(): escapes <, >, & and " (not the apostrophe) and drops invalid xml 1.0 characters */
 export function toXmlEscaped(s: string): string {
     let r = ''
     for (const c of s) {
@@ -64,8 +65,13 @@ export function toXmlEscaped(s: string): string {
         case '>': r += '&gt;'; break
         case '&': r += '&amp;'; break
         case '"': r += '&quot;'; break
-        case '\'': r += '&apos;'; break
-        default: r += c
+        default: {
+            const code = c.charCodeAt(0)
+            if (code < 0x20 && code !== 0x09 && code !== 0x0A && code !== 0x0D) {
+                break
+            }
+            r += c
+        }
         }
     }
     return r
@@ -310,9 +316,10 @@ export class XmlStreamReader {
 
     readAsciiText(): string { return this.readText() }
 
+    /** C++ AsciiStringView::toInt (strtol): 0 unless the whole text is an integer (e.g. "13/4" is 0) */
     readInt(): number {
-        const v = parseInt(this.readText().trim(), 10)
-        return Number.isNaN(v) ? 0 : v
+        const m = /^\s*([+-]?\d+)$/.exec(this.readText())
+        return m ? parseInt(m[1], 10) : 0
     }
 
     readDouble(): number {

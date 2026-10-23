@@ -281,9 +281,13 @@ export class System extends EngravingItem {
                 if (!this.m_spannerSegments.includes(ss)) {
                     this.m_spannerSegments.push(ss)
                 }
+                break
             }
-            break
+            // C++ LOGD("System::add(%s) not implemented", el->typeName())
+            return
         }
+
+        el.added()
     }
 
     override remove(el: EngravingItem): void {

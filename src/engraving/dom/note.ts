@@ -15,8 +15,8 @@ import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import { SmuflAnchorId, SymId } from '../types/symid'
 import {
-    AccidentalRole, AccidentalVal, DirectionH, DirectionV, ElementType, GuitarBendType, Key, NoteHeadGroup, NoteHeadScheme, NoteHeadType,
-    INVALID_FRET_INDEX, INVALID_STRING_INDEX, ParenthesesMode, VeloType, VOICES, type track_idx_t,
+    AccidentalRole, AccidentalVal, CapoTransposeMode, DirectionH, DirectionV, ElementType, GuitarBendType, Key, NoteHeadGroup, NoteHeadScheme,
+    NoteHeadType, INVALID_FRET_INDEX, INVALID_STRING_INDEX, ParenthesesMode, VeloType, VOICES, type track_idx_t,
 } from '../types/types'
 import { RealIsEqual, RealIsNull } from '../../framework/global/realfn'
 import { Sid } from '../style/styledef'
@@ -587,9 +587,22 @@ export class Note extends EngravingItem {
     setCentOffset(v: number): void { this.m_centOffset = v }
     quarterToneOffset(): number { return Math.round(this.m_centOffset / 50) }
 
+    /** offset added by Ottava's and Capo Fret. */
     ottaveCapoFret(): number {
-        // TODO(port): capo
-        return this.staff()!.pitchOffset(this.chord().segment().tick())
+        const ch = this.chord()
+        const segmentTick = ch.segment().tick()
+        const staff = this.staff()!
+
+        const capo = staff.capo(segmentTick)
+        let capoFret = 0
+
+        if (capo.active && CapoTransposeMode.PLAYBACK_ONLY === capo.transposeMode) {
+            if (capo.ignoredStrings.size === 0 || !capo.ignoredStrings.has(this.m_string)) {
+                capoFret = capo.fretPosition
+            }
+        }
+
+        return staff.pitchOffset(segmentTick) + capoFret
     }
 
     /** if an ottava exists in another part but has been excluded from this one, this returns the corresponding pitch offset */

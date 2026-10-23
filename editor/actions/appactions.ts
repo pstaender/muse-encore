@@ -32,6 +32,7 @@ import { loadStyle, saveStyle } from '../stylefiles'
 import { showSearchPopup } from '../components/SearchPopup'
 import { openProjectPropertiesDialog } from '../dialogs/ProjectPropertiesDialog'
 import { openPartsDialog } from '../dialogs/PartsDialog'
+import { openExportDialog } from '../dialogs/ExportDialog'
 import { AddBoxesTarget, canAddCustomTuplet, hasSelection } from '../../src/index'
 import { currentScore } from '../scoreview'
 import { actionsChanged, isActionEnabled, registerAction, triggerAction } from './actions'
@@ -58,6 +59,8 @@ export function registerAppActions(): void {
     registerAction('file-save-a-copy', { run: () => void saveCopy(), enabled: canSave })
     registerAction('clear-recent', { run: () => showDialog('clearRecent') })
     registerAction('print', { run: () => void print(), enabled: scoreShown })
+    // ProjectActionsController::exportScore
+    registerAction('file-export', { run: openExportDialog, enabled: scoreShown })
 
     // ---- edit ----
     registerAction('preference-dialog', { run: () => showDialog('preferences') })

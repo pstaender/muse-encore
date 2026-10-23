@@ -67,7 +67,18 @@ export interface MidiArticulation {
     gateTime: number // gate time change: -100% - +100%
 }
 
-/** C++ InstrChannel (without playback state: mute/solo, notifications) */
+/** C++ InstrChannel::Prop */
+export enum InstrChannelProp {
+    VOLUME, PAN, CHORUS, REVERB, NAME, PROGRAM, BANK, COLOR,
+    SYNTI, CHANNEL, USER_BANK_CONTROL,
+}
+
+/** C++ ChannelListener (Listener<InstrChannel::Prop>) */
+export interface ChannelListener {
+    propertyChanged(property: InstrChannelProp): void
+}
+
+/** C++ InstrChannel (without playback state: mute/solo) */
 export class InstrChannel {
     static readonly DEFAULT_NAME = 'normal'
     static readonly HARMONY_NAME = 'harmony'
@@ -102,46 +113,114 @@ export class InstrChannel {
     midiActions: NamedEventList[] = []
     articulation: MidiArticulation[] = []
 
+    // C++ Notifier<InstrChannel::Prop> m_notifier (not copied with the channel)
+    private m_listeners: ChannelListener[] = []
+    private m_notifyAboutChangedEnabled = true
+
+    addListener(l: ChannelListener): void {
+        if (!this.m_listeners.includes(l)) {
+            this.m_listeners.push(l)
+        }
+    }
+    removeListener(l: ChannelListener): void {
+        const i = this.m_listeners.indexOf(l)
+        if (i >= 0) {
+            this.m_listeners.splice(i, 1)
+        }
+    }
+    setNotifyAboutChangedEnabled(arg: boolean): void { this.m_notifyAboutChangedEnabled = arg }
+
+    private firePropertyChanged(prop: InstrChannelProp): void {
+        if (this.m_notifyAboutChangedEnabled) {
+            for (const l of [...this.m_listeners]) {
+                l.propertyChanged(prop)
+            }
+        }
+    }
+
     name(): string { return this.m_name }
-    setName(n: string): void { this.m_name = n }
+    setName(n: string): void {
+        if (this.m_name !== n) {
+            this.m_name = n
+            this.firePropertyChanged(InstrChannelProp.NAME)
+        }
+    }
     channel(): number { return this.m_channel }
-    setChannel(v: number): void { this.m_channel = v }
+    setChannel(v: number): void {
+        if (this.m_channel !== v) {
+            this.m_channel = v
+            this.firePropertyChanged(InstrChannelProp.CHANNEL)
+        }
+    }
     program(): number { return this.m_program }
     setProgram(v: number): void {
-        this.m_program = v
+        if (this.m_program !== v) {
+            this.m_program = v
+            this.firePropertyChanged(InstrChannelProp.PROGRAM)
+        }
         this.m_mustUpdateInit = true
     }
     bank(): number { return this.m_bank }
     setBank(v: number): void {
-        this.m_bank = v
+        if (this.m_bank !== v) {
+            this.m_bank = v
+            this.firePropertyChanged(InstrChannelProp.BANK)
+        }
         this.m_mustUpdateInit = true
     }
     synti(): string { return this.m_synti }
-    setSynti(v: string): void { this.m_synti = v }
+    setSynti(v: string): void {
+        if (this.m_synti !== v) {
+            this.m_synti = v
+            this.firePropertyChanged(InstrChannelProp.SYNTI)
+        }
+    }
     color(): number { return this.m_color }
-    setColor(v: number): void { this.m_color = v }
+    setColor(v: number): void {
+        if (this.m_color !== v) {
+            this.m_color = v
+            this.firePropertyChanged(InstrChannelProp.COLOR)
+        }
+    }
     volume(): number { return this.m_volume }
     setVolume(v: number): void {
-        this.m_volume = v
+        if (this.m_volume !== v) {
+            this.m_volume = v
+            this.firePropertyChanged(InstrChannelProp.VOLUME)
+        }
         this.m_mustUpdateInit = true
     }
     pan(): number { return this.m_pan }
     setPan(v: number): void {
-        this.m_pan = v
+        if (this.m_pan !== v) {
+            this.m_pan = v
+            this.firePropertyChanged(InstrChannelProp.PAN)
+        }
         this.m_mustUpdateInit = true
     }
     chorus(): number { return this.m_chorus }
     setChorus(v: number): void {
-        this.m_chorus = v
+        if (this.m_chorus !== v) {
+            this.m_chorus = v
+            this.firePropertyChanged(InstrChannelProp.CHORUS)
+        }
         this.m_mustUpdateInit = true
     }
     reverb(): number { return this.m_reverb }
     setReverb(v: number): void {
-        this.m_reverb = v
+        if (this.m_reverb !== v) {
+            this.m_reverb = v
+            this.firePropertyChanged(InstrChannelProp.REVERB)
+        }
         this.m_mustUpdateInit = true
     }
     userBankController(): boolean { return this.m_userBankController }
-    setUserBankController(v: boolean): void { this.m_userBankController = v }
+    setUserBankController(v: boolean): void {
+        if (this.m_userBankController !== v) {
+            this.m_userBankController = v
+            this.firePropertyChanged(InstrChannelProp.USER_BANK_CONTROL)
+        }
+    }
     setMustUpdateInit(v: boolean): void { this.m_mustUpdateInit = v }
 
     addToInit(e: MidiCoreEvent): void { this.m_init.push(e) }
@@ -168,10 +247,74 @@ export class InstrChannel {
 
     clone(): InstrChannel {
         const c = Object.assign(new InstrChannel(), this)
+        c.m_listeners = [] // C++ Notifier: do not copy listeners list
         c.m_init = this.m_init.map(e => e.clone())
         c.midiActions = this.midiActions.map(a => ({ ...a, events: a.events.map(e => e.clone()) }))
         c.articulation = this.articulation.map(a => ({ ...a }))
         return c
+    }
+}
+
+/**
+ * C++ PartChannelSettingsLink: the settings of the main channel (the playback channel of a MidiMapping) are applied to
+ * the bound channel (the channel of the instrument)
+ */
+export class PartChannelSettingsLink implements ChannelListener {
+    private m_main: InstrChannel | null = null
+    private m_bound: InstrChannel | null = null
+    private m_excerpt = false
+
+    constructor(main: InstrChannel | null = null, bound: InstrChannel | null = null, excerpt = false) {
+        this.m_main = main
+        this.m_bound = bound
+        this.m_excerpt = excerpt
+        // Maybe it would be good to assign common properties if the link
+        // is constructed in non-excerpt mode. But it is not currently
+        // necessary as playback channels are currently recreated on each
+        // MIDI remapping.
+        main?.addListener(this)
+    }
+
+    private static applyProperty(p: InstrChannelProp, from: InstrChannel, to: InstrChannel): void {
+        switch (p) {
+        case InstrChannelProp.VOLUME:
+            to.setVolume(from.volume())
+            break
+        case InstrChannelProp.PAN:
+            to.setPan(from.pan())
+            break
+        case InstrChannelProp.CHORUS:
+            to.setChorus(from.chorus())
+            break
+        case InstrChannelProp.REVERB:
+            to.setReverb(from.reverb())
+            break
+        case InstrChannelProp.NAME:
+            to.setName(from.name())
+            break
+        case InstrChannelProp.PROGRAM:
+            to.setProgram(from.program())
+            break
+        case InstrChannelProp.BANK:
+            to.setBank(from.bank())
+            break
+        case InstrChannelProp.COLOR:
+            to.setColor(from.color())
+            break
+        case InstrChannelProp.SYNTI:
+            to.setSynti(from.synti())
+            break
+        case InstrChannelProp.CHANNEL:
+            to.setChannel(from.channel())
+            break
+        case InstrChannelProp.USER_BANK_CONTROL:
+            to.setUserBankController(from.userBankController())
+            break
+        }
+    }
+
+    propertyChanged(p: InstrChannelProp): void {
+        PartChannelSettingsLink.applyProperty(p, this.m_main!, this.m_bound!)
     }
 }
 

@@ -3093,7 +3093,7 @@ export class ChordLayout {
                     }
                 }
                 addParens.push(note)
-                note.setProperty(Pid.HAS_PARENTHESES, ParenthesesMode.BOTH)
+                note.undoChangeProperty(Pid.HAS_PARENTHESES, ParenthesesMode.BOTH)
             } else if (parenGenerated) {
                 removeParens.push(note)
             }

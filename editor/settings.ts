@@ -4,6 +4,7 @@
  * them). Storage can be unavailable (private windows, blocked site data): then the defaults are used for the session.
  */
 import { useSyncExternalStore } from 'react'
+import { defaultExportConfiguration, type ExportConfiguration } from '../src/index'
 
 export interface ViewSettings {
     zoom: string // a percentage ("100") or a fit mode ("page-width", "whole-page")
@@ -58,6 +59,8 @@ export interface AppSettings {
     playback: PlaybackSettings
     /** settings of the web version (not in MuseScore) */
     web: WebSettings
+    /** the settings of the export formats (ImagesExportConfiguration, MidiConfiguration, MusicXmlConfiguration) */
+    export: ExportConfiguration
 }
 
 export interface PlaybackSettings {
@@ -142,6 +145,7 @@ const DEFAULTS: AppSettings = {
         playPreviewNotesInInputByDuration: true, playPreviewNotesWithScoreDynamics: true, notePlayDuration: 500,
     },
     web: { spacePan: true },
+    export: defaultExportConfiguration(),
 }
 
 // the storage keys keep the project's former name (MuseScore Web), so the settings of existing users are kept
@@ -195,7 +199,26 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
         palettes: s.palettes && typeof s.palettes === 'object' && !Array.isArray(s.palettes) ? s.palettes as Record<string, unknown> : null,
         playback: sanitizePlayback(s.playback ?? {}),
         web: { spacePan: typeof s.web?.spacePan === 'boolean' ? s.web.spacePan : DEFAULTS.web.spacePan },
+        export: sanitizeExport(s.export ?? {}),
     }
+}
+
+/** the stored values that have the type of the default value */
+function sanitizeExport(e: Partial<ExportConfiguration>): ExportConfiguration {
+    const d = defaultExportConfiguration()
+    const merge = <T extends object>(def: T, v: unknown): T => {
+        const out = { ...def }
+        if (v && typeof v === 'object') {
+            for (const k of Object.keys(def) as (keyof T)[]) {
+                const x = (v as T)[k]
+                if (typeof x === typeof def[k]) {
+                    out[k] = x
+                }
+            }
+        }
+        return out
+    }
+    return { images: merge(d.images, e.images), midi: merge(d.midi, e.midi), musicXml: merge(d.musicXml, e.musicXml) }
 }
 
 function sanitizePlayback(p: Partial<PlaybackSettings>): PlaybackSettings {

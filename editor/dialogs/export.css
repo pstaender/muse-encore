@@ -1,0 +1,29 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* the Export dialog (ExportDialog.qml: 756 x 420, margins 24, two columns with a spacing of 48) */
+dialog.export-dialog { width: min(804px, calc(100vw - 32px)); padding: 24px; }
+.export-columns { display: flex; gap: 48px; min-height: 420px; }
+.export-column { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.export-heading { font-weight: 600; }
+.export-scores {
+    flex: 1; min-height: 160px; overflow-y: auto; border: 1px solid var(--border); border-radius: 4px; padding: 4px 0;
+}
+.export-score { display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: default; }
+.export-score.main span { font-weight: 600; }
+.export-buttons { display: flex; gap: 12px; }
+.export-buttons button { flex: 1; }
+.export-options { flex: 1; display: flex; flex-direction: column; gap: 12px; margin: 0; padding: 0; border: none; min-width: 0; }
+.export-option { display: flex; align-items: center; gap: 12px; }
+.export-option > label { flex: 0 0 35%; }
+.export-option > select, .export-option > .export-spinbox { flex: 1; min-width: 0; }
+.export-spinbox { display: flex; align-items: center; gap: 6px; }
+.export-spinbox input { flex: 1; min-width: 0; }
+.export-check { display: flex; align-items: center; gap: 8px; }
+.export-radios { display: flex; flex-direction: column; gap: 12px; }
+.export-info { margin: 0; opacity: .8; }
+.export-progress { display: flex; align-items: center; gap: 12px; }
+.export-progress progress { flex: 1; }
+.export-error { margin: 0; color: var(--danger, #c62828); }
+dialog.export-dialog .dialog-buttons { margin: 0; justify-content: flex-end; }
+@media (max-width: 640px) {
+    .export-columns { flex-direction: column; gap: 24px; min-height: 0; }
+}

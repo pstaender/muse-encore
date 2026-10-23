@@ -479,6 +479,7 @@ export const TConv = {
     /** TConv::toXml(BeatsPerSecond, precision): String::number(v, precision) */
     toXmlBeatsPerSecond: (v: number, precision: number): string => stringNumber(v, precision),
     toXmlPlayingTechniqueType: (v: PlayingTechniqueType): string => findXmlTagByType(D.PLAY_TECH_TYPES, v),
+    userNamePlayingTechniqueType: (v: PlayingTechniqueType): TranslatableString => findCapitalizedUserNameByType(D.PLAY_TECH_TYPES, v),
     fromXmlPlayingTechniqueType: (tag: string, def: PlayingTechniqueType): PlayingTechniqueType =>
         findTypeByXmlTag(D.PLAY_TECH_TYPES, tag, def),
     toXmlGradualTempoChangeType: (v: GradualTempoChangeType): string => findXmlTagByType(D.TEMPO_CHANGE_TYPES, v),

@@ -33,6 +33,7 @@
     "compare": "tsx tools/compare.ts",
     "compare:all": "tsx tools/compare-all.ts",
     "compare:mscx": "tsx tools/compare-mscx.ts",
+    "compare:musicxml": "tsx tools/compare-musicxml.ts",
     "roundtrip": "tsx tools/roundtrip.ts"
   },
   "dependencies": {

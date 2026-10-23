@@ -1432,6 +1432,30 @@ export abstract class TextBase extends EngravingItem {
         return s
     }
 
+    /**
+     * C++ fragmentList(): the text as a single list of TextFragments (used by the MusicXML formatted export to
+     * avoid parsing the xml text format). Like C++ every fragment of a block ending a line gets a newline.
+     */
+    fragmentList(): TextFragment[] {
+        let ldata = this.ldata()
+        if (ldata.layoutInvalid) {
+            // C++ creates the blocks of a temporary clone to avoid side effects
+            ldata = new TextBaseLayoutData(this)
+            this.createBlocks(ldata)
+        }
+        const res: TextFragment[] = []
+        for (const block of ldata.blocks) {
+            for (const f of block.fragments()) {
+                const c = f.clone()
+                res.push(c)
+                if (block.eol()) {
+                    c.text += '\n'
+                }
+            }
+        }
+        return res
+    }
+
     resetFormatting(): void {
         this.cursor().format().setFontFamily(this.propertyDefault(Pid.FONT_FACE) as string)
         this.cursor().format().setFontSize(this.propertyDefault(Pid.FONT_SIZE) as number)

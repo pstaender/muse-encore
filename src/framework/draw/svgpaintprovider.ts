@@ -111,8 +111,11 @@ export class SvgPaintProvider implements IPaintProvider {
     /**
      * @param m_glyphs glyph definitions; shared by several pages or private to this one
      * @param m_idPrefix prefix of the mask and clip ids, unique per page if pages share an HTML document
+     * @param m_options clipWithMask: clip rectangles as masks (SvgGenerator::setReplaceClipPathWithMask, the export's
+     *        "Masking compatibility (Adobe Illustrator only)")
      */
-    constructor(private m_glyphs: SvgGlyphDefs = new SvgGlyphDefs(), private m_idPrefix = '') {}
+    constructor(private m_glyphs: SvgGlyphDefs = new SvgGlyphDefs(), private m_idPrefix = '',
+                private m_options: { clipWithMask?: boolean } = {}) {}
 
     beginObject(name: string): void {
         this.m_body.push(`<g class="${esc(name)}">`)
@@ -133,7 +136,7 @@ export class SvgPaintProvider implements IPaintProvider {
             e = `<g mask="url(#${this.maskId(state.mask)})">${e}</g>`
         }
         if (this.m_clipId) {
-            e = `<g clip-path="url(#${this.m_clipId})">${e}</g>`
+            e = this.m_options.clipWithMask ? `<g mask="url(#${this.m_clipId})">${e}</g>` : `<g clip-path="url(#${this.m_clipId})">${e}</g>`
         }
         this.m_body.push(e)
     }
@@ -239,6 +242,12 @@ export class SvgPaintProvider implements IPaintProvider {
             return
         }
         this.m_clipId = this.newId('c')
+        if (this.m_options.clipWithMask) {
+            const r = state.transform.mapRect(rect)
+            this.m_defs.push(`<mask id="${this.m_clipId}" maskUnits="userSpaceOnUse" x="${num(r.x())}" y="${num(r.y())}" `
+                + `width="${num(r.width())}" height="${num(r.height())}"><path${matrix(state.transform)} fill="#fff" d="${rectData(rect)}"/></mask>`)
+            return
+        }
         this.m_defs.push(`<clipPath id="${this.m_clipId}" clipPathUnits="userSpaceOnUse">`
             + `<path${matrix(state.transform)} d="${rectData(rect)}"/></clipPath>`)
     }
@@ -248,11 +257,13 @@ export class SvgPaintProvider implements IPaintProvider {
      * @param width,height size with unit (e.g. "8.27in")
      * @param viewBox the drawn area in drawing coordinates
      * @param includeGlyphs put the glyph definitions into this SVG (standalone file); false if they are shared
+     * @param title the document's <title>
      */
-    svg(width: string, height: string, viewBox: RectF, includeGlyphs = true): string {
+    svg(width: string, height: string, viewBox: RectF, includeGlyphs = true, title?: string): string {
         const vb = `${num(viewBox.x())} ${num(viewBox.y())} ${num(viewBox.width())} ${num(viewBox.height())}`
         const defs = [...(includeGlyphs ? [this.m_glyphs.content()] : []), ...this.m_defs].filter(Boolean).join('\n')
         return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${width}" height="${height}" viewBox="${vb}">\n`
+            + (title !== undefined ? `<title>${esc(title)}</title>\n` : '')
             + (defs ? `<defs>\n${defs}\n</defs>\n` : '')
             + this.m_body.join('\n')
             + '\n</svg>\n'

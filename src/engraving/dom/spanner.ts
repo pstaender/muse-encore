@@ -461,6 +461,7 @@ export abstract class Spanner extends EngravingItem {
         ls.setTrack(this.track())
         ls.baseSetZ(this.z())
         this.m_segments.push(ls)
+        e.added()
     }
 
     override remove(e: EngravingItem): void {

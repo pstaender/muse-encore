@@ -1554,3 +1554,38 @@
   the embedding options.
 - Not done: clicking into the score to start the playback there (it would need a hit test without changing the
   selection), loop, metronome, tempo and mixer in the viewer.
+
+## 2026-10-23 — Export: PDF, PNG, SVG, MIDI, MusicXML, MuseScore files
+
+- File > Export… (action "file-export"): ExportDialogModel (src/project/exportdialogmodel.ts) and the app's
+  editor/dialogs/ExportDialog.tsx like MuseScore's ExportDialog.qml: the main score and the parts (also the potential
+  parts of the instruments, initialized for the export), the formats with their settings pages, the unit types (each
+  page / each part / all parts in one file), the export info kept per project. ExportProjectScenario
+  (src/project/internal/exportprojectscenario.ts): MuseScore's file names ("-Score_and_Parts", "-Parts", "-<part>",
+  "-<page>"), the page view during the export, the writers of NotationWritersRegister by suffix. The files are returned;
+  the app saves one file like "Save to computer" and several as a ZIP archive. The settings are in the app settings
+  (`export`), MuseScore's defaults (PNG/PDF 1200 DPI).
+- PDF: PdfWriter on a vector PDF writer of our own (framework/draw/pdfdocument.ts: content streams, glyph outlines as
+  form XObjects shared by all pages, JPEG/PNG images, soft masks, transparency; pdfpaintprovider.ts); per part or all
+  parts in one PDF, transparent background, grayscale. Checked with qpdf; rasterized with pdftoppm at 300 DPI it equals
+  the canvas drawing.
+- PNG: PngWriter draws the page in strips (the canvas limits of the browsers) into a streaming PNG encoder
+  (pngencoder.ts, pHYs with the resolution); transparent, grayscale; waits for the images of the score.
+- SVG: SvgWriter with SvgPaintProvider (title, transparent background, clip rectangles as masks for Adobe Illustrator).
+- MIDI (agent): ExportMidi, MidiFile writing, NotationMidiWriter; byte-identical to MuseScore for the C++ export tests
+  and 845 of 852 vtest/demo scores. Fixed on the way: the link between the MIDI mapping's channels and the instrument
+  channels (PartChannelSettingsLink: channels of parts with instrument changes were wrong, also in the playback), the
+  playback-only capo in Note::ottaveCapoFret, System::add/Spanner::add call added(); layoutScore sets up the tempo map
+  after the load layouts like Score::update().
+- MusicXML (agent): the complete exportmusicxml.cpp (.musicxml, .xml, .mxl), 55 of the 56 C++ export tests without
+  import pass; against MuseScore's export of 850 scores 50 are identical and 793 differ only in layout numbers.
+  tools/compare-musicxml.ts (npm run compare:musicxml). Fixed on the way: apostrophes were dropped from texts
+  (XmlReader escaping), readInt is strict like C++, time tick anchors of <location><timeTick>, old breath subtypes,
+  arpeggio spans of files before 4.2, glissando texts of 4.1-4.4 files.
+- MuseScore files (not in MuseScore 4): the main score as .mscz/.mscx with its parts; a part as a score of its own
+  (its .mscx read as a new score), so single instruments can be exported.
+- Tests: test/export.test.ts, test/musicxmlexport.test.ts, test/midiexport.test.ts; e2e: the Export dialog.
+  compare:all unchanged (mean 3.77% over 867 pages, no regressions); roundtrip 655 identical, 172 within rounding, 12
+  differing (new: gliss-5, whose glissandos lose their hidden text on a re-save in MuseScore too).
+- TODO(port): audio (MP3/WAV/OGG/FLAC/AAC), MP4, Braille, MEI, MNX, LRC; tremolo bars in MusicXML; fallback text in
+  PDFs; GIF/BMP/WebP/SVG images in PDFs; SvgWriter's concatenated staff lines and beat colors; trimming of PNG/SVG.

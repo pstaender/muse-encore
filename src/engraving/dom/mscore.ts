@@ -62,6 +62,8 @@ export class MScore {
     static nudgeStep50 = 0.01 // Alt  + cursor key (default 0.01)
     /** MuseScore's engraving tests: e.g. the excerpts are written into the main file */
     static testMode = false
+    /** C++ MScore::debugMode (e.g. the MusicXML export writes a fixed software/date and no miscellaneous fields) */
+    static debugMode = false
 
     // the snap-to-grid raster (NotationConfiguration: horizontal/vertical grid size, default 2 per spatium)
     private static s_hRaster = 2

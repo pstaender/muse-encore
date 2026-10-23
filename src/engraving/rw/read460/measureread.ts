@@ -8,11 +8,12 @@
  * TODO(port): elements of types not ported yet are skipped (dynamics, texts, harmony, fermatas, breaths, ...)
  */
 
+import { EditTimeTickAnchors } from '../../dom/anchors'
 import { scoreDummy } from '../../compat/dummyelement'
 import { SystemDivider } from '../../dom/systemdivider'
 import { Fraction } from '../../types/fraction'
 import { Spatium } from '../../types/dimension'
-import { AutoOnOff, BarLineType, DurationType, ElementType, PlacementV, VOICES, ClefToBarlinePosition, trackZeroVoice } from '../../types/types'
+import { AutoOnOff, BarLineType, DurationType, ElementType, PlacementV, VOICES, ClefToBarlinePosition, trackZeroVoice, track2staff } from '../../types/types'
 import { TConv } from '../../types/typesconv'
 import { Factory } from '../../dom/factory'
 import type { MMRest } from '../../dom/mmrest'
@@ -190,7 +191,9 @@ export class MeasureRead {
                 const loc = Location.relative()
                 TRead.readLocation(loc, e, ctx)
                 ctx.setLocation(loc)
-                // TODO(port): time tick anchors (loc.isTimeTick())
+                if (loc.isTimeTick()) {
+                    EditTimeTickAnchors.createTimeTickAnchor(measure, ctx.tick().minus(measure.tick()), track2staff(ctx.track()))
+                }
             } else if (tag === 'tick') { // obsolete?
                 ctx.setTick(Fraction.fromTicks(ctx.fileDivision(e.readInt())))
             } else if (tag === 'BarLine') {

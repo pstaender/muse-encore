@@ -28,6 +28,7 @@ import { SearchPopup } from './components/SearchPopup'
 import { NotationSwitchPanel } from './components/NotationSwitchPanel'
 import { PartsDialogHost } from './dialogs/PartsDialog'
 import { ProjectPropertiesDialogHost } from './dialogs/ProjectPropertiesDialog'
+import { ExportDialogHost } from './dialogs/ExportDialog'
 import { ScoreContextMenuHost } from './components/ScoreContextMenu'
 import { PreferencesDialog } from './dialogs/PreferencesDialog'
 import { SaveScoreDialog } from './dialogs/SaveScoreDialog'
@@ -199,6 +200,7 @@ export function App(): React.JSX.Element {
             <CustomizeKitDialogHost />
             <MessageBoxHost />
             <ProjectPropertiesDialogHost />
+            <ExportDialogHost />
             <PartsDialogHost />
             <ScoreContextMenuHost />
             <SelectInstrumentHost />

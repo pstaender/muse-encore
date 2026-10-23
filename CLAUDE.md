@@ -57,6 +57,8 @@ src/
                         (TextBase editing + its undo commands), editdata.ts/elementeditdata.ts (EditData: drag, grips,
                         keys); dom/paste.ts (Score::cmdPaste, pasteStaff, ...), dom/select.ts mime data; dom/range.ts
                         (ScoreRange/TrackList) for rewriting measures (time signature changes)
+  project               the export (File > Export…): ExportDialogModel, ExportProjectScenario (file names, unit types),
+                        NotationWritersRegister (the writers by suffix; MuseScore files per part are not in MuseScore)
   notation, project     MasterNotation / NotationParts / MasterNotationParts / NotationProject: creating new scores
                         (createScore), the part and staff commands of the Layout panel (editing/editpart.ts, editstaff.ts);
                         NotationInteraction / NotationNoteInput / NotationUndoStack: selection, editing, note input;
@@ -64,6 +66,9 @@ src/
                         the events of the MIDI renderer in seconds, metronome, preview notes, loop boundaries);
                         ProjectMigrator / MdlMigrator: the migration of 3.x and older scores (layoutScore's `migration`
                         option; the app asks with MuseScore's migration dialog)
+  importexport          imagesexport (PdfWriter on framework/draw/pdfdocument.ts + pdfpaintprovider.ts, PngWriter with
+                        pngencoder.ts drawn in strips, SvgWriter), midi (exportmidi, midifile: the MIDI file export), musicxml
+                        (exportmusicxml: the MusicXML export, .musicxml and .mxl); each with an api.ts
   playback              IPlaybackController (set by the app; the notation scene seeks/plays through it); api.ts
   notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands),
                         PlaybackCursor, LoopMarker, ContinuousPanel (left edge of the horizontal continuous view),
@@ -157,6 +162,8 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
   `test/compare-baseline.csv` (regressions fail); `-- --update-baseline` after intended changes
 - `npm run roundtrip` - load -> saveMscz -> load every baseline score and compare the SVG of every page (exact, or
   equal within the rounding of 6-digit values; a second round trip must be exact)
+- `npm run compare:musicxml -- [files]` - diff the MusicXML export against MuseScore's (`mscore -o out.musicxml`, cached in
+  compare-out/musicxml/ref)
 - `npm run compare:mscx` - diff writeMscx/saveMscz output (main .mscx, style, parts) against MuseScore's own re-save
   (`mscore -o out.mscx`, cached in compare-out/mscx/ref); EIDs are normalized
 - `npx tsx tools/gen/<gen-*.ts> MuseScore` - regenerate tables from the reference sources (symids, styledef,

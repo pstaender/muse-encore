@@ -1032,7 +1032,22 @@ export class TRead {
     static readBreath(b: Breath, e: XmlReader, ctx: ReadContext): void {
         while (e.readNextStartElement()) {
             const tag = e.name()
-            if (tag === 'symbol') {
+            if (tag === 'subtype' && ctx.mscVersion() < 460) { // obsolete (read400/read410)
+                let symId = SymId.noSym
+                switch (e.readInt()) {
+                case 0:
+                case 1:
+                    symId = SymId.breathMarkComma
+                    break
+                case 2:
+                    symId = SymId.caesuraCurved
+                    break
+                case 3:
+                    symId = SymId.caesura
+                    break
+                }
+                b.setSymId(symId)
+            } else if (tag === 'symbol') {
                 b.setSymId(SymNames.symIdByName(e.readAsciiText()))
             } else if (tag === 'pause') {
                 b.setPause(e.readDouble())
@@ -1530,6 +1545,7 @@ export class TRead {
         if (read400) {
             g.setShowText(false)
         }
+        let textRead = false
 
         while (e.readNextStartElement()) {
             const tag = e.name()
@@ -1537,6 +1553,7 @@ export class TRead {
                 if (read400) {
                     g.setShowText(true)
                 }
+                textRead = true
                 TRead.readProperty(g, e, ctx, Pid.GLISS_TEXT)
             } else if (read400 && tag === 'subtype') {
                 g.setGlissandoType(TConv.fromXmlGlissandoType(e.readAsciiText(), GlissandoType.STRAIGHT))
@@ -1555,6 +1572,10 @@ export class TRead {
             } else if (!TRead.readSLineProperties(g, e, ctx)) {
                 e.unknown()
             }
+        }
+        // read410: glissandos of 4.1 - 4.4 files without a text show no text
+        if (!read400 && ctx.mscVersion() < 450 && !textRead) {
+            g.setShowText(false)
         }
     }
 
@@ -3825,7 +3846,12 @@ export class TRead {
         } else if (tag === 'userLen2') {
             a.setUserLen2(e.readDouble() * a.spatium())
         } else if (tag === 'span') {
-            a.setSpan(e.readInt())
+            let span = e.readInt()
+            if (ctx.mscVersion() < 420) { // read400/read410
+                // Span now refers to number of voices spanned, not staves
+                span = (span - 1) * VOICES + 1
+            }
+            a.setSpan(span)
         } else if (tag === 'play') {
             a.setPlayArpeggio(e.readBool())
         } else if (tag === 'timeStretch') {
