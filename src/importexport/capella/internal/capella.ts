@@ -28,6 +28,7 @@ import { Chord } from '../../../engraving/dom/chord'
 import { Note } from '../../../engraving/dom/note'
 import { Rest } from '../../../engraving/dom/rest'
 import { Tuplet } from '../../../engraving/dom/tuplet'
+import { mtrc } from '../../../framework/global/translation'
 import { TDuration, toDurationList } from '../../../engraving/dom/durationtype'
 import { Dynamic } from '../../../engraving/dom/dynamic'
 import { Articulation } from '../../../engraving/dom/articulation'
@@ -3060,7 +3061,7 @@ export function importCapella(score: MasterScore, data: Uint8Array, onError: Cap
             throw e
         }
         if (onError) {
-            onError(`Import failed: ${cf.error(e.errNo)}`)
+            onError(mtrc('iex_capella', 'Import failed: %1').replace('%1', cf.error(e.errNo)))
         }
         // avoid another error message box
     }

@@ -6,7 +6,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import {
-    createScore, drawPage, endTextEditing, isModified, importSuffixes, layoutScore, isMuseScoreFile, markSaved, openFileAccept, openScoreFile, markUnsaved, MigrationOptions, MigrationType, pageCount,
+    createScore, drawPage, endTextEditing, isModified, EngravingErr, importSuffixes, layoutScore, isMuseScoreFile, NotationReadError, type NotationReaderInteractive, markSaved, openFileAccept, openScoreFile, markUnsaved, MigrationOptions, MigrationType, pageCount,
     pageFormatSize, pageSize, saveMscz, scoreAppVersion, scoreMigrationType, scoreTitle, withPageView, type MasterScore, type NewScoreOptions,
 } from '../src/index'
 import {
@@ -14,6 +14,7 @@ import {
     saveScoreContent, setOpenScoreId, takeLegacyLastFile, updateScore, type ScoreEntry,
 } from './db'
 import { baseName, isMsczName, msczFileName, pickFileToOpen, saveToComputer, writeFile, type FilePickerType } from './files'
+import { showMessage } from './components/MessageBox'
 import { arg, qtrc } from './i18n'
 import {
     clearScore, currentMasterScore, currentScore, fontsReady, handlers, hideBusy, resumeBusy, scoreChanged, scoreSaved, setScoreName, setStatus, showBusy,
@@ -234,11 +235,25 @@ async function load(name: string, make: () => MasterScore | Promise<MasterScore>
         console.error(e)
         const msg = `Could not open ${name}: ${(e as Error).message}`
         setStatus(msg, true)
-        setState({ error: msg })
+        hideBusy()
+        await warnProjectCannotBeOpened(e, name)
         return null
     } finally {
         hideBusy()
     }
+}
+
+/**
+ * ProjectActionsController::warnProjectCannotBeOpened: "Cannot read file …" with the text of the error; nothing for an
+ * error that was shown already (IgnoreError)
+ */
+async function warnProjectCannotBeOpened(e: unknown, name: string): Promise<void> {
+    if (e instanceof NotationReadError && e.code === EngravingErr.IgnoreError) {
+        return
+    }
+    const title = arg(qtrc('project', 'Cannot read file %1'), name)
+    const text = e instanceof Error && e.message ? e.message : qtrc('project', 'An error occurred while reading this file.')
+    await showMessage(title, text)
 }
 
 /** shows the score that was just loaded at once; it is stored meanwhile (store() returns its id) */
@@ -254,9 +269,32 @@ async function opened(score: Omit<CurrentScore, 'id'>, store: () => Promise<stri
     return id
 }
 
-/** a MuseScore file (loadScore) or a file of an import format (importScore), by the suffix of its name */
+/**
+ * the questions and warnings of an import (IInteractive): message boxes; the busy overlay is hidden meanwhile and the
+ * time they are open is not part of the layout time
+ */
+const importInteractive: NotationReaderInteractive = {
+    question: (title, text) => whileBusyHidden(async () => await showMessage(title, text, ['no', 'yes']) === 'yes'),
+    warning: (title, text) => whileBusyHidden(async () => { await showMessage(title, text) }),
+}
+
+async function whileBusyHidden<T>(question: () => Promise<T>): Promise<T> {
+    const t0 = performance.now()
+    hideBusy()
+    try {
+        return await question()
+    } finally {
+        await resumeBusy()
+        s_questionTime += performance.now() - t0
+    }
+}
+
+/**
+ * a MuseScore file (loadScore) or a file of an import format (importScore with the import style of the settings,
+ * NotationProject::doImport), by the suffix of its name
+ */
 async function loadFileData(data: ArrayBuffer, name: string): Promise<MasterScore> {
-    const s = await openScoreFile(data, name)
+    const s = await openScoreFile(data, name, { interactive: importInteractive, style: settings().import.styleFile?.content ?? null })
     const migration = await migrationOptions(s)
     layoutScore(s, { migration, templateFile })
     return s

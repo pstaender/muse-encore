@@ -141,6 +141,50 @@ describe.skipIf(!CHROME || !hasSubmodule)('editor', () => {
         await context.close()
     }, 240000)
 
+    it('asks about MusicXML errors, shows files that cannot be read and has the Import preferences', async () => {
+        const { page, context } = await newPage()
+        const xml = readFileSync(`${ROOT}MuseScore/src/importexport/musicxml/tests/data/testHello.xml`, 'utf8')
+        const files: Record<string, string> = { 'truncated.xml': xml.slice(0, xml.indexOf('</measure>')), 'bad.mid': 'MThd garbage' }
+        await context.route('http://imports.test/**', route => route.fulfill({
+            body: files[new URL(route.request().url()).pathname.slice(1)], headers: { 'access-control-allow-origin': '*' },
+        }))
+        // MuseScore's question; "No": the file is not opened ("Cannot read file")
+        await page.goto(`${base}?url=${encodeURIComponent('http://imports.test/truncated.xml')}`)
+        await page.waitForSelector('dialog.message-box[open]')
+        expect(await page.textContent('dialog.message-box')).toMatch(/\d+ errors? found, import may be incomplete\..*Do you want to try to load this file anyway\?/s)
+        await page.click('dialog.message-box button[value="no"]')
+        await page.waitForFunction(() => /Cannot read file truncated\.xml/.test(document.querySelector('dialog.message-box[open]')?.textContent ?? ''))
+        await page.click('dialog.message-box button[value="ok"]')
+        // "Yes": opened
+        await page.goto(`${base}?url=${encodeURIComponent('http://imports.test/truncated.xml')}`)
+        await page.waitForSelector('dialog.message-box[open]')
+        await page.click('dialog.message-box button[value="yes"]')
+        await scoreShown(page)
+
+        // a MIDI file that cannot be read: MuseScore's warning, then "Cannot read file"
+        await page.goto(`${base}?url=${encodeURIComponent('http://imports.test/bad.mid')}`)
+        await page.waitForFunction(() => /Import failed/.test(document.querySelector('dialog.message-box[open]')?.textContent ?? ''))
+        await page.click('dialog.message-box button[value="ok"]')
+        await page.waitForFunction(() => /Cannot read file bad\.mid/.test(document.querySelector('dialog.message-box[open]')?.textContent ?? ''))
+        await page.click('dialog.message-box button[value="ok"]')
+
+        // Preferences > Import
+        await page.click('.menubar > button:has-text("Edit")')
+        await page.click('.menu-item:has-text("Preferences")')
+        await page.waitForSelector('dialog.preferences[open]')
+        await page.click('.preferences-pages li:has-text("Import")')
+        await page.uncheck('.preferences-page label:has-text("Import system and page breaks") input')
+        await page.selectOption('.import-shortest-note', '480')
+        const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('musescoreweb:settings')!).import)
+        expect(stored.musicXml.importBreaks).toBe(false)
+        expect(stored.midi.midiShortestNote).toBe(480)
+        expect(stored.styleFile).toBeNull()
+        // "Use style file" before a file is chosen: the file chooser is enabled
+        await page.check('.preferences-page input[name="import-style"] >> nth=1')
+        expect(await page.isEnabled('.import-style-row button')).toBe(true)
+        await context.close()
+    }, 180000)
+
     it('asks about the migration of an older score (fonts Leland and Edwin) and remembers the answer', async () => {
         const { page, context } = await newPage({ askMigration: true })
         const url = `${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`

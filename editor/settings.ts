@@ -4,7 +4,7 @@
  * them). Storage can be unavailable (private windows, blocked site data): then the defaults are used for the session.
  */
 import { useSyncExternalStore } from 'react'
-import { defaultExportConfiguration, type ExportConfiguration } from '../src/index'
+import { defaultExportConfiguration, defaultImportConfiguration, setImportConfiguration, type ExportConfiguration, type ImportConfiguration } from '../src/index'
 
 export interface ViewSettings {
     zoom: string // a percentage ("100") or a fit mode ("page-width", "whole-page")
@@ -61,6 +61,16 @@ export interface AppSettings {
     web: WebSettings
     /** the settings of the export formats (ImagesExportConfiguration, MidiConfiguration, MusicXmlConfiguration) */
     export: ExportConfiguration
+    /** Preferences > Import: the style for imports and the settings of the import formats */
+    import: ImportSettings
+}
+
+export interface ImportSettings extends ImportConfiguration {
+    /**
+     * the style file for imports (C++ NotationConfiguration::styleFileImportPath: its name and content here); null =
+     * the built-in style
+     */
+    styleFile: { name: string; content: string } | null
 }
 
 export interface PlaybackSettings {
@@ -146,6 +156,7 @@ const DEFAULTS: AppSettings = {
     },
     web: { spacePan: true },
     export: defaultExportConfiguration(),
+    import: { ...defaultImportConfiguration(), styleFile: null },
 }
 
 // the storage keys keep the project's former name (MuseScore Web), so the settings of existing users are kept
@@ -200,25 +211,37 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
         playback: sanitizePlayback(s.playback ?? {}),
         web: { spacePan: typeof s.web?.spacePan === 'boolean' ? s.web.spacePan : DEFAULTS.web.spacePan },
         export: sanitizeExport(s.export ?? {}),
+        import: sanitizeImport(s.import ?? {}),
+    }
+}
+
+function sanitizeImport(i: Partial<ImportSettings>): ImportSettings {
+    const d = defaultImportConfiguration()
+    const style = i.styleFile
+    return {
+        musicXml: mergeTyped(d.musicXml, i.musicXml),
+        midi: mergeTyped(d.midi, i.midi),
+        styleFile: style && typeof style.name === 'string' && typeof style.content === 'string' ? { name: style.name, content: style.content } : null,
     }
 }
 
 /** the stored values that have the type of the default value */
-function sanitizeExport(e: Partial<ExportConfiguration>): ExportConfiguration {
-    const d = defaultExportConfiguration()
-    const merge = <T extends object>(def: T, v: unknown): T => {
-        const out = { ...def }
-        if (v && typeof v === 'object') {
-            for (const k of Object.keys(def) as (keyof T)[]) {
-                const x = (v as T)[k]
-                if (typeof x === typeof def[k]) {
-                    out[k] = x
-                }
+function mergeTyped<T extends object>(def: T, v: unknown): T {
+    const out = { ...def }
+    if (v && typeof v === 'object') {
+        for (const k of Object.keys(def) as (keyof T)[]) {
+            const x = (v as T)[k]
+            if (typeof x === typeof def[k]) {
+                out[k] = x
             }
         }
-        return out
     }
-    return { images: merge(d.images, e.images), midi: merge(d.midi, e.midi), musicXml: merge(d.musicXml, e.musicXml) }
+    return out
+}
+
+function sanitizeExport(e: Partial<ExportConfiguration>): ExportConfiguration {
+    const d = defaultExportConfiguration()
+    return { images: mergeTyped(d.images, e.images), midi: mergeTyped(d.midi, e.midi), musicXml: mergeTyped(d.musicXml, e.musicXml) }
 }
 
 function sanitizePlayback(p: Partial<PlaybackSettings>): PlaybackSettings {
@@ -252,6 +275,13 @@ function load(): AppSettings {
 
 let current = load()
 const listeners = new Set<() => void>()
+
+/** the import settings of the library (MusicXmlConfiguration, MidiConfiguration) follow the app settings */
+function applyImportConfiguration(): void {
+    setImportConfiguration({ musicXml: current.import.musicXml, midi: current.import.midi })
+}
+applyImportConfiguration()
+listeners.add(applyImportConfiguration)
 
 export function settings(): AppSettings {
     return current

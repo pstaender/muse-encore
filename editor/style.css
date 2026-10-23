@@ -1401,6 +1401,8 @@ dialog.breaks-dialog .radio-rows { display: flex; flex-direction: column; gap: 8
 .breaks-interval { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .breaks-interval input[type="number"] { width: 64px; }
 dialog.message-box p strong { color: var(--fg); font-weight: 600; }
+/* the detail text keeps its line breaks (e.g. the errors of a MusicXML import) */
+dialog.message-box .message-box-detail { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow-y: auto; }
 
 /* ---- Find / Go to (SearchPopup) ---- */
 .search-popup {

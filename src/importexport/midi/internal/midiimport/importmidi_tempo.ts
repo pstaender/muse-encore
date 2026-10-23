@@ -4,7 +4,7 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/importexport/midi/internal/midiimport/importmidi_tempo.h/.cpp (namespace MidiTempo)
- * The preference io/midi/roundTempo (default true) is roundTempo / setRoundTempo here.
+ * The preference io/midi/roundTempo is read from midiImportConfiguration() (midiconfiguration.ts).
  */
 
 import type { Score } from '../../../../engraving/dom/score'
@@ -16,10 +16,8 @@ import { ReducedFraction, toMuseScoreTicks } from './importmidi_fraction'
 import type { TrackMap } from './importmidi_inner'
 import { midiImportOperations } from './importmidi_operations'
 import { removeEvery2ndBeat } from './importmidi_beat'
+import { midiImportConfiguration } from '../midiconfiguration'
 
-/** IMidiImportExportConfiguration::roundTempo (preference io/midi/roundTempo) */
-let roundTempoPref = true
-export function setRoundTempo(v: boolean): void { roundTempoPref = v }
 
 /** qRound for positive and negative values (rounds half away from zero) */
 function qRound(d: number): number {
@@ -113,7 +111,7 @@ function applyAllTempoEvents(tracks: TrackMap, score: Score, roundTempo: boolean
 }
 
 export function setTempo(tracks: TrackMap, score: Score): void {
-    const roundTempo = roundTempoPref
+    const roundTempo = midiImportConfiguration().roundTempo()
 
     score.tempomap().clear()
     const midiData = midiImportOperations.data()

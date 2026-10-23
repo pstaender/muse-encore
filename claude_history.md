@@ -1629,3 +1629,23 @@
 - Zoom box (viewer and editor): the page view offers "Page width" and "Whole page"; the continuous views one entry
   "Fit to window height" (horizontal) / "Fit to window width" (vertical), which fits their long page across; "Fit to
   window" has none (the page is always as wide as the window). The new strings are in editor/locales/webstrings.json.
+
+## 2026-10-23 — Import settings and dialogs; SpessaSynth channels
+
+- Playback: SpessaSynth's "channelAdded" event adds a second channel to the main thread's list for each added channel,
+  so channelCount ran ahead of the worklet: after channels had been added once (another score, a preview note), the
+  channels of a score with more instruments were not added and nothing was played (the user heard only the bass of an
+  imported MIDI file). SpessaSynthesizer counts the worklet's channels itself; e2e test with the real synthesizer.
+- Preferences > Import (ImportPreferencesPage.qml): the style used for import (built-in or a style file, stored with
+  its content in the settings; NotationProject::doImport loads it before reading), MusicXML (import layout, breaks,
+  default typeface Edwin, infer text type) and MIDI (shortest note, round tempos). Overture charset, MEI and MNX are
+  not ported. Library: importConfiguration/setImportConfiguration/defaultImportConfiguration, MidiConfiguration
+  (midiconfiguration.ts) for io/midi/shortestNote and roundTempo, importScore options `style`.
+- The dialogs of the import go through NotationReaderOptions.interactive (C++ IInteractive/MessageBox; without it the
+  import goes on like MScore::noGui): MusicXML "%Ln error(s) found, import may be incomplete. Do you want to try to load
+  this file anyway?" (asked by MusicXmlReader after the import; the count is the length of the error text like C++),
+  "Import MIDI"/"Import Capella" "Import failed: %1". NotationReadError has the Err code. The editor shows them in its
+  message box and ProjectActionsController::warnProjectCannotBeOpened ("Cannot read file %1") when a file cannot be
+  opened (also MuseScore files). The viewer has no dialogs (no GUI behaviour).
+- MuseScore 4.7.5 has no MIDI import panel (only MuseScore 3 had one): not ported.
+- Tests: test/importsettings.test.ts; e2e: the MusicXML question, MIDI warning, Cannot read file, Import preferences.

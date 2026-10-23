@@ -69,7 +69,7 @@ src/
                         option; the app asks with MuseScore's migration dialog)
   importexport          imagesexport (PdfWriter on framework/draw/pdfdocument.ts + pdfpaintprovider.ts, PngWriter with
                         pngencoder.ts drawn in strips, SvgWriter), midi (exportmidi, midifile: the MIDI file export and
-                        reading; midiimport: the MIDI import), musicxml (exportmusicxml: the MusicXML export, .musicxml and
+                        reading; midiimport: the MIDI import; midiconfiguration: its settings), musicxml (exportmusicxml: the MusicXML export, .musicxml and
                         .mxl; import/: the MusicXML import), capella (.cap/.capx import), guitarpro (Guitar Pro 1-7 and
                         Power Tab import); readers.ts registers the import readers (NotationReadersRegister)
   playback              IPlaybackController (set by the app; the notation scene seeks/plays through it); api.ts

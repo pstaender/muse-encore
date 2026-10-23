@@ -19,7 +19,8 @@ import { beatLength, divisionInfo, levelOfTick } from './importmidi_meter'
 import { type TupletData, tupletLimits } from './importmidi_tuplet'
 import { findBeatLocations } from './importmidi_beat'
 import { findBasicTempo } from './importmidi_tempo'
-import { midiImportOperations, midiShortestNote } from './importmidi_operations'
+import { midiImportOperations } from './importmidi_operations'
+import { midiImportConfiguration } from '../midiconfiguration'
 import { QuantValue, VoiceCount } from './importmidi_operation'
 
 /** C++ qMin(a, b): (a < b) ? a : b */
@@ -96,7 +97,7 @@ export function fractionToQuantValue(fraction: ReducedFraction): QuantValue {
 }
 
 export function defaultQuantValueFromPreferences(): QuantValue {
-    const ticks = midiShortestNote
+    const ticks = midiImportConfiguration().midiShortestNote()
     const fraction = ReducedFraction.fromTicks(ticks)
     let quantValue = fractionToQuantValue(fraction)
     if (quantValue === QuantValue.Q_INVALID) {

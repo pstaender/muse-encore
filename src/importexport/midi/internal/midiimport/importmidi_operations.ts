@@ -15,7 +15,7 @@ import { MidiFile } from '../midishared/midifile'
 import { ReducedFraction, compareReducedFractions } from './importmidi_fraction'
 import type { MTrack } from './importmidi_inner'
 import { QuantValue, Swing, TimeSigDenominator, TimeSigNumerator, VoiceCount } from './importmidi_operation'
-import { Constants } from '../../../../engraving/types/constants'
+import { midiImportConfiguration } from '../midiconfiguration'
 
 // operation types are in importmidi_operation.ts
 
@@ -103,16 +103,11 @@ export class Op<T> {
     }
 }
 
-/**
- * Quantize::defaultQuantValueFromPreferences with the default of MuseScore's preference io/midi/shortestNote
- * (Constants::DIVISION / 4: Q_16)
- */
-export let midiShortestNote = Constants.DIVISION / 4
-export function setMidiShortestNote(ticks: number): void { midiShortestNote = ticks }
+/** Quantize::defaultQuantValueFromPreferences: the preference io/midi/shortestNote */
 
 function defaultQuantValueFromPreferences(): QuantValue {
     // Quantize::fractionToQuantValue
-    const fraction = ReducedFraction.fromTicks(midiShortestNote)
+    const fraction = ReducedFraction.fromTicks(midiImportConfiguration().midiShortestNote())
     const values: [QuantValue, number][] = [
         [QuantValue.Q_4, 4], [QuantValue.Q_8, 8], [QuantValue.Q_16, 16], [QuantValue.Q_32, 32], [QuantValue.Q_64, 64],
         [QuantValue.Q_128, 128], [QuantValue.Q_256, 256], [QuantValue.Q_512, 512], [QuantValue.Q_1024, 1024],

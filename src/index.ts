@@ -32,7 +32,9 @@ import { Sid } from './engraving/style/styledef'
 import { fontProvider } from './engraving/infrastructure/engravingcontext'
 import { MscLoader, loadScore as loadMasterScore } from './engraving/rw/mscloader'
 import { createNotationReadersRegister } from './importexport/readers'
-import { NotationReadError, type NotationReaderOptions } from './project/inotationreader'
+import { NotationReadError, type NotationReaderInteractive, type NotationReaderOptions } from './project/inotationreader'
+import { defaultMusicXmlImportSettings, musicXmlImportConfiguration, type MusicXmlImportSettings } from './importexport/musicxml/internal/musicxmlconfiguration'
+import { defaultMidiImportSettings, midiImportConfiguration, type MidiImportSettings } from './importexport/midi/internal/midiconfiguration'
 import { SelectDialog, SelectNoteDialog } from './notationscene/selectdialog'
 import { NoteSpellingType } from './engraving/types/types'
 import type { Harmony } from './engraving/dom/harmony'
@@ -120,7 +122,8 @@ export function setCanLayoutIcons(v: boolean): void {
 }
 export { setTranslator, mtrc, qtrc, arg, type Translator } from './framework/global/translation'
 export type { MasterScore } from './engraving/dom/masterscore'
-export { NotationReadError, type NotationReaderOptions }
+export { NotationReadError, type NotationReaderInteractive, type NotationReaderOptions, type MusicXmlImportSettings, type MidiImportSettings }
+export { Err as EngravingErr, errText } from './engraving/engravingerrors'
 export type { Score } from './engraving/dom/score'
 export type { Part } from './engraving/dom/part'
 export type { StaffSettingsModel } from './instrumentsscene/staffsettingsmodel'
@@ -168,14 +171,20 @@ export function isMuseScoreFile(fileName: string): boolean {
     return /\.(mscz|mscx|mscz~)$/i.test(fileName)
 }
 
+export interface ImportOptions extends NotationReaderOptions {
+    /** the content of the style file for imports (Preferences > Import > "Use style file"); none: the built-in style */
+    style?: string | null
+}
+
 /**
  * Imports a file of another format (MusicXML, MIDI, Capella, Guitar Pro; the suffix of `fileName` selects the reader)
  * into a new score like MuseScore's File > Open (NotationProject::doImport). Lay it out with layoutScore(). Throws a
- * NotationReadError if the file cannot be read.
+ * NotationReadError if the file cannot be read; the questions and warnings of the import (e.g. MusicXML errors) are
+ * asked through options.interactive. The settings of the import are set with setImportConfiguration().
  */
-export async function importScore(data: Uint8Array | ArrayBuffer, fileName: string, options: NotationReaderOptions = {}): Promise<MasterScore> {
+export async function importScore(data: Uint8Array | ArrayBuffer, fileName: string, options: ImportOptions = {}): Promise<MasterScore> {
     const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
-    const score = await new NotationProject().doImport(s_notationReaders, bytes, fileName, options)
+    const score = await new NotationProject().doImport(s_notationReaders, bytes, fileName, options, options.style ?? null)
     score.setIsOpen(true)
     score.setExcerptsChanged(false)
     return score
@@ -193,8 +202,32 @@ export function scoreBaseName(fileName: string): string {
 }
 
 /** opens a MuseScore file (loadScore) or imports a file of another format (importScore) */
-export async function openScoreFile(data: Uint8Array | ArrayBuffer, fileName: string): Promise<MasterScore> {
-    return isMuseScoreFile(fileName) ? loadScore(data) : importScore(data, fileName)
+export async function openScoreFile(data: Uint8Array | ArrayBuffer, fileName: string, options: ImportOptions = {}): Promise<MasterScore> {
+    return isMuseScoreFile(fileName) ? loadScore(data) : importScore(data, fileName, options)
+}
+
+/** the settings of the import (Preferences > Import): MusicXML (C++ import/musicXml/*) and MIDI (io/midi/*) */
+export interface ImportConfiguration {
+    musicXml: MusicXmlImportSettings
+    midi: MidiImportSettings
+}
+
+/** MuseScore's defaults of the import settings */
+export function defaultImportConfiguration(): ImportConfiguration {
+    return { musicXml: defaultMusicXmlImportSettings(), midi: defaultMidiImportSettings() }
+}
+
+export function importConfiguration(): ImportConfiguration {
+    return { musicXml: musicXmlImportConfiguration().settings(), midi: midiImportConfiguration().settings() }
+}
+
+export function setImportConfiguration(configuration: { musicXml?: Partial<MusicXmlImportSettings>; midi?: Partial<MidiImportSettings> }): void {
+    if (configuration.musicXml) {
+        musicXmlImportConfiguration().setSettings(configuration.musicXml)
+    }
+    if (configuration.midi) {
+        midiImportConfiguration().setSettings(configuration.midi)
+    }
 }
 
 /**

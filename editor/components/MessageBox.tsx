@@ -46,7 +46,7 @@ function MessageBox({ message }: { message: Message }): React.JSX.Element {
                 message.resolve(v === 'ok' || v === 'yes' || v === 'no' || v === 'ignore' ? v : message.buttons.includes('no') ? 'no' : 'cancel')
             }}>
             <p id="message-box-text"><strong>{message.text}</strong></p>
-            {message.detail && <p>{message.detail}</p>}
+            {message.detail && <p className="message-box-detail">{message.detail}</p>}
             <form method="dialog" className="dialog-buttons">
                 {message.buttons.includes('no') && <button className="secondary" value="no">{qtrc('global', 'No')}</button>}
                 {message.buttons.includes('yes') && <button className="primary" value="yes" autoFocus>{qtrc('global', 'Yes')}</button>}

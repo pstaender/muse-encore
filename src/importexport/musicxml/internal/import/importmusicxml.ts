@@ -6,8 +6,8 @@
  * Port of src/importexport/musicxml/internal/import/importmusicxml.h/.cpp
  *
  * The import gets the file's data instead of a path. The dialog asking whether to load a file with errors anyway
- * (musicXmlImportErrorDialog) is not ported: like MScore::noGui, the import continues (the errors are returned by
- * lastMusicXmlImportErrors()).
+ * (musicXmlImportErrorDialog) is asynchronous: MusicXmlReader shows it after the import with the errors of
+ * lastMusicXmlImportErrors() (musicXmlImportErrorQuestion).
  */
 
 import { strFromU8, unzipSync } from 'fflate'
@@ -19,12 +19,32 @@ import { MusicXmlLogger, MusicXmlLoggerLevel } from './importmusicxmllogger'
 import { MusicXmlParserPass1 } from './importmusicxmlpass1'
 import { MusicXmlParserPass2 } from './importmusicxmlpass2'
 import { MusicXmlValidation } from './musicxmlvalidation'
+import { mtrc } from '../../../../framework/global/translation'
 
 let s_lastErrors = ''
 
 /** the errors found by the last import (C++ shown in musicXmlImportErrorDialog) */
 export function lastMusicXmlImportErrors(): string {
     return s_lastErrors
+}
+
+//---------------------------------------------------------
+//   musicXmlImportErrorDialog
+//---------------------------------------------------------
+
+/**
+ Show a dialog displaying the MusicXML import error(s): the title and text of the question (Yes: load the file anyway).
+ */
+export function musicXmlImportErrorQuestion(errors: string): { title: string; text: string } {
+    // C++ counts the characters of the error texts (String::size())
+    const text = mtrc('iex_musicxml', '%Ln error(s) found, import may be incomplete.', '', errors.length)
+    let msg = text
+    msg += '\n'
+    msg += mtrc('iex_musicxml', 'Do you want to try to load this file anyway?')
+    msg += '\n'
+    msg += '\n'
+    msg += errors
+    return { title: text, text: msg }
 }
 
 //---------------------------------------------------------
@@ -55,9 +75,8 @@ export function importMusicXmlfromBuffer(score: Score, name: string, data: Uint8
         }
     }
 
-    // report result
+    // report result: the dialog (musicXmlImportErrorDialog) is asked by MusicXmlReader
     const pass2Errors = pass2.errors()
-    // TODO(port): musicXmlImportErrorDialog ("%Ln error(s) found, import may be incomplete.") - continue like MScore::noGui
     s_lastErrors = pass1Errors + pass2Errors
 
     return res

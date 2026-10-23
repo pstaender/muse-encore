@@ -2,19 +2,22 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Preferences (MuseScore's PreferencesDialog.qml): pages in a side bar; for now "General" with the language,
  * "Save & publish" with the auto save (SaveAndPublishPreferencesPage.qml: AutoSaveSection) and "Note input" with the
- * note preview (NoteInputPreferencesPage.qml: NotePreviewSection; there is no MIDI input) and "Web version" with the
- * settings of the web version (not in MuseScore).
+ * note preview (NoteInputPreferencesPage.qml: NotePreviewSection; there is no MIDI input), "Import"
+ * (ImportPreferencesPage.qml: the style for imports, MusicXML and MIDI; Overture, MEI and MNX are not ported) and "Web
+ * version" with the settings of the web version (not in MuseScore).
  */
 import { useEffect, useRef, useState } from 'react'
 import { actionTitle, formatShortcut, shortcuts } from '../actions/actions'
 import { ICON_CODES } from '../actions/uiactiondata'
 import { arg, currentLanguage, languageList, qtrc, setLanguage, useLanguage, webtr } from '../i18n'
+import { pickFile } from '../files'
 import { updateSettings, useSettings } from '../settings'
 
 const PAGES: readonly { id: string; title: string; icon: number; web?: boolean }[] = [
     { id: 'general', title: 'General', icon: ICON_CODES.SETTINGS_COG },
     { id: 'cloud', title: 'Save & publish', icon: ICON_CODES.CLOUD_FILE },
     { id: 'note-input', title: 'Note input', icon: ICON_CODES.EDIT },
+    { id: 'import', title: 'Import', icon: ICON_CODES.IMPORT },
     { id: 'web', title: 'Web version', icon: ICON_CODES.GLOBE, web: true },
 ]
 
@@ -120,6 +123,80 @@ function NoteInputPage(): React.JSX.Element {
     )
 }
 
+/** ImportPreferencesModel::shortestNotes: the shortest note of the MIDI import in ticks (Constants::DIVISION = 480) */
+const SHORTEST_NOTES: readonly [string, number][] = [
+    ['Quarter', 480], ['Eighth', 240], ['16th', 120], ['32nd', 60], ['64th', 30], ['128th', 15], ['256th', 7], ['512th', 3], ['1024th', 1],
+]
+
+/** ImportPreferencesPage.qml: ImportStyleSection, MusicXmlSection, MidiSection */
+function ImportPage(): React.JSX.Element {
+    useLanguage()
+    const { import: imp } = useSettings()
+    // ImportStyleSection: "Use style file" can be chosen before a file is chosen
+    const [useStyleFileExplicitlySet, setUseStyleFileExplicitlySet] = useState(false)
+    const useStyleFile = useStyleFileExplicitlySet || imp.styleFile !== null
+    const chooseStyle = async (): Promise<void> => {
+        const file = await pickFile({ description: qtrc('preferences', 'MuseScore style file'), accept: { 'application/octet-stream': ['.mss'] } })
+        if (file) {
+            updateSettings('import', { styleFile: { name: file.name, content: await file.text() } })
+        }
+    }
+    const musicXml = (key: keyof typeof imp.musicXml, text: string): React.JSX.Element => (
+        <label className="check">
+            <input type="checkbox" checked={imp.musicXml[key]}
+                onChange={e => updateSettings('import', { musicXml: { ...imp.musicXml, [key]: e.target.checked } })} />
+            {qtrc('preferences', text)}
+        </label>
+    )
+    return (
+        <>
+            <section className="preferences-section" aria-labelledby="pref-import-style">
+                <h3 id="pref-import-style">{qtrc('preferences', 'Style used for import')}</h3>
+                <label className="check">
+                    <input type="radio" name="import-style" checked={!useStyleFile}
+                        onChange={() => {
+                            setUseStyleFileExplicitlySet(false)
+                            updateSettings('import', { styleFile: null })
+                        }} />
+                    {qtrc('preferences', 'Built-in style')}
+                </label>
+                <div className="autosave-row import-style-row">
+                    <label className="check">
+                        <input type="radio" name="import-style" checked={useStyleFile} onChange={() => setUseStyleFileExplicitlySet(true)} />
+                        {qtrc('preferences', 'Use style file')}
+                    </label>
+                    <input type="text" readOnly className="import-style-path" disabled={!useStyleFile} value={imp.styleFile?.name ?? ''}
+                        aria-label={qtrc('preferences', 'Use style file')} />
+                    <button className="secondary" disabled={!useStyleFile} title={qtrc('preferences', 'Choose default style for imports')}
+                        onClick={() => void chooseStyle()}>{qtrc('ui', 'Browse')}</button>
+                </div>
+            </section>
+            <section className="preferences-section" aria-labelledby="pref-import-musicxml">
+                <h3 id="pref-import-musicxml">{qtrc('preferences', 'MusicXML')}</h3>
+                {musicXml('importLayout', 'Import layout')}
+                {musicXml('importBreaks', 'Import system and page breaks')}
+                {musicXml('needUseDefaultFont', 'Apply default typeface (Edwin) to imported scores')}
+                {musicXml('inferTextType', 'Infer text type based on content where possible')}
+            </section>
+            <section className="preferences-section" aria-labelledby="pref-import-midi">
+                <h3 id="pref-import-midi">{qtrc('preferences', 'MIDI')}</h3>
+                <div className="autosave-row">
+                    <span>{qtrc('preferences', 'Shortest note')}</span>
+                    <select className="import-shortest-note" aria-label={qtrc('preferences', 'Shortest note')} value={imp.midi.midiShortestNote}
+                        onChange={e => updateSettings('import', { midi: { ...imp.midi, midiShortestNote: Number(e.target.value) } })}>
+                        {SHORTEST_NOTES.map(([title, ticks]) => <option key={ticks} value={ticks}>{qtrc('preferences', title)}</option>)}
+                    </select>
+                </div>
+                <label className="check">
+                    <input type="checkbox" checked={imp.midi.roundTempo}
+                        onChange={e => updateSettings('import', { midi: { ...imp.midi, roundTempo: e.target.checked } })} />
+                    {qtrc('appshell/preferences', 'Round tempos to nearest whole number')}
+                </label>
+            </section>
+        </>
+    )
+}
+
 /** the settings of the web version (not in MuseScore) */
 function WebVersionPage(): React.JSX.Element {
     useLanguage()
@@ -169,6 +246,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }): React.J
                     {page === 'general' && <GeneralPage />}
                     {page === 'cloud' && <SaveAndPublishPage />}
                     {page === 'note-input' && <NoteInputPage />}
+                    {page === 'import' && <ImportPage />}
                     {page === 'web' && <WebVersionPage />}
                 </div>
             </div>

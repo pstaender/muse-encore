@@ -14,6 +14,7 @@ import { MscReader } from '../../engraving/infrastructure/mscreader'
 import { MasterNotation } from '../../notation/internal/masternotation'
 import { ScoreCreateOptions } from '../../notation/notationtypes'
 import { NotationReadError, type NotationReaderOptions } from '../inotationreader'
+import { Err, errText } from '../../engraving/engravingerrors'
 import type { NotationReadersRegister } from './notationreadersregister'
 
 export class ProjectCreateOptions {
@@ -103,21 +104,30 @@ export class NotationProject {
 
     /**
      * NotationProject::doImport: reads a file of another format (the reader of its suffix) into a new master score.
-     * The import style (notationConfiguration()->styleFileImportPath()) and unrolling repeats are not ported.
+     * `style`: the content of the style file for imports (notationConfiguration()->styleFileImportPath(), or
+     * OpenParams::stylePath). Unrolling repeats (OpenParams::unrollRepeats, only used by the command line) is not
+     * ported.
      */
     async doImport(readers: NotationReadersRegister, data: Uint8Array, fileName: string,
-                   options: NotationReaderOptions = {}): Promise<MasterScore> {
+                   options: NotationReaderOptions = {}, style: string | null = null): Promise<MasterScore> {
         // Find import reader
         const dot = fileName.lastIndexOf('.')
         const suffix = dot >= 0 ? fileName.slice(dot + 1).toLowerCase() : ''
         const scoreReader = readers.reader(suffix)
         if (!scoreReader) {
-            throw new NotationReadError(`Unknown file type: ${fileName}`)
+            throw new NotationReadError(errText(Err.FileUnknownType, fileName), Err.FileUnknownType)
         }
 
         // Setup engraving project
         const score = new MasterScore()
         this.m_masterScore = score
+
+        // The order of the steps matches the order in MS3
+
+        // Load style if present
+        if (style) {
+            score.loadStyle(style)
+        }
 
         // Init ChordList
         score.checkChordList()
