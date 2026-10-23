@@ -4,8 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>muse-encore-viewer example</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/minimaxcss@latest/minimax-starter.css" />
     <style>
-        body { max-width: 960px; margin: 32px auto; padding: 0 16px; font: 16px/1.5 Georgia, serif; }
+        body { max-width: 960px; margin: 32px auto; padding: 0 16px; }
         .score { height: 560px; margin: 24px 0; border: 1px solid #ccc; }
         .score.small { height: 360px; }
     </style>
@@ -23,7 +24,8 @@
 
 <!-- npm run build:viewer-package, then serve packages/viewer (e.g. npx vite packages/viewer) and open /example/?url=<score> -->
 <script type="module">
-    import applyMuseEncoreViewer from '../dist/muse-encore-viewer.js'
+    // import applyMuseEncoreViewer from '../dist/muse-encore-viewer.js'
+    import applyMuseEncoreViewer from 'https://cdn.jsdelivr.net/npm/muse-encore-viewer@0.1.0/dist/muse-encore-viewer.js'
 
     const url = new URLSearchParams(location.search).get('url') ?? 'score.mscz'
     window.viewers = [
