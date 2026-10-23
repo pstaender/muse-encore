@@ -12,7 +12,7 @@
 
 </div>
 
-Overview of demos: [pstaender.github.io/musescoreweb](https://pstaender.github.io/musescoreweb/)
+Overview of demos: [pstaender.github.io/muse-encore](https://pstaender.github.io/muse-encore/)
 
 A port of [MuseScore Studio](https://github.com/musescore/MuseScore)'s source code from C++ to TypeScript, to create a
 web-native version of MuseScore that runs entirely in the browser. The engraving engine is translated file by file
@@ -66,5 +66,5 @@ npm test                  # library tests
 
 See [CLAUDE.md](CLAUDE.md) for the project structure and commands and [test/README.md](test/README.md) for the tests.
 
-[Editor]: https://pstaender.github.io/musescoreweb/editor/
-[Viewer]: https://pstaender.github.io/musescoreweb/viewer/
+[Editor]: https://pstaender.github.io/muse-encore/editor/
+[Viewer]: https://pstaender.github.io/muse-encore/viewer/

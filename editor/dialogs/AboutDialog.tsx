@@ -24,8 +24,8 @@ export function AboutDialog({ onClose }: { onClose: () => void }): React.JSX.Ele
                 {' '}({qtrc('appshell/about', 'Revision:')} {REFERENCE_REVISION})
             </p>
             <p>MuseEncore is neither an official MuseScore project nor an official fork of MuseScore.</p>
-            <p>{arg(qtrc('appshell/about', 'Visit %1 for new versions and more information.'), 'github.com/pstaender/musescoreweb')}
-                {' '}<a href="https://github.com/pstaender/musescoreweb" target="_blank" rel="noopener">github.com/pstaender/musescoreweb</a></p>
+            <p>{arg(qtrc('appshell/about', 'Visit %1 for new versions and more information.'), 'github.com/pstaender/muse-encore')}
+                {' '}<a href="https://github.com/pstaender/muse-encore" target="_blank" rel="noopener">github.com/pstaender/muse-encore</a></p>
             <p className="muted">
                 Copyright © 2026 Philipp Staender and contributors. Based on MuseScore Studio, copyright © 1999-2026
                 MuseScore Limited and others. GNU General Public License version 3.

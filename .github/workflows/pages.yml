@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Builds the viewer and the editor and publishes them on GitHub Pages:
-# https://pstaender.github.io/editor/ (landing page), .../viewer/ and .../editor/
+# https://pstaender.github.io/muse-encore/ (landing page), .../viewer/ and .../editor/
 name: GitHub Pages
 
 on:

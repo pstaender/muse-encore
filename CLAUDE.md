@@ -6,7 +6,8 @@ the desktop app. License: GPL-3.0-only (same as MuseScore).
 MuseEncore (MuseEncore Editor, MuseEncore Viewer) is neither an official MuseScore project nor an official fork;
 "MuseScore" only names the original software. The project was called "MuseScore Web" before: the browser storage
 keys and database names (`musescoreweb:*`, `musescoreweb-scores`, `musescore-web-viewer`) keep that name so existing
-users keep their data, and so do the repository and its GitHub Pages URL.
+users keep their data. The repository is https://github.com/pstaender/muse-encore (GitHub Pages:
+https://pstaender.github.io/muse-encore/); the local checkout directory may still be called musescoreweb.
 
 ## Reference sources
 

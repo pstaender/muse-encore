@@ -3,7 +3,7 @@
 Show MuseScore files (`.mscz`/`.mscx`) in a web page, like an inline PDF viewer: the pages as MuseScore Studio lays
 them out, MuseScore's continuous views, zoom, printing (vector pages), full screen and playback.
 
-It is based on [MuseEncore](https://github.com/pstaender/musescoreweb), a TypeScript port of MuseScore Studio's
+It is based on [MuseEncore](https://github.com/pstaender/muse-encore), a TypeScript port of MuseScore Studio's
 engraving engine (reference version 4.7.5). Everything runs in the browser; no server is needed.
 
 > **MuseEncore is neither an official MuseScore project nor a fork of MuseScore.** It is an independent
