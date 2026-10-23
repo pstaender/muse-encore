@@ -20,7 +20,7 @@ import {
     // drag and drop of palette cells onto the score
     viewDragEnter, viewDragLeave, viewDragMove, viewDrop, type OutgoingElementDrag, type ViewDragEvent,
 } from '../src/index'
-import { drawShadowNote, hideShadowNote, rightClickAt, showShadowNote } from '../src/index'
+import { drawShadowNote, hideShadowNote, rightClickAt, scoreBaseName, showShadowNote } from '../src/index'
 import { setShortcutOverride } from './actions/actions'
 import { ELEMENT_DROP_EVENT, dragData, setDragData, type ElementDropDetail } from './dragcontroller'
 import { settings as appSettings, updateSettings, type ViewSettings } from './settings'
@@ -300,7 +300,7 @@ function makePage(idx: number): HTMLDivElement {
 
 /** like MuseScore's tab: the file name without extension; the score title as tooltip */
 function publishName(): void {
-    const title = score ? fileName.replace(/\.mscx?z?$/i, '') : ''
+    const title = score ? scoreBaseName(fileName) : ''
     publish({ hasScore: !!score, title, tooltip: score ? [scoreTitle(score), fileName].filter(Boolean).join(' – ') : '' })
     document.title = score ? `${title} – MuseEncore Editor` : 'MuseEncore Editor'
 }

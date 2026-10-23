@@ -36,6 +36,7 @@ export class Part extends EngravingObject {
     private m_hideWhenEmpty: AutoOnOff = AutoOnOff.AUTO
     private m_hideStavesWhenIndividuallyEmpty = false
     private m_preferSharpFlat: PreferSharpFlat = PreferSharpFlat.AUTO
+    private m_capoFret = 0
     private m_stringTunings = new SortedMap<StringTunings>()
     /** C++ public member harpDiagrams */
     harpDiagrams = new SortedMap<HarpPedalDiagram>()
@@ -389,6 +390,32 @@ export class Part extends EngravingObject {
     setLongName(s: string): void { this.instrument().setLongName(s) }
     setShortName(s: string): void { this.instrument().setShortName(s) }
 
+    setMidiProgram(program: number, bank = 0): void {
+        const c = this.instrument().channel(0)!
+        c.setProgram(program)
+        c.setBank(bank)
+    }
+
+    /** C++ setPlainLongName: setLongName(XmlWriter::xmlString(s)) */
+    setPlainLongName(s: string): void { this.setLongName(xmlString(s)) }
+    /** C++ setPlainShortName: setShortName(XmlWriter::xmlString(s)) */
+    setPlainShortName(s: string): void { this.setShortName(xmlString(s)) }
+
+    setLongNameAll(s: string): void {
+        for (const instrument of this.m_instruments.values()) {
+            instrument.setLongName(s)
+        }
+    }
+
+    setShortNameAll(s: string): void {
+        for (const instrument of this.m_instruments.values()) {
+            instrument.setShortName(s)
+        }
+    }
+
+    setPlainLongNameAll(s: string): void { this.setLongNameAll(xmlString(s)) }
+    setPlainShortNameAll(s: string): void { this.setShortNameAll(xmlString(s)) }
+
     instrumentName(tick: Fraction = new Fraction(-1, 1)): string { return this.instrument(tick).trackName() }
     instrumentId(tick: Fraction = new Fraction(-1, 1)): string { return this.instrument(tick).id() }
 
@@ -408,6 +435,19 @@ export class Part extends EngravingObject {
 
     midiChannel(): number { return this.masterScore().midiChannel(this.instrument().channel(0)!.channel()) }
     midiPort(): number { return this.masterScore().midiPort(this.instrument().channel(0)!.channel()) }
+
+    capoFret(): number { return this.m_capoFret }
+    setCapoFret(capoFret: number): void { this.m_capoFret = capoFret }
+
+    /** C++ setMidiChannel(int ch, int port = -1, const Fraction& tick = { -1, 1 }) (tick != -1 for InstrumentChange) */
+    setMidiChannel(ch: number, port = -1, tick: Fraction = new Fraction(-1, 1)): void {
+        const channel = this.instrument(tick).channel(0)!
+        if (channel.channel() === -1) {
+            this.masterScore().addMidiMapping(channel, this, port, ch)
+        } else {
+            this.masterScore().updateMidiMapping(channel, this, port, ch)
+        }
+    }
     color(): number { return this.m_color }
     setColor(v: number): void { this.m_color = v }
     hideWhenEmpty(): AutoOnOff { return this.m_hideWhenEmpty }
@@ -461,4 +501,9 @@ export class Part extends EngravingObject {
         this.score().setLayoutAll()
         return true
     }
+}
+
+/** C++ XmlWriter::xmlString (not imported to avoid an import cycle) */
+function xmlString(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }

@@ -33,6 +33,12 @@ export class SymNames {
             for (let i = 0; i < SYM_NAMES.length; ++i) {
                 s_nameToSymIdHash.set(SYM_NAMES[i], i as SymId)
             }
+            // C++ s_symNames has lastSym + 1 entries, the last one (lastSym) is empty: "" is lastSym
+            for (let i = SYM_NAMES.length; i <= SymId.lastSym; ++i) {
+                if (!s_nameToSymIdHash.has('')) {
+                    s_nameToSymIdHash.set('', i as SymId)
+                }
+            }
         }
         return s_nameToSymIdHash.get(name) ?? def
     }

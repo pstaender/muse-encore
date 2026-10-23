@@ -104,6 +104,11 @@ import { Tapping } from './tapping'
 import { SoundFlag } from './soundflag'
 import { SystemDivider } from './systemdivider'
 import { Bend } from './bend'
+import { HarmonicMark } from './harmonicmark'
+import { Rasgueado } from './rasgueado'
+import { PickScrape } from './pickscrape'
+import { DeadSlapped } from './deadslapped'
+import { TripletFeel, type TripletFeelType } from './tripletfeel'
 
 type Parent = EngravingObject | null
 
@@ -186,6 +191,11 @@ export class Factory {
         case ElementType.LET_RING: return new LetRing(itemOrDummy())
         case ElementType.LET_RING_SEGMENT: return new LetRingSegment(null, dummy().system())
         case ElementType.WHAMMY_BAR: return new WhammyBar(itemOrDummy())
+        case ElementType.RASGUEADO: return new Rasgueado(itemOrDummy())
+        case ElementType.HARMONIC_MARK: return new HarmonicMark(itemOrDummy())
+        case ElementType.PICK_SCRAPE: return new PickScrape(itemOrDummy())
+        case ElementType.DEAD_SLAPPED: return new DeadSlapped(ofType<Rest>(parent, ElementType.REST))
+        case ElementType.TRIPLET_FEEL: return new TripletFeel(segmentOrDummy())
         case ElementType.VIBRATO: return new Vibrato(itemOrDummy())
         case ElementType.GLISSANDO: return new Glissando(itemOrDummy())
         case ElementType.GRADUAL_TEMPO_CHANGE: return new GradualTempoChange(itemOrDummy())
@@ -252,6 +262,10 @@ export class Factory {
         const s = new StemSlash(parent)
         s.setScore(parent.score())
         return s
+    }
+
+    static createTripletFeel(parent: Segment, type: TripletFeelType): TripletFeel {
+        return new TripletFeel(parent, type)
     }
 
     static createTitleVBox(parent: System): VBox {

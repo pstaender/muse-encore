@@ -14,6 +14,7 @@
  */
 
 import type { ChordBracket } from '../dom/chordbracket'
+import type { MeasureRepeat } from '../dom/measurerepeat'
 import { Fraction } from '../types/fraction'
 import {
     AccidentalRole, BeamMode, BracketType, DirectionV, DurationType, ElementType, KeyMode, Key,
@@ -157,6 +158,7 @@ declare module '../dom/score' {
         getSelectedChordRests(): Set<ChordRest>
         /** C++ addRest(const Fraction& tick, ...) and addRest(Segment*, ...) */
         addRest(tickOrSegment: Fraction | Segment, track: track_idx_t, d: TDuration, tuplet: Tuplet | null): Rest
+        addMeasureRepeat(tick: Fraction, track: track_idx_t, numMeasures: number): MeasureRepeat
         addChord(tick: Fraction, d: TDuration, oc: Chord, genTie: boolean, tuplet: Tuplet | null): Chord | null
         addClone(cr: ChordRest, tick: Fraction, d: TDuration): ChordRest
         setRest(tick: Fraction, track: track_idx_t, l: Fraction, useDots: boolean, tuplet: Tuplet | null, useFullMeasureRest?: boolean): Rest | null
@@ -2498,6 +2500,16 @@ Score.prototype.getSelectedChordRests = function (this: Score): Set<ChordRest> {
  * create one Rest at tick (C++ addRest(const Fraction& tick, ...)) or in the segment (addRest(Segment*, ...)) with
  * duration d; create segment if necessary
  */
+Score.prototype.addMeasureRepeat = function (this: Score, tick: Fraction, track: track_idx_t, numMeasures: number): MeasureRepeat {
+    const measure = this.tick2measure(tick)!
+    const mr = Factory.createItem(ElementType.MEASURE_REPEAT, scoreDummy(this).segment()) as MeasureRepeat
+    mr.setNumMeasures(numMeasures)
+    mr.setTicks(measure.stretchedLen(this.staff(track2staff(track))!))
+    mr.setTrack(track)
+    this.undoAddCR(mr, measure, tick)
+    return mr
+}
+
 Score.prototype.addRest = function (this: Score, tickOrSegment: Fraction | Segment, track: track_idx_t, d: TDuration,
     tuplet: Tuplet | null): Rest {
     if (tickOrSegment instanceof Fraction) {

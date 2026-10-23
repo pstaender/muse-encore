@@ -17,7 +17,9 @@ Overview of demos: [pstaender.github.io/muse-encore](https://pstaender.github.io
 A port of [MuseScore Studio](https://github.com/musescore/MuseScore)'s source code from C++ to TypeScript, to create a
 web-native version of MuseScore that runs entirely in the browser. The engraving engine is translated file by file
 and keeps the structure, class and method names of the original, so that `.mscz`/`.mscx` files are laid out and
-rendered like in the desktop app. The reference is MuseScore Studio 4.7.5 (included as a git submodule).
+rendered like in the desktop app. MusicXML, MIDI, Capella, Guitar Pro and Power Tab files are imported like in
+MuseScore, and scores can be exported as PDF, PNG, SVG, MIDI, MusicXML and MuseScore files. The reference is MuseScore
+Studio 4.7.5 (included as a git submodule).
 
 > **MuseEncore is neither an official MuseScore project nor a fork of MuseScore.** It is an independent
 > port of MuseScore Studio's open source code and is not affiliated with or endorsed by MuseScore Limited or the

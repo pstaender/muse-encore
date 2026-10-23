@@ -43,10 +43,9 @@ export class RestLayout {
         }
 
         for (const e of item.el()) {
-            if (e.isSymbol() || e.isImage()) {
+            if (e.isSymbol() || e.isImage() || e.isDeadSlapped()) {
                 TLayout.layoutItem(e, ctx)
             }
-            // TODO(port): dead slapped
         }
 
         if (item.deadSlapped()) {

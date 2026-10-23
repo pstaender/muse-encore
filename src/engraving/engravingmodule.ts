@@ -25,7 +25,7 @@ const LEGACY_STYLE_FILES: [number, string][] = [
 ]
 
 // the other style files of the engraving resources (C++ ":/engraving/styles/..."), e.g. for the project migration
-const RESOURCE_STYLE_FILES = ['migration-306-style-Leland.mss', 'migration-306-style-Edwin.mss']
+const RESOURCE_STYLE_FILES = ['migration-306-style-Leland.mss', 'migration-306-style-Edwin.mss', 'gp-style.mss']
 const s_resourceStyles = new Map<string, string>()
 
 /** the content of a style file of the engraving resources (RESOURCE_STYLE_FILES), e.g. "migration-306-style-Leland.mss" */

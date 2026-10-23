@@ -53,6 +53,17 @@ export class StringData {
         }
     }
 
+    /** C++ StringData(int numFrets, int numStrings, int strings[], bool useFlats) */
+    static fromPitches(numFrets: number, numStrings: number, strings: readonly number[], useFlats = false): StringData {
+        const d = new StringData()
+        d.m_frets = numFrets
+        for (let i = 0; i < numStrings; i++) {
+            d.m_stringTable.push(new InstrString(strings[i], false, 0))
+        }
+        d.m_useFlats = useFlats
+        return d
+    }
+
     /** C++ StringData(int numFrets, std::vector<instrString>& strings) */
     static fromStrings(numFrets: number, strings: readonly InstrString[]): StringData {
         const d = new StringData()

@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { removeAllScores, removeScore, useScores, type ScoreEntry } from '../db'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { baseName } from '../files'
 import { qtrc, useLanguage } from '../i18n'
 import { chooseFile, dismissError, forgetScore, openStored, showNewScoreDialog, useSession } from '../session'
 import { updateSettings, useSettings } from '../settings'
@@ -35,7 +36,7 @@ function fileSize(bytes: number): string {
 
 function displayName(e: ScoreEntry): string {
     // like MuseScore: the file name without extension
-    return e.name.replace(/\.mscx?z?$/i, '')
+    return baseName(e.name)
 }
 
 function Thumbnail({ entry }: { entry: ScoreEntry }): React.JSX.Element {
@@ -179,7 +180,7 @@ export function ScoresPage(): React.JSX.Element {
                 {scores !== undefined && !scores.length && (
                     <p className="home-hint muted">
                         Scores you open or create are kept in this browser and appear here. You can also drop a
-                        .mscz or .mscx file anywhere in this window.
+                        MuseScore, MusicXML, MIDI, Capella or Guitar Pro file anywhere in this window.
                     </p>
                 )}
             </div>

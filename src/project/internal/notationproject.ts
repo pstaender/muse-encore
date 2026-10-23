@@ -4,7 +4,8 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of the score creation of src/project/internal/notationproject.cpp (NotationProject::createNew,
- * loadTemplate). Audio settings, view states, file paths and the "needs save" state are not ported.
+ * loadTemplate) and of the import of other formats (doImport). Audio settings, view states, file paths and the
+ * "needs save" state are not ported.
  */
 
 import { MasterScore } from '../../engraving/dom/masterscore'
@@ -12,6 +13,8 @@ import { MscLoader } from '../../engraving/rw/mscloader'
 import { MscReader } from '../../engraving/infrastructure/mscreader'
 import { MasterNotation } from '../../notation/internal/masternotation'
 import { ScoreCreateOptions } from '../../notation/notationtypes'
+import { NotationReadError, type NotationReaderOptions } from '../inotationreader'
+import type { NotationReadersRegister } from './notationreadersregister'
 
 export class ProjectCreateOptions {
     title = ''
@@ -97,4 +100,54 @@ export class NotationProject {
 
         return masterScore
     }
+
+    /**
+     * NotationProject::doImport: reads a file of another format (the reader of its suffix) into a new master score.
+     * The import style (notationConfiguration()->styleFileImportPath()) and unrolling repeats are not ported.
+     */
+    async doImport(readers: NotationReadersRegister, data: Uint8Array, fileName: string,
+                   options: NotationReaderOptions = {}): Promise<MasterScore> {
+        // Find import reader
+        const dot = fileName.lastIndexOf('.')
+        const suffix = dot >= 0 ? fileName.slice(dot + 1).toLowerCase() : ''
+        const scoreReader = readers.reader(suffix)
+        if (!scoreReader) {
+            throw new NotationReadError(`Unknown file type: ${fileName}`)
+        }
+
+        // Setup engraving project
+        const score = new MasterScore()
+        this.m_masterScore = score
+
+        // Init ChordList
+        score.checkChordList()
+
+        // Read (import) master score
+        await scoreReader.read(score, data, fileName, options)
+
+        // Setup master score post-reading
+        setupMasterScore(score)
+
+        score.setMetaTag('originalFormat', suffix)
+        return score
+    }
+}
+
+/** EngravingProject::setupMasterScore (without the corruption check) */
+export function setupMasterScore(masterScore: MasterScore): void {
+    // TODO(port): createPaddingTable, undoRemoveStaleTieJumpPoints
+    masterScore.connectTies()
+
+    for (const p of masterScore.parts()) {
+        p.updateHarmonyChannels(false)
+    }
+
+    masterScore.rebuildMidiMapping()
+
+    for (const s of masterScore.scoreList()) {
+        s.setPlaylistDirty()
+        s.setLayoutAll()
+    }
+
+    masterScore.updateChannel()
 }

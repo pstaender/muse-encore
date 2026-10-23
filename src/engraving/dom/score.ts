@@ -18,7 +18,7 @@ import { MStyle } from '../style/style'
 import { DefaultStyle } from '../style/defaultstyle'
 import { engravingFonts, type EngravingFont } from '../infrastructure/engravingfont'
 import { EngravingObject } from './engravingobject'
-import type { EngravingItem } from './engravingitem'
+import { itemFactories, type EngravingItem } from './engravingitem'
 import { MeasureBaseList, type MeasureBase } from './measurebase'
 import { SegmentType, type Segment } from './segment'
 import { TimeSigMap, TimeSigFrac, BeatType, SigEvent } from './sig'
@@ -2357,6 +2357,24 @@ export class Score extends EngravingObject {
     addMeasure(m: MeasureBase, pos: MeasureBase | null): void {
         m.setNext(pos)
         this.m_measures.add(m)
+    }
+
+    /** return Measure for tick; create measures (with the time signature of the sigmap) if there is no measure for this tick */
+    getCreateMeasure(tick: Fraction): Measure {
+        const last = this.lastMeasure()
+        if (!last || last.endTick().le(tick)) {
+            let lastTick = last ? last.endTick() : new Fraction(0, 1)
+            while (tick.ge(lastTick)) {
+                const m = itemFactories.createItem!(ElementType.MEASURE, this.dummySystem()) as Measure // Factory::createMeasure
+                const ts = this.sigmap().timesig(lastTick).timesig()
+                m.setTick(lastTick)
+                m.setTimesig(ts)
+                m.setTicks(ts)
+                this.measures().append(m)
+                lastTick = lastTick.plus(m.ticks())
+            }
+        }
+        return this.tick2measure(tick)!
     }
 
     tick2measure(tick: Fraction): Measure | null {

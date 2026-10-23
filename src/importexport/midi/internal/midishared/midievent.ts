@@ -20,4 +20,13 @@ export class MidiEvent extends MidiCoreEvent {
     setLen(l: number): void { this._len = l }
     metaType(): number { return this._metaType }
     setMetaType(v: number): void { this._metaType = v }
+
+    /** C++ copy (the data are copied) */
+    override clone(): MidiEvent {
+        const e = new MidiEvent(this._type, this._channel, this._a, this._b)
+        e._edata = this._edata.slice()
+        e._len = this._len
+        e._metaType = this._metaType
+        return e
+    }
 }

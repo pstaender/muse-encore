@@ -4,6 +4,7 @@
  * the last opened file and the view settings kept between sessions, the playback, MuseScore's keyboard shortcuts.
  */
 /// <reference types="vite/client" />
+import { scoreBaseName } from '../src/index'
 import { appSoundFontUrl } from '../shared/playback/soundfont'
 import { MuseEncoreViewer } from './src/museencoreviewer'
 import { clearLastFile, loadLastFile, loadSettings, saveLastFile, saveSettings } from './storage'
@@ -33,7 +34,7 @@ const viewer = new MuseEncoreViewer(app, null, {
     },
     onLoad: (info) => {
         // like MuseScore's tab: the file name without extension
-        document.title = `${info.fileName.replace(/\.mscx?z?$/i, '')} – ${APP_TITLE}`
+        document.title = `${scoreBaseName(info.fileName)} – ${APP_TITLE}`
     },
 })
 

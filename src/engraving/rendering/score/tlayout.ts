@@ -105,6 +105,8 @@ import type { HarpPedalDiagram } from '../../dom/harppedaldiagram'
 import type { Fermata } from '../../dom/fermata'
 import type { RehearsalMark } from '../../dom/rehearsalmark'
 import type { StaffText, SystemText } from '../../dom/stafftextbase'
+import type { DeadSlapped } from '../../dom/deadslapped'
+import type { TripletFeel } from '../../dom/tripletfeel'
 import type { TempoText } from '../../dom/tempotext'
 import { DynamicsLayout } from './dynamicslayout'
 import type { MMRest } from '../../dom/mmrest'
@@ -300,6 +302,11 @@ export class TLayout {
         case ElementType.PALM_MUTE_SEGMENT:
             TLayout.layoutChordTextLineBaseSegment(item as TextLineBaseSegment, Sid.palmMuteShowTabCommon, Sid.palmMuteShowTabSimple, ctx)
             break
+        case ElementType.HARMONIC_MARK_SEGMENT: TLayout.layoutHarmonicMarkSegment(item as TextLineBaseSegment, ctx); break
+        case ElementType.PICK_SCRAPE_SEGMENT: TLayout.layoutPickScrapeSegment(item as TextLineBaseSegment, ctx); break
+        case ElementType.RASGUEADO_SEGMENT: TLayout.layoutRasgueadoSegment(item as TextLineBaseSegment, ctx); break
+        case ElementType.DEAD_SLAPPED: TLayout.layoutDeadSlapped(item as DeadSlapped); break
+        case ElementType.TRIPLET_FEEL: TLayout.layoutTripletFeel(item as TripletFeel, ctx); break
         case ElementType.TEXTLINE_SEGMENT: TLayout.layoutTextLineSegment(item as TextLineSegment, ctx); break
         case ElementType.GRADUAL_TEMPO_CHANGE_SEGMENT:
             TLayout.layoutGradualTempoChangeSegment(item as GradualTempoChangeSegment, ctx)
@@ -374,8 +381,10 @@ export class TLayout {
             case ElementType.IMAGE:
                 TLayout.layoutImage(e as Image, ctx)
                 break
+            case ElementType.DEAD_SLAPPED:
+                TLayout.layoutDeadSlapped(e as DeadSlapped)
+                break
             default:
-                // TODO(port): DEAD_SLAPPED
                 break
             }
         }
@@ -496,8 +505,10 @@ export class TLayout {
             case ElementType.IMAGE:
                 TLayout.layoutImage(e as Image, ctx)
                 break
+            case ElementType.DEAD_SLAPPED:
+                TLayout.layoutDeadSlapped(e as DeadSlapped)
+                break
             default:
-                // TODO(port): DEAD_SLAPPED
                 break
             }
         }
@@ -1158,6 +1169,79 @@ export class TLayout {
         TLayout.layoutTextLineBaseSegment(item, ctx)
 
         Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    static layoutHarmonicMarkSegment(item: TextLineBaseSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        const stType = item.staffType()
+        if (stType
+            && (!stType.isTabStaff()
+                || stType.isHiddenElementOnTab(Sid.harmonicMarkShowTabCommon, Sid.harmonicMarkShowTabSimple))) {
+            ldata.setIsSkipDraw(true)
+            return
+        }
+        ldata.setIsSkipDraw(false)
+
+        TLayout.layoutTextLineBaseSegment(item, ctx)
+
+        Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    static layoutPickScrapeSegment(item: TextLineBaseSegment, ctx: LayoutContext): void {
+        const ldata = item.mutldata()
+        TLayout.layoutTextLineBaseSegment(item, ctx)
+        Autoplace.autoplaceSpannerSegment(item, ldata, ctx.conf().spatium())
+    }
+
+    static layoutRasgueadoSegment(item: TextLineBaseSegment, ctx: LayoutContext): void {
+        TLayout.layoutChordTextLineBaseSegment(item, Sid.rasgueadoShowTabCommon, Sid.rasgueadoShowTabSimple, ctx)
+    }
+
+    static layoutDeadSlapped(item: DeadSlapped): void {
+        const ldata = item.mutldata()
+        if (ldata.isValid()) {
+            return
+        }
+
+        const deadSlappedWidth = item.spatium() * 2
+        const rect = new RectF(0, 0, deadSlappedWidth, item.staff()!.staffHeight())
+        ldata.setBbox(rect)
+        ldata.setPos(new PointF())
+
+        // fillPath
+        {
+            const crossThinknessPercentage = 0.1
+            const height = rect.height()
+            const width = rect.width()
+            const crossThickness = width * crossThinknessPercentage
+
+            const topLeft = new PointF(rect.x(), rect.y())
+            const bottomRight = topLeft.plus(new PointF(width, height))
+            const topRight = topLeft.plus(new PointF(width, 0))
+            const bottomLeft = topLeft.plus(new PointF(0, height))
+            const offsetX = new PointF(crossThickness, 0)
+
+            const path1 = new PainterPath()
+            path1.moveTo(topLeft)
+            path1.lineTo(topLeft.plus(offsetX))
+            path1.lineTo(bottomRight)
+            path1.lineTo(bottomRight.minus(offsetX))
+            path1.lineTo(topLeft)
+
+            const path2 = new PainterPath()
+            path2.moveTo(topRight)
+            path2.lineTo(topRight.minus(offsetX))
+            path2.lineTo(bottomLeft)
+            path2.lineTo(bottomLeft.plus(offsetX))
+            path2.lineTo(topRight)
+
+            ldata.path1 = path1
+            ldata.path2 = path2
+        }
+    }
+
+    static layoutTripletFeel(item: TripletFeel, ctx: LayoutContext): void {
+        TLayout.layoutSystemText(item, ctx)
     }
 
     static manageTempoChangeSnapping(item: GradualTempoChangeSegment, ctx: LayoutContext): void {

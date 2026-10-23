@@ -1,7 +1,9 @@
 # museencore-viewer
 
 Show MuseScore files (`.mscz`/`.mscx`) in a web page, like an inline PDF viewer: the pages as MuseScore Studio lays
-them out, MuseScore's continuous views, zoom, printing (vector pages), full screen and playback.
+them out, MuseScore's continuous views, zoom, printing (vector pages), full screen and playback. MusicXML
+(`.musicxml`/`.xml`/`.mxl`), MIDI (`.mid`/`.midi`/`.kar`), Capella (`.cap`/`.capx`), Guitar Pro
+(`.gtp`/`.gp3`/`.gp4`/`.gp5`/`.gpx`/`.gp`) and Power Tab (`.ptb`) files are imported like MuseScore Studio's File > Open.
 
 It is based on [MuseEncore](https://github.com/pstaender/muse-encore), a TypeScript port of MuseScore Studio's
 engraving engine (reference version 4.7.5). Everything runs in the browser; no server is needed.
@@ -81,6 +83,7 @@ again when the view's size or the zoom changes.
 ```js
 await viewer.ready                 // { fileName, title, pageCount } when the score is shown
 await viewer.load('other.mscz')    // another score
+await viewer.load(blob, 'song.musicxml') // the file name's suffix selects the format
 viewer.pageCount()
 viewer.currentPage()               // 1-based
 viewer.goToPage(3)

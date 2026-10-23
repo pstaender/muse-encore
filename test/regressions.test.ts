@@ -102,9 +102,7 @@ describe('regressions', () => {
 
         const byProgram = new Instrument()
         byProgram.setTrackName('xyz')
-        const ch = new InstrChannel()
-        ch.setProgram(40) // violin
-        byProgram.appendChannel(ch)
+        byProgram.channel(0)!.setProgram(40) // violin (the default channel of the constructor, like C++)
         byProgram.updateInstrumentId()
         expect(byProgram.musicXmlId()).toBe('strings.violin')
 

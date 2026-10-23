@@ -39,6 +39,8 @@ interface Token {
     text: string
     /** for start elements: true if <x/> */
     selfClosing: boolean
+    /** the offset of the token in the document (characters; C++ byte offset) */
+    offset?: number
 }
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
@@ -77,6 +79,41 @@ export function toXmlEscaped(s: string): string {
     return r
 }
 
+/** the document's text: pugixml's encoding_auto (UTF-8, UTF-16 with or without BOM, Latin-1 named in the declaration) */
+function decodeXml(d: Uint8Array): string {
+    if (d.length >= 2) {
+        if (d[0] === 0xFF && d[1] === 0xFE) {
+            return new TextDecoder('utf-16le').decode(d)
+        }
+        if (d[0] === 0xFE && d[1] === 0xFF) {
+            return new TextDecoder('utf-16be').decode(d)
+        }
+        if (d[0] === 0x3C && d[1] === 0x00) {
+            return new TextDecoder('utf-16le').decode(d)
+        }
+        if (d[0] === 0x00 && d[1] === 0x3C) {
+            return new TextDecoder('utf-16be').decode(d)
+        }
+    }
+    if (d.length >= 5 && d[0] === 0x3C && d[1] === 0x3F) {
+        // <?xml ... encoding="latin1"/"ISO-8859-1" ?>
+        let end = 0
+        while (end < d.length && end < 256 && d[end] !== 0x3E) {
+            ++end
+        }
+        const decl = String.fromCharCode(...d.subarray(0, end))
+        const m = /encoding\s*=\s*["']([^"']+)["']/.exec(decl)
+        if (m && /^(iso-8859-1|latin1)$/i.test(m[1])) {
+            return new TextDecoder('latin1').decode(d)
+        }
+    }
+    return new TextDecoder('utf-8').decode(d)
+}
+
+function isXmlWhitespace(s: string): boolean {
+    return /^[ \t\r\n]*$/.test(s)
+}
+
 function tokenize(src: string): Token[] {
     const tokens: Token[] = []
     const n = src.length
@@ -87,12 +124,13 @@ function tokenize(src: string): Token[] {
         const lt = src.indexOf('<', i)
         if (lt < 0) {
             const text = src.slice(i)
-            if (text.length) {
+            if (text.length && !isXmlWhitespace(text)) {
                 tokens.push({ type: TokenType.Characters, name: '', attrs: [], text: decodeEntities(text), selfClosing: false })
             }
             break
         }
-        if (lt > i) {
+        // pugixml (parse_default without parse_ws_pcdata) drops text that is only white space
+        if (lt > i && !isXmlWhitespace(src.slice(i, lt))) {
             tokens.push({ type: TokenType.Characters, name: '', attrs: [], text: decodeEntities(src.slice(i, lt)), selfClosing: false })
         }
         if (src.startsWith('<!--', lt)) {
@@ -148,7 +186,7 @@ function tokenize(src: string): Token[] {
         while ((am = attrRe.exec(body)) !== null) {
             attrs.push({ name: am[1], value: decodeEntities(am[3] ?? am[4] ?? '') })
         }
-        tokens.push({ type: TokenType.StartElement, name, attrs, text: '', selfClosing })
+        tokens.push({ type: TokenType.StartElement, name, attrs, text: '', selfClosing, offset: lt })
         if (selfClosing) {
             tokens.push({ type: TokenType.EndElement, name, attrs: [], text: '', selfClosing: false })
         }
@@ -172,7 +210,11 @@ export class XmlStreamReader {
     }
 
     setData(data: string | Uint8Array | ArrayBuffer): void {
-        const s = typeof data === 'string' ? data : new TextDecoder('utf-8').decode(data)
+        let s = typeof data === 'string' ? data : decodeXml(data instanceof Uint8Array ? data : new Uint8Array(data))
+        // end-of-line handling of XML parsers (QXmlStreamReader too): \r\n and \r are read as \n
+        if (s.indexOf('\r') >= 0) {
+            s = s.replace(/\r\n?/g, '\n')
+        }
         this.m_tokens = tokenize(s.charCodeAt(0) === 0xFEFF ? s.slice(1) : s)
         this.m_pos = -1
     }
@@ -325,6 +367,11 @@ export class XmlStreamReader {
     readDouble(): number {
         const v = parseFloat(this.readText().trim())
         return Number.isNaN(v) ? 0 : v
+    }
+
+    /** C++ byteOffset(): the offset of the current start element in the document (characters here) */
+    byteOffset(): number {
+        return this.cur()?.offset ?? 0
     }
 
     error(): boolean { return this.m_error !== '' }

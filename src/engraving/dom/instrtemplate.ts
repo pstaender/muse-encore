@@ -14,7 +14,7 @@ import { TConv } from '../types/typesconv'
 import { ClefTypeList } from './clefinfo'
 import { Drumset, smDrumset } from './drumset'
 import { Interval } from './interval'
-import { StaffName, Trait, TraitType, type MidiArticulation, type StaffNameList } from './instrument'
+import { StaffName, Trait, TraitType, type Instrument, type MidiArticulation, type StaffNameList } from './instrument'
 
 export { Trait, TraitType }
 import { StaffType } from './stafftype'
@@ -345,6 +345,24 @@ export function searchTemplateForInstrNameList(nameList: readonly string[], useD
     return bestMatch // null if no matches found
 }
 
+/** C++ defaultClef(int program) */
+export function defaultClef(program: number): ClefType {
+    if (program >= 24 && program < 32) { // this are guitars
+        return ClefType.G8_VB
+    } else if (program >= 32 && program < 40) { // this is bass
+        return ClefType.F8_VB
+    }
+
+    for (const g of instrumentGroups()) {
+        for (const it of g.instrumentTemplates) {
+            if (it.channel.length && it.channel[0].bank === 0 && it.channel[0].program === program) {
+                return it.clefTypes[0].concertClef
+            }
+        }
+    }
+    return ClefType.G
+}
+
 export function searchTemplateForMidiProgram(bank: number, program: number, useDrumset: boolean): InstrumentTemplate | null {
     for (const it of instrumentTemplates()) {
         if (it.useDrumset !== useDrumset) {
@@ -385,4 +403,174 @@ export function searchTemplateIndexForId(id: string): InstrumentIndex {
         ++grpIndex
     }
     return new InstrumentIndex(-1, instIndex, null)
+}
+
+/** C++ global midiArticulations (the articulations of instruments.xml) */
+export function midiArticulations(): MidiArticulation[] {
+    return MIDI_ARTICULATION_DATA.map(([name, velocity, gateTime]) => ({ name, descr: '', velocity, gateTime }))
+}
+
+/** muse::strings::levenshteinDistance (on the UTF-8 bytes) */
+function levenshteinDistance(str1: string, str2: string): number {
+    const s1 = new TextEncoder().encode(str1)
+    const s2 = new TextEncoder().encode(str2)
+    const N1 = s1.length
+    const N2 = s2.length
+    const V: number[] = []
+    for (let i = 0; i <= N2; i++) {
+        V[i] = i
+    }
+    for (let i = 0; i < N1; i++) {
+        V[0] = i + 1
+        let corner = i
+        for (let j = 0; j < N2; j++) {
+            const upper = V[j + 1]
+            if (s1[i] === s2[j]) {
+                V[j + 1] = corner
+            } else {
+                V[j + 1] = Math.min(V[j], Math.min(upper, corner)) + 1
+            }
+            corner = upper
+        }
+    }
+    return V[N2]
+}
+
+/** C++ combinedTemplateSearch: the template best matching the instrument's names, MusicXML id, MIDI program and transposition */
+export function combinedTemplateSearch(instrument: Instrument): InstrumentTemplate | null {
+    const channel = instrument.channel(0)!
+    const bank = channel.bank()
+    const program = channel.program()
+    const transposeChromatic = instrument.transpose().chromatic
+    const transposeKey = (transposeChromatic % 12) + (transposeChromatic < 0 ? 12 : 0) // 0=C, 1=C#/Db, 2=D...
+    const trackName = instrument.trackName()
+    const traitName = instrument.trait().name
+    let musicXmlId = instrument.musicXmlId()
+
+    if (!musicXmlId && !trackName && bank === 0 && program === -1) {
+        return null // Not enough information to find a matching template.
+    }
+
+    if (!musicXmlId) {
+        if (trackName.toLowerCase().includes('drum')) {
+            musicXmlId = 'drum.group.set'
+        } else if (trackName === 'MusicXML Part' || trackName.toLowerCase().includes('piano')) {
+            musicXmlId = 'keyboard.piano'
+        }
+    } else {
+        // Workaround for old generic instrument templates.
+        if ((musicXmlId === 'wind.reed.clarinet' || musicXmlId === 'brass.trumpet')
+            && (traitName === 'B♭' || transposeKey === 10)) {
+            musicXmlId += '.bflat'
+        }
+    }
+
+    const TRACK_NAME_WEIGHT = 128
+    const LONG_NAME_WEIGHT = 64
+    const SHORT_NAME_WEIGHT = 16 // Not standardized outside MuseScore.
+    const TRAIT_NAME_WEIGHT = 4 // More reliable than transposition interval.
+    const MUSICXML_ID_WEIGHT = 32 // Not unique. Newer, more specialist IDs aren't in old files.
+    const MIDI_WEIGHT = 8 // Standardization limited to General MIDI Level 2.
+    const TRANSPOSITION_KEY_WEIGHT = 2 // Unreliable (e.g. in concert-pitch MusicXML).
+    const TRANSPOSITION_OCTAVE_WEIGHT = 1
+    const MIN_MATCH_STRENGTH = MIDI_WEIGHT
+    const INITIAL_LEVENSHTEIN_DISTANCE = Number.MAX_SAFE_INTEGER
+
+    const containsName = (list: readonly StaffName[], sn: StaffName): boolean =>
+        list.some(n => n.pos() === sn.pos() && n.name() === sn.name())
+
+    let bestMatch: InstrumentTemplate | null = null
+    let bestMatchStrength = MIN_MATCH_STRENGTH
+    let bestMatchLevDist = INITIAL_LEVENSHTEIN_DISTANCE
+
+    for (const group of instrumentGroups()) {
+        for (const templ of group.instrumentTemplates) {
+            if (templ.trait.name === '[hide]') {
+                continue
+            }
+
+            let matchStrength = 0
+
+            if (trackName && trackName === templ.trackName) {
+                matchStrength += TRACK_NAME_WEIGHT
+            }
+
+            for (const longStaffName of instrument.longNames()) {
+                if (longStaffName.name() && containsName(templ.longNames, longStaffName)) {
+                    matchStrength += LONG_NAME_WEIGHT
+                    break
+                }
+            }
+
+            for (const shortStaffName of instrument.shortNames()) {
+                if (shortStaffName.name() && containsName(templ.shortNames, shortStaffName)) {
+                    matchStrength += SHORT_NAME_WEIGHT
+                    break
+                }
+            }
+
+            if (traitName && traitName === templ.trait.name) {
+                matchStrength += TRAIT_NAME_WEIGHT
+            }
+
+            if (musicXmlId && musicXmlId === templ.musicXmlId) {
+                matchStrength += MUSICXML_ID_WEIGHT
+            }
+
+            for (const templChannel of templ.channel) {
+                if (bank === templChannel.bank && program === templChannel.program) {
+                    matchStrength += MIDI_WEIGHT
+                    break
+                }
+            }
+
+            const chromaticDiff = Math.abs(transposeChromatic - templ.transpose.chromatic)
+
+            if (chromaticDiff % 12 === 0) { // Same key.
+                matchStrength += TRANSPOSITION_KEY_WEIGHT
+            }
+
+            if (chromaticDiff < 12) { // Same octave.
+                matchStrength += TRANSPOSITION_OCTAVE_WEIGHT
+            }
+
+            if (matchStrength < bestMatchStrength) {
+                continue // Keep looking.
+            }
+
+            if (matchStrength > bestMatchStrength) {
+                bestMatch = templ
+                bestMatchStrength = matchStrength
+                bestMatchLevDist = INITIAL_LEVENSHTEIN_DISTANCE // Reset.
+            }
+
+            // Find smallest lev. dist. among templates with match strength equal to best.
+            let levDist = INITIAL_LEVENSHTEIN_DISTANCE
+
+            if (trackName) {
+                levDist = levenshteinDistance(trackName, templ.trackName)
+            }
+
+            for (const longStaffName of instrument.longNames()) {
+                const longName = longStaffName.name()
+                if (!longName) {
+                    continue
+                }
+                for (const templLongStaffName of templ.longNames) {
+                    const templLongName = templLongStaffName.name()
+                    if (!templLongName) {
+                        continue
+                    }
+                    levDist = Math.min(levDist, levenshteinDistance(longName, templLongName))
+                }
+            }
+
+            if (levDist < bestMatchLevDist) {
+                bestMatch = templ
+                bestMatchLevDist = levDist
+            }
+        }
+    }
+
+    return bestMatch
 }

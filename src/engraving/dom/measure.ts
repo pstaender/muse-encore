@@ -8,6 +8,7 @@
  */
 
 import { PointF, RectF } from '../../framework/draw/types/geometry'
+import type { Color } from '../../framework/draw/types/color'
 import { Fraction } from '../types/fraction'
 import type { PropertyValue } from '../types/propertyvalue'
 import {
@@ -2029,6 +2030,31 @@ export class Measure extends MeasureBase {
     endBarLineVisible(): boolean {
         const bl = this.endBarLine()
         return bl ? bl.visible() : true
+    }
+
+    /** C++ Measure::setEndBarLineType(BarLineType, track_idx_t, bool visible, Color) */
+    setEndBarLineType(val: BarLineType, track: track_idx_t, visible = true, color: Color | null = null): void {
+        const seg = this.undoGetSegment(SegmentType.EndBarLine, this.endTick())
+        // get existing bar line for this staff, if any
+        let bl = seg.element(track) as BarLine | null
+        if (!bl) {
+            // no suitable bar line: create a new one
+            bl = itemFactories.createItem!(ElementType.BAR_LINE, seg) as BarLine
+            bl.setParent(seg)
+            bl.setTrack(track)
+            const part = this.score().staff(Math.trunc(track / VOICES))?.part()
+            // by default, barlines for multi-staff parts should span across staves
+            if (part && part.nstaves() > 1) {
+                bl.setSpanStaff(true)
+            }
+            this.score().addElement(bl)
+        }
+        bl.setGenerated(false)
+        bl.setBarLineType(val)
+        bl.setVisible(visible)
+        if (color && color.isValid()) {
+            bl.setColor(color)
+        }
     }
 
     startBarLine(staffIdx: staff_idx_t = 0, firstStaff = true): BarLine | null {

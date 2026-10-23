@@ -4005,7 +4005,7 @@ function writeMusicXmlFiguredBassItem(item: FiguredBassItem, xml: XmlWriter, isO
 function writeMusicXmlFiguredBass(item: FiguredBass, xml: XmlWriter, isOriginalFigure: boolean, crEndTick: number, fbEndTick: number,
     writeDuration: boolean, divisions: number): void {
     let attrs: Array<[string, string | number]> = []
-    if (item.parenthesesMode() !== ParenthesesMode.NONE) {
+    if (item.hasParentheses()) { // C++ FiguredBass::parenthesesMode()
         attrs = [['parentheses', 'yes']]
     }
     if (item.placeAbove()) {

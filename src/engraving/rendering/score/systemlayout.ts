@@ -1796,7 +1796,43 @@ export class SystemLayout {
             SlurTieLayout.adjustOverlappingSlurs(system.spannerSegments())
         }
 
-        // TODO(port): harmonic mark / vibrato stacking
+        //
+        // Fix harmonic marks and vibrato overlaps
+        //
+        let prevSegment: SpannerSegment | null = null
+        let fixed = false
+
+        for (const ss of segments) {
+            if (fixed) {
+                fixed = false
+                prevSegment = ss
+                continue
+            }
+            if (prevSegment) {
+                if (prevSegment.visible()
+                    && ss.visible()
+                    && prevSegment.isHarmonicMarkSegment()
+                    && ss.isVibratoSegment()
+                    && RealIsEqual(prevSegment.x(), ss.x())) {
+                    const diff = ss.ldata().bbox().bottom() - prevSegment.ldata().bbox().bottom()
+                        + prevSegment.ldata().bbox().top()
+                    prevSegment.mutldata().moveY(diff)
+                    fixed = true
+                }
+                if (prevSegment.visible()
+                    && ss.visible()
+                    && prevSegment.isVibratoSegment()
+                    && ss.isHarmonicMarkSegment()
+                    && RealIsEqual(prevSegment.x(), ss.x())) {
+                    const diff = prevSegment.ldata().bbox().bottom() - ss.ldata().bbox().bottom()
+                        + ss.ldata().bbox().top()
+                    ss.mutldata().moveY(diff)
+                    fixed = true
+                }
+            }
+
+            prevSegment = ss
+        }
 
         //
         // add shapes to skyline

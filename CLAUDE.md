@@ -57,7 +57,8 @@ src/
                         (TextBase editing + its undo commands), editdata.ts/elementeditdata.ts (EditData: drag, grips,
                         keys); dom/paste.ts (Score::cmdPaste, pasteStaff, ...), dom/select.ts mime data; dom/range.ts
                         (ScoreRange/TrackList) for rewriting measures (time signature changes)
-  project               the export (File > Export…): ExportDialogModel, ExportProjectScenario (file names, unit types),
+  project               the import (File > Open of other formats: NotationProject.doImport, INotationReader; importScore in
+                        index.ts), the export (File > Export…): ExportDialogModel, ExportProjectScenario (file names, unit types),
                         NotationWritersRegister (the writers by suffix; MuseScore files per part are not in MuseScore)
   notation, project     MasterNotation / NotationParts / MasterNotationParts / NotationProject: creating new scores
                         (createScore), the part and staff commands of the Layout panel (editing/editpart.ts, editstaff.ts);
@@ -67,8 +68,10 @@ src/
                         ProjectMigrator / MdlMigrator: the migration of 3.x and older scores (layoutScore's `migration`
                         option; the app asks with MuseScore's migration dialog)
   importexport          imagesexport (PdfWriter on framework/draw/pdfdocument.ts + pdfpaintprovider.ts, PngWriter with
-                        pngencoder.ts drawn in strips, SvgWriter), midi (exportmidi, midifile: the MIDI file export), musicxml
-                        (exportmusicxml: the MusicXML export, .musicxml and .mxl); each with an api.ts
+                        pngencoder.ts drawn in strips, SvgWriter), midi (exportmidi, midifile: the MIDI file export and
+                        reading; midiimport: the MIDI import), musicxml (exportmusicxml: the MusicXML export, .musicxml and
+                        .mxl; import/: the MusicXML import), capella (.cap/.capx import), guitarpro (Guitar Pro 1-7 and
+                        Power Tab import); readers.ts registers the import readers (NotationReadersRegister)
   playback              IPlaybackController (set by the app; the notation scene seeks/plays through it); api.ts
   notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands),
                         PlaybackCursor, LoopMarker, ContinuousPanel (left edge of the horizontal continuous view),

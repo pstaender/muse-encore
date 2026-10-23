@@ -1393,6 +1393,18 @@ export class Chord extends ChordRest {
 
     override isGrace(): boolean { return this.m_noteType !== NoteType.NORMAL }
 
+    toGraceAfter(): void {
+        switch (this.noteType()) {
+        case NoteType.APPOGGIATURA: this.setNoteType(NoteType.GRACE8_AFTER)
+            break
+        case NoteType.GRACE16: this.setNoteType(NoteType.GRACE16_AFTER)
+            break
+        case NoteType.GRACE32: this.setNoteType(NoteType.GRACE32_AFTER)
+            break
+        default: break
+        }
+    }
+
     override isGraceBefore(): boolean {
         return (this.m_noteType & (NoteType.ACCIACCATURA | NoteType.APPOGGIATURA | NoteType.GRACE4 | NoteType.GRACE16
                                    | NoteType.GRACE32)) !== 0

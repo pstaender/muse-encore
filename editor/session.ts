@@ -6,14 +6,14 @@
  */
 import { useSyncExternalStore } from 'react'
 import {
-    createScore, drawPage, endTextEditing, isModified, layoutScore, loadScore, markSaved, markUnsaved, MigrationOptions, MigrationType, pageCount,
+    createScore, drawPage, endTextEditing, isModified, importSuffixes, layoutScore, isMuseScoreFile, markSaved, openFileAccept, openScoreFile, markUnsaved, MigrationOptions, MigrationType, pageCount,
     pageFormatSize, pageSize, saveMscz, scoreAppVersion, scoreMigrationType, scoreTitle, withPageView, type MasterScore, type NewScoreOptions,
 } from '../src/index'
 import {
     addScore, autosaveIds, contentHash, loadAutosave, loadScoreContent, openScoreId, removeAllAutosaves, removeAutosave,
     saveScoreContent, setOpenScoreId, takeLegacyLastFile, updateScore, type ScoreEntry,
 } from './db'
-import { baseName, isMsczName, msczFileName, pickFileToOpen, saveToComputer, writeFile } from './files'
+import { baseName, isMsczName, msczFileName, pickFileToOpen, saveToComputer, writeFile, type FilePickerType } from './files'
 import { arg, qtrc } from './i18n'
 import {
     clearScore, currentMasterScore, currentScore, fontsReady, handlers, hideBusy, resumeBusy, scoreChanged, scoreSaved, setScoreName, setStatus, showBusy,
@@ -254,8 +254,9 @@ async function opened(score: Omit<CurrentScore, 'id'>, store: () => Promise<stri
     return id
 }
 
-async function loadFileData(data: ArrayBuffer): Promise<MasterScore> {
-    const s = loadScore(data)
+/** a MuseScore file (loadScore) or a file of an import format (importScore), by the suffix of its name */
+async function loadFileData(data: ArrayBuffer, name: string): Promise<MasterScore> {
+    const s = await openScoreFile(data, name)
     const migration = await migrationOptions(s)
     layoutScore(s, { migration, templateFile })
     return s
@@ -318,11 +319,12 @@ export async function openFileData(name: string, data: ArrayBuffer, source: 'fil
     if (!(await closeOpenedScore())) {
         return
     }
-    const s = await load(name, () => loadFileData(data))
+    const s = await load(name, () => loadFileData(data, name))
     if (!s) {
         return
     }
-    const id = await opened({ name, newlyCreated: false, handle }, async () => addScore(
+    // an imported score is saved as a new MuseScore file (NotationProject::doImport: m_isNewlyCreated)
+    const id = await opened({ name, newlyCreated: !isMuseScoreFile(name), handle }, async () => addScore(
         { name, source, url, hash: await contentHash(data), size: data.byteLength, handle, ...entryInfo(s) },
         { data },
     ))
@@ -380,13 +382,13 @@ export async function openStored(id: string): Promise<boolean> {
         await removeAutosave(id)
         autosave = null
     }
-    // a new score that was never saved is stored as the options it was created with
-    const newlyCreated = !('data' in content)
+    // a new score that was never saved is stored as the options it was created with, an imported one as its file
+    const newlyCreated = !('data' in content) || !isMuseScoreFile(entry.name)
     const s = await load(entry.name, async () => {
         if (autosave) {
-            return unsaved(await loadFileData(autosave.data))
+            return unsaved(await loadFileData(autosave.data, msczFileName(entry.name)))
         }
-        return 'data' in content ? loadFileData(content.data) : unsaved(createScore(content.options))
+        return 'data' in content ? loadFileData(content.data, entry.name) : unsaved(createScore(content.options))
     })
     if (!s) {
         return true
@@ -628,7 +630,7 @@ export function forgetScore(id: string): void {
 
 const fileInput = document.createElement('input')
 fileInput.type = 'file'
-fileInput.accept = '.mscz,.mscx'
+fileInput.accept = openFileAccept()
 fileInput.addEventListener('change', () => {
     const f = fileInput.files?.[0]
     if (f) {
@@ -637,9 +639,27 @@ fileInput.addEventListener('change', () => {
     fileInput.value = ''
 })
 
+/** the file types of File > Open (ProjectActionsController::selectScoreOpeningFile) that are supported */
+function openFileTypes(): FilePickerType[] {
+    const supported = new Set(['mscz', 'mscx', ...importSuffixes()])
+    const type = (description: string, suffixes: string[]): FilePickerType => (
+        { description, accept: { 'application/octet-stream': suffixes.filter(s => supported.has(s)).map(s => '.' + s) } })
+    const types = [
+        type(qtrc('project', 'All supported files'), [...supported]),
+        type(qtrc('project', 'MuseScore files'), ['mscz']),
+        type(qtrc('project', 'MusicXML files'), ['mxl', 'musicxml', 'xml']),
+        type(qtrc('project', 'MIDI files'), ['mid', 'midi', 'kar']),
+        type(qtrc('project', 'Capella files'), ['cap', 'capx']),
+        type(qtrc('project', 'Guitar Pro files'), ['gtp', 'gp3', 'gp4', 'gp5', 'gpx', 'gp']),
+        type(qtrc('project', 'Power Tab Editor files (experimental)'), ['ptb']),
+        type(qtrc('project', 'Uncompressed MuseScore folders (experimental)'), ['mscx']),
+    ]
+    return types.filter(t => Object.values(t.accept)[0].length)
+}
+
 /** File > Open: with the File System Access API the file can be written back by "Save" */
 export async function chooseFile(): Promise<void> {
-    const picked = await pickFileToOpen()
+    const picked = await pickFileToOpen(openFileTypes())
     if (picked === null) {
         fileInput.click()
     } else if (picked !== 'cancel') {

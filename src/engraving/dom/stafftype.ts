@@ -250,6 +250,9 @@ export enum StaffTypes {
     TAB_7COMMON, TAB_8COMMON, TAB_9COMMON, TAB_10COMMON,
     TAB_7SIMPLE, TAB_8SIMPLE, TAB_9SIMPLE, TAB_10SIMPLE,
     STAFF_TYPES,
+    // ** predefined default staff types **
+    PERC_DEFAULT = PERC_5LINE,
+    TAB_DEFAULT = TAB_6COMMON,
 }
 
 export class StaffType {

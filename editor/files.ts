@@ -4,6 +4,8 @@
  * it, otherwise a download) and choosing files to open (with a handle, so "Save" can write the file back).
  */
 
+import { scoreBaseName } from '../src/index'
+
 // the File System Access API is not in TypeScript's DOM library yet
 export interface FilePickerType {
     description: string
@@ -20,9 +22,12 @@ interface PermissionHandle {
 
 const fsWindow = (): FsWindow => (typeof window === 'undefined' ? {} : window as unknown as FsWindow)
 
-/** the name of a score without the extension of a MuseScore file (MuseScore shows file names like this) */
+/**
+ * the name of a score without the extension of a MuseScore file or an imported file (MuseScore shows file names like
+ * this)
+ */
 export function baseName(name: string): string {
-    return name.replace(/\.mscx?z?$/i, '')
+    return scoreBaseName(name)
 }
 
 /**
@@ -108,14 +113,14 @@ export async function writeFile(handle: FileSystemFileHandle, bytes: Uint8Array)
  * Chooses a score to open with showOpenFilePicker (the handle allows writing it back); null if the API is missing
  * (then the caller uses an <input type="file">) and 'cancel' if the user cancelled.
  */
-export async function pickFileToOpen(): Promise<{ file: File; handle: FileSystemFileHandle } | 'cancel' | null> {
+export async function pickFileToOpen(types: FilePickerType[]): Promise<{ file: File; handle: FileSystemFileHandle } | 'cancel' | null> {
     const picker = fsWindow().showOpenFilePicker
     if (!picker) {
         return null
     }
     try {
         const [handle] = await picker.call(window, {
-            types: [{ description: 'MuseScore files', accept: { 'application/x-musescore': ['.mscz', '.mscx'] } }],
+            types,
         })
         return handle ? { file: await handle.getFile(), handle } : 'cancel'
     } catch (e) {

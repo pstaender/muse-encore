@@ -318,6 +318,8 @@ export class TRead {
             break
         case ElementType.LYRICSLINE: TRead.readLyricsLine(item as LyricsLine, xml, ctx); break
         case ElementType.WHAMMY_BAR: TRead.readTextLineBase(item as TextLineBase, xml, ctx); break // C++ read(TextLineBase*)
+        case ElementType.HARMONIC_MARK: TRead.readTextLineBase(item as TextLineBase, xml, ctx); break // C++ read(HarmonicMark*)
+        case ElementType.RASGUEADO: TRead.readTextLineBase(item as TextLineBase, xml, ctx); break // C++ read(Rasgueado*)
         case ElementType.VIBRATO: TRead.readVibrato(item as Vibrato, xml, ctx); break
         case ElementType.GLISSANDO: TRead.readGlissando(item as Glissando, xml, ctx); break
         case ElementType.GRADUAL_TEMPO_CHANGE: TRead.readGradualTempoChange(item as GradualTempoChange, xml, ctx); break

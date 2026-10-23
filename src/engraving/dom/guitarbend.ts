@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/guitarbend.h/.cpp
  *
- * TODO(port): editing (changeBendAmount, setEndNotePitch, fretting fixes, createEndNote, grips)
+ * TODO(port): editing (changeBendAmount, grips)
  */
 
 import { PainterPath } from '../../framework/draw/types/painterpath'
@@ -21,6 +21,10 @@ import {
 import { Sid } from '../style/styledef'
 import { RealIsEqualOrLess } from '../../framework/global/realfn'
 import { prevChordRest, nextChordRest, type Chord } from './chord'
+import type { ChordRest } from './chordrest'
+import { Accidental } from './accidental'
+import { pitch2tpc, Prefer, tpc2alter } from './pitchspelling'
+import { Transpose } from '../editing/transpose'
 import { ElementFlag, LayoutData, type EngravingItem } from './engravingitem'
 import type { ElementStyle, EngravingObject } from './engravingobject'
 import { LineSegment, SLine } from './line'
@@ -81,6 +85,127 @@ export class GuitarBend extends SLine {
             const endFret = stringData.fretForStaff(endNote.pitch() + curStaff.pitchOffset(endNote.tick()), startString, curStaff)
             endNote.undoChangeProperty(Pid.FRET, endFret)
         }
+    }
+
+    /** C++ GuitarBend::createEndNote() */
+    static createEndNote(startNote: Note, bendType: GuitarBendType = GuitarBendType.BEND): Note | null {
+        const track = startNote.track()
+        const startChord = startNote.chord()
+        const startSegment = startChord.segment()
+
+        let endSegment = startSegment.nextCR(track)
+        if (!endSegment) {
+            return null
+        }
+
+        const item = endSegment.element(track)
+        if (!item) {
+            return null
+        }
+
+        const score = startNote.score()
+        const noteVal = startNote.noteVal()
+        let endNote: Note | null = null
+
+        if (item.isRest()) {
+            const rest = item as unknown as ChordRest
+            const duration = Fraction.min(startChord.ticks(), rest.ticks())
+
+            endSegment = score.setNoteRest(endSegment, track, noteVal, duration)
+            const endChord = endSegment ? endSegment.element(track) as unknown as Chord | null : null
+            endNote = endChord ? endChord.upNote() : null
+        } else if (item.isChord()) {
+            const chord = item as unknown as Chord
+            endNote = score.addNote(chord, noteVal)
+        }
+
+        if (endNote) {
+            endNote.transposeDiatonic(bendType === GuitarBendType.BEND ? 1 : -1, true, false)
+        }
+
+        return endNote
+    }
+
+    /** C++ GuitarBend::fixNotesFrettingForGraceBend() */
+    static fixNotesFrettingForGraceBend(grace: Note, main: Note): void {
+        // The start grace-note of bend must be on the same string as the main note
+        let mainString = main.string()
+        const stringData = main.part()!.stringData(main.tick(), main.staff()!.idx())
+        const staffPitchOffset = main.staff()!.pitchOffset(main.tick())
+        let graceFret = stringData.fretForStaff(grace.pitch() + staffPitchOffset, mainString, main.staff())
+        if (graceFret > 0) {
+            // There is valid fretting
+            grace.undoChangeProperty(Pid.STRING, mainString)
+            grace.undoChangeProperty(Pid.FRET, graceFret)
+        } else {
+            // No valid fretting on this string, so it must be played on the lower string
+            mainString += 1
+            main.undoChangeProperty(Pid.STRING, mainString)
+            const mainFret = stringData.fretForStaff(main.pitch() + staffPitchOffset, mainString, main.staff())
+            main.undoChangeProperty(Pid.FRET, mainFret)
+
+            grace.undoChangeProperty(Pid.STRING, mainString)
+            graceFret = stringData.fretForStaff(grace.pitch() + staffPitchOffset, mainString, main.staff())
+            grace.undoChangeProperty(Pid.FRET, graceFret)
+        }
+    }
+
+    /** C++ GuitarBend::setEndNotePitch() */
+    setEndNotePitch(pitch: number, quarterToneOffset: number): void {
+        const note = this.endNote()
+        if (!note) {
+            return
+        }
+
+        const tick = note.tick()
+        const staff = note.staff()!
+
+        const key = staff.key(tick)
+        const interval = staff.transpose(tick).clone()
+        interval.flip()
+
+        const targetTpc1 = pitch2tpc(pitch, key, Prefer.NEAREST)
+        const targetTpc2 = Transpose.transposeTpc(targetTpc1, interval, true)
+
+        const score = this.score()
+        const doChangeEndNotePitch = (): void => {
+            score.undoChangePitch(note, pitch, targetTpc1, targetTpc2)
+            let tiedNote = note.tieFor() ? note.tieFor()!.endNote() : null
+            while (tiedNote) {
+                score.undoChangePitch(tiedNote, pitch, targetTpc1, targetTpc2)
+                tiedNote = tiedNote.tieFor() ? tiedNote.tieFor()!.endNote() : null
+            }
+        }
+
+        let linkedNoteOnNotationStaff: Note | null = null
+        for (const linked of note.linkList()) {
+            if (!(linked as Note).staffType()!.isTabStaff()) {
+                linkedNoteOnNotationStaff = linked as Note
+                break
+            }
+        }
+
+        if (linkedNoteOnNotationStaff) {
+            // Manage microtonal by setting appropriate microtonal accidentals, which will propagate to TAB staff too
+            const accidentalType = Accidental.value2MicrotonalSubtype(tpc2alter(targetTpc1), quarterToneOffset)
+            if (Accidental.isMicrotonal(accidentalType)) {
+                doChangeEndNotePitch()
+                linkedNoteOnNotationStaff.updateLine()
+                score.changeNoteAccidental(linkedNoteOnNotationStaff, accidentalType)
+            } else {
+                linkedNoteOnNotationStaff.updateLine()
+                score.changeNoteAccidental(linkedNoteOnNotationStaff, accidentalType)
+                doChangeEndNotePitch()
+            }
+        } else {
+            // Accidental logic doesn't work on TAB, so set cents offset directly
+            doChangeEndNotePitch()
+            note.undoChangeProperty(Pid.CENT_OFFSET, quarterToneOffset * 50.0)
+        }
+
+        this.computeBendAmount()
+
+        this.triggerLayout()
     }
 
     constructor(parent: EngravingObject | null) {

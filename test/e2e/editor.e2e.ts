@@ -108,6 +108,39 @@ describe.skipIf(!CHROME || !hasSubmodule)('editor', () => {
         await context.close()
     }, 180000)
 
+    it('imports MusicXML, MIDI, Capella and Guitar Pro files; Save makes a MuseScore file of them', async () => {
+        const { page, context } = await newPage()
+        const IMPORT = `${ROOT}MuseScore/src/importexport/`
+        const files: Record<string, string> = {
+            'testHello.mxl': `${IMPORT}musicxml/tests/data/testHello.mxl`,
+            'testHello.xml': `${IMPORT}musicxml/tests/data/testHello.xml`,
+            'lyrics_voice_1.mid': `${IMPORT}midi/tests/midiimport_data/lyrics_voice_1.mid`,
+            'test1.cap': `${IMPORT}capella/tests/data/test1.cap`,
+            'basic-bend.gp5': `${IMPORT}guitarpro/tests/data/basic-bend.gp5`,
+            'accent.gp': `${IMPORT}guitarpro/tests/data/accent.gp`,
+        }
+        await context.route('http://imports.test/**', route => route.fulfill({
+            body: readFileSync(files[new URL(route.request().url()).pathname.slice(1)]),
+            headers: { 'access-control-allow-origin': '*' },
+        }))
+        for (const name of Object.keys(files)) {
+            await page.goto(`${base}?url=${encodeURIComponent(`http://imports.test/${name}`)}`)
+            await scoreShown(page)
+            expect(await page.textContent('#status')).toMatch(/\d+ pages? · layout/)
+            // the name without the suffix; an imported score is not modified
+            expect(await page.textContent('#title')).toBe(name.replace(/\.[^.]+$/, ''))
+        }
+        // Save of an imported score goes through "Save as" (a new MuseScore file)
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+s')
+        await page.waitForSelector('dialog.save-score[open]')
+        await page.click('dialog.save-score button[type="submit"]')
+        await page.waitForSelector('dialog.save-score', { state: 'detached' })
+        await page.click('.app-tabs [role="tab"]:has-text("Home")')
+        expect(await cardNames(page)).toContain('accent')
+        await context.close()
+    }, 240000)
+
     it('asks about the migration of an older score (fonts Leland and Edwin) and remembers the answer', async () => {
         const { page, context } = await newPage({ askMigration: true })
         const url = `${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`

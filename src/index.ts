@@ -31,6 +31,8 @@ import { NotationProject, ProjectCreateOptions } from './project/internal/notati
 import { Sid } from './engraving/style/styledef'
 import { fontProvider } from './engraving/infrastructure/engravingcontext'
 import { MscLoader, loadScore as loadMasterScore } from './engraving/rw/mscloader'
+import { createNotationReadersRegister } from './importexport/readers'
+import { NotationReadError, type NotationReaderOptions } from './project/inotationreader'
 import { SelectDialog, SelectNoteDialog } from './notationscene/selectdialog'
 import { NoteSpellingType } from './engraving/types/types'
 import type { Harmony } from './engraving/dom/harmony'
@@ -118,6 +120,7 @@ export function setCanLayoutIcons(v: boolean): void {
 }
 export { setTranslator, mtrc, qtrc, arg, type Translator } from './framework/global/translation'
 export type { MasterScore } from './engraving/dom/masterscore'
+export { NotationReadError, type NotationReaderOptions }
 export type { Score } from './engraving/dom/score'
 export type { Part } from './engraving/dom/part'
 export type { StaffSettingsModel } from './instrumentsscene/staffsettingsmodel'
@@ -151,6 +154,47 @@ export function loadScore(data: Uint8Array | ArrayBuffer): MasterScore {
     score.setIsOpen(true) // GlobalContext::setCurrentNotation: the score is open (saved as <open>)
     score.setExcerptsChanged(false) // MasterNotation::initExcerptNotations
     return score
+}
+
+const s_notationReaders = createNotationReadersRegister()
+
+/** the suffixes of the formats importScore reads (C++ the registered INotationReaders) */
+export function importSuffixes(): string[] {
+    return s_notationReaders.suffixes()
+}
+
+/** true for .mscz/.mscx (and the backup .mscz~) files: loadScore, else importScore (C++ isMuseScoreFile) */
+export function isMuseScoreFile(fileName: string): boolean {
+    return /\.(mscz|mscx|mscz~)$/i.test(fileName)
+}
+
+/**
+ * Imports a file of another format (MusicXML, MIDI, Capella, Guitar Pro; the suffix of `fileName` selects the reader)
+ * into a new score like MuseScore's File > Open (NotationProject::doImport). Lay it out with layoutScore(). Throws a
+ * NotationReadError if the file cannot be read.
+ */
+export async function importScore(data: Uint8Array | ArrayBuffer, fileName: string, options: NotationReaderOptions = {}): Promise<MasterScore> {
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array(data)
+    const score = await new NotationProject().doImport(s_notationReaders, bytes, fileName, options)
+    score.setIsOpen(true)
+    score.setExcerptsChanged(false)
+    return score
+}
+
+/** the file types File > Open accepts (the accept attribute of a file input): MuseScore files and the import formats */
+export function openFileAccept(): string {
+    return ['mscz', 'mscx', ...importSuffixes()].map(s => '.' + s).join(',')
+}
+
+/** the name of a score file without the suffix of a MuseScore file or of an import format */
+export function scoreBaseName(fileName: string): string {
+    const m = /\.([^.]+)$/.exec(fileName)
+    return m && (isMuseScoreFile(fileName) || importSuffixes().includes(m[1].toLowerCase())) ? fileName.slice(0, m.index) : fileName
+}
+
+/** opens a MuseScore file (loadScore) or imports a file of another format (importScore) */
+export async function openScoreFile(data: Uint8Array | ArrayBuffer, fileName: string): Promise<MasterScore> {
+    return isMuseScoreFile(fileName) ? loadScore(data) : importScore(data, fileName)
 }
 
 /**

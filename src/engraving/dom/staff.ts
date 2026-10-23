@@ -127,6 +127,27 @@ export class Staff extends EngravingItem {
         this.cleanBrackets()
     }
 
+    /** C++ Staff::addBracket */
+    addBracket(b: BracketItem): void {
+        b.setStaff(this)
+        if (this.m_brackets.length && this.m_brackets[0].bracketType() === BracketType.NO_BRACKET) {
+            this.m_brackets[0] = b
+        } else {
+            //
+            // create new bracket level
+            //
+            for (const s of this.score().staves()) {
+                if (s === this) {
+                    s.m_brackets.push(b)
+                } else {
+                    const bi = createBracketItemHook(this)
+                    bi.setStaff(this)
+                    s.m_brackets.push(bi)
+                }
+            }
+        }
+    }
+
     setBracketSpan(idx: number, val: number): void {
         this.fillBrackets(idx)
         this.m_brackets[idx].setBracketSpan(val)

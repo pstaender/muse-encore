@@ -62,6 +62,8 @@ export class MScore {
     static nudgeStep50 = 0.01 // Alt  + cursor key (default 0.01)
     /** MuseScore's engraving tests: e.g. the excerpts are written into the main file */
     static testMode = false
+    /** test mode: the master score's style is written into the score (WriteScoreHook::onWriteStyle302) */
+    static testWriteStyleToScore = true
     /** C++ MScore::debugMode (e.g. the MusicXML export writes a fixed software/date and no miscellaneous fields) */
     static debugMode = false
 

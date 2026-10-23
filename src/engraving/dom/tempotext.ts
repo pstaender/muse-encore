@@ -5,7 +5,7 @@
  *
  * Port of src/engraving/dom/tempotext.h/.cpp
  *
- * TODO(port): accessibility (tempoInfo), tpSym/duration2tempoTextString
+ * TODO(port): accessibility (tempoInfo)
  */
 
 import type { PropertyValue } from '../types/propertyvalue'
@@ -70,6 +70,32 @@ const tpDurations: readonly (readonly [DurationType, number])[] = [
     [DurationType.V_1024TH, 0],
 ]
 
+/** C++ tpSym: the patterns of tp as SMuFL symbols (same order and durations as tp) */
+const tpSym: readonly string[] = [
+    '<sym>metNoteQuarterUp</sym><sym>space</sym><sym>metAugmentationDot</sym><sym>metAugmentationDot</sym>',
+    '<sym>metNoteQuarterUp</sym><sym>space</sym><sym>metAugmentationDot</sym>',
+    '<sym>metNoteQuarterUp</sym>',
+    '<sym>metNoteHalfUp</sym><sym>space</sym><sym>metAugmentationDot</sym><sym>metAugmentationDot</sym>',
+    '<sym>metNoteHalfUp</sym><sym>space</sym><sym>metAugmentationDot</sym>',
+    '<sym>metNoteHalfUp</sym>',
+    '<sym>metNote8thUp</sym><sym>space</sym><sym>metAugmentationDot</sym><sym>metAugmentationDot</sym>',
+    '<sym>metNote8thUp</sym><sym>space</sym><sym>metAugmentationDot</sym>',
+    '<sym>metNote8thUp</sym>',
+    '<sym>metNoteWhole</sym><sym>space</sym><sym>metAugmentationDot</sym>',
+    '<sym>metNoteWhole</sym>',
+    '<sym>metNote16thUp</sym><sym>space</sym><sym>metAugmentationDot</sym>',
+    '<sym>metNote16thUp</sym>',
+    '<sym>metNote32ndUp</sym><sym>space</sym><sym>metAugmentationDot</sym>',
+    '<sym>metNote32ndUp</sym>',
+    '<sym>metNoteDoubleWholeSquare</sym>',
+    '<sym>metNoteDoubleWhole</sym>',
+    '<sym>metNote64thUp</sym>',
+    '<sym>metNote128thUp</sym>',
+    '<sym>metNote256thUp</sym>',
+    '<sym>metNote512thUp</sym>',
+    '<sym>metNote1024thUp</sym>',
+]
+
 /** findTempoDuration's regexps: C++ std::regex on the UTF-8 bytes, where \s is an ASCII space */
 const durationRegexps = new Map<string, RegExp>()
 
@@ -124,6 +150,21 @@ export class TempoText extends TextBase {
             }
         }
         return { pos: -1, len: 0, dur: new TDuration() }
+    }
+
+    //---------------------------------------------------------
+    //   duration2tempoTextString
+    //    find the tempoText string representation for duration
+    //---------------------------------------------------------
+
+    static duration2tempoTextString(dur: TDuration): string {
+        for (let i = 0; i < tpSym.length; ++i) {
+            const [type, dots] = tpDurations[i]
+            if (dur.type() === type && dur.dots() === dots) {
+                return tpSym[i]
+            }
+        }
+        return ''
     }
 
     tempoTextType(): TempoTextType { return this.m_tempoTextType }

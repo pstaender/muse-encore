@@ -223,6 +223,16 @@ export class Beam extends BeamBase {
     setGrowLeft(val: number): void { this.m_growLeft = val }
     setGrowRight(val: number): void { this.m_growRight = val }
 
+    setAsFeathered(slower: boolean): void {
+        if (slower) {
+            this.undoChangeProperty(Pid.GROW_LEFT, 1.0)
+            this.undoChangeProperty(Pid.GROW_RIGHT, 0.0)
+        } else {
+            this.undoChangeProperty(Pid.GROW_LEFT, 0.0)
+            this.undoChangeProperty(Pid.GROW_RIGHT, 1.0)
+        }
+    }
+
     override reset(): void {
         if (!RealIsEqual(this.growLeft(), 1.0)) {
             this.undoChangeProperty(Pid.GROW_LEFT, 1.0)

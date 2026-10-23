@@ -4087,3 +4087,161 @@ Score.prototype.cmdResetMeasuresLayout = function (this: Score): void {
         this.undoRemoveElement(item)
     }
 }
+
+import { GuitarBend } from '../dom/guitarbend'
+import { SLine } from '../dom/line'
+import { SpannerAnchor } from '../dom/spanner'
+import { GuitarBendType } from '../types/types'
+import { Constants } from '../types/constants'
+
+declare module '../dom/score' {
+    interface Score {
+        /** C++ Score::addGuitarBend(GuitarBendType type, Note* note, Note* endNote = nullptr) */
+        addGuitarBend(type: GuitarBendType, note: Note, endNote?: Note | null): GuitarBend | null
+    }
+}
+
+Score.prototype.addGuitarBend = function (this: Score, type: GuitarBendType, note: Note, endNote: Note | null = null): GuitarBend | null {
+    if (note.isPreBendOrDiveStart()) {
+        if (type === GuitarBendType.BEND && note.staffType()!.isTabStaff()) {
+            const preBend = note.bendFor()
+            const mainNote = preBend ? preBend.endNote() : null
+            if (mainNote) {
+                return this.addGuitarBend(type, mainNote, null)
+            }
+        }
+        return null
+    }
+
+    if (note.isGraceBendStart() && type !== GuitarBendType.PRE_BEND) {
+        return null
+    }
+
+    const bendBack = note.bendBack()
+    if (bendBack && !bendBack.isDive()
+        && (type === GuitarBendType.PRE_BEND || type === GuitarBendType.GRACE_NOTE_BEND)) {
+        return null
+    }
+
+    const bendForNote = note.bendFor()
+    if (bendForNote && !bendForNote.isDive()
+        && (type === GuitarBendType.BEND || type === GuitarBendType.SLIGHT_BEND)) {
+        return null
+    }
+
+    if (type === GuitarBendType.DIP) {
+        for (const n of note.chord().notes()) {
+            const bendFor = n.bendFor()
+            if (bendFor && bendFor.bendType() === GuitarBendType.DIP) {
+                return null // Only one dip per chord
+            }
+        }
+    }
+
+    const chord = note.chord()
+    const isDive = type >= GuitarBendType.DIVE && type <= GuitarBendType.SCOOP
+
+    if (type === GuitarBendType.BEND || type === GuitarBendType.DIVE) {
+        for (const sp of note.spannerFor()) {
+            if ((sp.isGuitarBend() && (sp as GuitarBend).isDive() === isDive) || sp.isGlissando()) {
+                return null
+            }
+        }
+
+        if (!endNote) {
+            endNote = SLine.guessFinalNote(note)
+        }
+
+        let suitableEndNote = !!endNote
+        if (endNote) {
+            for (const sp of endNote.spannerBack()) {
+                if (sp.isTie() || sp.isGlissando() || (sp.isGuitarBend() && (sp as GuitarBend).isDive() === isDive)) {
+                    suitableEndNote = false
+                    break
+                }
+            }
+        }
+
+        if (!suitableEndNote) {
+            endNote = GuitarBend.createEndNote(note, type)
+        }
+
+        if (!endNote) {
+            return null
+        }
+    }
+
+    const bend = new GuitarBend(scoreDummy(this).note())
+    bend.setAnchor(SpannerAnchor.NOTE)
+    bend.setTick(chord.tick())
+    bend.setTrack(chord.track())
+
+    if (type === GuitarBendType.BEND || type === GuitarBendType.DIVE) {
+        bend.setBendType(chord.isGrace() && type === GuitarBendType.BEND ? GuitarBendType.GRACE_NOTE_BEND : type)
+        bend.setStartElement(note)
+        bend.setTick2(endNote!.tick())
+        bend.setTrack2(endNote!.track())
+        bend.setEndElement(endNote!)
+        bend.setParent(note)
+        if (type === GuitarBendType.BEND) {
+            GuitarBend.fixNotesFrettingForStandardBend(note, endNote!)
+        }
+    } else {
+        bend.setBendType(type)
+        bend.setTick2(chord.tick())
+        bend.setTrack2(chord.track())
+
+        if (type === GuitarBendType.PRE_BEND || type === GuitarBendType.GRACE_NOTE_BEND || type === GuitarBendType.PRE_DIVE) {
+            const gracesBefore = chord.graceNotesBefore()
+
+            // Create grace note
+            const graceNote = gracesBefore.empty()
+                ? this.setGraceNote(chord, note.pitch(), GraceNoteType.APPOGGIATURA, Math.trunc(Constants.DIVISION / 2))
+                : this.addNote(gracesBefore.back(), note.noteVal())
+            graceNote.transposeDiatonic(type === GuitarBendType.PRE_DIVE ? 1 : -1, true, false)
+            GuitarBend.fixNotesFrettingForGraceBend(graceNote, note)
+
+            const graceChord = graceNote.chord()
+            for (const item of graceChord.linkList()) {
+                const linkedGrace = item as Chord
+                linkedGrace.setNoStem(true)
+                linkedGrace.setBeamMode(BeamMode.NONE)
+            }
+
+            // Add bend
+            bend.setParent(graceNote)
+            bend.setStartElement(graceNote)
+            bend.setEndElement(note)
+        } else if (type === GuitarBendType.SLIGHT_BEND || type === GuitarBendType.DIP || type === GuitarBendType.SCOOP) {
+            bend.setParent(note)
+            bend.setStartElement(note)
+            // Slight bends don't end on another note
+            bend.setEndElement(note)
+        }
+    }
+
+    const startChord = bend.startNote()!.chord()
+    if (startChord.isGrace()) {
+        for (const item of startChord.linkList()) {
+            const linkedGrace = item as Chord
+            if (linkedGrace.staffType()!.isTabStaff()) {
+                linkedGrace.setNoStem(true)
+                linkedGrace.setBeamMode(BeamMode.NONE)
+            }
+        }
+    }
+
+    this.undoAddElement(bend)
+
+    const overlapping = bend.overlappingBendOrDive()
+    if (overlapping) {
+        const halfBendAmount = Math.trunc(overlapping.bendAmountInQuarterTones() / 2) // C++ integer division
+        if (bend.isDive()) {
+            bend.undoChangeProperty(Pid.GUITAR_BEND_AMOUNT, halfBendAmount)
+        } else {
+            overlapping.undoChangeProperty(Pid.GUITAR_BEND_AMOUNT, halfBendAmount)
+        }
+    }
+
+    return bend
+}

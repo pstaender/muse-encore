@@ -53,6 +53,7 @@ import { DisplayFretOption, type Note } from '../../dom/note'
 import { prevChordRest, type Chord } from '../../dom/chord'
 import type { NoteDot } from '../../dom/notedot'
 import type { Rest } from '../../dom/rest'
+import type { DeadSlapped } from '../../dom/deadslapped'
 import type { SlurTieSegment } from '../../dom/slurtie'
 import type { SlurSegment } from '../../dom/slur'
 import type { StaffLines } from '../../dom/stafflines'
@@ -206,7 +207,12 @@ export class TDraw {
         case ElementType.PALM_MUTE_SEGMENT:
         case ElementType.WHAMMY_BAR_SEGMENT:
         case ElementType.GRADUAL_TEMPO_CHANGE_SEGMENT:
+        case ElementType.HARMONIC_MARK_SEGMENT:
+        case ElementType.PICK_SCRAPE_SEGMENT:
+        case ElementType.RASGUEADO_SEGMENT:
             TDraw.drawTextLineBaseSegment(item as TextLineBaseSegment, painter, opt)
+            break
+        case ElementType.DEAD_SLAPPED: TDraw.drawDeadSlapped(item as DeadSlapped, painter, opt)
             break
         case ElementType.LYRICSLINE_SEGMENT: TDraw.drawLyricsLineSegment(item as LyricsLineSegment, painter, opt)
             break
@@ -261,6 +267,7 @@ export class TDraw {
         case ElementType.STAFF_TEXT:
         case ElementType.INSTRUMENT_CHANGE:
         case ElementType.SYSTEM_TEXT:
+        case ElementType.TRIPLET_FEEL:
         case ElementType.TEMPO_TEXT:
         case ElementType.REHEARSAL_MARK:
         case ElementType.MARKER:
@@ -1280,8 +1287,20 @@ export class TDraw {
             return
         }
         painter.setPen(item.curColor(opt))
-        // TODO(port): dead slapped rests
-        item.drawSymbol(item.ldata().sym, painter)
+        const ds = item.deadSlapped()
+        if (ds) {
+            TDraw.drawDeadSlapped(ds as DeadSlapped, painter, opt)
+        } else {
+            item.drawSymbol(item.ldata().sym, painter)
+        }
+    }
+
+    static drawDeadSlapped(item: DeadSlapped, painter: Painter, opt: PaintOptions): void {
+        const ldata = item.ldata()
+        painter.setNoPen()
+        painter.setBrush(new Brush(item.curColor(opt)))
+        painter.drawPath(ldata.path1)
+        painter.drawPath(ldata.path2)
     }
 
     static drawMeasureRepeat(item: MeasureRepeat, painter: Painter, opt: PaintOptions): void {

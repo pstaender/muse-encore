@@ -22,7 +22,7 @@ import {
 import { DurationElement } from './durationelement'
 import { TDuration } from './durationtype'
 import { EngravingItem, LayoutData } from './engravingitem'
-import { Pid } from './property'
+import { Pid, type PropertyFlags } from './property'
 import type { EngravingObject } from './engravingobject'
 import { SegmentType as SegmentTypeValue, type Segment, type SegmentType } from './segment'
 import type { BarLine } from './barline'
@@ -103,6 +103,21 @@ export abstract class ChordRest extends DurationElement {
 
     setBeamMode(m: BeamMode): void { this.m_beamMode = m }
     beamMode(): BeamMode { return this.m_beamMode }
+
+    override undoChangeProperty(id: Pid, newValue: PropertyValue, ps: PropertyFlags = this.propertyFlags(id)): void {
+        if (id === Pid.BEAM_MODE) {
+            if (this.isChord() && this.m_durationType.hooks() === 0) {
+                return
+            }
+            const newBeamMode = newValue as BeamMode
+            if ((newBeamMode === BeamMode.BEGIN16 && this.m_durationType.hooks() < 2)
+                || (newBeamMode === BeamMode.BEGIN32 && this.m_durationType.hooks() < 3)) {
+                return
+            }
+        }
+
+        super.undoChangeProperty(id, newValue, ps)
+    }
 
     setBeam(b: Beam | null): void { this.m_beam = b }
     setBeamlet(b: unknown): void { this.m_beamlet = b }
@@ -536,6 +551,7 @@ export abstract class ChordRest extends DurationElement {
         return false
     }
     addFermata(f: EngravingItem): void { this.addEl(f) }
+    removeFermata(f: EngravingItem): void { this.removeEl(f) }
 
     crossMeasure(): CrossMeasure { return this.m_crossMeasure }
     setCrossMeasure(val: CrossMeasure): void { this.m_crossMeasure = val }

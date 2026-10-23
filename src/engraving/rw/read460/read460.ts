@@ -868,12 +868,7 @@ export class Read460 {
                         e.skipCurrentElement()
                         continue
                     }
-                    const sp = Factory.createItemByName(tag, scoreDummy(score)) as unknown as Spanner | null
-                    if (!sp) {
-                        // TODO(port): spanner types not ported yet (Rasgueado, HarmonicMark, PickScrape)
-                        e.skipCurrentElement()
-                        continue
-                    }
+                    const sp = Factory.createItemByName(tag, scoreDummy(score)) as unknown as Spanner
                     sp.setTrack(destTrack)
                     TRead.readItem(sp, e, ctx)
                     sp.setTrack(destTrack)

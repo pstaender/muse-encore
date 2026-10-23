@@ -46,8 +46,19 @@ export class WriteInOutData {
 /** C++ compat::WriteScoreHook */
 class WriteScoreHook {
     onWriteStyle302(score: Score, xml: XmlWriter): void {
+        let isWriteStyle = false
+
         //! NOTE If not the master score, because the Excerpts (parts) have not yet been write to separate files
         if (!score.isMaster()) {
+            isWriteStyle = true
+        }
+
+        //! NOTE If the test mode, because the tests have not yet been adapted to the new format
+        if (MScore.testMode && MScore.testWriteStyleToScore) {
+            isWriteStyle = true
+        }
+
+        if (isWriteStyle) {
             score.style().save(xml, true) // save only differences to builtin style (logic from 3.)
         }
     }
@@ -84,8 +95,10 @@ export class Writer {
 
         xml.startElement('museScore', [['version', MSC_VERSION_STR]])
 
-        xml.tag('programVersion', PROGRAM_VERSION)
-        xml.tag('programRevision', PROGRAM_REVISION)
+        if (!MScore.testMode) {
+            xml.tag('programVersion', PROGRAM_VERSION)
+            xml.tag('programRevision', PROGRAM_REVISION)
+        }
 
         const hook = new WriteScoreHook()
         Writer.write(score, xml, ctx, hook)
@@ -193,8 +206,11 @@ export class Writer {
         // std::map: sorted by key
         const metaTags = [...score.metaTags()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
         for (const [name, value] of metaTags) {
-            // C++ does not output "platform" and "creationDate" in test and save template mode
-            xml.tag('metaTag', [['name', XmlWriter.xmlString(name)]], value)
+            // do not output "platform" and "creationDate" in test and save template mode
+            // TODO(port): MScore::saveTemplateMode
+            if (!MScore.testMode || (name !== 'platform' && name !== 'creationDate')) {
+                xml.tag('metaTag', [['name', XmlWriter.xmlString(name)]], value)
+            }
         }
 
         if (score.scoreOrder().isValid()) {

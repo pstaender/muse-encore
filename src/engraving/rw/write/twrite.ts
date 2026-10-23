@@ -11,6 +11,7 @@
  * harp pedal diagrams, string tunings, capo, sound flags, tapping, play technique annotations, ...)
  */
 
+import { MScore } from '../../dom/mscore'
 import { PointF } from '../../../framework/draw/types/geometry'
 import { isZero } from '../../../framework/global/realfn'
 import { Spatium } from '../../types/dimension'
@@ -151,6 +152,8 @@ const SYSTEM_ANNOTATION_TYPES = new Set<ElementType>([
     ElementType.VOLTA, ElementType.GRADUAL_TEMPO_CHANGE, ElementType.PLAY_COUNT_TEXT,
 ])
 
+
+
 export class TWrite {
     // ---------------------------------------------------------
     //   writeItem
@@ -233,6 +236,9 @@ export class TWrite {
         case ElementType.VIBRATO: TWrite.writeVibrato(item as Vibrato, xml, ctx); break
         case ElementType.VOLTA: TWrite.writeVolta(item as Volta, xml, ctx); break
         case ElementType.WHAMMY_BAR: TWrite.writeTextLineBaseItem(item as TextLineBase, xml, ctx); break
+        case ElementType.HARMONIC_MARK: TWrite.writeTextLineBaseItem(item as TextLineBase, xml, ctx); break
+        case ElementType.PICK_SCRAPE: TWrite.writeTextLineBaseItem(item as TextLineBase, xml, ctx); break
+        case ElementType.RASGUEADO: TWrite.writeTextLineBaseItem(item as TextLineBase, xml, ctx); break
         case ElementType.STICKING: TWrite.writeTextBaseItem(item as TextBase, xml, ctx); break // C++ write(Sticking*)
         case ElementType.PLAYTECH_ANNOTATION: TWrite.writePlayTechAnnotation(item as PlayTechAnnotation, xml, ctx); break
         case ElementType.CAPO: TWrite.writeCapo(item as Capo, xml, ctx); break
@@ -706,7 +712,16 @@ export class TWrite {
             }
         }
 
-        // C++ writes the layout beam positions (l1/l2) in test mode for regression testing
+        // this info is used for regression testing
+        // l1/l2 is the beam position of the layout engine
+        if (MScore.testMode) {
+            const spatium8 = item.spatium() * 0.125
+            for (const f of item.beamFragments()) {
+                xml.tag('l1', lrint(f.py1[idx] / spatium8))
+                xml.tag('l2', lrint(f.py2[idx] / spatium8))
+            }
+        }
+
         xml.endElement()
     }
 
@@ -946,7 +961,7 @@ export class TWrite {
 
     static writeChordRestBeam(item: ChordRest, xml: XmlWriter, ctx: WriteContext): void {
         const b = item.beam()
-        if (b && b.elements()[0] === item && !b.generated()) {
+        if (b && b.elements()[0] === item && (MScore.testMode || !b.generated())) {
             TWrite.writeBeam(b, xml, ctx)
         }
     }
@@ -1844,7 +1859,9 @@ export class TWrite {
 
             midiEventWrite(e, xml)
         }
-        xml.tag('synti', item.synti())
+        if (!MScore.testMode) {
+            xml.tag('synti', item.synti())
+        }
 
         if (part && part.masterScore().exportMidiMapping() && part.score() === part.masterScore()) {
             const mm = part.masterScore().midiMappingAt(item.channel())
@@ -2746,7 +2763,13 @@ export class TWrite {
             xml.endElement()
         }
 
-        // C++ writes the layout beam positions (l1/l2) in test mode for regression testing
+        // this info is used for regression testing
+        // l1/l2 is the beam position of the layout engine
+        if (MScore.testMode) {
+            const spatium8 = item.spatium() * 0.125
+            xml.tag('l1', lrint(item.beamFragment().py1[idx] / spatium8))
+            xml.tag('l2', lrint(item.beamFragment().py2[idx] / spatium8))
+        }
         xml.endElement()
     }
 

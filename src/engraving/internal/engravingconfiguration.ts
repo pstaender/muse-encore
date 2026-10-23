@@ -28,11 +28,20 @@ let s_formattingColor = Color.fromString('#C31989')
 const s_scoreInversionColor = new Color(220, 220, 220)
 // C++: uiConfiguration() != nullptr, i.e. not in the converter; here set by an app that shows unprintable items
 let s_canLayoutIcons = false
+// C++ guitarProConfiguration()->experimental() (set by the Guitar Pro import) and m_multiVoice
+let s_guitarProImportExperimental = false
+let s_guitarProMultivoiceEnabled = false
 
 export class EngravingConfiguration {
     /** layout break (and indicator) icons are laid out (and drawn when not printing) */
     static canLayoutIcons(): boolean { return s_canLayoutIcons }
     static setCanLayoutIcons(v: boolean): void { s_canLayoutIcons = v }
+    /** C++ guitarProImportExperimental(): guitarProConfiguration()->experimental() */
+    static guitarProImportExperimental(): boolean { return s_guitarProImportExperimental }
+    static setGuitarProImportExperimental(v: boolean): void { s_guitarProImportExperimental = v }
+    static negativeFretsAllowed(): boolean { return EngravingConfiguration.guitarProImportExperimental() }
+    static setGuitarProMultivoiceEnabled(multiVoice: boolean): void { s_guitarProMultivoiceEnabled = multiVoice }
+    static guitarProMultivoiceEnabled(): boolean { return s_guitarProMultivoiceEnabled }
     static iconsFontFamily(): string { return 'MusescoreIcon' }
     static defaultColor(): Color { return Color.BLACK }
     static scoreInversionColor(): Color { return s_scoreInversionColor }

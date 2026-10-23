@@ -334,25 +334,17 @@ export class TDuration {
 export function toDurationList(l: Fraction, useDots: boolean, maxDots = 4, printRestRemains = true): TDuration[] {
     void printRestRemains
     const dList: TDuration[] = []
-    if (useDots) {
-        for (let dt = new TDuration(DurationType.V_LONG); dt.isValid() && l.numerator() !== 0;) {
-            const d = new TDuration(l, true, maxDots, dt.type())
-            if (!d.isValid()) {
-                break
-            }
-            dList.push(d)
-            l = l.minus(d.fraction())
-            dt = d.shift(1)
-        }
-    } else {
-        for (let dt = new TDuration(DurationType.V_LONG); dt.isValid() && l.numerator() !== 0; dt = dt.shift(1)) {
-            const f = dt.fraction()
-            while (l.ge(f)) {
-                dList.push(dt.clone())
-                l = l.minus(f)
-            }
-        }
+
+    if (!useDots) {
+        maxDots = 0
     }
+
+    for (let dd = new TDuration(l, true, maxDots); dd.isValid() && l.numerator() > 0;
+        dd = new TDuration(l, true, maxDots, dd.type())) {
+        dList.push(dd)
+        l = l.minus(dd.fraction())
+    }
+
     return dList
 }
 

@@ -342,7 +342,12 @@ export class Instrument {
     private m_trait = new Trait()
     private m_glissandoStyle = GlissandoStyle.CHROMATIC
 
-    constructor(private m_id = '') {}
+    constructor(private m_id = '') {
+        // C++ Instrument(String id): a default channel
+        const a = new InstrChannel()
+        a.setName(InstrChannel.DEFAULT_NAME)
+        this.m_channel.push(a)
+    }
 
     static fromTemplate(templ: InstrumentTemplate): Instrument {
         const instrument = new Instrument(templ.id)
@@ -379,6 +384,9 @@ export class Instrument {
             const ch = new InstrChannel()
             ch.setName(c.name)
             ch.setBank(c.bank)
+            // C++ TRead of the template's <controller ctrl="0"/"32"> sets the user bank controller; all bank
+            // controllers of instruments.xml have non-zero values, so this is the case for a bank != 0
+            ch.setUserBankController(c.bank !== 0)
             ch.setProgram(c.program)
             instrument.m_channel.push(ch)
         }
@@ -441,6 +449,7 @@ export class Instrument {
     addMidiAction(a: NamedEventList): void { this.m_midiActions.push(a) }
     articulation(): readonly MidiArticulation[] { return this.m_articulation }
     addMidiArticulation(a: MidiArticulation): void { this.m_articulation.push(a) }
+    setArticulation(l: readonly MidiArticulation[]): void { this.m_articulation = l.map(a => ({ ...a })) }
 
     midiAction(s: string, channelIdx: number): NamedEventList | null {
         // first look in channel list
@@ -618,7 +627,7 @@ export class Instrument {
 
     id(): string { return this.m_id }
     stringData(): StringData { return this.m_stringData }
-    setStringData(d: StringData): void { this.m_stringData = d }
+    setStringData(d: StringData): void { this.m_stringData.set(d) }
     singleNoteDynamics(): boolean { return this.m_singleNoteDynamics }
     isPrimary(): boolean { return this.m_isPrimary }
     setIsPrimary(isPrimary: boolean): void { this.m_isPrimary = isPrimary }

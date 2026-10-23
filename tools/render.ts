@@ -7,11 +7,11 @@
  *   view modes: page (default), continuous-horizontal, continuous-vertical, fit-width
  */
 import { readFileSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createCanvas, loadImage } from '@napi-rs/canvas'
 import {
-    drawPage, drawPageSvg, hasPendingImages, imagesDecoded, initEngravingFonts, layoutScore, loadScore, pageCount, pageSize,
+    drawPage, drawPageSvg, hasPendingImages, imagesDecoded, initEngravingFonts, layoutScore, openScoreFile, pageCount, pageSize,
     setImageDecoder, setViewMode, type ViewMode,
 } from '../src/index'
 
@@ -23,7 +23,8 @@ export async function renderScore(file: string, outPrefix: string, dpi: number |
     await initEngravingFonts(async (p) => readFileSync(join(FONTS_DIR, p)))
     // images of the score (decoded asynchronously, the page is drawn again when they are available)
     setImageDecoder(pm => loadImage(Buffer.from(pm.data)))
-    const score = loadScore(readFileSync(file))
+    // MuseScore files or imported formats (MusicXML, MIDI, ...)
+    const score = await openScoreFile(readFileSync(file), basename(file))
     layoutScore(score)
     setViewMode(score, viewMode, width)
     const out: string[] = []
