@@ -4,13 +4,13 @@
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of src/instrumentsscene/qml/MuseScore/InstrumentsScene/internal/parttreeitem.h/.cpp
- * TODO(port): replaceInstrument, resetAllFormatting, createAndAddPart (parts of excerpts; there are no excerpts yet)
+ * replaceInstrument and the question of resetAllFormatting are the app's (the instrument settings popup).
  */
 
 import type { Part } from '../engraving/dom/part'
 import type { Score } from '../engraving/dom/score'
 import {
-    AbstractLayoutPanelTreeItem, InsertMode, MoveParams, partById, type LayoutPanelNotationParts,
+    AbstractLayoutPanelTreeItem, InsertMode, MoveParams, partById, type LayoutPanelNotation,
 } from './abstractlayoutpaneltreeitem'
 import { LayoutPanelItemType } from './layoutpanelitemtype'
 
@@ -25,8 +25,8 @@ export class PartTreeItem extends AbstractLayoutPanelTreeItem {
     private m_partExists = false
     private m_ignoreVisibilityChange = true
 
-    constructor(score: Score, parts: LayoutPanelNotationParts | null) {
-        super(LayoutPanelItemType.PART, score, parts)
+    constructor(masterNotation: LayoutPanelNotation, notation: LayoutPanelNotation) {
+        super(LayoutPanelItemType.PART, masterNotation, notation)
         this.setIsSelectable(true)
     }
 
@@ -74,8 +74,65 @@ export class PartTreeItem extends AbstractLayoutPanelTreeItem {
         }
         if (partById(this.score(), this.id())) {
             parts.setPartVisible(this.id(), isVisible)
+        } else if (isVisible) {
+            this.createAndAddPart(this.id())
         }
-        // TODO(port): else createAndAddPart (only for parts of excerpts)
+    }
+
+    private createAndAddPart(masterPartId: string): void {
+        const masterPart = partById(this.masterScore(), masterPartId)
+        if (!masterPart) {
+            return
+        }
+
+        const index = this.resolveNewPartIndex(masterPartId)
+
+        this.notationParts()?.insertPart(masterPart.clone(), index)
+    }
+
+    private resolveNewPartIndex(partId: string): number {
+        const parent = this.parentItem()
+        if (!parent) {
+            return 0
+        }
+
+        let partFound = false
+        let firstVisiblePartId = ''
+
+        for (const item of parent.childItems()) {
+            if (item.id() === partId) {
+                partFound = true
+                continue
+            }
+
+            if (!partFound) {
+                continue
+            }
+
+            if (item.isVisible()) {
+                firstVisiblePartId = item.id()
+                break
+            }
+        }
+
+        const parts = this.score().parts()
+
+        for (let i = 0; i < parts.length; ++i) {
+            if (parts[i].id() === firstVisiblePartId) {
+                return i
+            }
+        }
+
+        return parts.length
+    }
+
+    /** PartTreeItem::resetAllFormatting after the user confirmed the question (the app asks) */
+    resetAllFormatting(): void {
+        const masterPart = partById(this.masterScore(), this.id())
+        if (!masterPart) {
+            return
+        }
+        this.notationParts()?.replacePart(this.id(), masterPart.clone())
     }
 
     override buildMoveParams(sourceRow: number, count: number, destinationParent: AbstractLayoutPanelTreeItem, destinationRow: number): MoveParams {
@@ -126,7 +183,7 @@ export class PartTreeItem extends AbstractLayoutPanelTreeItem {
         super.removeChildren(row, count, deleteChild)
 
         if (deleteChild) {
-            this.notationParts()?.removeStaves(stavesIds)
+            this.masterNotationParts()?.removeStaves(stavesIds)
         }
     }
 

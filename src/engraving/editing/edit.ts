@@ -7524,8 +7524,26 @@ Score.prototype.cmdTimeDelete = function (this: Score): void {
         endSegment = this.selection().endSegment()
     }
 
-    // TODO(port): parts (!isMaster(): the time is deleted in the master score)
-    this.doTimeDelete(startSegment!, endSegment)
+    if (!this.isMaster() && this.masterScore()) {
+        const startTick = startSegment!.tick()
+        const masterStartMeas = this.masterScore().tick2measure(startTick)!
+        const masterStartSeg = masterStartMeas.findSegment(startSegment!.segmentType(), startSegment!.tick())
+        let masterEndSeg: Segment | null = null
+
+        if (endSegment) {
+            const endTick = endSegment.tick()
+            let masterEndMeas = this.masterScore().tick2measure(endTick)!
+            if (endSegment.isEndBarLineType()) {
+                const prevMasterEndMeasure = masterEndMeas.prevMeasure()
+                masterEndMeas = prevMasterEndMeasure ? prevMasterEndMeasure : masterEndMeas
+            }
+            masterEndSeg = masterEndMeas.findSegment(endSegment.segmentType(), endSegment.tick())
+        }
+
+        this.masterScore().doTimeDelete(masterStartSeg!, masterEndSeg)
+    } else {
+        this.doTimeDelete(startSegment!, endSegment)
+    }
 
     if (this.noteEntryMode()) {
         let currentSegment = endSegment

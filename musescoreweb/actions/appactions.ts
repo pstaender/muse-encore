@@ -27,6 +27,7 @@ import { openEditStyleDialog } from '../dialogs/EditStyleDialog'
 import { openSelectMeasuresCountDialog } from '../dialogs/SelectMeasuresCountDialog'
 import { openPageSettingsDialog } from '../dialogs/PageSettingsDialog'
 import { openBreaksDialog } from '../dialogs/BreaksDialog'
+import { canCustomizeKit, openCustomizeKitDialog } from '../dialogs/CustomizeKitDialog'
 import { loadStyle, saveStyle } from '../stylefiles'
 import { showSearchPopup } from '../components/SearchPopup'
 import { openProjectPropertiesDialog } from '../dialogs/ProjectPropertiesDialog'
@@ -75,6 +76,10 @@ export function registerAppActions(): void {
     registerAction('find', { run: showSearchPopup, enabled: scoreShown, context: 'notation' })
     registerAction('page-settings', { run: openPageSettingsDialog, enabled: scoreShown, context: 'notation' })
     registerAction('measures-per-system', { run: openBreaksDialog, enabled: scoreShown, context: 'notation' })
+    // PaletteActionsController::openCustomizeKitDialog (a drum staff in the context menu or the note input)
+    registerAction('customize-kit', {
+        run: openCustomizeKitDialog, enabled: () => scoreShown() && canCustomizeKit(currentScore()), context: 'notation',
+    })
     registerAction('load-style', { run: () => void loadStyle(), enabled: scoreShown, context: 'notation' })
     registerAction('save-style', { run: () => void saveStyle(), enabled: scoreShown, context: 'notation' })
     // NotationActionController::openRealizeChordSymbolsDialog

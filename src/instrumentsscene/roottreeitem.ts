@@ -9,7 +9,7 @@
 import type { Score } from '../engraving/dom/score'
 import type { Staff } from '../engraving/dom/staff'
 import {
-    AbstractLayoutPanelTreeItem, InsertMode, MoveParams, partById, staffById, type LayoutPanelNotationParts,
+    AbstractLayoutPanelTreeItem, InsertMode, MoveParams, partById, staffById, type LayoutPanelNotation,
 } from './abstractlayoutpaneltreeitem'
 import { LayoutPanelItemType } from './layoutpanelitemtype'
 import type { PartTreeItem } from './parttreeitem'
@@ -20,8 +20,8 @@ function isIndexInRange(index: number, start: number, end: number): boolean {
 }
 
 export class RootTreeItem extends AbstractLayoutPanelTreeItem {
-    constructor(score: Score, parts: LayoutPanelNotationParts | null) {
-        super(LayoutPanelItemType.ROOT, score, parts)
+    constructor(masterNotation: LayoutPanelNotation, notation: LayoutPanelNotation) {
+        super(LayoutPanelItemType.ROOT, masterNotation, notation)
     }
 
     override buildMoveParams(sourceRow: number, count: number, destinationParent: AbstractLayoutPanelTreeItem, destinationRow: number): MoveParams {
@@ -102,8 +102,8 @@ export class RootTreeItem extends AbstractLayoutPanelTreeItem {
         }
 
         if (deleteChild) {
-            this.notationParts()?.removeParts(partIds)
-            this.notationParts()?.removeSystemObjects(stavesIds)
+            this.masterNotationParts()?.removeParts(partIds)
+            this.masterNotationParts()?.removeSystemObjects(stavesIds)
         }
 
         super.removeChildren(row, count, deleteChild)

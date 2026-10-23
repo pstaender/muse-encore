@@ -6,7 +6,7 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { qtrc, useLanguage } from '../i18n'
 
-export type MessageButton = 'ok' | 'cancel' | 'yes' | 'no'
+export type MessageButton = 'ok' | 'cancel' | 'yes' | 'no' | 'ignore'
 
 interface Message {
     key: number
@@ -43,7 +43,7 @@ function MessageBox({ message }: { message: Message }): React.JSX.Element {
             onClose={() => {
                 const v = ref.current?.returnValue
                 setMessage(null)
-                message.resolve(v === 'ok' || v === 'yes' || v === 'no' ? v : message.buttons.includes('no') ? 'no' : 'cancel')
+                message.resolve(v === 'ok' || v === 'yes' || v === 'no' || v === 'ignore' ? v : message.buttons.includes('no') ? 'no' : 'cancel')
             }}>
             <p id="message-box-text"><strong>{message.text}</strong></p>
             {message.detail && <p>{message.detail}</p>}
@@ -51,6 +51,7 @@ function MessageBox({ message }: { message: Message }): React.JSX.Element {
                 {message.buttons.includes('no') && <button className="secondary" value="no">{qtrc('global', 'No')}</button>}
                 {message.buttons.includes('yes') && <button className="primary" value="yes" autoFocus>{qtrc('global', 'Yes')}</button>}
                 {message.buttons.includes('cancel') && <button className="secondary" value="cancel">{qtrc('global', 'Cancel')}</button>}
+                {message.buttons.includes('ignore') && <button className="secondary" value="ignore">{qtrc('global', 'Ignore')}</button>}
                 {message.buttons.includes('ok') && <button className="primary" value="ok" autoFocus>{qtrc('global', 'OK')}</button>}
             </form>
         </dialog>

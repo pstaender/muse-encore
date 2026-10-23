@@ -5,9 +5,7 @@
  *
  * Port of src/engraving/editing/editpart.h/.cpp: the part undo commands and EditPart (the part and staff editing
  * functions of the Layout panel / NotationParts).
- * TODO(port): ChangeInstrumentLong/Short, SetUserBankController and the EditPart functions that use
- * them (setInstrumentName, setInstrumentAbbreviature, setStaffType, replaceDrumset); appendLinkedStaff
- * and setVoiceVisible (Excerpt::cloneStaff, excerpts); insertPart/replacePart from a template.
+ * TODO(port): SetUserBankController; insertPart/replacePart from a template.
  */
 
 import { AutoOnOff, ElementType, PreferSharpFlat, staff2track } from '../types/types'
@@ -26,13 +24,13 @@ import type { Score } from '../dom/score'
 import type { ScoreOrder } from '../dom/scoreorder'
 import type { Staff } from '../dom/staff'
 import type { EditData } from './editdata'
-import { Instrument, type InstrChannel } from '../dom/instrument'
+import { Instrument, StaffName, type InstrChannel, type StaffNameList } from '../dom/instrument'
 import type { MidiPatch } from '../compat/midi/midipatch'
 import { Drumset } from '../dom/drumset'
 import { Fraction } from '../types/fraction'
 import { SegmentType } from '../dom/segment'
 import type { InstrumentChange } from '../dom/instrchange'
-import type { StaffType } from '../dom/stafftype'
+import { StaffType, type StaffTypes } from '../dom/stafftype'
 import { Transpose } from './transpose'
 import { StringData } from '../dom/stringdata'
 import { stringTuningsHooks, type StringTunings } from '../dom/stringtunings'
@@ -217,6 +215,44 @@ export class ChangePatch extends UndoCommand {
 //   ChangeDrumset
 // ---------------------------------------------------------
 
+// ---------------------------------------------------------
+//   ChangeInstrumentLong / ChangeInstrumentShort
+// ---------------------------------------------------------
+
+export class ChangeInstrumentLong extends UndoCommand {
+    constructor(private tick: Fraction, private part: Part, private text: StaffNameList) {
+        super()
+    }
+
+    override type(): CommandType { return CommandType.ChangeInstrumentLong }
+    override name(): string { return 'ChangeInstrumentLong' }
+    override objectItems(): EngravingObject[] { return [this.part] }
+
+    protected override flip(_ed: EditData | null): void {
+        const s = this.part.longNames(this.tick)
+        this.part.setLongNames(this.text, this.tick)
+        this.text = s
+        this.part.score().setLayoutAll()
+    }
+}
+
+export class ChangeInstrumentShort extends UndoCommand {
+    constructor(private tick: Fraction, private part: Part, private text: StaffNameList) {
+        super()
+    }
+
+    override type(): CommandType { return CommandType.ChangeInstrumentShort }
+    override name(): string { return 'ChangeInstrumentShort' }
+    override objectItems(): EngravingObject[] { return [this.part] }
+
+    protected override flip(_ed: EditData | null): void {
+        const s = this.part.shortNames(this.tick)
+        this.part.setShortNames(this.text, this.tick)
+        this.text = s
+        this.part.score().setLayoutAll()
+    }
+}
+
 export class ChangeDrumset extends UndoCommand {
     private drumset: Drumset
 
@@ -340,6 +376,64 @@ export class EditPart {
         }
 
         staff.undoChangeProperty(Pid.VISIBLE, visible)
+    }
+
+    static replaceDrumset(score: Score | null, part: Part | null, tick: Fraction, newDrumset: Drumset): void {
+        if (!score || !part) {
+            return
+        }
+
+        const instrument = part.instrument(tick)
+        if (instrument) {
+            score.undo(new ChangeDrumset(instrument, newDrumset, part))
+        }
+    }
+
+    static setInstrumentName(score: Score | null, part: Part | null, tick: Fraction, name: string): void {
+        if (!score || !part) {
+            return
+        }
+
+        score.undo(new ChangeInstrumentLong(tick, part, [new StaffName(name, 0)]))
+    }
+
+    static setInstrumentAbbreviature(score: Score | null, part: Part | null, tick: Fraction, abbreviature: string): void {
+        if (!score || !part) {
+            return
+        }
+
+        score.undo(new ChangeInstrumentShort(tick, part, [new StaffName(abbreviature, 0)]))
+    }
+
+    /** the voice of a staff of an excerpt shown or hidden (Excerpt::setVoiceVisible); false if not possible */
+    static setVoiceVisible(score: Score | null, staff: Staff | null, voiceIndex: number, visible: boolean): boolean {
+        if (!score || !staff) {
+            return false
+        }
+
+        if (!score.excerpt()) {
+            return false
+        }
+
+        if (!visible && !staff.canDisableVoice()) {
+            return false
+        }
+
+        score.excerpt()!.setVoiceVisible(staff, voiceIndex, visible)
+        return true
+    }
+
+    static setStaffType(score: Score | null, staff: Staff | null, typeId: StaffTypes): void {
+        if (!score || !staff) {
+            return
+        }
+
+        const staffType = StaffType.preset(typeId)
+        if (!staffType) {
+            return
+        }
+
+        score.undo(new ChangeStaffType(staff, staffType))
     }
 
     static removeParts(score: Score | null, parts: readonly Part[]): void {

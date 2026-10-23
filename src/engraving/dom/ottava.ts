@@ -130,6 +130,8 @@ export class OttavaSegment extends TextLineBaseSegment {
 }
 
 export class Ottava extends TextLineBase {
+    override canBeExcludedFromOtherParts(): boolean { return true }
+
     private m_ottavaType = OttavaType.OTTAVA_8VA
     private m_numbersOnly = false
 

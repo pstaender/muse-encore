@@ -785,6 +785,15 @@ export class Staff extends EngravingItem {
         this.m_visibilityVoices = voices
     }
 
+    undoSetShowMeasureNumbers(show: boolean): void {
+        const isTopStave = this.score().staves()[0] === this
+        if (show) {
+            this.undoChangeProperty(Pid.SHOW_MEASURE_NUMBERS, isTopStave ? AutoOnOff.AUTO : AutoOnOff.ON)
+        } else {
+            this.undoChangeProperty(Pid.SHOW_MEASURE_NUMBERS, isTopStave ? AutoOnOff.OFF : AutoOnOff.AUTO)
+        }
+    }
+
     shouldShowMeasureNumbers(): boolean {
         const placementMode = this.style().styleV(Sid.measureNumberPlacementMode) as MeasureNumberPlacement
         switch (placementMode) {

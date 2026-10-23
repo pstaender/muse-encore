@@ -8,14 +8,12 @@
  * NotationInteraction); without an interaction (creating a score) the changes are applied directly.
  * The notifications (partList()/staffList() NotifyLists, partsChanged, ...) are not ported: the UI reloads the
  * Layout panel's tree after every change.
- * TODO(port): setInstrumentName, setInstrumentAbbreviature, setVoiceVisible, setStaffType,
- * setStaffConfig (other than the visibility), replacePart, replaceDrumset, insertPart/doInsertPart (parts from another
- * score), EditSystemLocks::removeSystemLocksContainingMMRests (system locks)
+ * TODO(port): the notifications of replaceDrumset (noteInput()->stateChanged())
  */
 
 import { Fraction } from '../../engraving/types/fraction'
 import { Factory } from '../../engraving/dom/factory'
-import { Instrument } from '../../engraving/dom/instrument'
+import { Instrument, StaffName } from '../../engraving/dom/instrument'
 import { MAX_STAVES, TraitType, type InstrumentTemplate, type Trait } from '../../engraving/dom/instrtemplate'
 import { KeyList } from '../../engraving/dom/key'
 import { Part } from '../../engraving/dom/part'
@@ -36,6 +34,9 @@ import '../../engraving/editing/edit'
 import { Excerpt } from '../../engraving/dom/excerpt'
 import { Link } from '../../engraving/editing/addremoveelement'
 import { AddPartToExcerpt } from '../../engraving/editing/editexcerpt'
+import { EditSystemLocks } from '../../engraving/editing/editsystemlocks'
+import { InstrumentList } from '../../engraving/dom/instrument'
+import type { Drumset } from '../../engraving/dom/drumset'
 
 /** INotationParts::InsertMode */
 export enum InsertMode {
@@ -152,7 +153,7 @@ export class NotationParts {
         EditPart.setPartVisible(this.score(), part, visible)
 
         if (visible) {
-            // TODO(port): EditSystemLocks::removeSystemLocksContainingMMRests(score())
+            EditSystemLocks.removeSystemLocksContainingMMRests(this.score())
         }
 
         this.apply()
@@ -227,8 +228,124 @@ export class NotationParts {
         this.doSetStaffConfig(staff, config)
 
         if (visible) {
-            // TODO(port): EditSystemLocks::removeSystemLocksContainingMMRests(score())
+            EditSystemLocks.removeSystemLocksContainingMMRests(this.score())
         }
+
+        this.apply()
+    }
+
+    setInstrumentName(instrumentKey: InstrumentKey, name: string): void {
+        const part = this.partModifiable(instrumentKey.partId)
+        if (!part) {
+            return
+        }
+
+        const instrument = part.instrument(instrumentKey.tick)
+        if (!instrument) {
+            return
+        }
+
+        const names = instrument.longNames()
+        const newName = new StaffName(name, 0)
+        if (names.length === 1 && names[0].name() === newName.name() && names[0].pos() === newName.pos()) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Set instrument name'))
+
+        EditPart.setInstrumentName(this.score(), part, instrumentKey.tick, name)
+
+        this.apply()
+    }
+
+    setInstrumentAbbreviature(instrumentKey: InstrumentKey, abbreviature: string): void {
+        const part = this.partModifiable(instrumentKey.partId)
+        if (!part) {
+            return
+        }
+
+        const instrument = part.instrument(instrumentKey.tick)
+        if (!instrument) {
+            return
+        }
+
+        if (instrument.abbreviatureAsPlainText() === abbreviature) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Set abbreviated instrument name'))
+
+        EditPart.setInstrumentAbbreviature(this.score(), part, instrumentKey.tick, abbreviature)
+
+        this.apply()
+    }
+
+    /** the drumset of the part's instruments with the key's id (CustomizeKitDialog); undoable or set directly */
+    replaceDrumset(instrumentKey: InstrumentKey, newDrumset: Drumset, undoable = true): void {
+        const part = this.partModifiable(instrumentKey.partId)
+        if (!part) {
+            return
+        }
+
+        const instruments = part.instruments()
+        if (undoable) {
+            this.startEdit(new TranslatableString('undoableAction', 'Edit drumset'))
+
+            for (let i = 0; i < instruments.size(); ++i) {
+                const instrument = instruments.valueAt(i)
+                if (instrument && instrument.drumset() && instrument.id() === instrumentKey.instrumentId) {
+                    EditPart.replaceDrumset(this.score(), part, Fraction.fromTicks(instruments.keyAt(i)), newDrumset)
+                }
+            }
+
+            this.apply()
+        } else {
+            for (let i = 0; i < instruments.size(); ++i) {
+                const instrument = instruments.valueAt(i)
+                if (instrument && instrument.drumset() && instrument.id() === instrumentKey.instrumentId) {
+                    instrument.setDrumset(newDrumset)
+                }
+            }
+        }
+    }
+
+    /** shows or hides a voice of a staff of an excerpt (Excerpt::setVoiceVisible); false if not possible */
+    setVoiceVisible(staffId: string, voiceIndex: number, visible: boolean): boolean {
+        const staff = this.staffModifiable(staffId)
+        if (!staff) {
+            return false
+        }
+
+        const actionName = visible
+            ? new TranslatableString('undoableAction', 'Show voice %1').arg(voiceIndex + 1)
+            : new TranslatableString('undoableAction', 'Hide voice %1').arg(voiceIndex + 1)
+
+        this.startEdit(actionName)
+
+        const result = EditPart.setVoiceVisible(this.score(), staff, voiceIndex, visible)
+        if (!result) {
+            this.rollback()
+            return false
+        }
+
+        this.apply()
+
+        return true
+    }
+
+    setStaffType(staffId: string, type: StaffTypes): void {
+        const staff = this.staffModifiable(staffId)
+        const staffType = StaffType.preset(type)
+
+        if (!staff || !staffType) {
+            return
+        }
+
+        // C++ compares the pointers here (staff->staffType(DEFAULT_TICK) == staffType), which never are the same
+
+        this.startEdit(new TranslatableString('undoableAction', 'Set staff type'))
+
+        EditPart.setStaffType(this.score(), staff, type)
 
         this.apply()
     }
@@ -371,6 +488,37 @@ export class NotationParts {
         this.startEdit(new TranslatableString('undoableAction', 'Remove system object layer below the bottom staff'))
 
         this.score().undoChangeStyleVal(Sid.systemObjectsBelowBottomStaff, false)
+
+        this.apply()
+    }
+
+    /** a part of the master score (a clone: Part::clone) inserted into this (excerpt) score */
+    insertPart(part: Part | null, index: number): void {
+        if (!part) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Add instrument'))
+
+        EditSystemLocks.removeSystemLocksContainingMMRests(this.score())
+
+        this.doInsertPart(part, index)
+
+        this.apply()
+    }
+
+    /** "Reset all formatting" of a part in an excerpt: the part is replaced by a new clone of the master part */
+    replacePart(partId: string, newPart: Part | null): void {
+        const part = this.partModifiable(partId)
+        if (!part || !newPart) {
+            return
+        }
+
+        this.startEdit(new TranslatableString('undoableAction', 'Reset instrument formatting'))
+
+        const partIndex = this.score().parts().indexOf(part)
+        this.score().cmdRemovePart(part)
+        this.doInsertPart(newPart, partIndex)
 
         this.apply()
     }
@@ -567,6 +715,50 @@ export class NotationParts {
             this.appendStaves(part, pi.instrumentTemplate, keyList)
             ++partIdx
         }
+    }
+
+    doInsertPart(part: Part, index: number): void {
+        const stavesCopy = [...part.staves()]
+        part.clearStaves()
+
+        const instrumentsCopy = part.instruments()
+        part.setInstruments(new InstrumentList())
+
+        // C++ keeps the score of the copied (master) part; the part belongs to this score here
+        part.setScore(this.score())
+
+        const excerpt = this.score().excerpt()
+        if (excerpt) {
+            this.score().undo(new AddPartToExcerpt(excerpt, part, index))
+        } else {
+            this.score().undoInsertPart(part, index)
+        }
+
+        for (let i = 0; i < instrumentsCopy.size(); ++i) {
+            const instrument = new Instrument()
+            instrument.assign(instrumentsCopy.valueAt(i))
+            part.setInstrument(instrument, Fraction.fromTicks(instrumentsCopy.keyAt(i)))
+        }
+
+        const startTick = this.score().firstMeasure()!.tick()
+        const endTick = this.score().lastMeasure()!.endTick()
+
+        for (let staffIndex = 0; staffIndex < stavesCopy.length; ++staffIndex) {
+            const staff = stavesCopy[staffIndex]
+
+            const staffCopy = Factory.createStaff(part)
+            staffCopy.setId(staff.id())
+            staffCopy.setScore(this.score())
+            staffCopy.setPart(part)
+            staffCopy.initFromStaff(staff)
+
+            this.insertStaff(staffCopy, staffIndex, /* createRests = */ false)
+            this.score().undo(new Link(staffCopy, staff))
+
+            Excerpt.cloneStaff2(staff, staffCopy, startTick, endTick)
+        }
+
+        this.score().remapBracketsAndBarlines()
     }
 
     appendStaves(part: Part, templ: InstrumentTemplate, keyList: KeyList): void {

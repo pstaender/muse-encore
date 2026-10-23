@@ -191,6 +191,8 @@ const SYSTEM_STYLE: ElementStyle = [
 ]
 
 export class SystemText extends StaffTextBase {
+    override canBeExcludedFromOtherParts(): boolean { return true }
+
     constructor(parent: EngravingObject | null, tid: TextStyleType = TextStyleType.SYSTEM, type: ElementType = ElementType.SYSTEM_TEXT) {
         super(type, parent, tid, ElementFlag.SYSTEM | ElementFlag.MOVABLE | ElementFlag.ON_STAFF)
         this.initElementStyle(SYSTEM_STYLE)

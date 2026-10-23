@@ -675,6 +675,7 @@ export abstract class EngravingItem extends EngravingObject {
     isAppearanceLinkedToMaster(): boolean { return this.m_isAppearanceLinkedToMaster }
     setPositionLinkedToMaster(v: boolean): void { this.m_isPositionLinkedToMaster = v }
     setAppearanceLinkedToMaster(v: boolean): void { this.m_isAppearanceLinkedToMaster = v }
+    canBeExcludedFromOtherParts(): boolean { return false }
     excludeFromOtherParts(): boolean { return this.m_excludeFromOtherParts }
     setExcludeFromOtherParts(v: boolean): void { this.m_excludeFromOtherParts = v }
 

@@ -119,6 +119,12 @@ export function setCanLayoutIcons(v: boolean): void {
 export { setTranslator, mtrc, qtrc, arg, type Translator } from './framework/global/translation'
 export type { MasterScore } from './engraving/dom/masterscore'
 export type { Score } from './engraving/dom/score'
+export type { Part } from './engraving/dom/part'
+export type { StaffSettingsModel } from './instrumentsscene/staffsettingsmodel'
+export type { InstrumentSettingsModel } from './instrumentsscene/instrumentsettingsmodel'
+export type { SystemObjectsLayerSettingsModel } from './instrumentsscene/systemobjectslayersettingsmodel'
+export { CustomizeKitDialog, NOTE_HEAD_NAMES, customizeKitNoteheadSymbols } from './palette/customizekitdialog'
+export { DirectionV, NoteHeadGroup, NoteHeadType } from './engraving/types/types'
 export type { Canvas2D } from './framework/draw/canvaspaintprovider'
 export { SvgGlyphDefs } from './framework/draw/svgpaintprovider'
 // the editor's panels: palettes, layout panel, properties (inspector)
@@ -1885,6 +1891,112 @@ export function setPartVisible(score: Score, partId: string, visible: boolean): 
     return runPartsCommand(score, p => p.setPartVisible(partId, visible))
 }
 
+/**
+ * inserts a part into a part score (INotationParts::insertPart, the Layout panel of a part score: a hidden instrument
+ * of the main score shown); `part` is a clone of the main score's part (Part.clone())
+ */
+export function insertPart(score: Score, part: Part, index: number): boolean {
+    return runPartsCommand(score, p => p.insertPart(part, index))
+}
+
+/** "Reset all formatting" of an instrument in a part score (INotationParts::replacePart with a clone of the main score's part) */
+export function replacePart(score: Score, partId: string, newPart: Part): boolean {
+    return runPartsCommand(score, p => p.replacePart(partId, newPart))
+}
+
+/**
+ * the Customize kit dialog (action "customize-kit") for the drumset of the instrument of the context menu's element or
+ * of the note input; null if there is none. Its changes are applied to the score at once (undoable, "Edit drumset").
+ */
+export function createCustomizeKitDialog(score: Score): CustomizeKitDialog | null {
+    const target = customizeKitTarget(score)
+    if (!target) {
+        return null
+    }
+    const { part, tick } = target
+    const interaction = notationState(score).interaction
+    const contextItem = interaction.contextItem()
+    const originPitch = contextItem && contextItem.isNote() ? (contextItem as unknown as Note).pitch() : -1
+    const dialog = new CustomizeKitDialog({ replaceDrumset: (key, drumset) => notationParts(score).replaceDrumset(key, drumset) },
+        part, tick, originPitch)
+    return dialog.isValid() ? dialog : null
+}
+
+/** C++ CustomizeKitDialog::initDrumsetAndKey: the part and tick of the hit element context, else of the note input */
+function customizeKitTarget(score: Score): { part: Part; tick: Fraction } | null {
+    const interaction = notationState(score).interaction
+    const context = interaction.hitElementContext()
+    const state = interaction.noteInput().state()
+    const hitContextValid = !!context.staff && !!context.element
+    const noteInputValid = !!state.staff() && !!state.segment()
+    if (!hitContextValid && !noteInputValid) {
+        return null
+    }
+    const part = hitContextValid ? context.staff!.part() : state.staff()!.part()
+    const tick = hitContextValid ? context.element!.tick() : state.segment()!.tick()
+    return { part, tick }
+}
+
+/** the Customize kit dialog can be opened (the instrument of the context or the note input has a drumset) */
+export function canCustomizeKit(score: Score): boolean {
+    const target = customizeKitTarget(score)
+    const inst = target?.part.instrument(target.tick)
+    return !!inst && inst.useDrumset() && !!inst.drumset()
+}
+
+/** draws the example of the Customize kit dialog (its drumNote cell) */
+export function drawCustomizeKitExample(dialog: CustomizeKitDialog, ctx: Canvas2D, options: DrawPaletteCellOptions): void {
+    const cell = dialog.exampleCell()
+    if (cell) {
+        drawCellElement(cell, ctx, options)
+    }
+}
+
+/** the model of the settings popup of a system markings layer of the Layout panel (staff: the layer's staff) */
+export function createSystemObjectsLayerSettingsModel(score: Score, staffId: string): SystemObjectsLayerSettingsModel {
+    const model = new SystemObjectsLayerSettingsModel({
+        score, parts: notationParts(score), undoStack: notationState(score).interaction.undoStack(),
+    })
+    model.load(staffId)
+    return model
+}
+
+/** the model of the Layout panel's instrument settings popup (InstrumentSettingsModel) for a part of the score */
+export function createInstrumentSettingsModel(score: Score, partId: string): InstrumentSettingsModel {
+    const notation = (s: Score): StaffSettingsNotation => ({
+        score: s, parts: notationParts(s), undoStack: notationState(s).interaction.undoStack(),
+    })
+    const model = new InstrumentSettingsModel(notation(score), notation(score.masterScore()))
+    model.load(partId, score.parts().find(p => p.id() === partId)?.instrumentId() ?? '')
+    return model
+}
+
+/**
+ * the model of the Layout panel's staff settings popup (StaffSettingsModel) for a staff (Staff.id()) of the score (the
+ * master score or a part score); its setters change the score through the undo stack
+ */
+export function createStaffSettingsModel(score: Score, staffId: string): StaffSettingsModel {
+    const notation = (s: Score): StaffSettingsNotation => ({
+        score: s, parts: notationParts(s), undoStack: notationState(s).interaction.undoStack(),
+    })
+    const model = new StaffSettingsModel(notation(score), notation(score.masterScore()))
+    model.load(staffId)
+    return model
+}
+
+/**
+ * the name (on the score or part score) of the main instrument of a part (InstrumentSettingsModel::setInstrumentName /
+ * setAbbreviature: INotationParts::setInstrumentName / setInstrumentAbbreviature)
+ */
+export function setInstrumentName(score: Score, partId: string, name: string, abbreviature = false): boolean {
+    const part = score.parts().find(p => p.id() === partId)
+    if (!part) {
+        return false
+    }
+    const key = { partId, instrumentId: part.instrument().id(), tick: Part.MAIN_INSTRUMENT_TICK }
+    return runPartsCommand(score, p => abbreviature ? p.setInstrumentAbbreviature(key, name) : p.setInstrumentName(key, name))
+}
+
 /** shows or hides a staff (INotationParts::setStaffVisible); ids are Staff.id() */
 export function setStaffVisible(score: Score, staffId: string, visible: boolean): boolean {
     return runPartsCommand(score, p => p.setStaffVisible(staffId, visible))
@@ -2338,6 +2450,11 @@ function drawEditMode(score: Score, page: EngravingItem, painter: Painter, scali
 // ---------------------------------------------------------------------------------------------------------------------
 
 import { TDraw } from './engraving/rendering/score/tdraw'
+import { StaffSettingsModel, type StaffSettingsNotation } from './instrumentsscene/staffsettingsmodel'
+import { InstrumentSettingsModel } from './instrumentsscene/instrumentsettingsmodel'
+import { SystemObjectsLayerSettingsModel } from './instrumentsscene/systemobjectslayersettingsmodel'
+import { CustomizeKitDialog } from './palette/customizekitdialog'
+import { drawCellElement, type DrawPaletteCellOptions } from './palette/api'
 
 /** a rectangle on a page (inches from the page's top left) */
 export interface PageRect {

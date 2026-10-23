@@ -24,6 +24,8 @@ export class ClefLayoutData extends LayoutData {
 }
 
 export class Clef extends EngravingItem {
+    override canBeExcludedFromOtherParts(): boolean { return !this.isHeader() }
+
     private m_showCourtesy = true
     private m_isSmall = false
     private m_forInstrumentChange = false

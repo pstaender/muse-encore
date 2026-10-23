@@ -1475,6 +1475,50 @@
 - Tests: test/parts.test.ts (all of MuseScore's parts tests except createPartImage: image store), test/links.test.ts
   (links_tests), test/linkedediting.test.ts (note input in score/part, delete, transpose, measures, time signatures,
   property unlinking in parts, undo/redo); e2e: editing in a part changes the score and vice versa.
-- TODO(port): the Properties panel's parts section (SECTION_PARTS), the Layout panel of a part (excerpt parts, adding
-  instruments to a part), replaceDrumset in parts, part playback settings (PartChannelSettingsLink),
-  setParenthesesMode adds the parentheses directly (not with undoAddElement).
+- TODO(port) after stage 3 (done in "Parts stage 4" below except replaceDrumset and the playback settings).
+
+### Parts stage 4: Properties and Layout panels of parts, tab menu
+
+- Properties panel: "Score and part synchronization" (inspector/parts/partssettingsmodel.ts = PartsSettingsModel,
+  AbstractInspectorModel.showPartsSection, SECTION_PARTS): Position / Style/appearance / Text linked to the main score
+  (toggles, relinking copies the master's values like C++, not undoable), "Exclude from parts"/"Exclude from score".
+  EngravingItem.canBeExcludedFromOtherParts (Box, Clef (not header), Ottava, SystemText, SoundFlag). App: PropertyToggle
+  (switch) in panels/inspector/common.tsx, PartsSettings.tsx.
+- Layout panel of a part score: the items hold the master notation and the current notation (LayoutPanelNotation =
+  score + LayoutPanelNotationParts); the master parts in the order of the excerpt (sortParts), instruments not in the
+  part hidden and not expandable; no system markings layers in parts. Showing such an instrument inserts a clone of the
+  master part (PartTreeItem::createAndAddPart, NotationParts.insertPart/doInsertPart with Part.clone, linked staves,
+  Excerpt.cloneStaff2); "Reset all formatting" (NotationParts.replacePart); removing instruments/staves and adding staves
+  go to the master score; the warning before removing instruments of a score with parts (removeWarning(), the app's
+  message box); "Instrument ordering" only in the main score; new instruments and "Replace instrument" in the master.
+- Staff settings popup (instrumentsscene/staffsettingsmodel.ts = StaffSettingsModel, createStaffSettingsModel): staff
+  type, voices visible in a part (EditPart/NotationParts.setVoiceVisible), small staff, cutaway, hide empty staves,
+  "If the entire system is empty, show this staff", "Create a linked staff" (MasterNotationParts.appendLinkedStaff).
+  NotationParts.setStaffType (EditPart.setStaffType); system locks containing mm rests are removed when showing
+  instruments/staves (EditSystemLocks.removeSystemLocksContainingMMRests).
+- The notation tabs' context menu (Close tab / Close other tabs / Close all tabs).
+- Score::cmdTimeDelete in a part deletes the time in the master score (and so in all parts).
+- Parentheses of notes reach the linked notes of parts (tested; the parentheses are still added directly instead of
+  with undoAddElement, the linked notes get HAS_PARENTHESES through the property propagation).
+- Tests: test/layoutpanelparts.test.ts (part layout panel, insertPart, replacePart, removal warning, staff settings),
+  linkedediting (parts section, time delete in a part, parentheses); e2e: the Layout panel of a part, the staff settings
+  popup, the tabs' context menu.
+- Instrument settings popup: InstrumentSettingsModel (instrumentsscene/instrumentsettingsmodel.ts): the names on the
+  main/part score (NotationParts.setInstrumentName/setInstrumentAbbreviature, EditPart, ChangeInstrumentLong/Short,
+  Part.setLongNames/setShortNames), hide empty staves (Auto/Always/Never, "Only hide staves on a system if the entire
+  instrument is empty").
+- System markings layer popup: SystemObjectsLayerSettingsModel (show/hide the groups of system objects of a layer,
+  Staff.undoSetShowMeasureNumbers).
+- Layout panel drag and drop: LayoutPanelTreeModel startActiveDrag/moveRows/endActiveDrag (rows move while dragging,
+  the score changes on the drop); the app drags rows with the pointer.
+- Customize kit (action "customize-kit", palette/customizekitdialog.ts = CustomizeKitDialog, app
+  dialogs/CustomizeKitDialog.tsx): the drums of the instrument's drumset, name/notehead group/custom noteheads/voice/
+  staff line/stem direction/shortcut (EditPercussionShortcutDialog with conflicts against the other drums and the
+  application shortcuts), the example note (a palette cell), Load…/Save as… of .drm files, Apply/OK/Cancel.
+  NotationParts/MasterNotationParts.replaceDrumset (also in the parts), EditPart.replaceDrumset, Drumset.translatedName.
+  Smufl.smuflRanges with the generated table smuflranges.ts (tools/gen/gen-smuflranges.ts from fonts/smufl/ranges.json).
+- Tests: test/customizekit.test.ts, layoutpanel (drag, system markings settings), layoutpanelparts (instrument names);
+  e2e: renaming an instrument and dragging instruments in the Layout panel, Customize kit from the context menu.
+- TODO(port): part playback settings (PartChannelSettingsLink, no mixer), Excerpt::nameChanged (notification),
+  Tie::updatePossibleJumpPoints, the notehead icons in the Customize kit combos (names only), the drumset palette
+  (DrumsetPanelView) and the percussion panel.

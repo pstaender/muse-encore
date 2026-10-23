@@ -34,6 +34,8 @@ const boxStyle: ElementStyle = [
 const hBoxStyle: ElementStyle = []
 
 export abstract class Box extends MeasureBase {
+    override canBeExcludedFromOtherParts(): boolean { return true }
+
     private m_boxWidth = new Spatium(0) // only valid for HBox
     private m_boxHeight = new Spatium(0) // only valid for VBox
     private m_topGap = new Spatium(0) // distance from previous system (left border for hbox)

@@ -1,0 +1,32 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* the Customize kit dialog (customizekitdialog.ui) and the percussion shortcut dialog */
+dialog.customize-kit { width: min(820px, calc(100vw - 32px)); max-height: calc(100vh - 32px); text-align: left; }
+dialog.customize-kit[open] { display: flex; flex-direction: column; gap: 12px; }
+.customize-kit-content { display: flex; gap: 16px; min-height: 0; flex: 1; flex-wrap: wrap; }
+.customize-kit-list { flex: 1 1 320px; display: flex; flex-direction: column; min-height: 240px; height: 460px; border: 1px solid var(--border); }
+.customize-kit-header, .customize-kit-row { display: grid; grid-template-columns: 40px 60px 70px 1fr; align-items: center; }
+.customize-kit-header { border-bottom: 1px solid var(--border); }
+.customize-kit-header button { border: 0; border-radius: 0; background: none; color: inherit; text-align: left; padding: 4px 6px; font-weight: 600; }
+.customize-kit-header button[aria-sort]::after { content: " ▾"; }
+.customize-kit-header button[aria-sort="ascending"]::after { content: " ▴"; }
+.customize-kit-rows { flex: 1; overflow-y: auto; outline-offset: -2px; }
+.customize-kit-row { cursor: default; user-select: none; }
+.customize-kit-row > span { padding: 2px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.customize-kit-row:nth-child(even) { background: color-mix(in srgb, var(--fg, currentColor) 4%, transparent); }
+.customize-kit-row[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.customize-kit-settings { flex: 1 1 340px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.customize-kit-settings .field-row { display: grid; grid-template-columns: 140px minmax(0, 1fr); align-items: center; gap: 8px; }
+.customize-kit-settings .groupbox { border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.customize-kit-settings .groupbox:disabled { opacity: .5; }
+.customize-kit-bottom { display: flex; gap: 16px; align-items: flex-start; }
+.customize-kit-example { flex-shrink: 0; color: var(--fg, currentColor); }
+.customize-kit-form { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.customize-kit-form .field-row { grid-template-columns: 110px minmax(0, 1fr); }
+.customize-kit-form.disabled .field-row > span { opacity: .5; }
+dialog.customize-kit .dialog-buttons .spacer, dialog.percussion-shortcut .dialog-buttons .spacer { flex: 1; }
+dialog.percussion-shortcut { width: min(400px, calc(100vw - 32px)); text-align: left; }
+dialog.percussion-shortcut .shortcut-input {
+    min-height: 30px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 3px; display: flex; align-items: center;
+}
+dialog.percussion-shortcut .shortcut-input:focus { outline: 2px solid var(--accent); }
+dialog.percussion-shortcut .info { font-size: 0.9em; }

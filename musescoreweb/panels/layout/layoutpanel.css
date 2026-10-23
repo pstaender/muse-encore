@@ -113,3 +113,28 @@ button.layout-row-button:disabled { opacity: .5; cursor: default; }
 .layout-settings-popup .field { display: flex; flex-direction: column; gap: 4px; }
 .layout-settings-popup .separator { margin: 0; border: 0; border-top: 1px solid var(--border); }
 .layout-settings-popup .field > span { color: var(--muted); }
+
+/* StaffSettingsPopup */
+.layout-settings-popup { overflow-y: auto; }
+.layout-settings-popup .bold { font-weight: 600; color: inherit; }
+.layout-settings-popup .check { display: flex; align-items: center; gap: 6px; }
+.layout-settings-popup .voices { display: flex; gap: 26px; }
+.layout-settings-popup .hint { color: var(--muted); }
+.layout-settings-popup .check.disabled { opacity: .5; }
+
+/* SystemObjectsLayerSettingsPopup: VisibilityBox rows */
+.layout-settings-popup .visibility-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    text-align: start;
+    cursor: pointer;
+}
+.layout-settings-popup .visibility-box:hover { background: var(--hover); }
+.layout-settings-popup .visibility-box[aria-pressed="false"] > span:last-child { opacity: .6; }
+body.layout-row-dragging, body.layout-row-dragging * { cursor: grabbing !important; user-select: none; }

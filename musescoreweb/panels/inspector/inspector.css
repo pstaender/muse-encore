@@ -124,6 +124,48 @@
 .insp-checkbox input { width: 16px; height: 16px; margin: 0; flex-shrink: 0; }
 .insp-checkbox span { overflow-wrap: anywhere; }
 
+/* PropertyToggle: a switch */
+.insp-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 20px;
+    min-width: 0;
+}
+
+.insp-toggle.disabled { opacity: .5; }
+.insp-toggle span { overflow-wrap: anywhere; }
+
+.insp-toggle input {
+    appearance: none;
+    position: relative;
+    flex-shrink: 0;
+    width: 32px;
+    height: 18px;
+    margin: 0;
+    border-radius: 9px;
+    background: var(--hover);
+    border: 1px solid var(--border, rgba(127, 127, 127, .5));
+    cursor: pointer;
+    transition: background .1s;
+}
+
+.insp-toggle input::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: currentColor;
+    transition: left .1s;
+}
+
+.insp-toggle input:checked { background: var(--accent); border-color: var(--accent); }
+.insp-toggle input:checked::after { left: 16px; background: #fff; }
+.insp-toggle input:disabled { cursor: default; }
+
 /* the controls: spin boxes, dropdowns, text fields, flat buttons */
 .insp-spinbox, .insp-dropdown, .insp-text, .insp-flat-button, .insp-radio-group {
     height: 30px;

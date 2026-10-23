@@ -15,6 +15,7 @@ import type { XmlReader } from '../rw/xmlreader'
 import type { XmlWriter } from '../rw/xmlwriter'
 import type { Articulation } from './articulation'
 import { STANDARD_DRUMSET } from './drumsetdata'
+import { mtrc } from '../../framework/global/translation'
 
 const INVALID_PITCH = -1
 
@@ -68,6 +69,7 @@ export class Drumset {
     voice(pitch: number): number { return this.m_drums[pitch].voice }
     stemDirection(pitch: number): DirectionV { return this.m_drums[pitch].stemDirection }
     name(pitch: number): string { return this.m_drums[pitch].name }
+    translatedName(pitch: number): string { return mtrc('engraving/drumset', this.name(pitch)) }
     shortcut(pitch: number): string { return this.m_drums[pitch].shortcut }
     variants(pitch: number): DrumInstrumentVariant[] { return this.m_drums[pitch].variants }
 

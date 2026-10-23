@@ -3,7 +3,10 @@
 // deleting, transposing, measures, time signatures, undo/redo), like MuseScore.
 import { existsSync, readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { executeAction, layoutScore, loadScore, undo, redo, type MasterScore } from '../src/index'
+import {
+    applyInspectorChanges, executeAction, inspectorPropertyChanges, inspectorSections, layoutScore, loadScore, undo, redo,
+    type MasterScore,
+} from '../src/index'
 import { Excerpt } from '../src/engraving/dom/excerpt'
 import '../src/engraving/editing/editexcerpt'
 import { SegmentType } from '../src/engraving/dom/segment'
@@ -12,9 +15,11 @@ import { NoteVal } from '../src/engraving/dom/input'
 import { Factory } from '../src/engraving/dom/factory'
 import { Pid } from '../src/engraving/dom/property'
 import { Fraction } from '../src/engraving/types/fraction'
-import { ElementType } from '../src/engraving/types/types'
+import { ElementType, ParenthesesMode } from '../src/engraving/types/types'
 import { TranslatableString } from '../src/framework/global/types/translatablestring'
 import type { Chord } from '../src/engraving/dom/chord'
+import type { ChordRest } from '../src/engraving/dom/chordrest'
+import type { Note } from '../src/engraving/dom/note'
 import type { Score } from '../src/engraving/dom/score'
 import type { TimeSig } from '../src/engraving/dom/timesig'
 import { ROOT, initFonts } from './helpers'
@@ -195,5 +200,77 @@ describe.skipIf(!existsSync(DATA))('linked editing between the score and its par
         expect(note.visible()).toBe(true)
         expect(note.isAppearanceLinkedToMaster()).toBe(true)
     })
-})
 
+    it('the Properties panel shows the part synchronization of an element in a part and links it again', () => {
+        const score = openWithParts()
+        const p0 = part(score, 0)
+        let chord: Chord | null = null
+        for (let s = p0.firstMeasure()!.first(SegmentType.ChordRest); s && !chord; s = s.next1(SegmentType.ChordRest)) {
+            const e = s.element(0)
+            if (e && e.isChord()) {
+                chord = e as Chord
+            }
+        }
+        const note = chord!.upNote()
+        const masterNote = note.findLinkedInScore(score)!
+
+        // a note of the main score: no parts section (notes cannot be excluded from parts)
+        score.select(masterNote, SelectType.SINGLE, 0)
+        expect(inspectorSections(score).some(s => s.sectionType === 'SECTION_PARTS')).toBe(false)
+
+        p0.select(note, SelectType.SINGLE, 0)
+        cmd(p0, () => note.undoChangeProperty(Pid.VISIBLE, false))
+        let parts = inspectorSections(p0).find(s => s.sectionType === 'SECTION_PARTS')!
+        expect(parts.title).toBe('Score and part synchronization')
+        expect(parts.flags).toMatchObject({ showPartLinkingOption: true, showExcludeOption: false, showTextLinkingOption: false, isMasterScore: false })
+        expect(parts.properties.positionLinkedToMaster.value).toBe(true)
+        expect(parts.properties.appearanceLinkedToMaster.value).toBe(false)
+
+        const ref = { section: 'SECTION_PARTS', path: [], property: 'appearanceLinkedToMaster' }
+        expect(applyInspectorChanges(p0, inspectorPropertyChanges(p0, ref, true))).toBe(true)
+        // linked again: the note takes the appearance of the score's note
+        expect(note.isAppearanceLinkedToMaster()).toBe(true)
+        expect(note.visible()).toBe(true)
+        parts = inspectorSections(p0).find(s => s.sectionType === 'SECTION_PARTS')!
+        expect(parts.properties.appearanceLinkedToMaster.value).toBe(true)
+        undo(score)
+        expect(note.isAppearanceLinkedToMaster()).toBe(false)
+        // like C++: relinkPropertiesToMaster copies the values in setProperty (not undoable), only the flag is undone
+        expect(note.visible()).toBe(true)
+    })
+
+    it('deleting time in a part deletes it in the score and all parts (Score::cmdTimeDelete)', () => {
+        const score = openWithParts()
+        const p1 = part(score, 1)
+        const before = measureTicks(score)
+        const cr = crAt(p1, new Fraction(0, 1))!
+        p1.select(cr, SelectType.SINGLE, 0)
+        expect(executeAction(p1, 'time-delete')).toBe(true)
+        // the first measure is shorter by the duration of the chord/rest, in the score and in both parts
+        const first = Number(before[0].split(':')[1]) - (cr as ChordRest).actualTicks().ticks()
+        expect(measureTicks(score)[0]).toBe(`0:${first}`)
+        expect(measureTicks(p1)).toEqual(measureTicks(score))
+        expect(measureTicks(part(score, 0))).toEqual(measureTicks(score))
+        undo(score)
+        expect(measureTicks(score)).toEqual(before)
+        expect(measureTicks(p1)).toEqual(before)
+    })
+
+    it('parentheses added to a note of the score appear in the part, undo removes both', () => {
+        const score = openWithParts()
+        const chord = crAt(score, new Fraction(0, 1)) as Chord
+        expect(chord.isChord()).toBe(true)
+        const note = chord.upNote()
+        const partNote = note.findLinkedInScore(part(score, 0)) as Note
+        const parens = (n: Note): string => `${n.hasParens()}:${n.chord().noteParentheses().length}`
+        score.select(note, SelectType.SINGLE, 0)
+        cmd(score, () => score.cmdAddParenthesesToNotes())
+        expect(parens(note)).toBe('true:1')
+        expect(parens(partNote)).toBe('true:1')
+        undo(score)
+        expect(parens(note)).toBe('false:0')
+        expect(parens(partNote)).toBe('false:0')
+        redo(score)
+        expect(parens(partNote)).toBe('true:1')
+    })
+})

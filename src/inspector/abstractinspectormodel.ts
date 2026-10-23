@@ -420,8 +420,21 @@ export abstract class AbstractInspectorModel {
             types.add(InspectorSectionType.SECTION_MEASURES)
             // TODO(port): SECTION_EMPTY_STAVES (EmptyStavesVisibilitySettingsModel)
         }
-        // TODO(port): SECTION_PARTS (showPartsSection: only for excerpts and elements that can be excluded from parts)
+        if (AbstractInspectorModel.showPartsSection(selectedElementList)) {
+            types.add(InspectorSectionType.SECTION_PARTS)
+        }
         return types
+    }
+
+    static showPartsSection(selectedElementList: readonly EngravingItem[]): boolean {
+        const noAvailableChangePartsSettingsTypes = [ElementType.LAYOUT_BREAK, ElementType.ACCIDENTAL, ElementType.SOUND_FLAG]
+        for (const element of selectedElementList) {
+            if ((!element.score().isMaster() && !noAvailableChangePartsSettingsTypes.includes(element.type()))
+                || element.canBeExcludedFromOtherParts()) {
+                return true
+            }
+        }
+        return false
     }
 
     // ---- properties ----

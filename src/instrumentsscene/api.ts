@@ -23,9 +23,13 @@ export type { SystemObjectsLayerTreeItem } from './systemobjectslayertreeitem'
 export type { RootTreeItem } from './roottreeitem'
 export { LayoutPanelTreeModel, type SelectModifiers } from './layoutpaneltreemodel'
 
-/** the layout panel's tree of a score */
-export function createLayoutPanelModel(score: Score, parts: LayoutPanelNotationParts | null = null): LayoutPanelTreeModel {
-    return new LayoutPanelTreeModel(score, parts)
+/**
+ * the layout panel's tree of a score (the master score or a part score); `masterParts`: the commands of the master
+ * score for a part score (removing instruments and staves, adding staves change the master score and all its parts)
+ */
+export function createLayoutPanelModel(score: Score, parts: LayoutPanelNotationParts | null = null,
+    masterParts: LayoutPanelNotationParts | null = parts): LayoutPanelTreeModel {
+    return new LayoutPanelTreeModel(score, parts, masterParts)
 }
 
 /** a key that identifies a row across reloads of the model (type and object id; the "Add staff" row by its part) */

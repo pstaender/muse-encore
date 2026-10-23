@@ -14,6 +14,7 @@ import { canChangeProperties } from '../editbridge'
 import { icon, InspectorContext, type ModelRef } from './common'
 import { GeneralInspectorView } from './GeneralInspectorView'
 import { NotationSection } from './NotationViews'
+import { PartsSettings } from './PartsSettings'
 import { MeasuresInspectorView, ScoreAppearanceInspectorView, ScoreDisplayInspectorView } from './ScoreSections'
 import { TextInspectorView } from './TextInspectorView'
 import './inspector.css'
@@ -34,6 +35,7 @@ function SectionView({ m }: { m: ModelRef }): React.JSX.Element | null {
     case 'SECTION_TEXT': return <TextInspectorView m={m} />
     case 'SECTION_SCORE_DISPLAY': return <ScoreDisplayInspectorView />
     case 'SECTION_SCORE_APPEARANCE': return <ScoreAppearanceInspectorView />
+    case 'SECTION_PARTS': return <PartsSettings m={m} />
     default: return null
     }
 }

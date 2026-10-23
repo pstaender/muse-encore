@@ -22,6 +22,7 @@ import { EditStyleDialogHost } from './dialogs/EditStyleDialog'
 import { SelectMeasuresCountDialogHost } from './dialogs/SelectMeasuresCountDialog'
 import { PageSettingsDialogHost } from './dialogs/PageSettingsDialog'
 import { BreaksDialogHost } from './dialogs/BreaksDialog'
+import { CustomizeKitDialogHost } from './dialogs/CustomizeKitDialog'
 import { MessageBoxHost } from './components/MessageBox'
 import { SearchPopup } from './components/SearchPopup'
 import { NotationSwitchPanel } from './components/NotationSwitchPanel'
@@ -195,6 +196,7 @@ export function App(): React.JSX.Element {
             <SelectMeasuresCountDialogHost />
             <PageSettingsDialogHost />
             <BreaksDialogHost />
+            <CustomizeKitDialogHost />
             <MessageBoxHost />
             <ProjectPropertiesDialogHost />
             <PartsDialogHost />

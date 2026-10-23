@@ -8,14 +8,14 @@
 
 import type { Score } from '../engraving/dom/score'
 import { qtrc } from '../framework/global/translation'
-import { AbstractLayoutPanelTreeItem, partById, type LayoutPanelNotationParts } from './abstractlayoutpaneltreeitem'
+import { AbstractLayoutPanelTreeItem, partById, type LayoutPanelNotation } from './abstractlayoutpaneltreeitem'
 import { LayoutPanelItemType } from './layoutpanelitemtype'
 
 export class StaffControlTreeItem extends AbstractLayoutPanelTreeItem {
     private m_partId = ''
 
-    constructor(score: Score, parts: LayoutPanelNotationParts | null) {
-        super(LayoutPanelItemType.CONTROL_ADD_STAFF, score, parts)
+    constructor(masterNotation: LayoutPanelNotation, notation: LayoutPanelNotation) {
+        super(LayoutPanelItemType.CONTROL_ADD_STAFF, masterNotation, notation)
         this.setTitle(qtrc('layoutpanel', 'Add staff'))
     }
 
@@ -26,10 +26,10 @@ export class StaffControlTreeItem extends AbstractLayoutPanelTreeItem {
     partId(): string { return this.m_partId }
 
     override appendNewItem(): void {
-        if (!partById(this.score(), this.m_partId)) {
+        if (!partById(this.masterScore(), this.m_partId)) {
             return
         }
         // C++ creates the staff (Factory::createStaff with the instrument's clef) and calls INotationParts::appendStaff
-        this.notationParts()?.appendStaff(this.m_partId)
+        this.masterNotationParts()?.appendStaff(this.m_partId)
     }
 }

@@ -4,11 +4,11 @@
  * the instrument commands of the Layout panel). All of them go through this module, so the panels do not depend on
  * how editing is implemented: the undo stack and the editing commands are ported separately.
  * The Layout panel commands go through the library's NotationParts port (undoable; they return true if the score
- * changed). TODO(port): "Add linked staff" (canAddLinkedStaff() is false).
+ * changed).
  */
 import {
     applyInspectorChanges as libApplyInspectorChanges, applyPaletteElement as libApplyPaletteElement, hasSelection,
-    type InspectorChange, type Score, type PaletteElement,
+    type InspectorChange, type Part, type Score, type PaletteElement,
 } from '../../src/index'
 import * as lib from '../../src/index'
 import { scoreChanged as viewScoreChanged } from '../scoreview'
@@ -59,11 +59,6 @@ export function canEditParts(score: Score | null): boolean {
     return !!score
 }
 
-/** "Add linked staff" (INotationParts::appendLinkedStaff) is not ported (Excerpt::cloneStaff) */
-export function canAddLinkedStaff(_score: Score | null): boolean {
-    return false
-}
-
 /** INotationParts::setPartVisible */
 export function setPartVisible(score: Score, partId: string, visible: boolean): boolean {
     return lib.setPartVisible(score, partId, visible)
@@ -72,6 +67,16 @@ export function setPartVisible(score: Score, partId: string, visible: boolean): 
 /** INotationParts::setStaffVisible (staff id: the library's Staff id, as in the layout panel's rows) */
 export function setStaffVisible(score: Score, staffId: string, visible: boolean): boolean {
     return lib.setStaffVisible(score, staffId, visible)
+}
+
+/** INotationParts::insertPart (a part score: an instrument of the main score shown) */
+export function insertPart(score: Score, part: Part, index: number): boolean {
+    return lib.insertPart(score, part, index)
+}
+
+/** INotationParts::replacePart ("Reset all formatting" in a part score) */
+export function replacePart(score: Score, partId: string, newPart: Part): boolean {
+    return lib.replacePart(score, partId, newPart)
 }
 
 /** INotationParts::removeParts */
@@ -94,11 +99,8 @@ export function moveStaves(score: Score, staffIds: readonly string[], destinatio
     return lib.moveStaves(score, staffIds, destinationStaffId, after)
 }
 
-/** INotationParts::appendStaff / appendLinkedStaff ("Add staff", "Add linked staff") */
-export function addStaff(score: Score, partId: string, linked: boolean): boolean {
-    if (linked) {
-        return false // TODO(port): NotationParts::appendLinkedStaff (Excerpt::cloneStaff)
-    }
+/** INotationParts::appendStaff ("Add staff"; "Create a linked staff" is the staff settings popup's StaffSettingsModel) */
+export function addStaff(score: Score, partId: string): boolean {
     return lib.appendStaff(score, partId)
 }
 

@@ -11,7 +11,7 @@
 import type { Score } from '../engraving/dom/score'
 import type { Staff } from '../engraving/dom/staff'
 import { arg, qtrc } from '../framework/global/translation'
-import { AbstractLayoutPanelTreeItem, type LayoutPanelNotationParts } from './abstractlayoutpaneltreeitem'
+import { AbstractLayoutPanelTreeItem, type LayoutPanelNotation } from './abstractlayoutpaneltreeitem'
 import { LayoutPanelItemType } from './layoutpanelitemtype'
 import {
     collectSystemObjectGroupsOfStaff, isSystemObjectsGroupVisible, translatedSystemObjectsGroupCapitalizedName,
@@ -56,8 +56,8 @@ export class SystemObjectsLayerTreeItem extends AbstractLayoutPanelTreeItem {
     private m_staffIdx = -1
     private m_systemObjectGroups: SystemObjectGroups = []
 
-    constructor(score: Score, parts: LayoutPanelNotationParts | null) {
-        super(LayoutPanelItemType.SYSTEM_OBJECTS_LAYER, score, parts)
+    constructor(masterNotation: LayoutPanelNotation, notation: LayoutPanelNotation) {
+        super(LayoutPanelItemType.SYSTEM_OBJECTS_LAYER, masterNotation, notation)
         this.setSettingsAvailable(true)
         this.setIsExpandable(false)
     }

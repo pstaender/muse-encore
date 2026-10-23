@@ -7,16 +7,21 @@
  *
  * Framework independent: rows are the tree items themselves (no QModelIndex), the selection model
  * (ItemMultiSelectionModel with Shift as the allowed modifier) is a list of items, and the view is told about
- * changes through `onChanged`. The model is created for one score; the app creates a new one (or calls load())
- * when the score changes (C++: the notifications of INotationParts and the undo stack's changes channel).
- * TODO(port): excerpts (sortParts, parts not in the excerpt), drag and drop (startActiveDrag/endActiveDrag), the
- * warning before removing instruments of a score with parts (there are no excerpts yet).
+ * changes through `onChanged`. The model is created for one notation (the master score or a part score); the app
+ * creates a new one (or calls load()) when the score changes (C++: the notifications of INotationParts and the undo
+ * stack's changes channel). The warning before removing instruments (warnAboutRemovingInstrumentsIfNecessary, a
+ * synchronous message box in C++) is asked by the app before it calls removeSelectedRows/removeRows.
+ * Drag and drop: startActiveDrag(), moveRows() while dragging (only the rows move), endActiveDrag() applies the last
+ * move to the score.
  */
 
 import type { Part } from '../engraving/dom/part'
 import type { Score } from '../engraving/dom/score'
 import type { Staff } from '../engraving/dom/staff'
-import { AbstractLayoutPanelTreeItem, type LayoutPanelNotationParts } from './abstractlayoutpaneltreeitem'
+import { mtrc } from '../framework/global/translation'
+import {
+    AbstractLayoutPanelTreeItem, MoveParams, type LayoutPanelNotation, type LayoutPanelNotationParts,
+} from './abstractlayoutpaneltreeitem'
 import { LayoutPanelItemType } from './layoutpanelitemtype'
 import { collectSystemObjectGroups, type SystemObjectGroups } from './layoutpanelutils'
 import { PartTreeItem } from './parttreeitem'
@@ -32,8 +37,8 @@ export interface SelectModifiers {
 
 export class LayoutPanelTreeModel {
     private m_rootItem: RootTreeItem | null = null
-    private readonly m_score: Score
-    private readonly m_parts: LayoutPanelNotationParts | null
+    private readonly m_masterNotation: LayoutPanelNotation
+    private readonly m_notation: LayoutPanelNotation
 
     /** the selected rows in selection order (C++ m_selectionModel->selectedIndexes()) */
     private m_selection: AbstractLayoutPanelTreeItem[] = []
@@ -47,25 +52,39 @@ export class LayoutPanelTreeModel {
     private m_shouldUpdateSystemObjectLayers = false
     private m_systemStaffToSelect = ''
 
+    private m_dragInProgress = false
+    private m_dragSourceParentItem: AbstractLayoutPanelTreeItem | null = null
+    private m_activeDragMoveParams = new MoveParams()
+
     /** called after every change of the rows or their state (C++ model signals) */
     onChanged: (() => void) | null = null
 
-    constructor(score: Score, parts: LayoutPanelNotationParts | null = null) {
-        this.m_score = score
-        this.m_parts = parts
+    /**
+     * `score`: the current notation (the master score or a part score) with its commands, `masterParts`: the commands
+     * of the master score (the same as `parts` for the master score)
+     */
+    constructor(score: Score, parts: LayoutPanelNotationParts | null = null, masterParts: LayoutPanelNotationParts | null = parts) {
+        this.m_notation = { score, parts }
+        this.m_masterNotation = score.isMaster() ? this.m_notation : { score: score.masterScore(), parts: masterParts }
         this.load()
     }
 
-    score(): Score { return this.m_score }
+    score(): Score { return this.m_notation.score }
+    masterScore(): Score { return this.m_masterNotation.score }
     rootItem(): RootTreeItem | null { return this.m_rootItem }
+
+    isMasterScore(): boolean {
+        return this.score().isMaster()
+    }
 
     private changed(): void {
         this.onChanged?.()
     }
 
-    /** C++ shouldShowSystemObjectLayers: only in the master score (there are no excerpts here) */
     private shouldShowSystemObjectLayers(): boolean {
-        return true
+        // Only show system object staves in master score
+        // TODO: extend system object staves logic to parts
+        return this.isMasterScore()
     }
 
     clear(): void {
@@ -81,12 +100,17 @@ export class LayoutPanelTreeModel {
     load(): void {
         this.deleteItems()
 
-        this.m_rootItem = new RootTreeItem(this.m_score, this.m_parts)
+        this.m_rootItem = new RootTreeItem(this.m_masterNotation, this.m_notation)
 
-        const masterParts = this.m_score.parts()
+        const masterParts = [...this.masterScore().parts()]
+        const excerptParts = this.score().parts()
+        // For master score we should use score's order, for others - custom
+        if (!this.isMasterScore()) {
+            LayoutPanelTreeModel.sortParts(masterParts, excerptParts)
+        }
 
         const showSystemObjectLayers = this.shouldShowSystemObjectLayers()
-        const systemObjectStaves = this.m_score.systemObjectStavesWithTopStaff()
+        const systemObjectStaves = this.masterScore().systemObjectStavesWithTopStaff()
         let systemObjects = new Map<Staff, SystemObjectGroups>()
         if (showSystemObjectLayers) {
             systemObjects = collectSystemObjectGroups(systemObjectStaves)
@@ -117,6 +141,17 @@ export class LayoutPanelTreeModel {
         this.changed()
     }
 
+    /** the master parts in the order of the excerpt's parts (the parts not in the excerpt at the end) */
+    private static sortParts(parts: Part[], referenceParts: readonly Part[]): void {
+        const referenceIdOrder = referenceParts.map(p => p.id())
+        const index = (part: Part): number => {
+            const i = referenceIdOrder.indexOf(part.id())
+            return i === -1 ? referenceIdOrder.length : i
+        }
+        // stable (Array.prototype.sort is stable like std::stable_sort)
+        parts.sort((a, b) => index(a) - index(b))
+    }
+
     setLayoutPanelVisible(visible: boolean): void {
         if (this.m_layoutPanelVisible === visible) {
             return
@@ -135,7 +170,7 @@ export class LayoutPanelTreeModel {
 
         this.setSelection([])
 
-        const selectedElements = this.m_score.selection().elements()
+        const selectedElements = this.score().selection().elements()
         const selectedPartIds: string[] = []
         for (const element of selectedElements) {
             const part = element.part()
@@ -247,7 +282,7 @@ export class LayoutPanelTreeModel {
         const staff = this.resolveNewSystemObjectStaff()
         if (staff) {
             this.m_systemStaffToSelect = staff.id()
-            this.m_parts?.addSystemObjects([staff.id()])
+            this.m_masterNotation.parts?.addSystemObjects([staff.id()])
             this.m_shouldUpdateSystemObjectLayers = true
             this.updateSystemObjectLayers()
         }
@@ -289,12 +324,46 @@ export class LayoutPanelTreeModel {
         this.removeRows(selected[0].row(), selected.length, selected[0].parentItem())
     }
 
+    /**
+     * C++ needWarnOnRemoveRows + warnAboutRemovingInstrumentsIfNecessary for removeSelectedRows: the texts of the warning
+     * (buttons No/Yes) the user has to confirm before the rows are removed, or null
+     */
+    removeWarning(): { text: string; detail: string } | null {
+        const selected = this.sortedSelection()
+        if (!this.m_isRemovingAvailable || !selected.length || !this.m_rootItem) {
+            return null
+        }
+        const parentItem = selected[0].parentItem() ?? this.m_rootItem
+        if (parentItem !== this.m_rootItem || !this.needWarnOnRemoveRows(selected[0].row(), selected.length)) {
+            return null
+        }
+        // Only warn if excerpts are existent
+        if (!this.masterScore().masterScore().excerpts().length) {
+            return null
+        }
+        const count = selected.length
+        return {
+            text: mtrc('layoutpanel', 'Are you sure you want to delete the selected instrument(s)?', '', count),
+            detail: mtrc('layoutpanel', 'This will remove the instrument(s) from the full score and all part scores.', '', count),
+        }
+    }
+
+    private needWarnOnRemoveRows(row: number, count: number): boolean {
+        for (let i = row + count - 1; i >= row; --i) {
+            if (this.m_rootItem!.childType(i) !== LayoutPanelItemType.SYSTEM_OBJECTS_LAYER) {
+                return true
+            }
+        }
+        return false
+    }
+
     removeRows(row: number, count: number, parent: AbstractLayoutPanelTreeItem | null): boolean {
         if (!this.m_isRemovingAvailable || !this.m_rootItem) {
             return false
         }
         const parentItem = parent ?? this.m_rootItem
-        // TODO(port): warnAboutRemovingInstrumentsIfNecessary (only with excerpts)
+        // C++: if (parentItem == m_rootItem && needWarnOnRemoveRows(row, count)) warnAboutRemovingInstrumentsIfNecessary(count):
+        // asked by the app before (removeWarning)
 
         const removed = parentItem.childItems().slice(row, row + count)
         this.m_selection = this.m_selection.filter(i => !removed.includes(i))
@@ -335,12 +404,47 @@ export class LayoutPanelTreeModel {
             return false
         }
 
-        sourceParentItem.moveChildren(sourceFirstRow, count, destinationParentItem, destinationRow, true)
+        if (this.m_dragInProgress) {
+            const params = sourceParentItem.buildMoveParams(sourceRow, count, destinationParentItem, destinationRow)
+            if (!params.isValid()) {
+                return false
+            }
 
-        this.updateSystemObjectLayers()
+            this.m_dragSourceParentItem = sourceParentItem
+            this.m_activeDragMoveParams = params
+        }
+
+        sourceParentItem.moveChildren(sourceFirstRow, count, destinationParentItem, destinationRow, !this.m_dragInProgress)
+
+        if (!this.m_dragInProgress) {
+            this.updateSystemObjectLayers()
+        }
+
         this.updateRearrangementAvailability()
         this.changed()
         return true
+    }
+
+    startActiveDrag(): void {
+        this.m_dragInProgress = true
+    }
+
+    isDragInProgress(): boolean {
+        return this.m_dragInProgress
+    }
+
+    /** the drop: the score gets the last move of the drag (the app reloads the model after the change of the score) */
+    endActiveDrag(): void {
+        if (this.m_dragSourceParentItem) {
+            this.m_dragSourceParentItem.moveChildrenOnScore(this.m_activeDragMoveParams)
+        }
+
+        this.m_dragSourceParentItem = null
+        this.m_activeDragMoveParams = new MoveParams()
+        this.m_dragInProgress = false
+
+        this.updateSystemObjectLayers()
+        this.changed()
     }
 
     changeVisibilityOfSelectedRows(visible: boolean): void {
@@ -457,7 +561,7 @@ export class LayoutPanelTreeModel {
     }
 
     private updateIsAddingSystemMarkingsAvailable(): void {
-        if (!this.m_rootItem) {
+        if (!this.m_rootItem || !this.isAddingAvailable() || !this.isMasterScore()) {
             this.m_isAddingSystemMarkingsAvailable = false
             return
         }
@@ -468,7 +572,7 @@ export class LayoutPanelTreeModel {
     // ---- building ----
 
     private buildMasterPartItem(masterPart: Part): AbstractLayoutPanelTreeItem {
-        const partItem = new PartTreeItem(this.m_score, this.m_parts)
+        const partItem = new PartTreeItem(this.m_masterNotation, this.m_notation)
         partItem.init(masterPart)
 
         for (const staff of masterPart.staves()) {
@@ -480,19 +584,19 @@ export class LayoutPanelTreeModel {
     }
 
     private buildMasterStaffItem(masterStaff: Staff): AbstractLayoutPanelTreeItem {
-        const result = new StaffTreeItem(this.m_score, this.m_parts)
+        const result = new StaffTreeItem(this.m_masterNotation, this.m_notation)
         result.init(masterStaff)
         return result
     }
 
     private buildSystemObjectsLayerItem(masterStaff: Staff, systemObjects: SystemObjectGroups): AbstractLayoutPanelTreeItem {
-        const result = new SystemObjectsLayerTreeItem(this.m_score, this.m_parts)
+        const result = new SystemObjectsLayerTreeItem(this.m_masterNotation, this.m_notation)
         result.init(masterStaff, systemObjects)
         return result
     }
 
     private buildAddStaffControlItem(partId: string): AbstractLayoutPanelTreeItem {
-        const result = new StaffControlTreeItem(this.m_score, this.m_parts)
+        const result = new StaffControlTreeItem(this.m_masterNotation, this.m_notation)
         result.init(partId)
         return result
     }
@@ -507,7 +611,7 @@ export class LayoutPanelTreeModel {
 
         this.m_shouldUpdateSystemObjectLayers = false
 
-        const newSystemObjectStaves = [...this.m_score.systemObjectStavesWithTopStaff()]
+        const newSystemObjectStaves = [...this.masterScore().systemObjectStavesWithTopStaff()]
         const children = [...this.m_rootItem.childItems()]
 
         // Remove old system object layers
@@ -533,7 +637,7 @@ export class LayoutPanelTreeModel {
             this.m_rootItem.removeChildren(layerItem.row(), 1, false)
         }
 
-        const systemObjects = collectSystemObjectGroups(this.m_score.systemObjectStavesWithTopStaff())
+        const systemObjects = collectSystemObjectGroups(this.masterScore().systemObjectStavesWithTopStaff())
 
         // Update position of existing layers if changed
         for (const layerItem of existingSystemObjectLayers) {
@@ -589,7 +693,7 @@ export class LayoutPanelTreeModel {
     }
 
     private resolveNewSystemObjectStaff(): Staff | null {
-        const systemObjectStaves = this.m_score.systemObjectStavesWithTopStaff()
+        const systemObjectStaves = this.masterScore().systemObjectStavesWithTopStaff()
 
         const resolveStaff = (item: AbstractLayoutPanelTreeItem): Staff | null => {
             if (item.type() !== LayoutPanelItemType.PART) {

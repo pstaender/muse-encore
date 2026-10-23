@@ -45,6 +45,33 @@ export class Part extends EngravingObject {
         this.m_instruments.setInstrument(new Instrument(), -1) // default instrument
     }
 
+    /** C++ Part::clone (the copy constructor: the staves and instruments are shared with this part, not copied) */
+    clone(): Part {
+        const p = new Part(this.score())
+        p.m_partName = this.m_partName
+        p.m_instruments = new InstrumentList()
+        for (let i = 0; i < this.m_instruments.size(); ++i) {
+            p.m_instruments.set(this.m_instruments.keyAt(i), this.m_instruments.valueAt(i))
+        }
+        p.m_staves = [...this.m_staves]
+        p.m_id = this.m_id
+        p.m_show = this.m_show
+        p.m_soloist = this.m_soloist
+        p.m_color = this.m_color
+        p.m_hideWhenEmpty = this.m_hideWhenEmpty
+        p.m_hideStavesWhenIndividuallyEmpty = this.m_hideStavesWhenIndividuallyEmpty
+        p.m_preferSharpFlat = this.m_preferSharpFlat
+        p.m_stringTunings = new SortedMap<StringTunings>()
+        for (let i = 0; i < this.m_stringTunings.size(); ++i) {
+            p.m_stringTunings.set(this.m_stringTunings.keyAt(i), this.m_stringTunings.valueAt(i))
+        }
+        p.harpDiagrams = new SortedMap<HarpPedalDiagram>()
+        for (let i = 0; i < this.harpDiagrams.size(); ++i) {
+            p.harpDiagrams.set(this.harpDiagrams.keyAt(i), this.harpDiagrams.valueAt(i))
+        }
+        return p
+    }
+
     id(): string { return this.m_id }
     setId(id: string): void { this.m_id = id }
 
@@ -211,6 +238,7 @@ export class Part extends EngravingObject {
     }
 
     instruments(): InstrumentList { return this.m_instruments }
+    setInstruments(instruments: InstrumentList): void { this.m_instruments = instruments }
 
     /** the number of chord symbols (also of fret diagrams) of the part */
     harmonyCount(): number {
@@ -354,6 +382,9 @@ export class Part extends EngravingObject {
         const nl = this.shortNames(tick)
         return nl.length ? nl[0].name() : ''
     }
+
+    setLongNames(name: StaffNameList, tick: Fraction = new Fraction(-1, 1)): void { this.instrument(tick).setLongNames(name) }
+    setShortNames(name: StaffNameList, tick: Fraction = new Fraction(-1, 1)): void { this.instrument(tick).setShortNames(name) }
 
     setLongName(s: string): void { this.instrument().setLongName(s) }
     setShortName(s: string): void { this.instrument().setShortName(s) }

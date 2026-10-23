@@ -1125,6 +1125,141 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('shows the instruments of a part in the Layout panel, the staff settings and the tabs\' context menu', async () => {
+        const { page, context } = await newPage()
+        await context.route(`${SCORE_HOST}parts.mscx`, route => route.fulfill({
+            body: readFileSync(`${ROOT}MuseScore/src/engraving/tests/parts_data/part-all.mscx`),
+            headers: { 'access-control-allow-origin': '*' },
+        }))
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}parts.mscx`)}`)
+        await scoreShown(page)
+        await page.click('.menubar > button:has-text("File")')
+        await page.click('.menu-popup .menu-item:has-text("Parts…")')
+        await page.waitForSelector('dialog.parts-dialog[open]')
+        await page.click('dialog.parts-dialog .part-row >> nth=0')
+        await page.click('dialog.parts-dialog .part-row >> nth=1', { modifiers: ['Shift'] })
+        await page.click('dialog.parts-dialog .dialog-buttons .primary')
+        await page.waitForFunction(() => document.querySelectorAll('.notation-tab').length === 3)
+
+        // the Layout panel of the Tenor part: the Tenor first, the Alto (not in the part) hidden, no system markings
+        await page.click('#panel-tab-instrumentsPanel')
+        const partNames = (): Promise<(string | null)[]> =>
+            page.$$eval('.layout-tree [role="treeitem"][data-type="part"]', r => r.map(x => x.getAttribute('aria-label')))
+        await page.waitForFunction(() => document.querySelectorAll('.layout-tree [data-type="part"]').length === 2)
+        expect(await partNames()).toEqual(['Tenor', 'Alto'])
+        const alto = '.layout-tree [data-type="part"][aria-label="Alto"]'
+        expect(await page.locator(`${alto}.hidden-item`).count()).toBe(1)
+        expect(await page.locator('.layout-tree [data-type="system-objects"]').count()).toBe(0)
+        // showing the Alto adds it to the part
+        await page.click(`${alto} .visibility`)
+        await page.waitForSelector(`${alto}:not(.hidden-item)`)
+
+        // the staff settings of the Tenor's staff: the voices of the part
+        await page.click('.layout-tree [data-type="part"][aria-label="Tenor"] .expand')
+        const staff = '.layout-tree [data-type="staff"] >> nth=0'
+        await page.hover(staff)
+        await page.click(`${staff} >> .settings`)
+        await page.waitForSelector('.layout-settings-popup.staff-settings')
+        expect(await page.textContent('.layout-settings-popup')).toContain('Voices visible in the score')
+        const voice2 = '.layout-settings-popup .voices input >> nth=1'
+        expect(await page.isChecked(voice2)).toBe(true)
+        await page.click(voice2)
+        await page.waitForFunction(() => !(document.querySelectorAll('.layout-settings-popup .voices input')[1] as HTMLInputElement).checked)
+        await page.keyboard.press('Escape')
+        await page.waitForSelector('.layout-settings-popup', { state: 'detached' })
+
+        // the context menu of the Alto's tab: close the other tabs (the score's tab stays)
+        await page.click('.notation-tab >> nth=1', { button: 'right' })
+        await page.waitForSelector('.menu-popup')
+        expect(await page.$$eval('.menu-popup .menu-item', els => els.map(e => e.textContent!.trim())))
+            .toEqual(['Close tab', 'Close other tabs', 'Close all tabs'])
+        await page.click('.menu-popup .menu-item:has-text("Close other tabs")')
+        await page.waitForFunction(() => document.querySelectorAll('.notation-tab').length === 2)
+        expect(await page.textContent('.notation-tab[aria-selected="true"] .notation-tab-title')).toBe('Alto')
+        await context.close()
+    }, 120000)
+
+    it('renames an instrument in its settings and rearranges instruments by dragging in the Layout panel', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.click('#panel-tab-instrumentsPanel')
+        const partNames = (): Promise<(string | null)[]> =>
+            page.$$eval('.layout-tree [role="treeitem"][data-type="part"]', r => r.map(x => x.getAttribute('aria-label')))
+        const soprano = '.layout-tree [data-type="part"][aria-label="Soprano"]'
+
+        // the name on the main score: Enter commits it (one undo step)
+        await page.hover(soprano)
+        await page.click(`${soprano} .settings`)
+        await page.fill('.layout-settings-popup .instrument-name', 'Sopran')
+        await page.press('.layout-settings-popup .instrument-name', 'Enter')
+        await page.waitForSelector('.layout-tree [data-type="part"][aria-label="Sopran"]')
+        await page.keyboard.press('Escape')
+        await page.waitForSelector('.layout-settings-popup', { state: 'detached' })
+
+        // dragging the Alto down over the Tenor moves it after the Tenor
+        const alto = (await page.locator('.layout-tree [data-type="part"][aria-label="Alto"] .layout-row-title').boundingBox())!
+        const tenor = (await page.locator('.layout-tree [data-type="part"][aria-label="Tenor"] .layout-row-title').boundingBox())!
+        await page.mouse.move(alto.x + 5, alto.y + alto.height / 2)
+        await page.mouse.down()
+        await page.mouse.move(alto.x + 5, alto.y + alto.height / 2 + 10, { steps: 3 })
+        await page.mouse.move(tenor.x + 5, tenor.y + tenor.height / 2, { steps: 5 })
+        await page.mouse.up()
+        await page.waitForFunction(() => document.querySelectorAll('.layout-tree [data-type="part"]')[2]?.getAttribute('aria-label') === 'Alto')
+        expect(await partNames()).toEqual(['Sopran', 'Tenor', 'Alto', 'Bass'])
+        // undo: the order of the score, then the name
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForFunction(() => document.querySelectorAll('.layout-tree [data-type="part"]')[1]?.getAttribute('aria-label') === 'Alto')
+        await page.keyboard.press('ControlOrMeta+z')
+        await page.waitForSelector(soprano)
+        await context.close()
+    }, 120000)
+
+    it('customizes the drum kit from the context menu of a drum staff (Customize kit…)', async () => {
+        const { page, context } = await newPage()
+        await context.route(`${SCORE_HOST}drums.mscx`, route => route.fulfill({
+            body: readFileSync(`${ROOT}MuseScore/vtest/scores/drumset-custom-1.mscx`),
+            headers: { 'access-control-allow-origin': '*' },
+        }))
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}drums.mscx`)}`)
+        await scoreShown(page)
+        // the context menu of the drum staff (right-clicks down the first system until the staff is hit)
+        const box = (await page.locator('.page').first().boundingBox())!
+        let found = false
+        for (let f = 0.06; f < 0.35 && !found; f += 0.01) {
+            await page.mouse.click(box.x + box.width * 0.4, box.y + box.height * f, { button: 'right' })
+            await page.waitForSelector('.menu-popup')
+            found = await page.locator('.menu-popup .menu-item:has-text("Customize kit…")').count() > 0
+            if (!found) {
+                await page.keyboard.press('Escape')
+                await page.waitForSelector('.menu-popup', { state: 'detached' })
+            }
+        }
+        expect(found).toBe(true)
+        await page.click('.menu-popup .menu-item:has-text("Customize kit…")')
+        await page.waitForSelector('dialog.customize-kit[open]')
+        expect(await page.locator('dialog.customize-kit .customize-kit-row').count()).toBe(128)
+        // the first drum (sorted by name, descending): a change of the staff line changes the score at once
+        await page.click('dialog.customize-kit .customize-kit-row >> nth=0')
+        const line = 'dialog.customize-kit input[type="number"]'
+        const before = Number(await page.inputValue(line))
+        await page.fill(line, String(before + 2))
+        await page.waitForFunction(() => document.getElementById('title')!.textContent!.startsWith('*'))
+        // the shortcut dialog
+        await page.click('dialog.customize-kit button.shortcut')
+        await page.waitForSelector('dialog.percussion-shortcut[open]')
+        await page.focus('dialog.percussion-shortcut .shortcut-input')
+        await page.keyboard.press('q')
+        expect(await page.textContent('dialog.percussion-shortcut .shortcut-input')).toBe('Q')
+        await page.click('dialog.percussion-shortcut .dialog-buttons .secondary:has-text("Cancel")')
+        await page.waitForSelector('dialog.percussion-shortcut', { state: 'detached' })
+        // Cancel restores the drumset
+        await page.click('dialog.customize-kit .dialog-buttons .secondary:has-text("Cancel")')
+        await page.waitForSelector('dialog.customize-kit', { state: 'detached' })
+        await context.close()
+    }, 120000)
+
     it('selects similar elements from the context menu (Select > Similar, More…)', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)

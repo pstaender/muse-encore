@@ -107,7 +107,7 @@ export class SoundFlag extends EngravingItem {
         }
     }
 
-    canBeExcludedFromOtherParts(): boolean { return false }
+    override canBeExcludedFromOtherParts(): boolean { return false }
 
     soundPresets(): string[] { return this.m_soundPresets }
     setSoundPresets(soundPresets: string[]): void { this.m_soundPresets = [...soundPresets] }

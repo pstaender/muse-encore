@@ -211,6 +211,15 @@ export function drawPaletteCell(cellId: string, ctx: Canvas2D, options: DrawPale
     engine.paintCell(painter, new RectF(0, 0, options.width, options.height), Color.fromString(options.color ?? '#000000'))
 }
 
+/** draws a palette cell that is not in a palette (e.g. the example of the Customize kit dialog) like drawPaletteCell */
+export function drawCellElement(cell: PaletteCell, ctx: Canvas2D, options: DrawPaletteCellOptions): void {
+    const dpr = options.dpr ?? 1
+    const provider = new CanvasPaintProvider(ctx, new Transform(dpr, 0, 0, dpr, 0, 0))
+    const painter = new Painter(provider, fontProvider(), 'palettecell')
+    const engine = new PaletteCellIconEngine(cell, options.extraMag ?? 1.0)
+    engine.paintCell(painter, new RectF(0, 0, options.width, options.height), Color.fromString(options.color ?? '#000000'))
+}
+
 /** PaletteConfiguration::paletteSpatium (pixels at 100%) */
 export function paletteCellSpatium(): number {
     return paletteSpatium()

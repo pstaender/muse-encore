@@ -19,6 +19,7 @@ import './inspectormodelcreator'
 import { ElementRepositoryService } from './internal/elementrepositoryservice'
 import { MeasuresSettingsModel } from './measures/measuressettingsmodel'
 import { NotationSettingsProxyModel } from './notation/notationsettingsproxymodel'
+import { PartsSettingsModel } from './parts/partssettingsmodel'
 import { ScoreAppearanceSettingsModel, ScoreDisplaySettingsModel } from './score/scoredisplaysettingsmodel'
 import { TextSettingsModel } from './text/textsettingsmodel'
 
@@ -123,8 +124,11 @@ export class InspectorListModel {
             case InspectorSectionType.SECTION_SCORE_APPEARANCE:
                 newModel = new ScoreAppearanceSettingsModel(this.m_repository)
                 break
+            case InspectorSectionType.SECTION_PARTS:
+                newModel = new PartsSettingsModel(this.m_repository)
+                break
             default:
-                // TODO(port): SECTION_EMPTY_STAVES, SECTION_PARTS
+                // TODO(port): SECTION_EMPTY_STAVES
                 break
             }
             if (newModel) {

@@ -5,9 +5,8 @@
  *
  * Port of src/instrumentsscene/qml/MuseScore/InstrumentsScene/internal/abstractlayoutpaneltreeitem.h/.cpp
  *
- * The C++ items hold the master notation and the current notation; there are no excerpts here, so both are the
- * score. Score changes go through `LayoutPanelNotationParts` (the part of INotationParts the items use), which the
- * app provides; Qt's property change signals are replaced by `onIsVisibleChanged` (the only one with a side effect).
+ * The items hold the master notation and the current notation (a part score or the master score itself), each a score
+ * with its `LayoutPanelNotationParts` (the part of INotationParts the items use), which the app provides; Qt's property change signals are replaced by `onIsVisibleChanged` (the only one with a side effect).
  */
 
 import type { Part } from '../engraving/dom/part'
@@ -31,11 +30,21 @@ export interface LayoutPanelNotationParts {
     moveStaves(sourceStaffIds: readonly string[], destinationStaffId: string, mode: InsertMode): void
     /** StaffControlTreeItem::appendNewItem: a new staff (with the instrument's clef) appended to the part */
     appendStaff(partId: string): void
+    /** INotationParts::insertPart: a clone of a master part (Part::clone) inserted into an excerpt */
+    insertPart(part: Part, index: number): void
+    /** INotationParts::replacePart ("Reset all formatting" of a part in an excerpt) */
+    replacePart(partId: string, newPart: Part): void
     addSystemObjects(staffIds: readonly string[]): void
     removeSystemObjects(staffIds: readonly string[]): void
     moveSystemObjects(sourceStaffId: string, destinationStaffId: string): void
     moveSystemObjectLayerBelowBottomStaff(): void
     moveSystemObjectLayerAboveBottomStaff(): void
+}
+
+/** a notation of the layout panel: the score and its commands (null: read-only) */
+export interface LayoutPanelNotation {
+    score: Score
+    parts: LayoutPanelNotationParts | null
 }
 
 /** INotationParts::part(id) */
@@ -77,13 +86,13 @@ export abstract class AbstractLayoutPanelTreeItem {
     private m_settingsAvailable = false
     private m_settingsEnabled = false
 
-    private readonly m_score: Score
-    private readonly m_parts: LayoutPanelNotationParts | null
+    private readonly m_masterNotation: LayoutPanelNotation
+    private readonly m_notation: LayoutPanelNotation
 
-    constructor(type: LayoutPanelItemType, score: Score, parts: LayoutPanelNotationParts | null) {
+    constructor(type: LayoutPanelItemType, masterNotation: LayoutPanelNotation, notation: LayoutPanelNotation) {
         this.m_type = type
-        this.m_score = score
-        this.m_parts = parts
+        this.m_masterNotation = masterNotation
+        this.m_notation = notation
     }
 
     id(): string { return this.m_id }
@@ -230,9 +239,16 @@ export abstract class AbstractLayoutPanelTreeItem {
         this.m_isSelected = selected
     }
 
-    /** C++ masterNotation() / notation() */
-    score(): Score { return this.m_score }
+    masterNotation(): LayoutPanelNotation { return this.m_masterNotation }
+    notation(): LayoutPanelNotation { return this.m_notation }
+
+    /** the score of notation() */
+    score(): Score { return this.m_notation.score }
+    /** the score of masterNotation() */
+    masterScore(): Score { return this.m_masterNotation.score }
 
     /** C++ notation()->parts() for changes; null if the score cannot be changed */
-    notationParts(): LayoutPanelNotationParts | null { return this.m_parts }
+    notationParts(): LayoutPanelNotationParts | null { return this.m_notation.parts }
+    /** C++ masterNotation()->parts() */
+    masterNotationParts(): LayoutPanelNotationParts | null { return this.m_masterNotation.parts }
 }

@@ -7,7 +7,6 @@
  * the part scores (excerpts). There are no excerpt notations in the port: the excerpts' parts are changed through
  * NotationParts of the excerpt scores (without interaction; the master score's undo stack is locked meanwhile, so the
  * changes are recorded in the master command, like in C++).
- * TODO(port): replaceDrumset
  */
 
 import { TranslatableString } from '../../framework/global/types/translatablestring'
@@ -21,6 +20,7 @@ import { ChangeExcerptTitle } from '../../engraving/editing/editexcerpt'
 import { formatUniqueExcerptName } from '../../engraving/dom/utils'
 import type { Excerpt } from '../../engraving/dom/excerpt'
 import type { Instrument } from '../../engraving/dom/instrument'
+import type { Drumset } from '../../engraving/dom/drumset'
 import type { StaffType } from '../../engraving/dom/stafftype'
 import { Interval } from '../../engraving/dom/interval'
 import { Transpose } from '../../engraving/editing/transpose'
@@ -119,6 +119,18 @@ export class MasterNotationParts extends NotationParts {
 
         this.endGlobalEdit()
         return true
+    }
+
+    override replaceDrumset(instrumentKey: InstrumentKey, newDrumset: Drumset, undoable = true): void {
+        this.startGlobalEdit(new TranslatableString('undoableAction', 'Edit drumset'))
+
+        super.replaceDrumset(instrumentKey, newDrumset, undoable)
+
+        for (const parts of this.excerptsParts()) {
+            parts.replaceDrumset(instrumentKey, newDrumset, undoable)
+        }
+
+        this.endGlobalEdit()
     }
 
     override appendLinkedStaff(staff: Staff, sourceStaffId: string, destinationPartId: string): boolean {

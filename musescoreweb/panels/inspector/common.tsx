@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
  * The common controls of the Properties panel (src/inspector/qml/MuseScore/Inspector/common and the framework's
- * UiComponents): InspectorPropertyView with its reset button, PropertyCheckBox, SpinBoxPropertyView,
+ * UiComponents): InspectorPropertyView with its reset button, PropertyCheckBox, PropertyToggle, SpinBoxPropertyView,
  * DropdownPropertyView, FlatRadioButtonGroupPropertyView, ColorSection, OffsetSection, PlacementSection,
  * DirectionSection, InspectorTabBar, the "Show more" expandable and PopupViewButton.
  * A control edits a property item of a model (InspectorPropertyRef); changes go through the edit bridge.
@@ -142,6 +142,22 @@ export function PropertyCheckBox({ p, text, invert = false }: { p: PropertyHandl
         <label className={`insp-checkbox${p.info.isEnabled ? '' : ' disabled'}`} data-property={p.ref.property}>
             <input ref={ref} type="checkbox" checked={checked} disabled={!canEdit || !p.info.isEnabled}
                 onChange={(e) => set(p, e.target.checked !== invert)} />
+            <span>{text}</span>
+        </label>
+    )
+}
+
+/** PropertyToggle: a ToggleButton (switch) with a text */
+export function PropertyToggle({ p, text }: { p: PropertyHandle | null; text: string }): React.JSX.Element | null {
+    const { set, canEdit } = useEdit()
+    if (!p || !p.info.isVisible) {
+        return null
+    }
+    const checked = !!p.info.value
+    return (
+        <label className={`insp-toggle${p.info.isEnabled ? '' : ' disabled'}`} data-property={p.ref.property}>
+            <input type="checkbox" role="switch" checked={checked} disabled={!canEdit || !p.info.isEnabled}
+                onChange={() => set(p, !checked)} />
             <span>{text}</span>
         </label>
     )

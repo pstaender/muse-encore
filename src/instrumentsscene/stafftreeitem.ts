@@ -11,7 +11,7 @@ import type { Staff } from '../engraving/dom/staff'
 import { Fraction } from '../engraving/types/fraction'
 import { TConv } from '../engraving/types/typesconv'
 import { arg, qtrc } from '../framework/global/translation'
-import { AbstractLayoutPanelTreeItem, staffById, type LayoutPanelNotationParts } from './abstractlayoutpaneltreeitem'
+import { AbstractLayoutPanelTreeItem, staffById, type LayoutPanelNotation } from './abstractlayoutpaneltreeitem'
 import { LayoutPanelItemType } from './layoutpanelitemtype'
 
 /** C++ Staff::staffName(): the name of the staff's clef */
@@ -22,8 +22,8 @@ export function staffName(staff: Staff): string {
 export class StaffTreeItem extends AbstractLayoutPanelTreeItem {
     private m_isInited = false
 
-    constructor(score: Score, parts: LayoutPanelNotationParts | null) {
-        super(LayoutPanelItemType.STAFF, score, parts)
+    constructor(masterNotation: LayoutPanelNotation, notation: LayoutPanelNotation) {
+        super(LayoutPanelItemType.STAFF, masterNotation, notation)
         this.setSettingsAvailable(true)
         this.setSettingsEnabled(true)
         this.setIsRemovable(true)

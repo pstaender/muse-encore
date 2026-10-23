@@ -3,7 +3,8 @@
 // controls and system markings layers; selection syncing with the score; the score changes it requests.
 import { describe, expect, it } from 'vitest'
 import {
-    createLayoutPanelModel, InsertMode, LayoutPanelItemType, layoutPanelItemKey, selectAll, clearSelection, moveSelection,
+    createLayoutPanelModel, createSystemObjectsLayerSettingsModel, InsertMode, LayoutPanelItemType, layoutPanelItemKey, selectAll,
+    clearSelection, moveSelection, undo,
     type AbstractLayoutPanelTreeItem, type LayoutPanelNotationParts,
 } from '../src/index'
 import { DEMOS, VTEST, hasSubmodule, openScore } from './helpers'
@@ -28,6 +29,8 @@ function recorder(): { calls: string[]; parts: LayoutPanelNotationParts } {
             appendStaff: rec('appendStaff'), addSystemObjects: rec('addSystemObjects'), removeSystemObjects: rec('removeSystemObjects'),
             moveSystemObjects: rec('moveSystemObjects'), moveSystemObjectLayerBelowBottomStaff: rec('moveSystemObjectLayerBelowBottomStaff'),
             moveSystemObjectLayerAboveBottomStaff: rec('moveSystemObjectLayerAboveBottomStaff'),
+            insertPart: (part, index) => { calls.push(`insertPart ${JSON.stringify([part.id(), index])}`) },
+            replacePart: (partId, part) => { calls.push(`replacePart ${JSON.stringify([partId, part.id()])}`) },
         },
     }
 }
@@ -125,5 +128,39 @@ describe.skipIf(!hasSubmodule)('layout panel', () => {
         model.removeSelectedRows()
         expect(calls[calls.length - 2]).toMatch(/^removeParts \[\["\d+"\]\]$/)
         expect(root.childCount()).toBe(4)
+    })
+})
+
+describe.skipIf(!hasSubmodule)('layout panel drag and drop', () => {
+    it('moves the rows while dragging and the score on the drop (startActiveDrag / moveRows / endActiveDrag)', async () => {
+        const score = await openScore(`${DEMOS}/Amazing_grace.mscz`)
+        const { calls, parts } = recorder()
+        const model = createLayoutPanelModel(score, parts)
+        const root = model.rootItem()!
+        const titles = (): string[] => root.childItems().map(i => i.title())
+        const soprano = root.childAtRow(1)!
+        model.startActiveDrag()
+        // dragged over the alto, then over the tenor
+        expect(model.moveRows(root, soprano.row(), 1, root, 2)).toBe(true)
+        expect(model.moveRows(root, soprano.row(), 1, root, 3)).toBe(true)
+        expect(titles()).toEqual(['System markings', 'Alto', 'Tenor', 'Soprano', 'Bass'])
+        expect(calls).toEqual([]) // the score is not changed while dragging
+        model.endActiveDrag()
+        expect(model.isDragInProgress()).toBe(false)
+        expect(calls).toEqual(['moveParts [["1"],"4",0]']) // the soprano before the bass
+    })
+})
+
+describe.skipIf(!hasSubmodule)('system markings layer settings (SystemObjectsLayerSettingsModel)', () => {
+    it('lists the groups of system markings of a layer and hides one, undoable', async () => {
+        const score = await openScore(`${VTEST}/layout-sequence-12.mscx`)
+        const model = createSystemObjectsLayerSettingsModel(score, score.staves()[0].id())
+        const groups = model.groups()
+        expect(groups.length).toBeGreaterThan(0)
+        expect(groups.every(g => g.isGroupVisible)).toBe(true)
+        model.setSystemObjectsGroupVisible(0, false)
+        expect(createSystemObjectsLayerSettingsModel(score, score.staves()[0].id()).groups()[0].isGroupVisible).toBe(false)
+        undo(score)
+        expect(createSystemObjectsLayerSettingsModel(score, score.staves()[0].id()).groups()[0].isGroupVisible).toBe(true)
     })
 })

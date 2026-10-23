@@ -178,6 +178,12 @@ function matches(c: KeyCombo, e: KeyboardEvent): boolean {
     return c.shift === e.shiftKey || (!c.shift && e.key.length === 1 && !/[a-z0-9]/i.test(e.key))
 }
 
+/** the shortcuts of all actions with their titles (PercussionUtilities: the application shortcuts for conflicts) */
+export function allShortcuts(): { title: string; shortcut: string }[] {
+    return Object.entries(shortcutTable()).flatMap(([code, seqs]) =>
+        seqs.map(shortcut => ({ title: actionTitle(code).replace(/&(?!&)/g, ''), shortcut })))
+}
+
 let s_index: { code: string; combo: KeyCombo }[] | null = null
 
 function shortcutIndex(): { code: string; combo: KeyCombo }[] {
