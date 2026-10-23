@@ -25,6 +25,7 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "dev": "vite viewer",
     "dev:viewer": "vite viewer",
+    "example:viewer": "npm run build:viewer-package && npx http-server packages/viewer",
     "build:viewer": "vite build viewer",
     "build:viewer-package": "tsx tools/build-viewer-package.ts",
     "dev:editor": "vite editor",
