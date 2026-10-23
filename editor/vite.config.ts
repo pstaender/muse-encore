@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
 import { join } from 'node:path'
 import { defineConfig } from 'vite'
 import { musescoreLocales } from './vite-plugin-locales'
-import { musescoreSound } from './vite-plugin-sound'
+import { musescoreSound } from '../shared/vite-plugin-sound'
 
 export default defineConfig({
     root: __dirname,

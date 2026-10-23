@@ -1,0 +1,1807 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-only
+ * The MuseEncore Viewer component: shows a .mscz/.mscx file in an element of a web page (in a shadow root), with the
+ * page view (pages side by side, vertically or as two-page spreads) and MuseScore's continuous views, zoom, printing,
+ * full screen and the playback. The MuseEncore Viewer app (viewer/main.ts) and the npm package (applyMuseEncoreViewer,
+ * index.ts) use it. Keyboard shortcuts follow MuseScore Studio (src/app/configs/data/shortcuts.xml) where they make
+ * sense for a viewer.
+ */
+/// <reference types="vite/client" />
+import {
+    drawContinuousPanel, drawPage, drawPageSvg, initEngravingFonts, isTwoSided, layoutScore, loadScore, onImageDecoded, pageCount,
+    pageSize, playbackCursorBounds, scoreTitle, setViewMode as setScoreViewMode, SvgGlyphDefs, withPageView, type MasterScore,
+} from '../../src/index'
+import { SOUNDFONT_CDN_URL } from '../../shared/playback/soundfont'
+import { ViewerPlayback, type ViewerPlaybackState } from './playback'
+import type {
+    ContinuousView, MuseEncoreScoreInfo, MuseEncoreScoreSource, MuseEncoreViewer as IMuseEncoreViewer, MuseEncoreViewerOptions,
+    MuseEncoreViewerToolbarGroups, MuseEncoreViewSettings,
+} from './types'
+import css from './viewer.css?inline'
+
+type ViewerViewMode = MuseEncoreViewSettings['viewMode']
+
+/** the options of the viewer app (not part of the package's API) */
+export interface MuseEncoreViewerAppOptions extends MuseEncoreViewerOptions {
+    /** the view settings to start with (they override zoom, continuousView, pageOrientation and twoPages) */
+    viewSettings?: MuseEncoreViewSettings
+    onViewSettingsChange?: (settings: MuseEncoreViewSettings) => void
+    /** a file was opened by the user (file dialog, drop) or from a URL */
+    onFileOpened?: (fileName: string, data: ArrayBuffer) => void
+    onFileClosed?: () => void
+    /** the viewer takes the focus when a score is shown */
+    autoFocus?: boolean
+    /** the title shown without a score (and in the document title) */
+    appTitle?: string
+}
+
+// ---------------------------------------------------------------------------------
+//   shared by all viewers on a page: the engraving fonts and the icon font
+// ---------------------------------------------------------------------------------
+
+/** the package's fonts/ directory (dist/museencore-viewer.js -> ../fonts/) */
+function defaultFontsUrl(): string {
+    return new URL(/* @vite-ignore */ '../fonts/', import.meta.url).href
+}
+
+let s_fonts: Promise<void> | null = null
+
+function loadFonts(fontsUrl: string): Promise<void> {
+    if (!document.getElementById('museencore-viewer-icon-font')) {
+        // fonts declared in a shadow root are not loaded: the UI icon font is declared in the document
+        const style = document.createElement('style')
+        style.id = 'museencore-viewer-icon-font'
+        style.textContent = `@font-face { font-family: "MusescoreIcon"; src: url("${fontsUrl}musescoreicon/MusescoreIcon.ttf") format("truetype"); font-display: block; }`
+        document.head.appendChild(style)
+    }
+    s_fonts ??= initEngravingFonts(async (path) => {
+        const res = await fetch(`${fontsUrl}${path}`)
+        if (!res.ok) {
+            throw new Error(`could not load font ${path}`)
+        }
+        return res.arrayBuffer()
+    })
+    return s_fonts
+}
+
+// ---------------------------------------------------------------------------------
+//   constants
+// ---------------------------------------------------------------------------------
+
+/** MuseScore's zoom steps (NotationViewInputController::ZOOM_LEVELS) */
+const ZOOM_LEVELS = [5, 10, 15, 25, 50, 75, 100, 150, 200, 400, 800, 1600]
+const MIN_ZOOM = ZOOM_LEVELS[0]
+const MAX_ZOOM = ZOOM_LEVELS[ZOOM_LEVELS.length - 1]
+const CSS_DPI = 96 // CSS pixels per inch at 100%
+const MAX_CANVAS_PIXELS = 16 * 1024 * 1024 // larger pages are drawn as tiles of the visible part
+// the pages can be moved beyond their edges (like MuseScore's canvas) until this much of them is visible
+const MIN_VISIBLE = 48
+/** below this width the toolbar is compact */
+const NARROW_WIDTH = 640
+
+const FIT_MODES = ['page-width', 'whole-page'] as const
+type FitMode = typeof FIT_MODES[number]
+
+const VIEW_MODES: Record<ContinuousView, ViewerViewMode> = {
+    'horizontal': 'continuous-horizontal',
+    'vertical': 'continuous-vertical',
+    'window-fit': 'fit-width',
+}
+
+const DEFAULT_GROUPS: Required<MuseEncoreViewerToolbarGroups> = {
+    file: false, pageNavigation: true, pageView: true, zoom: true, playback: false, print: true, fullScreen: true,
+}
+
+// MuseScore's icon codes (src/framework/ui/view/iconcodes.h)
+const ICON = {
+    open: '&#xEF23;', close: '&#xEF14;', prev: '&#xF39C;', next: '&#xF39B;', pagesH: '&#xEF1C;', pagesV: '&#xF3AF;',
+    twoPages: '&#xEF7F;', zoomOut: '&#xEF16;', zoomIn: '&#xEF18;', center: '&#xF48C;', print: '&#xF3B7;', fullscreen: '&#xEF15;',
+    play: '', pause: '', rewind: '&#xEF26;',
+}
+
+function template(appTitle: string): string {
+    return `
+<div id="toolbar-trigger" aria-hidden="true"></div>
+<div id="toolbar" class="toolbar" role="toolbar" aria-label="Viewer controls">
+    <div class="group" data-group="file">
+        <button id="open" class="icon" title="Open… (Ctrl+O)" aria-label="Open file">${ICON.open}</button>
+        <span id="title" class="title">${appTitle}</span>
+        <button id="clear" class="icon" title="Close file" aria-label="Close file" hidden>${ICON.close}</button>
+        <input type="file" id="file" accept=".mscz,.mscx" hidden>
+    </div>
+
+    <div class="group" id="nav-group" data-group="pageNavigation">
+        <button id="prev" class="icon" title="Previous page (Ctrl+PgUp)" aria-label="Previous page">${ICON.prev}</button>
+        <span id="page-info" class="page-info" aria-live="polite">–</span>
+        <button id="next" class="icon" title="Next page (Ctrl+PgDn)" aria-label="Next page">${ICON.next}</button>
+    </div>
+
+    <div class="group" data-group="pageView">
+        <select id="view-mode" title="View mode" aria-label="View mode">
+            <option value="page">Page view</option>
+            <option value="continuous-horizontal">Continuous view (horizontal)</option>
+            <option value="continuous-vertical">Continuous view (vertical)</option>
+            <option value="fit-width">Continuous view (fit to window)</option>
+        </select>
+        <div class="segmented" role="radiogroup" aria-label="Page layout">
+            <button id="layout-h" class="icon" role="radio" title="Pages side by side" aria-label="Pages side by side">${ICON.pagesH}</button>
+            <button id="layout-v" class="icon" role="radio" title="Pages vertically" aria-label="Pages vertically">${ICON.pagesV}</button>
+        </div>
+        <button id="spread" class="icon toggle" title="Two pages (two-sided page layout)" aria-label="Two pages" aria-pressed="false">${ICON.twoPages}</button>
+    </div>
+
+    <div class="group" data-group="zoom">
+        <button id="zoom-out" class="icon" title="Zoom out (Ctrl+−)" aria-label="Zoom out">${ICON.zoomOut}</button>
+        <select id="zoom" title="Zoom" aria-label="Zoom">
+            <option value="page-width">Page width</option>
+            <option value="whole-page">Whole page</option>
+        </select>
+        <button id="zoom-in" class="icon" title="Zoom in (Ctrl++)" aria-label="Zoom in">${ICON.zoomIn}</button>
+        <button id="center" class="icon" title="Center page" aria-label="Center page">${ICON.center}</button>
+    </div>
+
+    <div class="group" data-group="playback">
+        <button id="rewind" class="icon" title="Rewind" aria-label="Rewind">${ICON.rewind}</button>
+        <button id="play" class="icon" title="Play" aria-label="Play">${ICON.play}</button>
+        <input id="play-position" class="play-position" type="range" min="0" max="0" step="0.1" value="0" aria-label="Play position">
+        <span id="play-time" class="play-time" aria-live="off">0:00 / 0:00</span>
+    </div>
+
+    <div class="group end">
+        <button id="print" class="icon" title="Print (Ctrl+P)" aria-label="Print" data-group="print">${ICON.print}</button>
+        <button id="fullscreen" class="icon" title="Full screen (F11)" aria-label="Full screen" data-group="fullScreen">${ICON.fullscreen}</button>
+        <button id="help" class="icon text" title="Keyboard shortcuts" aria-label="Keyboard shortcuts" aria-expanded="false">?</button>
+    </div>
+</div>
+
+<div id="viewport" tabindex="0" aria-label="Score">
+    <div id="pages"></div>
+    <div id="empty" class="empty">
+        <div id="drop-target" class="drop-target">
+            <div class="drop-icon">${ICON.open}</div>
+            <p><strong>Open a MuseScore file</strong></p>
+            <p class="muted">Drop a .mscz or .mscx file here, or <button id="open2" class="link">browse</button></p>
+        </div>
+        <p id="empty-message" class="muted"></p>
+    </div>
+</div>
+
+<!-- shown while a file is opened (the layout blocks the page for a moment) -->
+<div id="busy" class="busy" hidden>
+    <div class="busy-card" role="status" aria-live="polite">
+        <div class="spinner" aria-hidden="true"></div>
+        <div id="busy-title" class="busy-title">Loading…</div>
+        <div id="busy-detail" class="muted"></div>
+    </div>
+</div>
+
+<div id="statusbar" class="statusbar">
+    <span id="status">Loading fonts…</span>
+</div>
+
+<dialog id="help-dialog" aria-label="Keyboard shortcuts">
+    <h2>Keyboard shortcuts</h2>
+    <table>
+        <tr data-group="file"><td><kbd>Ctrl</kbd> <kbd>O</kbd></td><td>Open file</td></tr>
+        <tr data-group="playback"><td><kbd>Space</kbd></td><td>Play / pause</td></tr>
+        <tr><td><kbd>Ctrl</kbd> <kbd>+</kbd> / <kbd>Ctrl</kbd> <kbd>−</kbd></td><td>Zoom in / out</td></tr>
+        <tr><td><kbd>Ctrl</kbd> <kbd>0</kbd></td><td>Zoom to 100%</td></tr>
+        <tr><td>Mouse wheel, pinch</td><td>Zoom at pointer</td></tr>
+        <tr><td><kbd>Shift</kbd> + wheel, trackpad</td><td>Scroll</td></tr>
+        <tr><td>Hold <kbd>Space</kbd> + drag</td><td>Move the view (also beyond the pages)</td></tr>
+        <tr><td><kbd>Ctrl</kbd> <kbd>PgDn</kbd> / <kbd>Ctrl</kbd> <kbd>PgUp</kbd></td><td>Next / previous page</td></tr>
+        <tr><td><kbd>Home</kbd> / <kbd>End</kbd></td><td>First / last page</td></tr>
+        <tr><td>Arrow keys</td><td>Scroll</td></tr>
+        <tr><td><kbd>Ctrl</kbd> <kbd>P</kbd></td><td>Print</td></tr>
+        <tr><td><kbd>F11</kbd></td><td>Full screen</td></tr>
+    </table>
+    <p class="muted">On macOS use <kbd>⌘</kbd> instead of <kbd>Ctrl</kbd>.</p>
+    <form method="dialog"><button class="primary">Close</button></form>
+</dialog>
+`
+}
+
+function formatTime(sec: number): string {
+    const s = Math.max(0, Math.floor(sec))
+    const h = Math.floor(s / 3600)
+    const m = Math.floor(s / 60) % 60
+    const ss = String(s % 60).padStart(2, '0')
+    return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
+}
+
+function isTextInput(t: EventTarget | null): boolean {
+    return t instanceof HTMLInputElement || t instanceof HTMLSelectElement || t instanceof HTMLTextAreaElement
+}
+
+/** a mouse wheel notch (as opposed to trackpad scrolling, which keeps scrolling) */
+function isMouseWheel(e: WheelEvent): boolean {
+    if (e.deltaMode !== WheelEvent.DOM_DELTA_PIXEL) {
+        return true
+    }
+    const legacy = (e as WheelEvent & { wheelDeltaY?: number }).wheelDeltaY
+    if (legacy !== undefined && legacy !== 0 && e.deltaX === 0) {
+        return Math.abs(legacy) % 120 === 0
+    }
+    return e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50
+}
+
+/** the file name of a URL (without query) */
+function urlFileName(url: string): string {
+    try {
+        return decodeURIComponent(new URL(url, location.href).pathname.split('/').pop() || 'score.mscz')
+    } catch {
+        return 'score.mscz'
+    }
+}
+
+// ---------------------------------------------------------------------------------
+//   the viewer
+// ---------------------------------------------------------------------------------
+
+export class MuseEncoreViewer implements IMuseEncoreViewer {
+    readonly element: HTMLElement
+    readonly ready: Promise<MuseEncoreScoreInfo>
+    /** the element with the shadow root (a child of `element`) */
+    readonly host: HTMLDivElement
+    readonly shadow: ShadowRoot
+
+    private readonly m_opts: MuseEncoreViewerAppOptions
+    private readonly m_groups: Required<MuseEncoreViewerToolbarGroups>
+    private readonly m_fontsUrl: string
+    private readonly m_appTitle: string
+    private readonly m_abort = new AbortController()
+    private m_resolveReady: (info: MuseEncoreScoreInfo) => void = () => {}
+    private m_rejectReady: (e: Error) => void = () => {}
+    private m_readySettled = false
+    private m_destroyed = false
+
+    // elements
+    private readonly root: HTMLDivElement
+    private readonly toolbar: HTMLElement
+    private readonly viewport: HTMLElement
+    private readonly pagesDiv: HTMLDivElement
+    private readonly emptyDiv: HTMLDivElement
+    private readonly statusEl: HTMLSpanElement
+    private readonly titleEl: HTMLSpanElement
+    private readonly fileInput: HTMLInputElement
+    private readonly zoomSelect: HTMLSelectElement
+    private readonly viewModeSelect: HTMLSelectElement
+    private readonly pageInfo: HTMLSpanElement
+    private readonly busyEl: HTMLDivElement
+    private readonly helpDialog: HTMLDialogElement
+    private readonly playPosition: HTMLInputElement
+    private readonly playTime: HTMLSpanElement
+    private readonly btn: Record<'open' | 'open2' | 'clear' | 'prev' | 'next' | 'layoutH' | 'layoutV' | 'spread' | 'zoomIn' | 'zoomOut'
+        | 'print' | 'center' | 'fullscreen' | 'help' | 'play' | 'rewind', HTMLButtonElement>
+
+    // state
+    private score: MasterScore | null = null
+    private fileName = ''
+    private settings: MuseEncoreViewSettings
+    private zoom = 100 // current zoom in percent
+    private pages: HTMLDivElement[] = []
+    private readonly visible = new Set<HTMLDivElement>()
+    private renderTimer = 0
+    private reflowTimer = 0
+    private layoutVersion = 0 // counts the layouts of the score (the continuous panel repaints after a new one)
+    private viewSwitch = 0
+    private pan = { x: 0, y: 0 }
+    private spaceDown = false
+    private spaceUsed = false // the view was moved while Space was held (no play/pause)
+    private drag: { x: number; y: number; left: number; top: number; id: number } | null = null
+    private pinch: { dist: number; zoom: number } | null = null
+    private gestureStartZoom = 0
+    private toolbarHideTimer = 0
+    private dragTimer = 0
+    private loadToken = 0
+
+    private readonly observer: IntersectionObserver
+    private readonly resizeObserver: ResizeObserver
+    private readonly removeImageListener: () => void
+    private readonly viewSwitchIndicator: HTMLDivElement
+    private readonly panelBox: HTMLDivElement
+    private readonly panelCanvas: HTMLCanvasElement
+    private panelFrame = 0
+    private panelShownKey = ''
+    private readonly playback: ViewerPlayback | null
+    private readonly cursor: HTMLDivElement
+    private autoScrollPausedUntil = 0
+    private programmaticScroll = 0
+
+    constructor(element: HTMLElement, source?: MuseEncoreScoreSource | null, options: MuseEncoreViewerAppOptions = {}) {
+        this.element = element
+        this.m_opts = options
+        this.m_groups = { ...DEFAULT_GROUPS, ...options.toolbarGroups }
+        this.m_fontsUrl = (options.fontsUrl ?? defaultFontsUrl()).replace(/\/?$/, '/')
+        this.m_appTitle = options.appTitle ?? 'MuseEncore Viewer'
+        this.ready = new Promise<MuseEncoreScoreInfo>((resolve, reject) => {
+            this.m_resolveReady = resolve
+            this.m_rejectReady = reject
+        })
+        this.ready.catch(() => {}) // the error is also reported by onError and in the view
+
+        // the initial view
+        const zoomOpt = options.zoom ?? (options.centerAndResizeToPage === false ? 100 : 'whole-page')
+        this.settings = options.viewSettings ? { ...options.viewSettings } : {
+            zoom: String(zoomOpt),
+            orientation: options.pageOrientation ?? 'horizontal',
+            spread: options.twoPages ?? false,
+            viewMode: options.continuousView ? VIEW_MODES[options.continuousView] ?? 'page' : 'page',
+        }
+        if (this.settings.viewMode === 'fit-width' && this.fitMode()) {
+            this.settings.zoom = '100' // the page is as wide as the view: a fit mode makes no sense
+        }
+
+        // the shadow root in a child element (the element itself may not allow a shadow root or already have one)
+        this.host = document.createElement('div')
+        this.host.className = 'museencore-viewer'
+        this.host.style.cssText = 'display:block;width:100%;height:100%'
+        if (options.theme && options.theme !== 'auto') {
+            this.host.dataset.theme = options.theme
+        }
+        this.shadow = this.host.attachShadow({ mode: 'open' })
+        const style = document.createElement('style')
+        style.textContent = css
+        this.root = document.createElement('div')
+        this.root.className = 'viewer'
+        this.root.innerHTML = template(this.m_appTitle)
+        this.shadow.append(style, this.root)
+        element.replaceChildren(this.host)
+
+        const $ = <T extends HTMLElement>(id: string): T => this.shadow.getElementById(id) as T
+        this.toolbar = $('toolbar')
+        this.viewport = $('viewport')
+        this.pagesDiv = $('pages')
+        this.emptyDiv = $('empty')
+        this.statusEl = $('status')
+        this.titleEl = $('title')
+        this.fileInput = $('file')
+        this.zoomSelect = $('zoom')
+        this.viewModeSelect = $('view-mode')
+        this.pageInfo = $('page-info')
+        this.busyEl = $('busy')
+        this.helpDialog = $('help-dialog')
+        this.playPosition = $('play-position')
+        this.playTime = $('play-time')
+        this.btn = {
+            open: $('open'), open2: $('open2'), clear: $('clear'), prev: $('prev'), next: $('next'), layoutH: $('layout-h'),
+            layoutV: $('layout-v'), spread: $('spread'), zoomIn: $('zoom-in'), zoomOut: $('zoom-out'), print: $('print'),
+            center: $('center'), fullscreen: $('fullscreen'), help: $('help'), play: $('play'), rewind: $('rewind'),
+        }
+
+        // the groups to show
+        for (const el of this.root.querySelectorAll<HTMLElement>('[data-group]')) {
+            el.hidden = !this.m_groups[el.dataset.group as keyof MuseEncoreViewerToolbarGroups]
+        }
+        this.btn.help.hidden = !options.keyboardShortcuts
+        const endGroup = this.toolbar.querySelector<HTMLElement>('.group.end')!
+        endGroup.hidden = [...endGroup.children].every(c => (c as HTMLElement).hidden)
+        this.toolbar.hidden = !!options.disableToolbar || [...this.toolbar.children].every(c => (c as HTMLElement).hidden)
+        $('statusbar').hidden = !options.showStatusBar
+        $('drop-target').hidden = !this.m_groups.file
+        if (!document.fullscreenEnabled) {
+            this.btn.fullscreen.hidden = true
+        }
+
+        // the view mode switch indicator, the continuous panel, the playback cursor
+        this.viewSwitchIndicator = document.createElement('div')
+        this.viewSwitchIndicator.className = 'view-switch-indicator'
+        this.viewSwitchIndicator.setAttribute('aria-hidden', 'true')
+        this.viewSwitchIndicator.appendChild(document.createElement('div')).className = 'spinner'
+        this.panelBox = document.createElement('div')
+        this.panelBox.className = 'continuous-panel'
+        this.panelBox.setAttribute('aria-hidden', 'true')
+        this.panelCanvas = document.createElement('canvas')
+        this.panelBox.appendChild(this.panelCanvas)
+        this.cursor = document.createElement('div')
+        this.cursor.className = 'playback-cursor'
+        this.cursor.setAttribute('aria-hidden', 'true')
+        this.cursor.hidden = true
+
+        this.playback = this.m_groups.playback
+            ? new ViewerPlayback(options.soundFontUrl ?? SOUNDFONT_CDN_URL, s => this.playbackChanged(s))
+            : null
+
+        this.observer = new IntersectionObserver((entries) => {
+            for (const e of entries) {
+                const el = e.target as HTMLDivElement
+                if (e.isIntersecting) {
+                    this.visible.add(el)
+                } else {
+                    this.visible.delete(el)
+                }
+            }
+            this.scheduleRender(0)
+            this.updatePageInfo()
+        }, { root: this.viewport, rootMargin: '50%' })
+
+        this.resizeObserver = new ResizeObserver(() => this.resized())
+        this.resizeObserver.observe(this.viewport)
+
+        // images of the score are decoded asynchronously: draw the pages again when one is available
+        this.removeImageListener = onImageDecoded(() => {
+            for (const el of this.pages) {
+                delete el.querySelector<HTMLCanvasElement>(':scope > canvas')!.dataset.dpi
+            }
+            this.panelShownKey = ''
+            this.scheduleRender(0)
+        })
+
+        this.initZoomSelect()
+        this.installListeners()
+        this.updateControls()
+
+        void loadFonts(this.m_fontsUrl).then(
+            () => { if (!this.score && !this.isBusy()) this.setStatus('Ready') },
+            (e: Error) => this.setStatus(`Error: ${e.message}`, true))
+
+        if (source) {
+            void this.load(source).catch(() => {})
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   public API
+    // ---------------------------------------------------------------------------------
+
+    async load(source: MuseEncoreScoreSource, fileName?: string): Promise<MuseEncoreScoreInfo> {
+        const token = ++this.loadToken
+        let name = fileName ?? 'score.mscz'
+        try {
+            let data: ArrayBuffer
+            if (typeof source === 'string' || source instanceof URL) {
+                const url = String(source)
+                name = fileName ?? urlFileName(url)
+                await this.showBusy(`Opening ${name}`, 'Downloading…')
+                const res = await fetch(url)
+                if (!res.ok) {
+                    throw new Error(`${res.status} ${res.statusText}`)
+                }
+                data = await res.arrayBuffer()
+            } else if (source instanceof Blob) {
+                name = fileName ?? ((source as File).name || name)
+                data = await source.arrayBuffer()
+            } else if (source instanceof Uint8Array) {
+                data = source.slice().buffer as ArrayBuffer
+            } else {
+                data = source
+            }
+            if (token !== this.loadToken) {
+                throw new Error('superseded by another score')
+            }
+            return await this.openData(name, data, true)
+        } catch (e) {
+            this.hideBusy()
+            const error = e as Error
+            this.loadFailed(name, error)
+            throw error
+        }
+    }
+
+    pageCount(): number {
+        return this.score ? this.pages.length : 0
+    }
+
+    currentPage(): number {
+        return this.currentPageIdx() + 1
+    }
+
+    goToPage(page: number): void {
+        this.goToPageIdx(page - 1)
+    }
+
+    centerAndResizeToPage(page: number): void {
+        if (this.settings.viewMode !== 'page') {
+            this.setViewMode('page')
+        }
+        this.settings.zoom = 'whole-page'
+        this.settingsChanged()
+        this.applyZoom(this.computeZoom())
+        this.centerPage(page - 1)
+    }
+
+    setZoom(zoom: number | 'whole-page' | 'page-width'): void {
+        if (typeof zoom === 'number') {
+            this.zoomAt(zoom)
+        } else {
+            this.setFitMode(zoom)
+        }
+    }
+
+    setContinuousView(view: ContinuousView | false): void {
+        this.setViewMode(view ? VIEW_MODES[view] : 'page')
+    }
+
+    async play(): Promise<void> {
+        await this.playback?.play()
+    }
+
+    pause(): void {
+        this.playback?.pause()
+    }
+
+    stop(): void {
+        this.playback?.stop()
+    }
+
+    isPlaying(): boolean {
+        return !!this.playback?.state().playing
+    }
+
+    toggleFullScreen(): void {
+        if (document.fullscreenElement) {
+            void document.exitFullscreen()
+        } else {
+            void this.host.requestFullscreen?.()
+        }
+    }
+
+    /** prints the pages (in a frame with only the pages, like MuseScore's Score::print in every view mode) */
+    async print(): Promise<void> {
+        if (!this.score) {
+            return
+        }
+        const n = pageCount(this.score)
+        await this.showBusy('Preparing pages for printing…', `${n} ${n === 1 ? 'page' : 'pages'}`)
+        let doc: string
+        try {
+            const { css: pageCss, html } = this.printPages()
+            doc = `<!doctype html><html><head><meta charset="utf-8"><title>${this.fileName.replace(/[<&]/g, '')}</title><style>${pageCss}
+html, body { margin: 0; padding: 0; background: #fff; }
+.print-page { break-after: page; overflow: hidden; }
+.print-page:last-child { break-after: auto; }
+.print-page svg { display: block; }
+</style></head><body>${html}</body></html>`
+        } finally {
+            this.hideBusy()
+        }
+        const frame = document.createElement('iframe')
+        frame.setAttribute('aria-hidden', 'true')
+        frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden'
+        document.body.appendChild(frame)
+        await new Promise<void>((resolve) => {
+            frame.onload = () => resolve()
+            frame.srcdoc = doc
+        })
+        const win = frame.contentWindow!
+        const remove = (): void => { setTimeout(() => frame.remove(), 100) }
+        win.addEventListener('afterprint', remove, { once: true })
+        win.focus()
+        win.print()
+        // browsers without afterprint in frames: removed with the next print or after a minute
+        setTimeout(remove, 60000)
+    }
+
+    /**
+     * the pages as SVG (vector graphics) for printing and the @page rule of the score's page size (the paper has the
+     * page size of the score, which also gives portrait or landscape)
+     */
+    printPages(): { css: string; html: string } {
+        const score = this.score
+        if (!score) {
+            return { css: '', html: '' }
+        }
+        return withPageView(score, () => {
+            const size = pageSize(score, 0)
+            // glyph outlines are defined once for all pages
+            const defs = new SvgGlyphDefs()
+            let html = ''
+            for (let i = 0; i < pageCount(score); ++i) {
+                html += `<div class="print-page">${drawPageSvg(score, i, { defs })}</div>`
+            }
+            return { css: `@page { size: ${size.width}in ${size.height}in; margin: 0; }`, html: defs.svg() + html }
+        })
+    }
+
+    /** handles a key event (the app forwards the keys typed outside of the viewer); returns true if it was used */
+    handleKeyDown(e: KeyboardEvent): boolean {
+        if (this.isBusy()) {
+            e.preventDefault()
+            return true
+        }
+        if (!this.m_opts.keyboardShortcuts || this.helpDialog.open) {
+            return false
+        }
+        const mod = e.ctrlKey || e.metaKey
+        const key = e.key
+        const target = e.composedPath()[0] ?? e.target
+
+        if (key === ' ' && !mod && !isTextInput(target)) {
+            // Space: play/pause (MuseScore) when released without moving the view; held and dragged: the hand tool
+            e.preventDefault()
+            if (!this.spaceDown) {
+                this.spaceDown = true
+                this.spaceUsed = false
+                this.setHand(true)
+            }
+            return true
+        }
+
+        let handled = true
+        if (mod && (key === '+' || key === '=')) {
+            this.zoomStep(1)
+        } else if (mod && (key === '-' || key === '_')) {
+            this.zoomStep(-1)
+        } else if (mod && key === '0') {
+            this.zoomAt(100)
+        } else if (mod && key.toLowerCase() === 'o' && this.m_groups.file) {
+            this.fileInput.click()
+        } else if (mod && key.toLowerCase() === 'p') {
+            void this.print()
+        } else if (key === 'F11') {
+            this.toggleFullScreen()
+        } else if (!this.score || isTextInput(target)) {
+            handled = false
+        } else if (key === 'PageDown') {
+            this.stepPage(1)
+        } else if (key === 'PageUp') {
+            this.stepPage(-1)
+        } else if (key === 'Home') {
+            this.goToPageIdx(0)
+        } else if (key === 'End') {
+            this.goToPageIdx(this.pages.length - 1)
+        } else if (!mod && key.startsWith('Arrow') && this.shadow.activeElement !== this.viewport) {
+            // arrow keys scroll natively when the score has the focus
+            const d = 60
+            this.viewport.scrollBy({
+                left: key === 'ArrowLeft' ? -d : key === 'ArrowRight' ? d : 0,
+                top: key === 'ArrowUp' ? -d : key === 'ArrowDown' ? d : 0,
+            })
+        } else {
+            handled = false
+        }
+        if (handled) {
+            e.preventDefault()
+        }
+        return handled
+    }
+
+    handleKeyUp(e: KeyboardEvent): void {
+        if (e.key === ' ' && this.spaceDown) {
+            this.spaceDown = false
+            this.setHand(false)
+            if (!this.spaceUsed && this.playback && this.score && !isTextInput(e.composedPath()[0] ?? e.target)) {
+                this.playback.togglePlay()
+            }
+        }
+    }
+
+    /** closes the score (the app's close button) */
+    closeFile(): void {
+        this.playback?.setScore(null)
+        this.score = null
+        this.fileName = ''
+        this.m_opts.onFileClosed?.()
+        this.buildPages()
+        this.setStatus('Ready')
+    }
+
+    destroy(): void {
+        if (this.m_destroyed) {
+            return
+        }
+        this.m_destroyed = true
+        this.m_abort.abort()
+        this.observer.disconnect()
+        this.resizeObserver.disconnect()
+        this.removeImageListener()
+        this.playback?.dispose()
+        clearTimeout(this.renderTimer)
+        clearTimeout(this.reflowTimer)
+        clearTimeout(this.toolbarHideTimer)
+        clearTimeout(this.dragTimer)
+        cancelAnimationFrame(this.panelFrame)
+        if (document.fullscreenElement === this.host) {
+            void document.exitFullscreen()
+        }
+        this.host.remove()
+        this.score = null
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   status and busy overlay: the layout is synchronous, the UI is blocked while a file is opened
+    // ---------------------------------------------------------------------------------
+
+    private setStatus(text: string, error = false): void {
+        this.statusEl.textContent = text
+        this.statusEl.parentElement!.classList.toggle('error', error)
+    }
+
+    private settingsChanged(): void {
+        this.m_opts.onViewSettingsChange?.({ ...this.settings })
+    }
+
+    private isBusy(): boolean {
+        return !this.busyEl.hidden
+    }
+
+    /** shows the overlay and waits until it is painted */
+    private async showBusy(title: string, detail = ''): Promise<void> {
+        const $ = (id: string): HTMLElement => this.shadow.getElementById(id)!
+        $('busy-title').textContent = title
+        $('busy-title').title = title
+        $('busy-detail').textContent = detail
+        if (this.busyEl.hidden) {
+            this.busyEl.hidden = false
+            this.root.setAttribute('aria-busy', 'true')
+            this.viewport.setAttribute('inert', '')
+        }
+        await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve)))
+    }
+
+    private hideBusy(): void {
+        this.busyEl.hidden = true
+        this.root.removeAttribute('aria-busy')
+        this.viewport.removeAttribute('inert')
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   files
+    // ---------------------------------------------------------------------------------
+
+    private async openData(name: string, data: ArrayBuffer, notify: boolean): Promise<MuseEncoreScoreInfo> {
+        await this.showBusy(`Opening ${name}`, 'Loading fonts…')
+        await loadFonts(this.m_fontsUrl)
+        this.setStatus(`Loading ${name}…`)
+        // the overlay must be painted before the (synchronous) layout
+        await this.showBusy(`Opening ${name}`, 'Laying out the score…')
+        if (this.m_destroyed) {
+            throw new Error('the viewer was removed')
+        }
+        try {
+            const t0 = performance.now()
+            const s = loadScore(data)
+            layoutScore(s)
+            const n = pageCount(s) // the pages of the page view
+            const t1 = performance.now()
+            this.score = s
+            this.fileName = name
+            this.applyViewMode()
+            ++this.layoutVersion
+            this.playback?.setScore(s)
+            this.buildPages()
+            this.showInitialPage()
+            this.setStatus(`${name} · ${n} ${n === 1 ? 'page' : 'pages'} · layout ${Math.round(t1 - t0)} ms`)
+            this.shadow.getElementById('empty-message')!.textContent = ''
+            if (notify) {
+                this.m_opts.onFileOpened?.(name, data)
+            }
+            const info: MuseEncoreScoreInfo = { fileName: name, title: scoreTitle(s), pageCount: n }
+            if (!this.m_readySettled) {
+                this.m_readySettled = true
+                this.m_resolveReady(info)
+            }
+            this.m_opts.onLoad?.(info)
+            return info
+        } finally {
+            this.hideBusy()
+        }
+    }
+
+    private loadFailed(name: string, error: Error): void {
+        console.error(error)
+        this.setStatus(`Could not open ${name}: ${error.message}`, true)
+        if (!this.score) {
+            this.shadow.getElementById('empty-message')!.textContent = `Could not open ${name}: ${error.message}`
+        }
+        if (!this.m_readySettled) {
+            this.m_readySettled = true
+            this.m_rejectReady(error)
+        }
+        this.m_opts.onError?.(error)
+    }
+
+    private openFile(file: File): void {
+        void this.load(file).catch(() => {})
+    }
+
+    /** the start of the view after loading: the page of centerAndResizeToPage */
+    private showInitialPage(): void {
+        if (!this.score || this.settings.viewMode !== 'page') {
+            return
+        }
+        const page = this.m_opts.centerAndResizeToPage
+        this.centerPage(typeof page === 'number' ? Math.max(0, Math.min(this.pages.length - 1, Math.round(page) - 1)) : 0)
+        if (page === false) {
+            this.showPageStart()
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   pages
+    // ---------------------------------------------------------------------------------
+
+    /** a page is a white box; its canvas covers the whole page or, at high zoom, only the visible part */
+    private makePage(idx: number): HTMLDivElement {
+        const el = document.createElement('div')
+        el.className = 'page'
+        el.dataset.page = String(idx)
+        el.setAttribute('role', 'img')
+        el.setAttribute('aria-label', `Page ${idx + 1}`)
+        el.appendChild(document.createElement('canvas'))
+        return el
+    }
+
+    private spreadActive(): boolean {
+        return !!this.score && this.settings.viewMode === 'page' && this.settings.spread && isTwoSided(this.score)
+    }
+
+    private buildPages(keepPosition = false): void {
+        const scroll = { left: this.viewport.scrollLeft, top: this.viewport.scrollTop }
+        this.hideContinuousPanel()
+        this.cursor.remove()
+        this.observer.disconnect()
+        this.visible.clear()
+        this.pagesDiv.replaceChildren()
+        this.pages = []
+
+        const score = this.score
+        this.emptyDiv.hidden = !!score
+        this.btn.clear.hidden = !score
+        // like MuseScore's tab: the file name without extension; the score title as tooltip
+        this.titleEl.textContent = score ? this.fileName.replace(/\.mscx?z?$/i, '') : this.m_appTitle
+        this.titleEl.title = score ? [scoreTitle(score), this.fileName].filter(Boolean).join(' – ') : ''
+
+        if (score) {
+            const n = pageCount(score)
+            for (let i = 0; i < n; ++i) {
+                this.pages.push(this.makePage(i))
+            }
+            if (this.spreadActive()) {
+                // two-sided layout: the first page is a right-hand page
+                const placeholder = document.createElement('div')
+                placeholder.className = 'page placeholder'
+                placeholder.dataset.page = '0'
+                placeholder.setAttribute('aria-hidden', 'true')
+                const items = [placeholder, ...this.pages]
+                for (let i = 0; i < items.length; i += 2) {
+                    const spread = document.createElement('div')
+                    spread.className = 'spread'
+                    spread.append(...items.slice(i, i + 2))
+                    this.pagesDiv.appendChild(spread)
+                }
+            } else {
+                this.pagesDiv.append(...this.pages)
+            }
+            for (const el of this.pages) {
+                this.observer.observe(el)
+            }
+        }
+
+        this.updateControls()
+        this.updatePan()
+        this.applyZoom(this.computeZoom())
+        this.updateCursor()
+        if (keepPosition) {
+            this.viewport.scrollTo(scroll.left, scroll.top)
+            return
+        }
+        if (score && this.settings.viewMode !== 'page') {
+            this.showPageStart()
+        } else if (score) {
+            this.centerPage(0)
+        } else {
+            this.viewport.scrollTo(0, 0)
+        }
+        if (this.m_opts.autoFocus || this.shadow.activeElement) {
+            this.viewport.focus({ preventScroll: true })
+        }
+    }
+
+    private pageCssSize(idx: number, z = this.zoom): { w: number; h: number } {
+        const s = pageSize(this.score!, idx)
+        const f = CSS_DPI * z / 100
+        return { w: s.width * f, h: s.height * f }
+    }
+
+    /** sets the CSS size of all pages; the bitmaps are redrawn later (until then they are scaled) */
+    private applyZoom(z: number): void {
+        this.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
+        if (this.score) {
+            for (const el of this.pagesDiv.querySelectorAll<HTMLDivElement>('.page')) {
+                const { w, h } = this.pageCssSize(Number(el.dataset.page))
+                el.style.width = `${w}px`
+                el.style.height = `${h}px`
+            }
+        }
+        this.updateZoomSelect()
+        this.scheduleRender(120)
+    }
+
+    private scheduleRender(delay: number): void {
+        clearTimeout(this.renderTimer)
+        this.renderTimer = window.setTimeout(() => this.renderVisible(), delay)
+    }
+
+    /**
+     * Draws a page at the given resolution. Small enough pages are drawn completely; otherwise only the visible part
+     * of the page plus a margin of half a viewport is drawn (a "tile"), so the bitmap stays small at any zoom.
+     */
+    private renderPage(el: HTMLDivElement, cssDpi: number): void {
+        const idx = Number(el.dataset.page)
+        const s = pageSize(this.score!, idx)
+        const dpr = window.devicePixelRatio
+        const dpi = cssDpi * dpr
+        const fullW = s.width * dpi
+        const fullH = s.height * dpi
+        const c = el.querySelector<HTMLCanvasElement>(':scope > canvas')!
+        const d = c.dataset
+        const sameDpi = d.dpi === dpi.toFixed(4)
+
+        let region: { x: number; y: number; width: number; height: number } | undefined
+        if (fullW * fullH <= MAX_CANVAS_PIXELS) {
+            if (sameDpi && d.tile === '0') {
+                return
+            }
+        } else {
+            // visible part of the page in device pixels
+            const pr = el.getBoundingClientRect()
+            const vr = this.viewport.getBoundingClientRect()
+            const vis = {
+                l: (Math.max(pr.left, vr.left) - pr.left) * dpr,
+                t: (Math.max(pr.top, vr.top) - pr.top) * dpr,
+                r: (Math.min(pr.right, vr.right) - pr.left) * dpr,
+                b: (Math.min(pr.bottom, vr.bottom) - pr.top) * dpr,
+            }
+            if (vis.r <= vis.l || vis.b <= vis.t) {
+                return
+            }
+            if (sameDpi && d.tile === '1' && Number(d.x) <= vis.l + 1 && Number(d.y) <= vis.t + 1
+                && Number(d.x) + Number(d.w) >= vis.r - 1 && Number(d.y) + Number(d.h) >= vis.b - 1) {
+                return // the current tile still covers the visible part
+            }
+            const mx = vr.width * dpr / 2
+            const my = vr.height * dpr / 2
+            const x = Math.floor(Math.max(0, vis.l - mx))
+            const y = Math.floor(Math.max(0, vis.t - my))
+            region = {
+                x,
+                y,
+                width: Math.ceil(Math.min(fullW, vis.r + mx)) - x,
+                height: Math.ceil(Math.min(fullH, vis.b + my)) - y,
+            }
+        }
+
+        const x = region?.x ?? 0
+        const y = region?.y ?? 0
+        const w = region?.width ?? Math.round(fullW)
+        const h = region?.height ?? Math.round(fullH)
+        c.width = Math.max(1, w)
+        c.height = Math.max(1, h)
+        // relative to the page, so a bitmap keeps its place while zooming until it is redrawn
+        c.style.left = `${x / fullW * 100}%`
+        c.style.top = `${y / fullH * 100}%`
+        c.style.width = `${w / fullW * 100}%`
+        c.style.height = `${h / fullH * 100}%`
+        drawPage(this.score!, idx, c.getContext('2d')!, { dpi, region })
+        Object.assign(d, { dpi: dpi.toFixed(4), tile: region ? '1' : '0', x: String(x), y: String(y), w: String(w), h: String(h) })
+    }
+
+    private renderVisible(): void {
+        if (!this.score) {
+            return
+        }
+        this.updateContinuousPanel()
+        const cssDpi = CSS_DPI * this.zoom / 100
+        // draw one page per frame to keep the UI responsive
+        const queue = [...this.visible].sort((a, b) => Number(a.dataset.page) - Number(b.dataset.page))
+        const step = (): void => {
+            const el = queue.shift()
+            if (!el || !this.score) {
+                return
+            }
+            if (el.isConnected) {
+                this.renderPage(el, cssDpi)
+            }
+            requestAnimationFrame(step)
+        }
+        step()
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   zoom
+    // ---------------------------------------------------------------------------------
+
+    private fitMode(): FitMode | null {
+        return (FIT_MODES as readonly string[]).includes(this.settings.zoom) ? this.settings.zoom as FitMode : null
+    }
+
+    private computeZoom(): number {
+        const mode = this.fitMode()
+        const score = this.score
+        if (!score || !mode) {
+            const z = Number(this.settings.zoom)
+            return Number.isFinite(z) && z > 0 ? z : 100
+        }
+        if (this.settings.viewMode === 'fit-width') {
+            return 100 // the page is as wide as the view (at this zoom)
+        }
+        const gap = this.pageGap()
+        const availW = this.viewport.clientWidth - 2 * gap
+        const availH = this.viewport.clientHeight - 2 * gap
+        const s = pageSize(score, 0)
+        // the continuous views fit their long page across it (MuseScore fits the page view only)
+        if (this.settings.viewMode === 'continuous-horizontal') {
+            return Math.max(MIN_ZOOM, availH / (s.height * CSS_DPI) * 100)
+        }
+        if (this.settings.viewMode === 'continuous-vertical') {
+            return Math.max(MIN_ZOOM, availW / (s.width * CSS_DPI) * 100)
+        }
+        const pagesAcross = this.spreadActive() ? 2 : 1
+        const zw = availW / (s.width * pagesAcross * CSS_DPI) * 100
+        const zh = availH / (s.height * CSS_DPI) * 100
+        return Math.max(MIN_ZOOM, mode === 'page-width' ? zw : Math.min(zw, zh))
+    }
+
+    private initZoomSelect(): void {
+        for (const level of ZOOM_LEVELS) {
+            const o = document.createElement('option')
+            o.value = String(level)
+            o.textContent = `${level}%`
+            o.dataset.level = '1'
+            this.zoomSelect.appendChild(o)
+        }
+    }
+
+    private updateZoomSelect(): void {
+        const zoomSelect = this.zoomSelect
+        const custom = zoomSelect.querySelector<HTMLOptionElement>('option[data-custom]')
+        for (const o of zoomSelect.querySelectorAll<HTMLOptionElement>('option[data-level]')) {
+            o.selected = false
+        }
+        const mode = this.fitMode()
+        if (mode) {
+            zoomSelect.value = mode
+            custom?.remove()
+            return
+        }
+        const level = ZOOM_LEVELS.find(l => Math.abs(l - this.zoom) < 0.5)
+        if (level !== undefined) {
+            custom?.remove()
+            zoomSelect.value = String(level)
+            return
+        }
+        let opt = custom
+        if (!opt) {
+            opt = document.createElement('option')
+            opt.dataset.custom = '1'
+            zoomSelect.prepend(opt)
+        }
+        opt.value = String(this.zoom)
+        opt.textContent = `${Math.round(this.zoom)}%`
+        zoomSelect.value = opt.value
+    }
+
+    /** zooms keeping the score point under (clientX, clientY) in place */
+    private zoomAt(z: number, clientX?: number, clientY?: number): void {
+        if (!this.score) {
+            return
+        }
+        const viewport = this.viewport
+        const rect = viewport.getBoundingClientRect()
+        const x = clientX ?? rect.left + rect.width / 2
+        const y = clientY ?? rect.top + rect.height / 2
+
+        // anchor: the page under the point (or the nearest one) and the relative position on it
+        let anchor: HTMLDivElement | null = null
+        let best = Infinity
+        for (const c of this.visible.size ? this.visible : this.pages) {
+            const r = c.getBoundingClientRect()
+            const dx = Math.max(r.left - x, 0, x - r.right)
+            const dy = Math.max(r.top - y, 0, y - r.bottom)
+            const d = dx * dx + dy * dy
+            if (d < best) {
+                best = d
+                anchor = c
+            }
+        }
+        const before = anchor?.getBoundingClientRect()
+        const fx = before ? (x - before.left) / before.width : 0
+        const fy = before ? (y - before.top) / before.height : 0
+
+        this.settings.zoom = String(Math.round(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z)) * 100) / 100)
+        this.settingsChanged()
+        this.applyZoom(Number(this.settings.zoom))
+
+        if (anchor && before) {
+            const after = anchor.getBoundingClientRect()
+            viewport.scrollLeft += after.left + fx * after.width - x
+            viewport.scrollTop += after.top + fy * after.height - y
+        }
+        this.scheduleReflow()
+    }
+
+    private zoomStep(dir: 1 | -1): void {
+        const next = dir > 0 ? ZOOM_LEVELS.find(l => l > this.zoom + 0.5) : [...ZOOM_LEVELS].reverse().find(l => l < this.zoom - 0.5)
+        this.zoomAt(next ?? (dir > 0 ? MAX_ZOOM : MIN_ZOOM))
+    }
+
+    private setFitMode(mode: FitMode): void {
+        const page = this.currentPageIdx()
+        this.settings.zoom = mode
+        this.settingsChanged()
+        this.applyZoom(this.computeZoom())
+        this.scheduleReflow()
+        this.centerPage(page)
+    }
+
+    private resized(): void {
+        this.root.classList.toggle('narrow', this.root.clientWidth < NARROW_WIDTH)
+        this.updatePan()
+        this.scheduleReflow()
+        if (this.fitMode() && this.score) {
+            // the page stays fitted and centered (e.g. entering full screen)
+            const page = this.currentPageIdx()
+            this.applyZoom(this.computeZoom())
+            this.centerPage(page)
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   layout and navigation
+    // ---------------------------------------------------------------------------------
+
+    private updateControls(): void {
+        const has = !!this.score
+        const horizontal = this.settings.orientation === 'horizontal'
+        const pageView = this.settings.viewMode === 'page'
+        const btn = this.btn
+        this.pagesDiv.className = (horizontal ? 'horizontal' : 'vertical') + (pageView ? '' : ' continuous')
+        btn.layoutH.setAttribute('aria-checked', String(horizontal))
+        btn.layoutV.setAttribute('aria-checked', String(!horizontal))
+        this.viewModeSelect.value = this.settings.viewMode
+        const twoSided = !!this.score && isTwoSided(this.score)
+        btn.spread.disabled = !twoSided || !pageView
+        btn.spread.setAttribute('aria-pressed', String(this.spreadActive()))
+        btn.spread.title = twoSided ? 'Two pages' : 'Two pages (only for scores with a two-sided page layout)'
+        for (const b of [btn.prev, btn.next, btn.zoomIn, btn.zoomOut, btn.center, btn.print, btn.play, btn.rewind]) {
+            b.disabled = !has
+        }
+        this.playPosition.disabled = !has
+        // the continuous views have one page: no page layout
+        btn.layoutH.disabled = btn.layoutV.disabled = !has || !pageView
+        this.zoomSelect.disabled = !has
+        this.updatePageInfo()
+    }
+
+    private setOrientation(o: 'horizontal' | 'vertical'): void {
+        const page = this.currentPageIdx()
+        this.settings.orientation = o
+        this.settingsChanged()
+        this.updateControls()
+        if (this.fitMode()) {
+            this.applyZoom(this.computeZoom())
+        }
+        this.centerPage(page)
+    }
+
+    private toggleSpread(): void {
+        const page = this.currentPageIdx()
+        this.settings.spread = !this.settings.spread
+        this.settingsChanged()
+        this.buildPages()
+        this.centerPage(page)
+    }
+
+    /** index of the page nearest to the start of the viewport */
+    private currentPageIdx(): number {
+        if (!this.pages.length) {
+            return 0
+        }
+        const r = this.viewport.getBoundingClientRect()
+        const horizontal = this.settings.orientation === 'horizontal'
+        let best = 0
+        let bestDist = Infinity
+        for (const c of this.pages) {
+            const cr = c.getBoundingClientRect()
+            // the page whose visible part is largest wins; ties go to the first one
+            const visibleLen = horizontal
+                ? Math.min(cr.right, r.right) - Math.max(cr.left, r.left)
+                : Math.min(cr.bottom, r.bottom) - Math.max(cr.top, r.top)
+            const dist = -visibleLen
+            if (dist < bestDist - 1) {
+                bestDist = dist
+                best = Number(c.dataset.page)
+            }
+        }
+        return best
+    }
+
+    private goToPageIdx(idx: number, behavior: ScrollBehavior = 'smooth'): void {
+        if (!this.pages.length) {
+            return
+        }
+        const c = this.pages[Math.max(0, Math.min(this.pages.length - 1, idx))]
+        // in a spread, scroll to the spread (its left page)
+        const target = c.parentElement?.classList.contains('spread') ? c.parentElement : c
+        const gap = this.pageGap()
+        const vr = this.viewport.getBoundingClientRect()
+        const tr = target.getBoundingClientRect()
+        if (this.settings.orientation === 'horizontal') {
+            this.viewport.scrollTo({ left: this.viewport.scrollLeft + tr.left - vr.left - gap, behavior })
+        } else {
+            this.viewport.scrollTo({ top: this.viewport.scrollTop + tr.top - vr.top - gap, behavior })
+        }
+    }
+
+    /** shows the page (in a spread: the spread) in the middle of the view, horizontally and vertically */
+    private centerPage(idx = this.currentPageIdx()): void {
+        if (!this.pages.length) {
+            return
+        }
+        const viewport = this.viewport
+        const c = this.pages[Math.max(0, Math.min(this.pages.length - 1, idx))]
+        const target = c.parentElement?.classList.contains('spread') ? c.parentElement : c
+        const vr = viewport.getBoundingClientRect()
+        const tr = target.getBoundingClientRect()
+        // the long page of a continuous view is centered only along the axis where it fits
+        const continuous = this.settings.viewMode !== 'page'
+        if (!continuous || tr.width <= viewport.clientWidth) {
+            viewport.scrollLeft += tr.left + tr.width / 2 - (vr.left + viewport.clientWidth / 2)
+        }
+        if (!continuous || tr.height <= viewport.clientHeight) {
+            viewport.scrollTop += tr.top + tr.height / 2 - (vr.top + viewport.clientHeight / 2)
+        }
+    }
+
+    /** the continuous views: shows the beginning of their page (centered along an axis where it fits) */
+    private showPageStart(): void {
+        const el = this.pages[0]
+        if (!el) {
+            return
+        }
+        const viewport = this.viewport
+        const gap = this.pageGap()
+        const vr = viewport.getBoundingClientRect()
+        const tr = el.getBoundingClientRect()
+        viewport.scrollLeft += tr.width <= viewport.clientWidth
+            ? tr.left + tr.width / 2 - (vr.left + viewport.clientWidth / 2) : tr.left - vr.left - gap
+        viewport.scrollTop += tr.height <= viewport.clientHeight
+            ? tr.top + tr.height / 2 - (vr.top + viewport.clientHeight / 2) : tr.top - vr.top - gap
+    }
+
+    private pageGap(): number {
+        return parseFloat(getComputedStyle(this.root).getPropertyValue('--page-gap')) || 24
+    }
+
+    /** sets the space around the pages; the view keeps showing the same part of the pages */
+    private updatePan(): void {
+        const viewport = this.viewport
+        // without a score nothing can be moved (the drop target must stay in view)
+        const next = this.score ? {
+            x: this.settings.viewMode === 'fit-width' ? 0 : Math.max(0, viewport.clientWidth - MIN_VISIBLE - this.pageGap()),
+            y: Math.max(0, viewport.clientHeight - MIN_VISIBLE - this.pageGap()),
+        } : { x: 0, y: 0 }
+        if (next.x === this.pan.x && next.y === this.pan.y) {
+            return
+        }
+        this.pagesDiv.style.setProperty('--pan-x', `${next.x}px`)
+        this.pagesDiv.style.setProperty('--pan-y', `${next.y}px`)
+        viewport.scrollLeft += next.x - this.pan.x
+        viewport.scrollTop += next.y - this.pan.y
+        this.pan = next
+    }
+
+    private stepPage(dir: 1 | -1): void {
+        const cur = this.currentPageIdx()
+        if (!this.spreadActive()) {
+            this.goToPageIdx(cur + dir)
+            return
+        }
+        // spreads: [1], [2, 3], [4, 5], ... (0-based: [0], [1, 2], [3, 4], ...)
+        const spread = cur === 0 ? 0 : Math.floor((cur + 1) / 2)
+        const target = Math.max(0, spread + dir)
+        this.goToPageIdx(target === 0 ? 0 : 2 * target - 1)
+    }
+
+    private updatePageInfo(): void {
+        if (!this.score) {
+            this.pageInfo.textContent = '–'
+            this.btn.prev.disabled = this.btn.next.disabled = true
+            return
+        }
+        const n = this.pages.length
+        const cur = this.currentPageIdx()
+        const partner = this.spreadActive() && cur > 0 ? (cur % 2 === 1 ? cur + 1 : cur - 1) : -1
+        const shown = partner >= 0 && partner < n ? `${Math.min(cur, partner) + 1}–${Math.max(cur, partner) + 1}` : `${cur + 1}`
+        this.pageInfo.textContent = `${shown} / ${n}`
+        this.btn.prev.disabled = cur <= 0
+        this.btn.next.disabled = Math.max(cur, partner) >= n - 1
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   view modes (MuseScore's status bar: NotationStatusBarModel::setCurrentViewMode, NotationPainting::setViewMode)
+    // ---------------------------------------------------------------------------------
+
+    /** the page width of the "fit to window" view in inches: the width of the view at the current zoom */
+    private fitWidthInches(): number {
+        return Math.max(1, (this.viewport.clientWidth - 2 * this.pageGap()) / (CSS_DPI * this.zoom / 100))
+    }
+
+    /** lays the score out in the view mode of the settings; returns true if the layout changed */
+    private applyViewMode(): boolean {
+        const score = this.score
+        if (!score) {
+            return false
+        }
+        const mode = this.settings.viewMode
+        if (mode === 'fit-width') {
+            // the zoom of the view first (the page width follows from it)
+            this.zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, this.computeZoom()))
+        }
+        return setScoreViewMode(score, mode, mode === 'fit-width' ? this.fitWidthInches() : 0)
+    }
+
+    private setViewMode(mode: ViewerViewMode): void {
+        if (mode === this.settings.viewMode) {
+            return
+        }
+        this.settings.viewMode = mode
+        if (mode === 'fit-width' && this.score && this.fitMode()) {
+            this.settings.zoom = '100'
+        }
+        this.settingsChanged()
+        if (!this.score) {
+            this.updateControls()
+            return
+        }
+        const viewport = this.viewport
+        const r = viewport.getBoundingClientRect()
+        const rr = this.root.getBoundingClientRect()
+        Object.assign(this.viewSwitchIndicator.style, {
+            left: `${r.left - rr.left}px`, top: `${r.top - rr.top}px`, width: `${r.width}px`, height: `${r.height}px`,
+        })
+        this.root.appendChild(this.viewSwitchIndicator)
+        viewport.classList.add('view-switching')
+        viewport.inert = true
+        // the indicator must be painted before the (synchronous) layout; a later switch replaces this one
+        const token = ++this.viewSwitch
+        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => {
+            if (token !== this.viewSwitch || !this.score || this.m_destroyed) {
+                return
+            }
+            viewport.inert = false
+            try {
+                this.applyViewMode()
+                ++this.layoutVersion
+                this.buildPages()
+            } finally {
+                viewport.classList.remove('view-switching')
+                this.viewSwitchIndicator.remove()
+            }
+        })))
+    }
+
+    /** the "fit to window" view: the score is laid out again for a new width of the view or a new zoom */
+    private scheduleReflow(): void {
+        if (!this.score || this.settings.viewMode !== 'fit-width') {
+            return
+        }
+        clearTimeout(this.reflowTimer)
+        this.reflowTimer = window.setTimeout(() => {
+            const el = this.pages[0]
+            const score = this.score
+            if (!score || !el || this.settings.viewMode !== 'fit-width') {
+                return
+            }
+            // the same part of the score stays at the top of the view (as far as the new layout allows)
+            const viewport = this.viewport
+            const vr = viewport.getBoundingClientRect()
+            const before = el.getBoundingClientRect()
+            const f = (vr.top - before.top) / before.height
+            if (!setScoreViewMode(score, 'fit-width', this.fitWidthInches())) {
+                return
+            }
+            ++this.layoutVersion
+            this.buildPages(true)
+            const after = this.pages[0].getBoundingClientRect()
+            viewport.scrollTop += after.top + f * after.height - vr.top
+            viewport.scrollLeft += after.left + after.width / 2 - (vr.left + viewport.clientWidth / 2)
+        }, 150)
+    }
+
+    // the continuous view (horizontal): the staff names, clefs, key and time signatures at the left edge of the view
+    // (a box as wide as the panel, with a shadow at its right edge; the canvas in it is wider). The box is sticky at the
+    // left edge of the view (CSS), so it doesn't lag behind the scrolling; its contents are repainted only when they change.
+
+    private scheduleContinuousPanel(): void {
+        if (!this.panelFrame) {
+            this.panelFrame = requestAnimationFrame(() => {
+                this.panelFrame = 0
+                this.updateContinuousPanel()
+            })
+        }
+    }
+
+    private hideContinuousPanel(): void {
+        this.panelBox.remove()
+        this.panelShownKey = ''
+    }
+
+    /** C++ AbstractNotationPaintView::paint: m_continuousPanel->paint() after the score, at the left edge of the view */
+    private updateContinuousPanel(): void {
+        const el = this.pages[0]
+        const score = this.score
+        if (!score || !el || this.settings.viewMode !== 'continuous-horizontal') {
+            this.hideContinuousPanel()
+            return
+        }
+        const pr = el.getBoundingClientRect()
+        const vr = this.viewport.getBoundingClientRect()
+        const cssPerInch = pr.width / pageSize(score, 0).width
+        const leftCss = Math.max(0, vr.left - pr.left)
+        const topCss = Math.max(0, vr.top - pr.top)
+        const widthCss = Math.ceil(this.viewport.clientWidth / 2)
+        const dpr = window.devicePixelRatio
+        const w = Math.round(widthCss * dpr)
+        const h = Math.round(pr.height * dpr)
+        const canvas = this.panelCanvas
+        // the canvas keeps its contents unless its size, the zoom or the layout changed
+        const viewKey = `${this.layoutVersion}|${w}x${h}|${cssPerInch.toFixed(4)}|`
+        if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w
+            canvas.height = h
+            this.panelShownKey = ''
+        }
+        const ctx = canvas.getContext('2d')!
+        const shownKey = this.panelShownKey.startsWith(viewKey) ? this.panelShownKey.slice(viewKey.length) : undefined
+        // paints only if the contents changed (over the old ones: the panel's background covers the visible part)
+        const result = drawContinuousPanel(score, ctx, { dpi: cssPerInch * dpr, left: leftCss / cssPerInch, top: topCss / cssPerInch, shownKey })
+        if (!result) {
+            this.hideContinuousPanel()
+            return
+        }
+        this.panelShownKey = viewKey + result.key
+        Object.assign(canvas.style, { width: `${widthCss}px`, height: `${pr.height}px` })
+        Object.assign(this.panelBox.style, { width: `${Math.min(widthCss, result.width * cssPerInch)}px`, height: `${pr.height}px` })
+        if (this.panelBox.parentElement !== el) {
+            el.prepend(this.panelBox)
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   playback: the controls, the cursor (AbstractNotationPaintView::movePlaybackCursor) and the view following it
+    // ---------------------------------------------------------------------------------
+
+    private playbackChanged(s: ViewerPlaybackState): void {
+        const playing = s.playing
+        this.btn.play.textContent = playing ? ICON.pause : ICON.play
+        this.btn.play.title = playing ? 'Pause' : 'Play'
+        this.btn.play.setAttribute('aria-label', this.btn.play.title)
+        this.playPosition.max = String(s.totalTime)
+        if (!this.playPosition.matches(':active')) {
+            this.playPosition.value = String(s.position)
+        }
+        if (s.loading !== null) {
+            this.playTime.textContent = Number.isNaN(s.loading) ? 'Loading sounds…' : `Loading sounds… ${Math.round(s.loading * 100)}%`
+        } else {
+            this.playTime.textContent = `${formatTime(s.position)} / ${formatTime(s.totalTime)}`
+        }
+        if (s.error) {
+            this.setStatus(`Could not load the sounds: ${s.error}`, true)
+            this.playTime.title = s.error
+        }
+        this.updateCursor()
+    }
+
+    private updateCursor(): void {
+        const s = this.playback?.state()
+        const score = this.score
+        if (!s || !score || !s.playing) {
+            this.cursor.hidden = true
+            return
+        }
+        const b = playbackCursorBounds(score, s.tick)
+        const pageEl = b ? this.pages[b.page] : undefined
+        if (!b || !pageEl) {
+            this.cursor.hidden = true
+            return
+        }
+        const size = pageSize(score, b.page)
+        if (this.cursor.parentElement !== pageEl) {
+            pageEl.appendChild(this.cursor)
+        }
+        Object.assign(this.cursor.style, {
+            left: `${b.x / size.width * 100}%`, top: `${b.y / size.height * 100}%`,
+            width: `${b.width / size.width * 100}%`, height: `${b.height / size.height * 100}%`,
+        })
+        this.cursor.hidden = false
+        if (performance.now() >= this.autoScrollPausedUntil) {
+            this.adjustViewToCursor(pageEl, b.page === 0 && this.settings.viewMode === 'continuous-horizontal')
+        }
+    }
+
+    /**
+     * AbstractNotationPaintView::adjustCanvasPosition: the view follows the cursor (with a border of 3 spatium, the
+     * cursor is 0.4 spatium wide), in the continuous view (horizontal) the cursor stays in the middle (smooth panning)
+     */
+    private adjustViewToCursor(pageEl: HTMLDivElement, smoothPan: boolean): void {
+        const viewport = this.viewport
+        const vr = viewport.getBoundingClientRect()
+        const view = { left: vr.left, top: vr.top, width: viewport.clientWidth, height: viewport.clientHeight }
+        const c = this.cursor.getBoundingClientRect()
+        let dx = 0
+        let dy = 0
+        if (smoothPan) {
+            dx = c.left - (view.left + view.width / 2)
+        } else {
+            const border = 3 * c.width / 0.4
+            if (c.left < view.left || c.right > view.left + view.width) {
+                dx = c.left - border - view.left
+            }
+            if (c.top < view.top || c.bottom > view.top + view.height) {
+                // the system at the top of the view (or centered if the page fits)
+                const pr = pageEl.getBoundingClientRect()
+                dy = pr.height <= view.height ? pr.top + pr.height / 2 - (view.top + view.height / 2) : c.top - border - view.top
+            }
+        }
+        if (Math.round(dx) || Math.round(dy)) {
+            this.programmaticScroll++
+            viewport.scrollBy(Math.round(dx), Math.round(dy))
+            requestAnimationFrame(() => { this.programmaticScroll = Math.max(0, this.programmaticScroll - 1) })
+        }
+    }
+
+    /** the user moved the view while playing: the view stops following the cursor for 2 s (C++ moveCanvas) */
+    private userMovedView(): void {
+        if (this.playback?.state().playing) {
+            this.autoScrollPausedUntil = performance.now() + 2000
+        }
+    }
+
+    // ---------------------------------------------------------------------------------
+    //   input: wheel, pinch, the hand tool, keys, the toolbar, files
+    // ---------------------------------------------------------------------------------
+
+    private setHand(on: boolean): void {
+        this.viewport.classList.toggle('hand', on || !!this.drag)
+    }
+
+    // in full screen the toolbar is collapsed; it is shown while the pointer is at the top edge or on it,
+    // or while it has the keyboard focus
+    private showToolbar(autoHideMs = 0): void {
+        clearTimeout(this.toolbarHideTimer)
+        this.root.classList.add('toolbar-shown')
+        if (autoHideMs) {
+            this.toolbarHideTimer = window.setTimeout(() => this.hideToolbar(), autoHideMs)
+        }
+    }
+
+    private hideToolbar(): void {
+        clearTimeout(this.toolbarHideTimer)
+        if (this.toolbar.matches(':hover') || this.toolbar.matches(':has(:focus-visible)')) {
+            return // pointer on it or keyboard navigation in it
+        }
+        this.root.classList.remove('toolbar-shown')
+    }
+
+    /** the drop highlight covers the score view */
+    private setDropArea(): void {
+        const r = this.viewport.getBoundingClientRect()
+        const rr = this.root.getBoundingClientRect()
+        const style = this.root.style
+        style.setProperty('--drop-left', `${r.left - rr.left}px`)
+        style.setProperty('--drop-top', `${r.top - rr.top}px`)
+        style.setProperty('--drop-width', `${r.width}px`)
+        style.setProperty('--drop-height', `${r.height}px`)
+    }
+
+    private endDragOver(): void {
+        clearTimeout(this.dragTimer)
+        this.root.classList.remove('dragover')
+    }
+
+    private installListeners(): void {
+        const signal = this.m_abort.signal
+        const viewport = this.viewport
+        const btn = this.btn
+        const on = <K extends keyof HTMLElementEventMap>(el: HTMLElement, type: K, fn: (e: HTMLElementEventMap[K]) => void,
+            opts: AddEventListenerOptions = {}): void => el.addEventListener(type, fn, { ...opts, signal })
+
+        on(viewport, 'scroll', () => {
+            this.updatePageInfo()
+            this.scheduleContinuousPanel()
+            this.scheduleRender(60) // tiles of zoomed-in pages follow the view
+            if (!this.programmaticScroll) {
+                this.userMovedView()
+            }
+        }, { passive: true })
+
+        on(viewport, 'wheel', (e) => {
+            if (!this.score) {
+                return
+            }
+            if (e.ctrlKey || e.metaKey) {
+                // trackpad pinch (reported as ctrl+wheel) and ctrl+wheel
+                e.preventDefault()
+                this.zoomAt(this.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY)
+            } else if (!e.shiftKey && this.settings.viewMode === 'page' && isMouseWheel(e)) {
+                // a wheel notch zooms in the page view; the continuous views are scrolled
+                e.preventDefault()
+                this.zoomAt(this.zoom * (e.deltaY < 0 ? 1.1 : 1 / 1.1), e.clientX, e.clientY)
+            }
+            // otherwise: native scrolling (trackpad, shift+wheel)
+        }, { passive: false })
+
+        // Safari trackpad pinch
+        viewport.addEventListener('gesturestart', (e) => { e.preventDefault(); this.gestureStartZoom = this.zoom }, { signal })
+        viewport.addEventListener('gesturechange', (e) => {
+            e.preventDefault()
+            const ge = e as Event & { scale: number; clientX: number; clientY: number }
+            this.zoomAt(this.gestureStartZoom * ge.scale, ge.clientX, ge.clientY)
+        }, { signal })
+
+        // touch pinch (one finger pans natively)
+        const touchDist = (t: TouchList): number => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
+        on(viewport, 'touchstart', (e) => {
+            if (e.touches.length === 2 && this.score) {
+                this.pinch = { dist: touchDist(e.touches), zoom: this.zoom }
+            }
+        }, { passive: true })
+        on(viewport, 'touchmove', (e) => {
+            if (this.pinch && e.touches.length === 2) {
+                e.preventDefault()
+                const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2
+                const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2
+                this.zoomAt(this.pinch.zoom * touchDist(e.touches) / this.pinch.dist, cx, cy)
+            }
+        }, { passive: false })
+        on(viewport, 'touchend', (e) => {
+            if (e.touches.length < 2) {
+                this.pinch = null
+            }
+        })
+
+        // hand tool: hold space (or use the middle mouse button) and drag
+        on(viewport, 'pointerdown', (e) => {
+            if (!this.score || !(this.spaceDown && e.button === 0) && e.button !== 1) {
+                return
+            }
+            e.preventDefault()
+            this.spaceUsed = true
+            this.drag = { x: e.clientX, y: e.clientY, left: viewport.scrollLeft, top: viewport.scrollTop, id: e.pointerId }
+            viewport.setPointerCapture(e.pointerId)
+            viewport.classList.add('hand', 'dragging')
+        })
+        on(viewport, 'pointermove', (e) => {
+            if (this.drag && e.pointerId === this.drag.id) {
+                viewport.scrollLeft = this.drag.left - (e.clientX - this.drag.x)
+                viewport.scrollTop = this.drag.top - (e.clientY - this.drag.y)
+            }
+        })
+        const endDrag = (e: PointerEvent): void => {
+            if (this.drag && e.pointerId === this.drag.id) {
+                this.drag = null
+                viewport.classList.remove('dragging')
+                this.setHand(this.spaceDown)
+            }
+        }
+        on(viewport, 'pointerup', endDrag)
+        on(viewport, 'pointercancel', endDrag)
+
+        // keys typed in the viewer (the app forwards the others)
+        on(this.root, 'keydown', (e) => { this.handleKeyDown(e) })
+        on(this.root, 'keyup', (e) => this.handleKeyUp(e))
+        window.addEventListener('blur', () => {
+            this.spaceDown = false
+            this.setHand(false)
+        }, { signal })
+
+        // full screen
+        document.addEventListener('fullscreenchange', () => {
+            const fs = document.fullscreenElement === this.host
+            this.root.classList.toggle('fullscreen', fs)
+            btn.fullscreen.title = fs ? 'Exit full screen (F11)' : 'Full screen (F11)'
+            btn.fullscreen.setAttribute('aria-label', fs ? 'Exit full screen' : 'Full screen')
+            if (fs) {
+                // briefly, so it is clear where it went
+                this.showToolbar(1200)
+            } else {
+                this.root.classList.remove('toolbar-shown')
+            }
+        }, { signal })
+        const trigger = this.shadow.getElementById('toolbar-trigger')!
+        on(trigger, 'pointerenter', () => this.showToolbar())
+        on(trigger, 'pointerdown', () => this.showToolbar(3000)) // touch: tap at the top edge
+        on(this.toolbar, 'pointerenter', () => clearTimeout(this.toolbarHideTimer))
+        on(this.toolbar, 'focusin', () => {
+            if (this.root.classList.contains('fullscreen')) {
+                this.showToolbar()
+            }
+        })
+        on(this.toolbar, 'focusout', () => {
+            if (this.root.classList.contains('fullscreen') && !this.toolbar.matches(':hover')) {
+                this.toolbarHideTimer = window.setTimeout(() => this.hideToolbar(), 300)
+            }
+        })
+        // hidden when the pointer is clearly below it (not on leaving it: an open zoom list is outside of it)
+        on(this.root, 'pointermove', (e) => {
+            if (!this.root.classList.contains('toolbar-shown') || !this.root.classList.contains('fullscreen')) {
+                return
+            }
+            const bottom = this.toolbar.getBoundingClientRect().bottom
+            if (e.clientY > bottom + 24) {
+                clearTimeout(this.toolbarHideTimer)
+                this.toolbarHideTimer = window.setTimeout(() => this.hideToolbar(), 300)
+            } else if (e.clientY <= bottom) {
+                clearTimeout(this.toolbarHideTimer)
+            }
+        })
+
+        // buttons
+        on(btn.open, 'click', () => this.fileInput.click())
+        on(btn.open2, 'click', () => this.fileInput.click())
+        on(btn.clear, 'click', () => this.closeFile())
+        on(btn.prev, 'click', () => this.stepPage(-1))
+        on(btn.next, 'click', () => this.stepPage(1))
+        on(btn.layoutH, 'click', () => this.setOrientation('horizontal'))
+        on(btn.layoutV, 'click', () => this.setOrientation('vertical'))
+        on(btn.spread, 'click', () => this.toggleSpread())
+        on(this.viewModeSelect, 'change', () => this.setViewMode(this.viewModeSelect.value as ViewerViewMode))
+        on(btn.zoomIn, 'click', () => this.zoomStep(1))
+        on(btn.zoomOut, 'click', () => this.zoomStep(-1))
+        on(this.zoomSelect, 'change', () => {
+            const v = this.zoomSelect.value
+            if ((FIT_MODES as readonly string[]).includes(v)) {
+                this.setFitMode(v as FitMode)
+            } else {
+                this.zoomAt(Number(v))
+            }
+            viewport.focus({ preventScroll: true })
+        })
+        on(btn.print, 'click', () => void this.print())
+        on(btn.center, 'click', () => this.centerPage())
+        on(btn.fullscreen, 'click', () => this.toggleFullScreen())
+        on(btn.help, 'click', () => this.helpDialog.showModal())
+        on(this.helpDialog, 'close', () => viewport.focus({ preventScroll: true }))
+        on(btn.play, 'click', () => this.playback?.togglePlay())
+        on(btn.rewind, 'click', () => this.playback?.stop())
+        on(this.playPosition, 'input', () => this.playback?.seek(Number(this.playPosition.value)))
+
+        // space must not activate the focused toolbar button (it is the hand tool / play)
+        for (const b of this.toolbar.querySelectorAll('button')) {
+            on(b, 'keyup', (e) => {
+                if (e.key === ' ') {
+                    e.preventDefault()
+                }
+            })
+        }
+
+        // files: the file dialog and dropping a file
+        on(this.fileInput, 'change', () => {
+            const f = this.fileInput.files?.[0]
+            if (f) {
+                this.openFile(f)
+            }
+            this.fileInput.value = ''
+        })
+        if (this.m_groups.file) {
+            // dragenter/dragleave do not pair up reliably (text nodes, Safari, drags cancelled outside the window), so the
+            // highlight lasts as long as dragover keeps firing (every ~50 ms while a drag is over the viewer)
+            on(this.root, 'dragover', (e) => {
+                e.preventDefault()
+                if (e.dataTransfer?.types.includes('Files')) {
+                    if (!this.root.classList.contains('dragover')) {
+                        this.setDropArea()
+                        this.root.classList.add('dragover')
+                    }
+                    clearTimeout(this.dragTimer)
+                    this.dragTimer = window.setTimeout(() => this.endDragOver(), 200)
+                }
+            })
+            on(this.root, 'dragleave', (e) => {
+                if (!e.relatedTarget) {
+                    this.endDragOver() // left the window
+                }
+            })
+            on(this.root, 'drop', (e) => {
+                e.preventDefault()
+                this.endDragOver()
+                const f = e.dataTransfer?.files[0]
+                if (f && !this.isBusy()) {
+                    this.openFile(f)
+                }
+            })
+        }
+    }
+}

@@ -83,7 +83,14 @@ fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore,
                         diagrams of chord symbols, generated), legacy default styles for old scores (styles/)
 tools/gen/              generators for tables derived from the C++ sources (re-run on MuseScore updates)
 tools/                  node scripts: render to PNG, compare with MuseScore output
-viewer/                 MuseEncore Viewer, Vite app (plain DOM: page and continuous views; MuseScore icon font in viewer/assets)
+viewer/                 MuseEncore Viewer: src/museencoreviewer.ts is the viewer component (plain DOM in a shadow root, styles in
+                        src/viewer.css: page view, continuous views incl. fit to window, zoom, print, full screen, playback with
+                        src/playback.ts; options and API types in src/types.ts); main.ts is the app (opening files, storage.ts),
+                        src/index.ts the npm package's entry (applyMuseEncoreViewer), embed.html a dev page of the package API
+packages/viewer/        the npm package "museencore-viewer" (package.json, README; dist/ + fonts/ are built by
+                        tools/build-viewer-package.ts with viewer/vite.lib.config.ts: one bundled ES module for CDNs)
+shared/                 code of both apps: playback/ (Synthesizer interface, SpessaSynth + MS Basic.sf3 loaded on first use and
+                        cached, player.ts scheduler), vite-plugin-sound.ts (serves/copies the soundfont)
 editor/                 MuseEncore Editor, Vite score editor app: React UI (App.tsx, home/, newscore/, dialogs/ mirror MuseScore's
                         QML pages), menu bar (menus/appmenu.ts = AppMenuModel), toolbars (toolbars/: docks, note input bar),
                         actions (actions/: MuseScore's UiActions + shortcuts, generated uiactiondata.ts; appactions.ts =
@@ -92,10 +99,8 @@ editor/                 MuseEncore Editor, Vite score editor app: React UI (App.
                         (scoreview.ts, DOM code from the viewer; drops of palette cells), dragcontroller.ts (the data of
                         the current drag), session.ts (open/create/save scores; the migration dialog
                         dialogs/MigrationDialog.tsx), db.ts (IndexedDB via
-                        Dexie), settings.ts (localStorage), playback/ (Synthesizer interface, SpessaSynth + MS Basic.sf3
-                        loaded on first use and cached, player.ts scheduler, playbackcontroller.ts = playback actions,
-                        playbackview.ts cursor/pan/loop markers; vite-plugin-sound.ts serves/copies the soundfont;
-                        `?synth=none` = no sound), panels/ (the left dock: PanelDock.tsx tabs + splitter,
+                        Dexie), settings.ts (localStorage), playback/ (playbackcontroller.ts = playback actions on shared/playback,
+                        playbackview.ts cursor/pan/loop markers; `?synth=none` = no sound), panels/ (the left dock: PanelDock.tsx tabs + splitter,
                         panels.ts state, palettes/ (palette tree stored as PaletteTree XML in localStorage, dialogs),
                         layout/, inspector/ UIs; editbridge.ts = all score changes of the
                         panels; the Layout panel's commands go through the library's NotationParts port)
@@ -138,8 +143,9 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 
 - `npm run typecheck` - tsc
 - `npm test` - vitest (library); `npm run test:e2e` - web viewer in headless Chrome; see `test/README.md`
-- `npm run dev` - the viewer (Vite; `?url=<score>` opens a score, fonts are served from ./fonts);
-  `npm run build:viewer` builds it into dist-viewer/
+- `npm run dev:viewer` (or `npm run dev`) - the viewer (Vite; `?url=<score>` opens a score, fonts are served from
+  ./fonts; `/embed.html?url=<score>&options=<JSON>` shows the package API); `npm run build:viewer` builds it into dist-viewer/
+- `npm run build:viewer-package` - the npm package museencore-viewer in packages/viewer (publish from there)
 - `npm run dev:editor` - the editor (same options); `npm run build:editor` builds it into dist-editor/
   (it bundles MuseScore's templates from `MuseScore/share/templates`, so the submodule is needed)
 - `npm run render -- <file.mscz> <out-prefix> [dpi | svg]` - render pages to PNG (or SVG) in node

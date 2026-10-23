@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Builds the npm package "museencore-viewer" in packages/viewer: the bundled ES module (viewer/vite.lib.config.ts),
+// its type declarations (from viewer/src/types.ts), the runtime fonts and the license.
+// npm run build:viewer-package; then `npm publish` in packages/viewer.
+import { execFileSync } from 'node:child_process'
+import { cpSync, copyFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { build } from 'vite'
+
+const ROOT = join(import.meta.dirname, '..')
+const PKG = join(ROOT, 'packages/viewer')
+const DIST = join(PKG, 'dist')
+
+await build({ configFile: join(ROOT, 'viewer/vite.lib.config.ts'), logLevel: 'warn' })
+
+// the declarations: the public types and the entry (the implementation's types are not part of the API)
+execFileSync(join(ROOT, 'node_modules/.bin/tsc'), [
+    join(ROOT, 'viewer/src/types.ts'), '--declaration', '--emitDeclarationOnly', '--strict', '--target', 'ES2022',
+    '--lib', 'ES2022,DOM,DOM.Iterable', '--skipLibCheck', '--types', '', '--ignoreConfig', '--outDir', DIST,
+], { stdio: 'inherit' })
+writeFileSync(join(DIST, 'museencore-viewer.d.ts'), `// SPDX-License-Identifier: GPL-3.0-only
+import type { MuseEncoreScoreSource, MuseEncoreViewer, MuseEncoreViewerOptions } from './types'
+
+export type {
+    ContinuousView, MuseEncoreScoreInfo, MuseEncoreScoreSource, MuseEncoreViewer, MuseEncoreViewerOptions, MuseEncoreViewerToolbarGroups,
+} from './types'
+
+/**
+ * Shows a score in \`target\` (an element or a CSS selector); the viewer fills the element, which needs a height.
+ * Returns the viewer (its \`ready\` promise resolves when the score is shown).
+ */
+export declare function applyMuseEncoreViewer(target: HTMLElement | string, source: MuseEncoreScoreSource,
+    options?: MuseEncoreViewerOptions): MuseEncoreViewer
+
+export default applyMuseEncoreViewer
+`)
+
+// the fonts are loaded at runtime from ../fonts/ relative to the module
+rmSync(join(PKG, 'fonts'), { recursive: true, force: true })
+cpSync(join(ROOT, 'fonts'), join(PKG, 'fonts'), { recursive: true, filter: src => !src.endsWith('.DS_Store') })
+copyFileSync(join(ROOT, 'LICENSE'), join(PKG, 'LICENSE'))
+console.log(`built ${PKG}`)

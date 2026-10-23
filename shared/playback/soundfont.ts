@@ -2,13 +2,18 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * MuseScore's default soundfont "MS Basic.sf3" (MIT, MuseScore/share/sound; the sound of MuseScore without Muse
  * Sounds): downloaded on the first use with progress, kept in the browser's Cache Storage so it is downloaded once.
- * The dev server serves it from the MuseScore submodule, the build copies it (vite-plugin-sound.ts).
+ * The dev servers serve it from the MuseScore submodule, the app builds copy it (vite-plugin-sound.ts); the viewer
+ * package loads it from MuseScore's repository by default (SOUNDFONT_CDN_URL).
  */
-/// <reference types="vite/client" />
 import type { LoadProgress } from './synthesizer'
 
 export const SOUNDFONT_FILE = 'MS Basic.sf3'
-export const SOUNDFONT_URL = `${import.meta.env.BASE_URL}sound/${encodeURIComponent(SOUNDFONT_FILE)}`
+/** the soundfont served by an app (vite-plugin-sound.ts) at its base URL */
+export function appSoundFontUrl(baseUrl: string): string {
+    return `${baseUrl}sound/${encodeURIComponent(SOUNDFONT_FILE)}`
+}
+/** the soundfont in MuseScore's repository at the reference version (raw.githubusercontent.com allows cross-origin requests) */
+export const SOUNDFONT_CDN_URL = `https://raw.githubusercontent.com/musescore/MuseScore/v4.7.5/share/sound/${encodeURIComponent(SOUNDFONT_FILE)}`
 const CACHE_NAME = 'musescoreweb-sound-v1'
 
 async function openCache(): Promise<Cache | null> {
@@ -20,7 +25,7 @@ async function openCache(): Promise<Cache | null> {
 }
 
 /** the soundfont from the cache or the network */
-export async function loadSoundFont(onProgress?: (p: LoadProgress) => void, url = SOUNDFONT_URL): Promise<ArrayBuffer> {
+export async function loadSoundFont(url: string, onProgress?: (p: LoadProgress) => void): Promise<ArrayBuffer> {
     const cache = await openCache()
     const cached = await cache?.match(url).catch(() => undefined)
     if (cached) {
@@ -61,7 +66,7 @@ export async function loadSoundFont(onProgress?: (p: LoadProgress) => void, url 
 }
 
 /** the soundfont is in the cache (no download needed) */
-export async function isSoundFontCached(url = SOUNDFONT_URL): Promise<boolean> {
+export async function isSoundFontCached(url: string): Promise<boolean> {
     const cache = await openCache()
     return !!(await cache?.match(url).catch(() => undefined))
 }

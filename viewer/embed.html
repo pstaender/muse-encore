@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MuseEncore Viewer – embedding</title>
+    <link rel="icon" href="data:,">
+    <style>
+        body { max-width: 960px; margin: 24px auto; padding: 0 16px; font: 16px/1.5 Georgia, serif; }
+        .score { height: 480px; margin: 16px 0; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+<!-- the npm package's API (viewer/src/index.ts) in the dev server: /embed.html?url=<score>&options=<JSON> -->
+<h1>Embedding</h1>
+<div id="score1" class="score"></div>
+<div id="score2" class="score"></div>
+<script type="module">
+    import applyMuseEncoreViewer from './src/index.ts'
+
+    const params = new URLSearchParams(location.search)
+    const url = params.get('url')
+    const options = JSON.parse(params.get('options') ?? '{}')
+    // the dev server serves the fonts at its root
+    window.viewers = [
+        applyMuseEncoreViewer('#score1', url, { fontsUrl: '/', ...options }),
+        applyMuseEncoreViewer(document.getElementById('score2'), url, { fontsUrl: '/', disableToolbar: true, centerAndResizeToPage: 2 }),
+    ]
+</script>
+</body>
+</html>

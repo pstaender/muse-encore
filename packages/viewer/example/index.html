@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>museencore-viewer example</title>
+    <style>
+        body { max-width: 960px; margin: 32px auto; padding: 0 16px; font: 16px/1.5 Georgia, serif; }
+        .score { height: 560px; margin: 24px 0; border: 1px solid #ccc; }
+        .score.small { height: 360px; }
+    </style>
+</head>
+<body>
+<h1>museencore-viewer</h1>
+<p>A score in a web page, with the default options:</p>
+<div id="score1" class="score"></div>
+
+<p>The continuous view (fit to window) with the playback, no print and full screen buttons, the status bar:</p>
+<div id="score2" class="score small"></div>
+
+<p>Without a toolbar:</p>
+<div id="score3" class="score small"></div>
+
+<!-- npm run build:viewer-package, then serve packages/viewer (e.g. npx vite packages/viewer) and open /example/?url=<score> -->
+<script type="module">
+    import applyMuseEncoreViewer from '../dist/museencore-viewer.js'
+
+    const url = new URLSearchParams(location.search).get('url') ?? 'score.mscz'
+    window.viewers = [
+        applyMuseEncoreViewer('#score1', url),
+        applyMuseEncoreViewer(document.getElementById('score2'), url, {
+            continuousView: 'window-fit',
+            toolbarGroups: { playback: true, print: false, fullScreen: false, pageView: false },
+            showStatusBar: true,
+            keyboardShortcuts: true,
+        }),
+        applyMuseEncoreViewer('#score3', url, { disableToolbar: true, centerAndResizeToPage: 2 }),
+    ]
+</script>
+</body>
+</html>

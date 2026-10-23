@@ -1533,3 +1533,24 @@
 - Kept: the browser storage keys and database names (`musescoreweb:*`, `musescoreweb-scores`, `musescore-web-viewer`,
   the soundfont cache) so the data of existing users stays, the repository name and the GitHub Pages URL. MuseScore
   (the original) keeps its name everywhere.
+
+## 2026-10-23 — Viewer component, playback, fit to window, npm package museencore-viewer
+
+- The viewer is a component now (viewer/src/museencoreviewer.ts, class MuseEncoreViewer): its UI in a shadow root
+  (viewer/src/viewer.css; ids are per shadow root, so several viewers fit on one page), options for the toolbar groups
+  (file, pageNavigation, pageView, zoom, playback, print, fullScreen), keyboard shortcuts, toolbar, status bar, theme,
+  fonts and soundfont URLs; the full screen element is the viewer; printing goes through a frame with the SVG pages.
+  The app (viewer/main.ts) uses it with all groups, the stored file/view settings and the browser menu's printing.
+- Playback in the viewer (viewer/src/playback.ts): the events of MuseScore's MIDI renderer on the editor's player and
+  synthesizer, which moved to shared/playback (soundfont URL as parameter; the library build passes SpessaSynth's
+  worklet as a blob: URL); play/pause (also Space when it was not used to move the view), rewind, position slider,
+  time; the playback cursor and the view following it (smooth panning in the continuous view horizontal).
+- The continuous view "fit to window" (fit-width, laid out again on resize/zoom) in the viewer, like the editor.
+- npm package museencore-viewer (packages/viewer): `applyMuseEncoreViewer(target, source, options)` (viewer/src/index.ts,
+  types in viewer/src/types.ts), built by `npm run build:viewer-package` into one minified ES module (+ the SpessaSynth
+  chunk), declarations, fonts and license; the soundfont comes from MuseScore's repository by default (51 MB, over the
+  per-file limits of the npm CDNs). Example page packages/viewer/example, dev page viewer/embed.html.
+- `npm run dev:viewer`. e2e: the viewer tests look into the shadow root; new tests for the playback, fit to window and
+  the embedding options.
+- Not done: clicking into the score to start the playback there (it would need a hit test without changing the
+  selection), loop, metronome, tempo and mixer in the viewer.

@@ -26,6 +26,22 @@ const SCORES: Record<string, string> = {
 }
 const SCORE_HOST = 'http://scores.test/'
 
+// the viewer's elements are in the shadow root of its component; the editor's in the document
+declare global {
+    function $v(id: string): HTMLElement | null
+    function $vq(selector: string): HTMLElement | null
+    function $vqa(selector: string): HTMLElement[]
+    function $vbody(): HTMLElement
+}
+function installHelpers(): void {
+    const root = (): ShadowRoot | null | undefined => document.getElementById('app')?.firstElementChild?.shadowRoot
+    const w = window as unknown as Record<string, unknown>
+    w.$v = (id: string) => root()?.getElementById(id) ?? document.getElementById(id)
+    w.$vq = (s: string) => root()?.querySelector(s) ?? document.querySelector(s)
+    w.$vqa = (s: string) => [...(root()?.querySelectorAll(s) ?? document.querySelectorAll(s))]
+    w.$vbody = () => root()?.querySelector('.viewer') ?? document.body
+}
+
 let server: ViteDevServer
 let browser: Browser
 let base = ''
@@ -33,6 +49,7 @@ let base = ''
 async function newPage(opts: { colorScheme?: 'light' | 'dark'; delayMs?: number } = {}): Promise<{ page: Page; context: BrowserContext }> {
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: opts.colorScheme })
     await presetNoMigration(context)
+    await context.addInitScript(installHelpers)
     await context.route(`${SCORE_HOST}**`, async route => {
         const name = route.request().url().slice(SCORE_HOST.length)
         if (opts.delayMs) {
@@ -47,22 +64,22 @@ async function newPage(opts: { colorScheme?: 'light' | 'dark'; delayMs?: number 
 
 async function openScore(page: Page, name: string): Promise<void> {
     await page.goto(`${base}?url=${encodeURIComponent(SCORE_HOST + name)}`)
-    await page.waitForFunction(() => /pages?$/.test(document.getElementById('status')?.textContent ?? '')
-        || /\d+ ms$/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 120000 })
-    await page.waitForFunction(() => document.getElementById('busy')!.hidden)
+    await page.waitForFunction(() => /pages?$/.test($v('status')?.textContent ?? '')
+        || /\d+ ms$/.test($v('status')?.textContent ?? ''), null, { timeout: 120000 })
+    await page.waitForFunction(() => $v('busy')!.hidden)
 }
 
-const text = (page: Page, id: string): Promise<string> => page.evaluate(i => document.getElementById(i)!.textContent ?? '', id)
+const text = (page: Page, id: string): Promise<string> => page.evaluate(i => $v(i)!.textContent ?? '', id)
 
 /** waits until the page indicator shows `info` (navigation scrolls smoothly) */
 const pageInfoIs = (page: Page, info: string): Promise<unknown> =>
-    page.waitForFunction(i => (document.getElementById('page-info') ?? document.querySelector('.page-info'))!.textContent === i, info, { timeout: 10000 })
+    page.waitForFunction(i => ($v('page-info') ?? $vq('.page-info'))!.textContent === i, info, { timeout: 10000 })
 
 /** offset of the page's center from the view's center */
 function pageCenterOffset(page: Page, idx = 0): Promise<[number, number]> {
     return page.evaluate((i) => {
-        const v = document.getElementById('viewport')!.getBoundingClientRect()
-        const p = document.querySelectorAll('.page:not(.placeholder)')[i].getBoundingClientRect()
+        const v = $v('viewport')!.getBoundingClientRect()
+        const p = $vqa('.page:not(.placeholder)')[i].getBoundingClientRect()
         // + 0: no -0
         return [Math.round(p.left + p.width / 2 - v.left - v.width / 2) + 0, Math.round(p.top + p.height / 2 - v.top - v.height / 2) + 0]
     }, idx)
@@ -114,10 +131,10 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
     it.runIf(app === 'viewer')('shows the centered drop target without a file and nothing to scroll', async () => {
         const { page, context } = await newPage()
         await page.goto(base)
-        await page.waitForFunction(() => document.getElementById('status')!.textContent === 'Ready')
+        await page.waitForFunction(() => $v('status')!.textContent === 'Ready')
         const r = await page.evaluate(() => {
-            const v = document.getElementById('viewport')!
-            const d = document.querySelector('.drop-target')!.getBoundingClientRect()
+            const v = $v('viewport')!
+            const d = $vq('.drop-target')!.getBoundingClientRect()
             const vr = v.getBoundingClientRect()
             return {
                 scrollable: [v.scrollWidth - v.clientWidth, v.scrollHeight - v.clientHeight],
@@ -134,12 +151,12 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         let chooser = false
         page.on('filechooser', () => { chooser = true })
         await page.goto(`${base}?url=${encodeURIComponent(SCORE_HOST + 'amazing.mscz')}`)
-        await page.waitForFunction(() => !document.getElementById('busy')!.hidden)
+        await page.waitForFunction(() => !$v('busy')!.hidden)
         expect(await text(page, 'busy-title')).toBe('Opening amazing.mscz')
         expect(await text(page, 'busy-detail')).toBe('Downloading…')
-        expect(await page.evaluate(() => document.getElementById('viewport')!.hasAttribute('inert'))).toBe(true)
+        expect(await page.evaluate(() => $v('viewport')!.hasAttribute('inert'))).toBe(true)
         await page.keyboard.press('Control+O') // ignored while busy
-        await page.waitForFunction(() => document.getElementById('busy')!.hidden, null, { timeout: 60000 })
+        await page.waitForFunction(() => $v('busy')!.hidden, null, { timeout: 60000 })
         expect(chooser).toBe(false)
         expect(await text(page, 'status')).toMatch(/2 pages/)
         await context.close()
@@ -149,8 +166,8 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         const { page, context } = await newPage()
         // the viewer shows its drop target without a score, the editor its home screen
         const noScore = (): Promise<boolean> => page.evaluate((a) => a === 'viewer'
-            ? !document.getElementById('empty')!.hidden
-            : !!document.querySelector('.home') && document.body.dataset.view === 'home', app)
+            ? !$v('empty')!.hidden
+            : !!$vq('.home') && document.body.dataset.view === 'home', app)
         await openScore(page, 'amazing.mscz')
         expect(await text(page, 'title')).toBe('amazing')
         expect(await page.textContent(sel.pageInfo)).toBe('1 / 2')
@@ -166,7 +183,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
             return
         }
         await page.goto(base) // no ?url: the last file is opened again
-        await page.waitForFunction(() => /2 pages/.test(document.getElementById('status')?.textContent ?? ''), null, { timeout: 60000 })
+        await page.waitForFunction(() => /2 pages/.test($v('status')?.textContent ?? ''), null, { timeout: 60000 })
         expect(await text(page, 'title')).toBe('amazing')
 
         await page.click('#clear')
@@ -180,7 +197,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
     it('shows pages side by side or vertically and two-page spreads for two-sided layouts', async () => {
         const { page, context } = await newPage()
         const rects = (): Promise<DOMRect[]> => page.evaluate(() =>
-            [...document.querySelectorAll('.page:not(.placeholder)')].map(p => p.getBoundingClientRect().toJSON() as DOMRect))
+            [...$vqa('.page:not(.placeholder)')].map(p => p.getBoundingClientRect().toJSON() as DOMRect))
         await openScore(page, 'twosided.mscz')
         let r = await rects()
         expect(r[1].left).toBeGreaterThan(r[0].right) // side by side (default)
@@ -190,7 +207,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         expect(await page.isDisabled(sel.spread)).toBe(false)
         await page.click(sel.spread)
         // page 1 is a right-hand page: [placeholder, 1], [2, 3], [4]
-        const spreads = await page.evaluate(() => [...document.querySelectorAll('.spread')].map(s =>
+        const spreads = await page.evaluate(() => [...$vqa('.spread')].map(s =>
             [...s.children].map(c => c.classList.contains('placeholder') ? '-' : Number((c as HTMLElement).dataset.page) + 1).join(',')))
         expect(spreads).toEqual(['-,1', '2,3', '4'])
         r = await rects()
@@ -207,7 +224,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
     it('navigates and zooms with MuseScore shortcuts and the mouse wheel', async () => {
         const { page, context } = await newPage()
         await openScore(page, 'goldberg.mscz')
-        const zoom = (): Promise<string> => page.evaluate(z => (document.querySelector(z) as HTMLSelectElement).selectedOptions[0].textContent ?? '', sel.zoom)
+        const zoom = (): Promise<string> => page.evaluate(z => ($vq(z) as HTMLSelectElement).selectedOptions[0].textContent ?? '', sel.zoom)
         await page.keyboard.press('ControlOrMeta+0')
         expect(await zoom()).toBe('100%')
         await page.keyboard.press('ControlOrMeta+=')
@@ -224,14 +241,14 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         await pageInfoIs(page, '2 / 119')
 
         // mouse wheel zoom keeps the point under the pointer in place
-        const before = await page.evaluate(() => document.querySelectorAll('.page')[1].getBoundingClientRect().left)
+        const before = await page.evaluate(() => $vqa('.page')[1].getBoundingClientRect().left)
         await page.mouse.move(700, 400)
         await page.keyboard.down('Control')
         await page.mouse.wheel(0, -100)
         await page.keyboard.up('Control')
         await page.waitForTimeout(300)
         expect(parseFloat(await zoom())).toBeGreaterThan(75)
-        const after = await page.evaluate(() => document.querySelectorAll('.page')[1].getBoundingClientRect().left)
+        const after = await page.evaluate(() => $vqa('.page')[1].getBoundingClientRect().left)
         expect(after).toBeLessThan(before) // the page grew around the pointer
         await context.close()
     }, 120000)
@@ -241,8 +258,8 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         await openScore(page, 'amazing.mscz')
         await handDrag(page, app, 1500, 1200)
         const moved = await page.evaluate(() => {
-            const v = document.getElementById('viewport')!.getBoundingClientRect()
-            const p = document.querySelector('.page')!.getBoundingClientRect()
+            const v = $v('viewport')!.getBoundingClientRect()
+            const p = $vq('.page')!.getBoundingClientRect()
             return [Math.round(v.right - p.left), Math.round(v.bottom - p.top)]
         })
         expect(moved).toEqual([48, 48]) // only a strip of the page stays visible
@@ -269,7 +286,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         await page.selectOption(sel.zoom, '800')
         await page.waitForTimeout(1500)
         const c = await page.evaluate(() => {
-            const canvas = document.querySelector('.page canvas') as HTMLCanvasElement
+            const canvas = $vq('.page canvas') as HTMLCanvasElement
             return { tile: canvas.dataset.tile, pixels: canvas.width * canvas.height, dpi: Number(canvas.dataset.dpi) }
         })
         expect(c.tile).toBe('1')
@@ -281,10 +298,10 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
     it('collapses the toolbar in full screen and shows it at the top edge', async () => {
         const { page, context } = await newPage()
         await openScore(page, 'amazing.mscz')
-        const shown = (): Promise<boolean> => page.evaluate(() => document.body.classList.contains('toolbar-shown'))
+        const shown = (): Promise<boolean> => page.evaluate(() => $vbody().classList.contains('toolbar-shown'))
         await page.click(sel.fullscreen)
         await page.waitForTimeout(400)
-        expect(await page.evaluate(() => document.body.classList.contains('fullscreen'))).toBe(true)
+        expect(await page.evaluate(() => $vbody().classList.contains('fullscreen'))).toBe(true)
         expect(await shown()).toBe(true) // the pointer is still on it
         await page.mouse.move(640, 500)
         await page.waitForTimeout(700)
@@ -297,9 +314,9 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         expect(await shown()).toBe(false)
         if (editor) {
             // the bottom toolbar dock with the status bar and the panels: the same at the bottom and left edge
-            const has = (c: string): Promise<boolean> => page.evaluate(c => document.body.classList.contains(c), c)
+            const has = (c: string): Promise<boolean> => page.evaluate(c => $vbody().classList.contains(c), c)
             const hidden = (sel: string): Promise<boolean> => page.evaluate(s => {
-                const r = document.querySelector(s)!.getBoundingClientRect()
+                const r = $vq(s)!.getBoundingClientRect()
                 return r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth
             }, sel)
             expect(await has('bottom-shown')).toBe(false)
@@ -326,7 +343,72 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         }
         await page.keyboard.press(fullscreenKey)
         await page.waitForTimeout(300)
-        expect(await page.evaluate(() => document.body.classList.contains('fullscreen'))).toBe(false)
+        expect(await page.evaluate(() => $vbody().classList.contains('fullscreen'))).toBe(false)
+        await context.close()
+    }, 120000)
+
+    it.runIf(app === 'viewer')('plays the score with the playback cursor (no sound in automated browsers)', async () => {
+        const { page, context } = await newPage()
+        await openScore(page, 'amazing.mscz')
+        expect(await text(page, 'play-time')).toBe('0:00 / 0:41')
+        await page.click('#play')
+        await page.waitForFunction(() => /^0:0[2-9]/.test($v('play-time')!.textContent ?? ''), null, { timeout: 10000 })
+        expect(await page.evaluate(() => !$vq('.playback-cursor')!.hidden)).toBe(true)
+        expect(await page.getAttribute('#play', 'aria-label')).toBe('Pause')
+        // Space pauses (MuseScore's shortcut), holding it and dragging moves the view
+        await page.keyboard.press(' ')
+        await page.waitForFunction(() => $vq('.playback-cursor')!.hidden)
+        const paused = await text(page, 'play-time')
+        await page.waitForTimeout(500)
+        expect(await text(page, 'play-time')).toBe(paused)
+        await page.click('#rewind')
+        expect(await text(page, 'play-time')).toBe('0:00 / 0:41')
+        await context.close()
+    }, 120000)
+
+    it.runIf(app === 'viewer')('lays out the continuous view (fit to window) as wide as the view', async () => {
+        const { page, context } = await newPage()
+        await openScore(page, 'amazing.mscz')
+        await page.selectOption('#view-mode', 'fit-width')
+        await page.waitForFunction(() => $vqa('.page').length === 1 && !$v('viewport')!.classList.contains('view-switching'))
+        const widths = (): Promise<[number, number]> => page.evaluate(() =>
+            [Math.round($vq('.page')!.getBoundingClientRect().width), $v('viewport')!.clientWidth])
+        let [w, vw] = await widths()
+        expect(w).toBe(vw - 2 * 24) // the page gap at both sides
+        expect(await page.evaluate(() => ($v('zoom') as HTMLSelectElement).selectedOptions[0].textContent)).toBe('100%')
+        await page.setViewportSize({ width: 900, height: 800 })
+        await page.waitForTimeout(800) // the reflow is delayed
+        ;[w, vw] = await widths()
+        expect(w).toBe(vw - 2 * 24)
+        await context.close()
+    }, 120000)
+
+    it.runIf(app === 'viewer')('embeds viewers with applyMuseEncoreViewer and its options', async () => {
+        const { page, context } = await newPage()
+        const options = { continuousView: 'vertical', toolbarGroups: { playback: true, print: false, pageNavigation: false }, showStatusBar: true }
+        await page.goto(`${base}embed.html?url=${encodeURIComponent(SCORE_HOST + 'twosided.mscz')}&options=${encodeURIComponent(JSON.stringify(options))}`)
+        const info = await page.evaluate(async () => {
+            const viewers = (window as unknown as { viewers: { ready: Promise<{ pageCount: number }>; currentPage(): number }[] }).viewers
+            const loaded = await Promise.all(viewers.map(v => v.ready))
+            return loaded.map((l, i) => ({ pages: l.pageCount, current: viewers[i].currentPage() }))
+        })
+        expect(info).toEqual([{ pages: 4, current: 1 }, { pages: 4, current: 2 }])
+        const shown = (score: string, id: string): Promise<boolean> => page.evaluate(([s, i]) => {
+            const el = document.querySelector(`${s} .museencore-viewer`)!.shadowRoot!.getElementById(i)!
+            return el.checkVisibility()
+        }, [score, id])
+        expect(await shown('#score1', 'play')).toBe(true)
+        expect(await shown('#score1', 'zoom')).toBe(true)
+        expect(await shown('#score1', 'print')).toBe(false)
+        expect(await shown('#score1', 'page-info')).toBe(false)
+        expect(await shown('#score1', 'open')).toBe(false)
+        expect(await shown('#score1', 'status')).toBe(true)
+        expect(await shown('#score2', 'toolbar')).toBe(false)
+        expect(await shown('#score2', 'status')).toBe(false)
+        // the continuous view (vertical): one long page
+        expect(await page.evaluate(() => document.querySelector('#score1 .museencore-viewer')!.shadowRoot!.querySelectorAll('.page').length)).toBe(1)
+        // the viewer does not take the focus of the page
+        expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
         await context.close()
     }, 120000)
 
@@ -342,7 +424,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         expect((pdf.match(/\/Type\s*\/Page[^s]/g) ?? []).length).toBe(pages)
         expect(new Set(boxes)).toEqual(new Set([size]))
         expect(pdf).not.toMatch(/\/Subtype\s*\/Image/) // no bitmaps
-        expect(await page.evaluate(() => document.getElementById('print-pages')!.childElementCount)).toBe(0)
+        expect(await page.evaluate(() => $v('print-pages')!.childElementCount)).toBe(0)
         await context.close()
     }, 180000)
 })

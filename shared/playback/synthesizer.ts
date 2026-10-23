@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * The synthesizer of the editor's sound output (MuseScore: the audio engine with FluidSynth and MS Basic.sf3, or Muse
+ * The synthesizer of the sound output of the editor and the viewer (MuseScore: the audio engine with FluidSynth and MS Basic.sf3, or Muse
  * Sounds). Pluggable: SpessaSynth (an AudioWorklet SoundFont synthesizer, spessasynth.ts) by default; the null
  * synthesizer keeps the clock and records the events without sound (no audio device, tests: ?synth=none).
  * Channels are MIDI channels of the synthesizer (any number); events can be scheduled on the synthesizer's clock.

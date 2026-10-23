@@ -3,6 +3,7 @@
  * Remembers the last opened file (IndexedDB, files are too big for localStorage) and the view settings.
  * Storage can be unavailable (private windows, blocked site data): every access fails silently.
  */
+import type { MuseEncoreViewSettings } from './src/types'
 
 export interface StoredFile {
     name: string
@@ -92,16 +93,11 @@ export async function clearLastFile(): Promise<void> {
     }
 }
 
-export interface ViewSettings {
-    zoom: string // a percentage ("100") or a fit mode ("page-width", "whole-page")
-    orientation: 'horizontal' | 'vertical'
-    spread: boolean
-    viewMode: ViewerViewMode
-}
+export type ViewSettings = MuseEncoreViewSettings
+type ViewerViewMode = ViewSettings['viewMode']
 
-/** the view modes of MuseScore's status bar the viewer offers */
-export type ViewerViewMode = 'page' | 'continuous-horizontal' | 'continuous-vertical'
-const VIEW_MODES: readonly string[] = ['page', 'continuous-horizontal', 'continuous-vertical']
+/** the view modes of MuseScore's status bar the viewer offers, plus 'fit-width' */
+const VIEW_MODES: readonly string[] = ['page', 'continuous-horizontal', 'continuous-vertical', 'fit-width']
 
 const SETTINGS_KEY = 'musescore-web-viewer:view'
 

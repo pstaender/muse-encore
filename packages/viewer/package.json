@@ -1,0 +1,43 @@
+{
+  "name": "museencore-viewer",
+  "version": "0.1.0",
+  "description": "Show MuseScore files (.mscz/.mscx) in a web page like an inline PDF viewer: pages, continuous views, zoom, printing, full screen and playback. Based on MuseEncore, a TypeScript port of MuseScore Studio's engraving engine.",
+  "license": "GPL-3.0-only",
+  "type": "module",
+  "main": "./dist/museencore-viewer.js",
+  "module": "./dist/museencore-viewer.js",
+  "types": "./dist/museencore-viewer.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/museencore-viewer.d.ts",
+      "import": "./dist/museencore-viewer.js"
+    },
+    "./fonts/*": "./fonts/*",
+    "./package.json": "./package.json"
+  },
+  "browser": "./dist/museencore-viewer.js",
+  "jsdelivr": "./dist/museencore-viewer.js",
+  "unpkg": "./dist/museencore-viewer.js",
+  "files": [
+    "dist",
+    "fonts",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "musescore",
+    "mscz",
+    "mscx",
+    "sheet music",
+    "music notation",
+    "score viewer",
+    "engraving"
+  ],
+  "homepage": "https://pstaender.github.io/musescoreweb/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pstaender/musescoreweb.git",
+    "directory": "packages/viewer"
+  },
+  "bugs": "https://github.com/pstaender/musescoreweb/issues"
+}

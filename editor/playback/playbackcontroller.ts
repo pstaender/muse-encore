@@ -19,9 +19,10 @@ import { actionsChanged, registerAction } from '../actions/actions'
 import { ICON_CODES } from '../actions/uiactiondata'
 import { currentScore, onScoreViewChanged, scoreViewState, selectionChanged } from '../scoreview'
 import { settings, updateSettings, type PlaybackSettings } from '../settings'
-import { Player, type PlayerEvent } from './player'
-import { SpessaSynthesizer } from './spessasynth'
-import { NullSynthesizer, type LoadProgress, type SynthChannelSetup, type Synthesizer } from './synthesizer'
+import { Player, type PlayerEvent } from '../../shared/playback/player'
+import { SpessaSynthesizer } from '../../shared/playback/spessasynth'
+import { appSoundFontUrl } from '../../shared/playback/soundfont'
+import { NullSynthesizer, type LoadProgress, type SynthChannelSetup, type Synthesizer } from '../../shared/playback/synthesizer'
 
 // ---------------------------------------------------------------------------------
 //   the state shown by the UI (playback toolbar, cursor)
@@ -98,7 +99,7 @@ function createSynthesizer(): Synthesizer {
     if (param === 'none' || !webAudio || (navigator.webdriver && param !== 'spessasynth')) {
         return new NullSynthesizer()
     }
-    return new SpessaSynthesizer()
+    return new SpessaSynthesizer(appSoundFontUrl(import.meta.env.BASE_URL))
 }
 
 const synth = createSynthesizer()

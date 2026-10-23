@@ -16,6 +16,17 @@ const CC_PAN = 10
 const CC_REVERB = 91
 const CC_CHORUS = 93
 
+/**
+ * the URL of SpessaSynth's worklet processor: a library build (the viewer package) inlines it as a data: URL, which
+ * not every browser accepts for a worklet module: it is passed as a blob: URL then
+ */
+async function workletUrl(): Promise<string> {
+    if (!processorUrl.startsWith('data:')) {
+        return processorUrl
+    }
+    return URL.createObjectURL(await (await fetch(processorUrl)).blob())
+}
+
 export class SpessaSynthesizer implements Synthesizer {
     readonly id = 'spessasynth'
     private m_context: AudioContext | null = null
@@ -24,6 +35,9 @@ export class SpessaSynthesizer implements Synthesizer {
     private m_loading: Promise<void> | null = null
     private m_loaded = false
     private m_muted = false
+
+    /** soundFontUrl: the URL of MS Basic.sf3 (soundfont.ts) */
+    constructor(private readonly m_soundFontUrl: string) {}
 
     private context(): AudioContext {
         this.m_context ??= new AudioContext({ latencyHint: 'interactive' })
@@ -44,7 +58,7 @@ export class SpessaSynthesizer implements Synthesizer {
     load(onProgress?: (p: LoadProgress) => void): Promise<void> {
         this.m_loading ??= (async () => {
             const ctx = this.context()
-            const [soundFont] = await Promise.all([loadSoundFont(onProgress), ctx.audioWorklet.addModule(processorUrl)])
+            const [soundFont] = await Promise.all([loadSoundFont(this.m_soundFontUrl, onProgress), workletUrl().then(url => ctx.audioWorklet.addModule(url))])
             const synth = new WorkletSynthesizer(ctx)
             this.m_gain = ctx.createGain()
             this.m_gain.gain.value = this.m_muted ? 0 : 1
