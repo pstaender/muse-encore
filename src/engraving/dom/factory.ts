@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * MuseScore-Web — port of src/engraving/dom/factory.h/.cpp
+ * MuseEncore — port of src/engraving/dom/factory.h/.cpp
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Only the element types that are ported so far can be created; createItem() returns null for others.

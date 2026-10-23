@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
+ * MuseEncore — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * gpaletteScore (score.cpp) and its setup in EngravingModule::onInit (engravingmodule.cpp): the score the palette

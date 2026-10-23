@@ -9,6 +9,7 @@ export interface StoredFile {
     data: ArrayBuffer
 }
 
+// the storage keeps the project's former name (MuseScore Web Viewer), so the files of existing users are kept
 const DB_NAME = 'musescore-web-viewer'
 const STORE = 'files'
 const LAST_FILE_KEY = 'last'

@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
+ * MuseEncore — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of LinkedObjects::mainElement() (src/engraving/dom/linkedobjects.cpp); the port's LinkedObjects is the plain

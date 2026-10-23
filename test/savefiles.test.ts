@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The file names of saved scores in the editor (musescoreweb/files.ts).
+// The file names of saved scores in the editor (editor/files.ts).
 import { describe, expect, it } from 'vitest'
-import { baseName, isMsczName, msczFileName } from '../musescoreweb/files'
+import { baseName, isMsczName, msczFileName } from '../editor/files'
 
 describe('saved file names', () => {
     it('strips the extension of MuseScore files', () => {

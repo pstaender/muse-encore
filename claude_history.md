@@ -1522,3 +1522,14 @@
 - TODO(port): part playback settings (PartChannelSettingsLink, no mixer), Excerpt::nameChanged (notification),
   Tie::updatePossibleJumpPoints, the notehead icons in the Customize kit combos (names only), the drumset palette
   (DrumsetPanelView) and the percussion panel.
+
+## 2026-10-23 — Renamed to MuseEncore
+
+- The project is now MuseEncore (neither an official MuseScore project nor an official fork; README, landing page and
+  About say so): MuseEncore Editor (`musescoreweb/` -> `editor/`) and MuseEncore Viewer (`webviewer/` -> `viewer/`);
+  npm scripts `dev:editor`, `build:editor`, `build:viewer` (`dev` is still the viewer), build outputs dist-editor/,
+  dist-viewer/; package name `museencore`; file headers "MuseEncore — port of MuseScore Studio"; the e2e test of the
+  editor is test/e2e/editor.e2e.ts. Earlier entries of this file use the old paths.
+- Kept: the browser storage keys and database names (`musescoreweb:*`, `musescoreweb-scores`, `musescore-web-viewer`,
+  the soundfont cache) so the data of existing users stays, the repository name and the GitHub Pages URL. MuseScore
+  (the original) keeps its name everywhere.

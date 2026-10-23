@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
+ * MuseEncore — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  *
  * The parts of Qt's QPageSize (qtbase src/gui/painting/qpagesize.cpp, Qt 6, LGPL-3.0/GPL) that MuseScore's Page
  * Settings dialog uses: the standard page sizes (in PageSizeId order) with their names, size(id, unit) and

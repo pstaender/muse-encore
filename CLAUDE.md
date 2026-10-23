@@ -1,8 +1,12 @@
-# MuseScore Web
+# MuseEncore
 
 TypeScript port of the MuseScore Studio engraving engine (reference: **v4.7.5, commit 3654226**).
 Goal: read `.mscz`/`.mscx` files and render them in the browser so that they look exactly like
 the desktop app. License: GPL-3.0-only (same as MuseScore).
+MuseEncore (MuseEncore Editor, MuseEncore Viewer) is neither an official MuseScore project nor an official fork;
+"MuseScore" only names the original software. The project was called "MuseScore Web" before: the browser storage
+keys and database names (`musescoreweb:*`, `musescoreweb-scores`, `musescore-web-viewer`) keep that name so existing
+users keep their data, and so do the repository and its GitHub Pages URL.
 
 ## Reference sources
 
@@ -79,8 +83,8 @@ fonts/                  runtime data: fonts (Leland, Bravura, Emmentaler/MScore,
                         diagrams of chord symbols, generated), legacy default styles for old scores (styles/)
 tools/gen/              generators for tables derived from the C++ sources (re-run on MuseScore updates)
 tools/                  node scripts: render to PNG, compare with MuseScore output
-webviewer/              Vite web viewer app (plain DOM: page and continuous views; MuseScore icon font in webviewer/assets)
-musescoreweb/           Vite score editor app "MuseScore Web": React UI (App.tsx, home/, newscore/, dialogs/ mirror MuseScore's
+viewer/                 MuseEncore Viewer, Vite app (plain DOM: page and continuous views; MuseScore icon font in viewer/assets)
+editor/                 MuseEncore Editor, Vite score editor app: React UI (App.tsx, home/, newscore/, dialogs/ mirror MuseScore's
                         QML pages), menu bar (menus/appmenu.ts = AppMenuModel), toolbars (toolbars/: docks, note input bar),
                         actions (actions/: MuseScore's UiActions + shortcuts, generated uiactiondata.ts; appactions.ts =
                         the handlers), i18n.ts (MuseScore's translations via vite-plugin-locales.ts; the app's own
@@ -116,7 +120,7 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - UI texts are MuseScore's English source strings with MuseScore's translation context (`qtrc("project", "New score")`,
   see share/locale/*.ts), so MuseScore's translations apply; commands are MuseScore's actions (codes, titles, icons,
   shortcuts from the generated table) registered with `registerAction`. Strings MuseScore does not have are
-  translated in musescoreweb/locales/webstrings.json (all of MuseScore's languages; `webtr()`, `[null, text]` titles).
+  translated in editor/locales/webstrings.json (all of MuseScore's languages; `webtr()`, `[null, text]` titles).
 - TypeScript 7 (native compiler); `npm run typecheck` / `npm run build` use it.
 - C++ destructors with side effects must be emulated explicitly (e.g. ~LayoutContext -> end of ScoreLayout.layoutRange).
 - DOM -> rendering calls (C++ `renderer()->...`) go through hooks set in `rendering/score/scorerenderer.ts`.
@@ -134,9 +138,9 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 
 - `npm run typecheck` - tsc
 - `npm test` - vitest (library); `npm run test:e2e` - web viewer in headless Chrome; see `test/README.md`
-- `npm run dev` - web viewer (Vite; `?url=<score>` opens a score, fonts are served from ./fonts);
-  `npm run build:webviewer` builds it into dist-webviewer/
-- `npm run dev:musescoreweb` - the editor (same options); `npm run build:musescoreweb` builds it into dist-musescoreweb/
+- `npm run dev` - the viewer (Vite; `?url=<score>` opens a score, fonts are served from ./fonts);
+  `npm run build:viewer` builds it into dist-viewer/
+- `npm run dev:editor` - the editor (same options); `npm run build:editor` builds it into dist-editor/
   (it bundles MuseScore's templates from `MuseScore/share/templates`, so the submodule is needed)
 - `npm run render -- <file.mscz> <out-prefix> [dpi | svg]` - render pages to PNG (or SVG) in node
 - `npm run compare -- <file.mscz> [out-dir] [dpi]` - render with MuseScore and with this port and diff the PNGs
@@ -149,7 +153,7 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - `npm run compare:mscx` - diff writeMscx/saveMscz output (main .mscx, style, parts) against MuseScore's own re-save
   (`mscore -o out.mscx`, cached in compare-out/mscx/ref); EIDs are normalized
 - `npx tsx tools/gen/<gen-*.ts> MuseScore` - regenerate tables from the reference sources (symids, styledef,
-  property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates, scoreorders, soundmapping, harmonytodiagram [-> fonts], uiactions [-> musescoreweb/actions])
+  property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates, scoreorders, soundmapping, harmonytodiagram [-> fonts], uiactions [-> editor/actions])
 
 ## Progress tracking
 

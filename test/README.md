@@ -39,7 +39,7 @@ these tests run for the viewer and the editor. Covers:
 - full screen: toolbar collapsed, shown at the top edge
 - printing: vector pages (no bitmaps) on sheets of the score's page size (portrait and landscape), page count
 
-## Editor (`test/e2e/musescoreweb.e2e.ts`)
+## Editor (`test/e2e/editor.e2e.ts`)
 
 - home screen at the first start; opened scores listed with thumbnails (IndexedDB), no duplicate entry for the
   same file, reopening from the list

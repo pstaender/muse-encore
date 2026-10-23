@@ -1,10 +1,10 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
+ * MuseEncore — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
  * Port of the parts of src/playback/iplaybackcontroller.h that the notation scene uses (play and seek elements while
- * editing). The implementation with the sound output is the application's (musescoreweb/playback): it is set with
+ * editing). The implementation with the sound output is the application's (editor/playback): it is set with
  * setPlaybackController() (C++: dependency injection, modularity::ioc()).
  */
 

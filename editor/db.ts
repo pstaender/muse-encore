@@ -54,6 +54,7 @@ class ScoreDb extends Dexie {
     autosaves!: EntityTable<Autosave, 'id'>
 
     constructor() {
+        // the database keeps the project's former name (MuseScore Web), so the scores of existing users are kept
         super('musescoreweb-scores')
         this.version(1).stores({
             scores: 'id, opened, hash',

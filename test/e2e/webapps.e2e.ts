@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Web viewer and editor (MuseScore Web, started as a copy of the viewer) in headless Chrome: npm run test:e2e
+// MuseEncore Viewer and MuseEncore Editor (started as a copy of the viewer) in headless Chrome: npm run test:e2e
 // (needs Google Chrome; CHROME_PATH=<binary> to use another one).
 import { existsSync, readFileSync } from 'node:fs'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
@@ -73,7 +73,7 @@ function pageCenterOffset(page: Page, idx = 0): Promise<[number, number]> {
  * middle mouse button in the editor
  */
 async function handDrag(page: Page, app: string, dx: number, dy: number, middleButton = false): Promise<void> {
-    const space = app === 'webviewer' || !middleButton
+    const space = app === 'viewer' || !middleButton
     await page.mouse.move(640, 400)
     if (space) {
         await page.keyboard.down(' ')
@@ -88,9 +88,9 @@ async function handDrag(page: Page, app: string, dx: number, dy: number, middleB
     }
 }
 
-describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%s', (app) => {
+describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app) => {
     // the viewer's toolbar has ids; the editor's toolbars are made of MuseScore's actions
-    const editor = app === 'musescoreweb'
+    const editor = app === 'editor'
     const sel = editor ? {
         layoutV: '[data-action="view-pages-vertical"]', spread: '[data-action="view-two-pages"]', zoom: '.zoom-select',
         center: '[data-action="view-center-page"]', fullscreen: '[data-action="fullscreen"]', pageInfo: '.page-info',
@@ -111,7 +111,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
         await server?.close()
     })
 
-    it.runIf(app === 'webviewer')('shows the centered drop target without a file and nothing to scroll', async () => {
+    it.runIf(app === 'viewer')('shows the centered drop target without a file and nothing to scroll', async () => {
         const { page, context } = await newPage()
         await page.goto(base)
         await page.waitForFunction(() => document.getElementById('status')!.textContent === 'Ready')
@@ -148,7 +148,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
     it('opens a score centered; the viewer remembers it and forgets it when closed, the editor starts with the home screen', async () => {
         const { page, context } = await newPage()
         // the viewer shows its drop target without a score, the editor its home screen
-        const noScore = (): Promise<boolean> => page.evaluate((a) => a === 'webviewer'
+        const noScore = (): Promise<boolean> => page.evaluate((a) => a === 'viewer'
             ? !document.getElementById('empty')!.hidden
             : !!document.querySelector('.home') && document.body.dataset.view === 'home', app)
         await openScore(page, 'amazing.mscz')
@@ -156,7 +156,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['webviewer', 'musescoreweb'])('%
         expect(await page.textContent(sel.pageInfo)).toBe('1 / 2')
         expect(await pageCenterOffset(page)).toEqual([0, 0])
 
-        if (app !== 'webviewer') {
+        if (app !== 'viewer') {
             // the editor does not open the last score again (a large score or one that crashes it would open every time)
             await page.goto(base)
             await page.waitForSelector('.home')

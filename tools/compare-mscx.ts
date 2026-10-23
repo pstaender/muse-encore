@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
+ * MuseEncore — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  *
  * Compares the .mscx text written by this port (writeMscx) with MuseScore's own re-save of the same file
  * (`mscore -o out.mscx in.mscz`). EIDs are random for elements that have none in the input, so <eid>, <linkedTo> and

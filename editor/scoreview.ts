@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * MuseScore Web: the score view (plain DOM code taken over from the web viewer, ../webviewer): shows the pages of
+ * MuseEncore Editor: the score view (plain DOM code taken over from the web viewer, ../viewer): shows the pages of
  * the open score (horizontally, vertically or as two-page spreads), zoom, navigation, printing. The app (app.tsx)
  * opens and closes scores through showScore() / clearScore() and gets the user's commands through the handlers.
  * Keyboard shortcuts follow MuseScore Studio (src/app/configs/data/shortcuts.xml) where they make sense.
@@ -302,7 +302,7 @@ function makePage(idx: number): HTMLDivElement {
 function publishName(): void {
     const title = score ? fileName.replace(/\.mscx?z?$/i, '') : ''
     publish({ hasScore: !!score, title, tooltip: score ? [scoreTitle(score), fileName].filter(Boolean).join(' – ') : '' })
-    document.title = score ? `${title} – MuseScore Web` : 'MuseScore Web'
+    document.title = score ? `${title} – MuseEncore Editor` : 'MuseEncore Editor'
 }
 
 /** the score got another file name (Save as) */

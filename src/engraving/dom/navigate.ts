@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * MuseScore-Web — port of the Score methods of src/engraving/dom/navigate.cpp (nextChordRest/prevChordRest are in
+ * MuseEncore — port of the Score methods of src/engraving/dom/navigate.cpp (nextChordRest/prevChordRest are in
  * chord.ts). They are added to Score by this module (module augmentation), so it must be imported before they are used.
  *
  * TODO(port): Score::nextElement/prevElement (needs the nextSegmentElement/prevSegmentElement and

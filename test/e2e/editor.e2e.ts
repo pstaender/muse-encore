@@ -65,9 +65,9 @@ async function scoreShown(page: Page): Promise<void> {
         && /\d+ ms$/.test(document.getElementById('status')!.textContent ?? ''), null, { timeout: 120000 })
 }
 
-describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
+describe.skipIf(!CHROME || !hasSubmodule)('editor', () => {
     beforeAll(async () => {
-        server = await createServer({ configFile: `${ROOT}musescoreweb/vite.config.ts`, root: `${ROOT}musescoreweb`, server: { port: 0 }, logLevel: 'error' })
+        server = await createServer({ configFile: `${ROOT}editor/vite.config.ts`, root: `${ROOT}editor`, server: { port: 0 }, logLevel: 'error' })
         await server.listen()
         base = server.resolvedUrls!.local[0]
         browser = await chromium.launch({ executablePath: CHROME, headless: true })
@@ -1857,9 +1857,9 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
     // the playback (automated browsers get the silent synthesizer: navigator.webdriver; it counts the played notes)
     interface PlaybackProbe { playing: boolean; position: number; tick: number; muted: boolean; notes: number; cursor: string | null }
     const playbackProbe = (page: Page): Promise<PlaybackProbe> => page.evaluate(() => {
-        const p = (window as unknown as { __musescorewebPlayback: {
+        const p = (window as unknown as { __museencorePlayback: {
             synth: { noteOnCount: number }; state: () => { playing: boolean; position: number; tick: number; muted: boolean }
-        } }).__musescorewebPlayback
+        } }).__museencorePlayback
         const st = p.state()
         const c = document.querySelector<HTMLElement>('.playback-cursor')
         return {
@@ -1878,8 +1878,8 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
 
         // play / pause with the toolbar button: the position and the cursor advance
         await page.click(playButton)
-        await page.waitForFunction(() => (window as unknown as { __musescorewebPlayback: { state: () => { playing: boolean; tick: number } } })
-            .__musescorewebPlayback.state().tick > 1920, null, { timeout: 20000 }) // after the pickup measure's rests
+        await page.waitForFunction(() => (window as unknown as { __museencorePlayback: { state: () => { playing: boolean; tick: number } } })
+            .__museencorePlayback.state().tick > 1920, null, { timeout: 20000 }) // after the pickup measure's rests
         const a = await playbackProbe(page)
         expect(a.playing).toBe(true)
         expect(a.notes).toBeGreaterThan(0)
@@ -1889,8 +1889,8 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         expect(b.position).toBeGreaterThan(a.position)
         expect(parseFloat(b.cursor!)).not.toBe(parseFloat(a.cursor!))
         await page.click(playButton)
-        await page.waitForFunction(() => !(window as unknown as { __musescorewebPlayback: { state: () => { playing: boolean } } })
-            .__musescorewebPlayback.state().playing)
+        await page.waitForFunction(() => !(window as unknown as { __museencorePlayback: { state: () => { playing: boolean } } })
+            .__museencorePlayback.state().playing)
         const paused = await playbackProbe(page)
         expect(paused.position).toBeGreaterThan(0)
 
@@ -1901,20 +1901,20 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.waitForTimeout(300)
         expect((await playbackProbe(page)).playing).toBe(false) // Space alone is the hand tool
         await page.keyboard.press('Shift+Space')
-        await page.waitForFunction(() => (window as unknown as { __musescorewebPlayback: { state: () => { playing: boolean } } })
-            .__musescorewebPlayback.state().playing)
+        await page.waitForFunction(() => (window as unknown as { __museencorePlayback: { state: () => { playing: boolean } } })
+            .__museencorePlayback.state().playing)
         await page.waitForTimeout(300)
         await page.keyboard.press('Escape')
-        await page.waitForFunction(() => !(window as unknown as { __musescorewebPlayback: { state: () => { playing: boolean } } })
-            .__musescorewebPlayback.state().playing)
+        await page.waitForFunction(() => !(window as unknown as { __museencorePlayback: { state: () => { playing: boolean } } })
+            .__museencorePlayback.state().playing)
 
         // a click on a note plays it (and seeks there)
         const note = layout.cr.filter(c => c.type === 'Chord')[2]
         let before = (await playbackProbe(page)).notes
         await page.mouse.click(...at(note.x, note.y))
         await page.waitForFunction(() => /^Note/.test(document.getElementById('status')!.textContent!))
-        await page.waitForFunction(n => (window as unknown as { __musescorewebPlayback: { synth: { noteOnCount: number } } })
-            .__musescorewebPlayback.synth.noteOnCount > n, before)
+        await page.waitForFunction(n => (window as unknown as { __museencorePlayback: { synth: { noteOnCount: number } } })
+            .__museencorePlayback.synth.noteOnCount > n, before)
 
         // muted: no sound for the preview notes; the mute is kept after a reload
         await page.click(muteButton)
@@ -2009,8 +2009,8 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await page.click('[data-toolbar="playbackToolBar"] .tool-button[aria-label="Playback settings"]')
         await page.click('.menu-item:has-text("Smooth panning")')
         await page.click(playButton)
-        await page.waitForFunction(() => (window as unknown as { __musescorewebPlayback: { state: () => { tick: number } } })
-            .__musescorewebPlayback.state().tick > 4 * 1440, null, { timeout: 30000 })
+        await page.waitForFunction(() => (window as unknown as { __museencorePlayback: { state: () => { tick: number } } })
+            .__museencorePlayback.state().tick > 4 * 1440, null, { timeout: 30000 })
         const cursorOffsets: number[] = []
         for (let i = 0; i < 3; ++i) {
             await page.waitForTimeout(400)

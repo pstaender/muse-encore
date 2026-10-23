@@ -202,9 +202,9 @@ function buildPages(): void {
     emptyDiv.hidden = hasScore
     btn.clear.hidden = !hasScore
     // like MuseScore's tab: the file name without extension; the score title as tooltip
-    titleEl.textContent = score ? fileName.replace(/\.mscx?z?$/i, '') : 'MuseScore Web Viewer'
+    titleEl.textContent = score ? fileName.replace(/\.mscx?z?$/i, '') : 'MuseEncore Viewer'
     titleEl.title = score ? [scoreTitle(score), fileName].filter(Boolean).join(' – ') : ''
-    document.title = score ? `${titleEl.textContent} – MuseScore Web Viewer` : 'MuseScore Web Viewer'
+    document.title = score ? `${titleEl.textContent} – MuseEncore Viewer` : 'MuseEncore Viewer'
 
     if (score) {
         const n = pageCount(score)

@@ -1,12 +1,12 @@
-# MuseScore Web
+# MuseEncore
 
 <div align = center>
 
-[<kbd> <br> Run the MuseScore Web editor right now in your browser 🚀 <br> </kbd>][Editor]
+[<kbd> <br> Run the MuseEncore Editor right now in your browser 🚀 <br> </kbd>][Editor]
 
 – or – <br>
 
-[<kbd> <br> Run the MuseScore Web viewer right now in your browser 🚀 <br> </kbd>][Viewer]
+[<kbd> <br> Run the MuseEncore Viewer right now in your browser 🚀 <br> </kbd>][Viewer]
 
 </div>
 
@@ -17,8 +17,12 @@ web-native version of MuseScore that runs entirely in the browser. The engraving
 and keeps the structure, class and method names of the original, so that `.mscz`/`.mscx` files are laid out and
 rendered like in the desktop app. The reference is MuseScore Studio 4.7.5 (included as a git submodule).
 
-- **Viewer** (`webviewer/`): opens and displays scores, as a test of the feasibility of the port.
-- **Editor** (`musescoreweb/`): the next step, a score editor based on the viewer.
+> **MuseEncore is neither an official MuseScore project nor an official fork of MuseScore.** It is an independent
+> port of MuseScore Studio's open source code and is not affiliated with or endorsed by MuseScore Limited or the
+> MuseScore project. "MuseScore" is used here only to name the original software this project is based on.
+
+- **MuseEncore Viewer** (`viewer/`): opens and displays scores, as a test of the feasibility of the port.
+- **MuseEncore Editor** (`editor/`): the next step, a score editor based on the viewer.
 
 This is a vibe-coded project: the code is written with an AI coding assistant. Its functionality is tested at a
 high level by a human, in addition to the automated tests that compare every page with MuseScore's own output.
@@ -32,7 +36,7 @@ Like MuseScore, this project is licensed under the GNU General Public License v3
 git clone --recurse-submodules <repository>
 npm install
 npm run dev               # viewer
-npm run dev:musescoreweb  # editor
+npm run dev:editor        # editor
 npm test                  # library tests
 ```
 

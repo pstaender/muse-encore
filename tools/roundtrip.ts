@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
+ * MuseEncore — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  *
  * Round trip test of the writer: load -> layout -> SVG of every page, then saveMscz -> load the saved file -> layout ->
  * SVG of every page; the pages must be identical.

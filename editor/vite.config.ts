@@ -13,5 +13,5 @@ export default defineConfig({
     plugins: [react(), musescoreLocales(join(__dirname, '../MuseScore/share/locale')), musescoreSound(join(__dirname, '../MuseScore/share/sound'))],
     // the runtime fonts are served from the repository's fonts directory (e.g. /leland/Leland.otf)
     publicDir: '../fonts',
-    build: { outDir: '../dist-musescoreweb', emptyOutDir: true },
+    build: { outDir: '../dist-editor', emptyOutDir: true },
 })

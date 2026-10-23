@@ -16,5 +16,5 @@
     "types": ["node"],
     "jsx": "react-jsx"
   },
-  "include": ["src", "tools", "test", "webviewer", "musescoreweb"]
+  "include": ["src", "tools", "test", "viewer", "editor"]
 }

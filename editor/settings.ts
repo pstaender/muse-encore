@@ -144,6 +144,7 @@ const DEFAULTS: AppSettings = {
     web: { spacePan: true },
 }
 
+// the storage keys keep the project's former name (MuseScore Web), so the settings of existing users are kept
 const SETTINGS_KEY = 'musescoreweb:settings'
 const LEGACY_VIEW_KEY = 'musescoreweb:view'
 

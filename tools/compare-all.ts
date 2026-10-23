@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
+ * MuseEncore — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  *
  * Renders many scores with MuseScore 4.7.5 and with this port, and compares every page with the baseline
  * (test/compare-baseline.csv): a page that differs more from MuseScore than before is a regression.

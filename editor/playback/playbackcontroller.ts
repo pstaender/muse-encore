@@ -107,7 +107,7 @@ const player = new Player(synth)
 player.metronomeEnabled = pb().metronome
 
 /** for tests: the synthesizer (the null synthesizer records its events) */
-;(window as unknown as { __musescorewebPlayback?: unknown }).__musescorewebPlayback = { synth, player, state: () => state }
+;(window as unknown as { __museencorePlayback?: unknown }).__museencorePlayback = { synth, player, state: () => state }
 
 let loading: Promise<boolean> | null = null
 
