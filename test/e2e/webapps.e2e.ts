@@ -410,7 +410,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         })
         expect(info).toEqual([{ pages: 4, current: 1 }, { pages: 4, current: 2 }])
         const shown = (score: string, id: string): Promise<boolean> => page.evaluate(([s, i]) => {
-            const el = document.querySelector(`${s} .museencore-viewer`)!.shadowRoot!.getElementById(i)!
+            const el = document.querySelector(`${s} .muse-encore-viewer`)!.shadowRoot!.getElementById(i)!
             return el.checkVisibility()
         }, [score, id])
         expect(await shown('#score1', 'play')).toBe(true)
@@ -422,7 +422,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         expect(await shown('#score2', 'toolbar')).toBe(false)
         expect(await shown('#score2', 'status')).toBe(false)
         // the continuous view (vertical): one long page
-        expect(await page.evaluate(() => document.querySelector('#score1 .museencore-viewer')!.shadowRoot!.querySelectorAll('.page').length)).toBe(1)
+        expect(await page.evaluate(() => document.querySelector('#score1 .muse-encore-viewer')!.shadowRoot!.querySelectorAll('.page').length)).toBe(1)
         // the viewer does not take the focus of the page
         expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true)
         await context.close()

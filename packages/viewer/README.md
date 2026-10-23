@@ -1,4 +1,4 @@
-# museencore-viewer
+# muse-encore-viewer
 
 Show MuseScore files (`.mscz`/`.mscx`) in a web page, like an inline PDF viewer: the pages as MuseScore Studio lays
 them out, MuseScore's continuous views, zoom, printing (vector pages), full screen and playback. MusicXML
@@ -17,11 +17,11 @@ engraving engine (reference version 4.7.5). Everything runs in the browser; no s
 With a bundler:
 
 ```sh
-npm install museencore-viewer
+npm install muse-encore-viewer
 ```
 
 ```js
-import applyMuseEncoreViewer from 'museencore-viewer'
+import applyMuseEncoreViewer from 'muse-encore-viewer'
 
 applyMuseEncoreViewer(document.getElementById('score'), 'scores/example.mscz')
 ```
@@ -31,7 +31,7 @@ From a CDN, without a build step:
 ```html
 <div id="score" style="height: 600px"></div>
 <script type="module">
-    import applyMuseEncoreViewer from 'https://cdn.jsdelivr.net/npm/museencore-viewer@0.1.0/dist/museencore-viewer.js'
+    import applyMuseEncoreViewer from 'https://cdn.jsdelivr.net/npm/muse-encore-viewer@0.1.0/dist/muse-encore-viewer.js'
 
     applyMuseEncoreViewer('#score', 'scores/example.mscz', { toolbarGroups: { playback: true } })
 </script>
@@ -109,7 +109,7 @@ reference version (raw.githubusercontent.com); set `soundFontUrl` to serve it yo
 ## Fonts
 
 The engraving fonts (Leland, Bravura, Edwin, ... with their licenses) are in `fonts/` and loaded at runtime from the
-same place as the module (`../fonts/` relative to `dist/museencore-viewer.js`), which works with CDNs that serve the
+same place as the module (`../fonts/` relative to `dist/muse-encore-viewer.js`), which works with CDNs that serve the
 whole package (jsDelivr, unpkg). If you copy only the module, copy the fonts too and set `fontsUrl`.
 
 ## License

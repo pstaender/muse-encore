@@ -39,7 +39,7 @@ export interface MuseEncoreViewerAppOptions extends MuseEncoreViewerOptions {
 //   shared by all viewers on a page: the engraving fonts and the icon font
 // ---------------------------------------------------------------------------------
 
-/** the package's fonts/ directory (dist/museencore-viewer.js -> ../fonts/) */
+/** the package's fonts/ directory (dist/muse-encore-viewer.js -> ../fonts/) */
 function defaultFontsUrl(): string {
     return new URL(/* @vite-ignore */ '../fonts/', import.meta.url).href
 }
@@ -47,10 +47,10 @@ function defaultFontsUrl(): string {
 let s_fonts: Promise<void> | null = null
 
 function loadFonts(fontsUrl: string): Promise<void> {
-    if (!document.getElementById('museencore-viewer-icon-font')) {
+    if (!document.getElementById('muse-encore-viewer-icon-font')) {
         // fonts declared in a shadow root are not loaded: the UI icon font is declared in the document
         const style = document.createElement('style')
-        style.id = 'museencore-viewer-icon-font'
+        style.id = 'muse-encore-viewer-icon-font'
         style.textContent = `@font-face { font-family: "MusescoreIcon"; src: url("${fontsUrl}musescoreicon/MusescoreIcon.ttf") format("truetype"); font-display: block; }`
         document.head.appendChild(style)
     }
@@ -331,7 +331,7 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
 
         // the shadow root in a child element (the element itself may not allow a shadow root or already have one)
         this.host = document.createElement('div')
-        this.host.className = 'museencore-viewer'
+        this.host.className = 'muse-encore-viewer'
         this.host.style.cssText = 'display:block;width:100%;height:100%'
         if (options.theme && options.theme !== 'auto') {
             this.host.dataset.theme = options.theme

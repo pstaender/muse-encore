@@ -1,8 +1,8 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * The npm package "museencore-viewer": shows MuseScore files (.mscz/.mscx) in a web page, like an inline PDF viewer.
+ * The npm package "muse-encore-viewer": shows MuseScore files (.mscz/.mscx) in a web page, like an inline PDF viewer.
  *
- *   import applyMuseEncoreViewer from 'museencore-viewer'
+ *   import applyMuseEncoreViewer from 'muse-encore-viewer'
  *   const viewer = applyMuseEncoreViewer(document.getElementById('score'), 'scores/example.mscz', { toolbarGroups: { playback: true } })
  */
 import { MuseEncoreViewer as Viewer } from './museencoreviewer'

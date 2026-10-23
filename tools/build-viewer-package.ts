@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Builds the npm package "museencore-viewer" in packages/viewer: the bundled ES module (viewer/vite.lib.config.ts),
+// Builds the npm package "muse-encore-viewer" in packages/viewer: the bundled ES module (viewer/vite.lib.config.ts),
 // its type declarations (from viewer/src/types.ts), the runtime fonts and the license.
 // npm run build:viewer-package; then `npm publish` in packages/viewer.
 import { execFileSync } from 'node:child_process'
@@ -18,7 +18,7 @@ execFileSync(join(ROOT, 'node_modules/.bin/tsc'), [
     join(ROOT, 'viewer/src/types.ts'), '--declaration', '--emitDeclarationOnly', '--strict', '--target', 'ES2022',
     '--lib', 'ES2022,DOM,DOM.Iterable', '--skipLibCheck', '--types', '', '--ignoreConfig', '--outDir', DIST,
 ], { stdio: 'inherit' })
-writeFileSync(join(DIST, 'museencore-viewer.d.ts'), `// SPDX-License-Identifier: GPL-3.0-only
+writeFileSync(join(DIST, 'muse-encore-viewer.d.ts'), `// SPDX-License-Identifier: GPL-3.0-only
 import type { MuseEncoreScoreSource, MuseEncoreViewer, MuseEncoreViewerOptions } from './types'
 
 export type {

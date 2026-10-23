@@ -1534,7 +1534,7 @@
   the soundfont cache) so the data of existing users stays, the repository name and the GitHub Pages URL. MuseScore
   (the original) keeps its name everywhere.
 
-## 2026-10-23 — Viewer component, playback, fit to window, npm package museencore-viewer
+## 2026-10-23 — Viewer component, playback, fit to window, npm package museencore-viewer (renamed to muse-encore-viewer)
 
 - The viewer is a component now (viewer/src/museencoreviewer.ts, class MuseEncoreViewer): its UI in a shadow root
   (viewer/src/viewer.css; ids are per shadow root, so several viewers fit on one page), options for the toolbar groups

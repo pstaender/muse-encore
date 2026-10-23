@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * The npm package "museencore-viewer" (packages/viewer): the viewer component as one ES module with all dependencies
+ * The npm package "muse-encore-viewer" (packages/viewer): the viewer component as one ES module with all dependencies
  * (it can be imported from a CDN without a bundler); SpessaSynth is a separate chunk loaded with the first playback.
  * tools/build-viewer-package.ts runs it and adds the fonts and the type declarations.
  */
@@ -18,6 +18,6 @@ export default defineConfig({
         // used as a whole)
         minify: true,
         rolldownOptions: { output: { minify: true } },
-        lib: { entry: 'src/index.ts', formats: ['es'], fileName: 'museencore-viewer' },
+        lib: { entry: 'src/index.ts', formats: ['es'], fileName: 'muse-encore-viewer' },
     },
 })

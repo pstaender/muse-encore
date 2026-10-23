@@ -96,7 +96,7 @@ viewer/                 MuseEncore Viewer: src/museencoreviewer.ts is the viewer
                         src/viewer.css: page view, continuous views incl. fit to window, zoom, print, full screen, playback with
                         src/playback.ts; options and API types in src/types.ts); main.ts is the app (opening files, storage.ts),
                         src/index.ts the npm package's entry (applyMuseEncoreViewer), embed.html a dev page of the package API
-packages/viewer/        the npm package "museencore-viewer" (package.json, README; dist/ + fonts/ are built by
+packages/viewer/        the npm package "muse-encore-viewer" (package.json, README; dist/ + fonts/ are built by
                         tools/build-viewer-package.ts with viewer/vite.lib.config.ts: one bundled ES module for CDNs)
 shared/                 code of both apps: playback/ (Synthesizer interface, SpessaSynth + MS Basic.sf3 loaded on first use and
                         cached, player.ts scheduler), vite-plugin-sound.ts (serves/copies the soundfont)
@@ -154,7 +154,7 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 - `npm test` - vitest (library); `npm run test:e2e` - web viewer in headless Chrome; see `test/README.md`
 - `npm run dev:viewer` (or `npm run dev`) - the viewer (Vite; `?url=<score>` opens a score, fonts are served from
   ./fonts; `/embed.html?url=<score>&options=<JSON>` shows the package API); `npm run build:viewer` builds it into dist-viewer/
-- `npm run build:viewer-package` - the npm package museencore-viewer in packages/viewer (publish from there)
+- `npm run build:viewer-package` - the npm package muse-encore-viewer in packages/viewer (publish from there)
 - `npm run dev:editor` - the editor (same options); `npm run build:editor` builds it into dist-editor/
   (it bundles MuseScore's templates from `MuseScore/share/templates`, so the submodule is needed)
 - `npm run render -- <file.mscz> <out-prefix> [dpi | svg]` - render pages to PNG (or SVG) in node
