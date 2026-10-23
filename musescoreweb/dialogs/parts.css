@@ -1,0 +1,33 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* the Parts dialog (PartsDialog.qml: 664 x 558) */
+dialog.parts-dialog { width: min(664px, calc(100vw - 32px)); height: min(558px, calc(100vh - 32px)); padding: 0; }
+dialog.parts-dialog[open] { display: flex; flex-direction: column; }
+.parts-top-panel { display: flex; align-items: center; gap: 8px; padding: 36px 36px 0; }
+.parts-top-panel .parts-title { font-size: 1.3em; font-weight: 600; }
+.parts-top-panel .spacer, dialog.parts-dialog .dialog-buttons .spacer { flex: 1; }
+.parts-header {
+    margin-top: 38px; padding: 0 36px 8px; text-transform: uppercase; font-weight: 600; font-size: 0.9em;
+    border-bottom: 1px solid var(--border);
+}
+.parts-view { flex: 1; min-height: 0; overflow-y: auto; margin-bottom: 24px; }
+.part-row {
+    height: 42px; display: flex; align-items: center; gap: 4px; padding: 0 36px 0 28px; border-bottom: 1px solid var(--border);
+    cursor: default; user-select: none;
+}
+.part-row:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.part-row[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.part-row .part-icon { width: 24px; text-align: center; }
+.part-row .part-title { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.part-row .part-title-edit { flex: 1; display: flex; align-items: center; gap: 38px; min-width: 0; }
+.part-row .part-title-edit input { flex: 2; min-width: 0; }
+.part-row .part-title-warning { flex: 1; color: var(--danger, #c62828); font-size: 0.9em; }
+.part-menu { position: relative; }
+.part-menu .icon-button { min-width: 30px; height: 30px; }
+.part-menu-popup {
+    position: absolute; right: 0; top: 100%; z-index: 10; min-width: 160px; display: flex; flex-direction: column; padding: 4px 0;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 12px rgba(0, 0, 0, .2);
+}
+.part-menu-popup button { text-align: left; padding: 6px 12px; background: none; border: none; border-radius: 0; color: inherit; }
+.part-menu-popup button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.part-menu-popup button:disabled { opacity: .5; }
+dialog.parts-dialog .dialog-buttons { padding: 0 24px 24px; margin: 0; }

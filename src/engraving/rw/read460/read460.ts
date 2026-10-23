@@ -51,6 +51,8 @@ import type { Lyrics } from '../../dom/lyrics'
 import type { LyricsLine } from '../../dom/lyricsline'
 import type { FretDiagram } from '../../dom/fret'
 import type { TremoloTwoChord } from '../../dom/tremolotwochord'
+import { DefaultStyle } from '../../style/defaultstyle'
+import { Excerpt } from '../../dom/excerpt'
 
 export class Read460 {
     /** `data`: C++ ReadInOutData (the links of the master score are passed to the excerpts) */
@@ -202,10 +204,35 @@ export class Read460 {
             } else if (tag === 'name') {
                 const n = e.readText()
                 if (!score.isMaster()) { // ignore the name if it's not a child score
-                    score.excerpt()!.setName(n)
+                    score.excerpt()!.setName(n, /*saveAndNotify*/ false)
                 }
-            } else if (tag === 'Score') { // recursion (excerpts in old files)
-                e.skipCurrentElement() // TODO(port): excerpts
+            } else if (tag === 'Score') {
+                // Since version 400, Excerpts are usually stored in separate files,
+                // but we also support reading them from the main mscx file.
+
+                ctx.tracks().clear() // ???
+                const m = score.masterScore()
+                const s = m.createScore()
+
+                // compat::ReadStyleHook::setupDefaultStyle(s)
+                const defaultsVersion = m.style().defaultStyleVersion()
+                s.setStyle(DefaultStyle.resolveStyleDefaults(defaultsVersion))
+                s.style().setDefaultStyleVersion(defaultsVersion)
+
+                const ex = new Excerpt(m)
+                ex.setExcerptScore(s)
+                ctx.setLastMeasure(null)
+
+                const curScore = ctx.score()
+                ctx.setScore(s)
+
+                this.readScoreTag(s, e, ctx) // recursion
+
+                ctx.setScore(curScore)
+
+                s.linkMeasures(m)
+                ex.setTracksMapping([...ctx.tracks()])
+                m.addExcerpt(ex)
             } else if (tag === 'layoutMode') {
                 if (ctx.forcePageMode()) {
                     e.skipCurrentElement()

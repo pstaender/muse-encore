@@ -71,7 +71,11 @@ export class StaffRead {
                     }
                     mb.setTick(ctx.tick())
                     score.measures().append(mb)
-                    mb.setSizeIsSpatiumDependent(mb.propertyDefault(Pid.SIZE_SPATIUM_DEPENDENT) as boolean)
+                    // This default value needs initialising after being added to the score, as it depends on whether this
+                    // is the title frame (read410: from 4.40; read400 for 3.x does not do it)
+                    if (mb.score().mscVersion() >= 440) {
+                        mb.setSizeIsSpatiumDependent(mb.propertyDefault(Pid.SIZE_SPATIUM_DEPENDENT) as boolean)
+                    }
                     TRead.readItem(mb, e, ctx)
                 } else if (tag === 'tick') {
                     ctx.setTick(Fraction.fromTicks(ctx.fileDivision(e.readInt())))

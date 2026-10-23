@@ -8,7 +8,7 @@ import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'r
 import { createProjectPropertiesModel, type MasterScore } from '../../src/index'
 import { ICON_CODES } from '../actions/uiactiondata'
 import { qtrc, useLanguage } from '../i18n'
-import { currentScore, scoreChanged } from '../scoreview'
+import { currentMasterScore, scoreChanged } from '../scoreview'
 import { session } from '../session'
 
 const tr = (s: string): string => qtrc('project/properties', s)
@@ -128,7 +128,7 @@ function setOpen(v: typeof s_open): void {
 
 /** ProjectActionsController::openProjectProperties */
 export function openProjectPropertiesDialog(): void {
-    const score = currentScore()
+    const score = currentMasterScore()
     if (score) {
         setOpen({ key: ++s_key, score })
     }

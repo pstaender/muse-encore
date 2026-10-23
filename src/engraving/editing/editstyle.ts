@@ -43,7 +43,7 @@ function changeChordStyle(score: Score): void {
  * the port's Score.styleChanged() (also used by the readers) only resets the cached font data.
  * TODO(port): StaffType::styleChanged(), createPaddingTable()
  */
-function scoreStyleChanged(score: Score): void {
+export function scoreStyleChanged(score: Score): void {
     score.styleChanged()
     score.scanElements((e: EngravingItem) => {
         const v = e.generated()
@@ -51,12 +51,6 @@ function scoreStyleChanged(score: Score): void {
         e.setGenerated(v)
     })
     score.setLayoutAll()
-}
-
-/** C++ Score::spatiumChanged (the note head width is computed lazily; the padding table by the layout) */
-function spatiumChanged(score: Score, oldValue: number, newValue: number): void {
-    score.scanElements((e: EngravingItem) => e.spatiumChanged(oldValue, newValue))
-    score.setNoteHeadWidth(null)
 }
 
 // ---------------------------------------------------------
@@ -103,7 +97,7 @@ export class ChangeStyle extends UndoCommand {
         this.score.setStyle(this.style, this.overlap)
         changeChordStyle(this.score)
         if (tmp.spatium() !== this.style.spatium()) {
-            spatiumChanged(this.score, tmp.spatium(), this.style.spatium())
+            this.score.spatiumChanged(tmp.spatium(), this.style.spatium())
         }
         scoreStyleChanged(this.score)
         this.style = tmp
@@ -128,7 +122,7 @@ function changeStyleValue(score: Score, idx: Sid, oldValue: PropertyValue, newVa
         changeChordStyle(score)
         break
     case Sid.spatium:
-        spatiumChanged(score, oldValue as number, newValue as number)
+        score.spatiumChanged(oldValue as number, newValue as number)
         break
     case Sid.defaultsVersion:
         score.style().setDefaultStyleVersion(newValue as number)

@@ -104,7 +104,7 @@ export class MscLoader {
                     throw new MscLoadError(`bad format: ${exml.errorString()}`)
                 }
 
-                // TODO(port): partScore->linkMeasures(masterScore)
+                partScore.linkMeasures(masterScore)
 
                 if (!ex.name()) {
                     // If no excerpt name tag was found while reading, try the "partName" meta tag

@@ -8,7 +8,7 @@
 import { isModified, saveMscz } from '../src/index'
 import { putAutosave, removeAutosave } from './db'
 import { msczFileName } from './files'
-import { currentScore, onScoreViewChanged, scoreViewState } from './scoreview'
+import { currentMasterScore, onScoreViewChanged, scoreViewState } from './scoreview'
 import { onSessionChanged, session } from './session'
 import { onSettingsChanged, settings } from './settings'
 
@@ -38,7 +38,7 @@ function stopTimer(): void {
 
 /** the id of the open score if it is modified (ProjectAutoSaver::update: project->needAutoSave()) */
 function idNeedingAutosave(): string | null {
-    const s = currentScore()
+    const s = currentMasterScore()
     const id = session().current?.id ?? null
     return id && s && isModified(s) ? id : null
 }
@@ -48,7 +48,7 @@ function update(): void {
     const version = scoreViewState().scoreVersion
     if (version !== lastScoreVersion) {
         lastScoreVersion = version
-        const s = currentScore()
+        const s = currentMasterScore()
         needAutoSave = !!s && isModified(s)
     }
     const id = idNeedingAutosave()
@@ -65,7 +65,7 @@ export async function onTrySave(): Promise<boolean> {
     }
     saving = true
     try {
-        const s = currentScore()
+        const s = currentMasterScore()
         const current = session().current
         if (!s || !current?.id || !needAutoSave || !isModified(s)) {
             return false

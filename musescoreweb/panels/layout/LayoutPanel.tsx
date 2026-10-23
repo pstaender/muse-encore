@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import {
     createLayoutPanelModel, InsertMode, LayoutPanelItemType, layoutPanelItemKey, layoutPanelPartNames, layoutPanelScoreOrder,
-    scoreOrders, type AbstractLayoutPanelTreeItem, type LayoutPanelNotationParts, type LayoutPanelTreeModel, type MasterScore,
+    scoreOrders, type AbstractLayoutPanelTreeItem, type LayoutPanelNotationParts, type LayoutPanelTreeModel, type Score,
 } from '../../../src/index'
 import { actionsChanged, registerAction, shortcutText } from '../../actions/actions'
 import { ICON_CODES } from '../../actions/uiactiondata'
@@ -184,7 +184,7 @@ export function layoutPanelMenu(): MenuItem[] {
 //   score changes requested by the model (INotationParts)
 // ---------------------------------------------------------------------------------
 
-function notationParts(score: MasterScore): LayoutPanelNotationParts {
+function notationParts(score: Score): LayoutPanelNotationParts {
     const run = (changed: boolean): void => {
         if (changed) {
             s_keepSelection = true

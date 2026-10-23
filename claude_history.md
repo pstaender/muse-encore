@@ -1426,3 +1426,26 @@
   NotationProject::metaInfo/setMetaInfo, ProjectPropertiesModel; QDate ISO <-> TextDate), ChangeMetaTags,
   Score.setMetaTags; app dialogs/ProjectPropertiesDialog.tsx (no "open file location" in the browser).
 - Tests: test/search.test.ts, test/projectproperties.test.ts; e2e: Find / Go to + Project properties.
+
+### Parts (File > Parts…), stages 1 and 2
+- Engraving: dom/excerpt.ts = all of excerpt.cpp (createExcerpt, cloneStaves/cloneMeasures/cloneStaff/cloneStaff2,
+  cloneSpanner, createExcerptsFromParts, createLinkedTabs, tracks mapping, voice visibility, formatUniqueExcerptName,
+  clone, setName); editing/editexcerpt.ts: MasterScore.initAndAddExcerpt/initExcerpt/initEmptyExcerpt, Score.clone(),
+  AddExcerpt/RemoveExcerpt/SwapExcerpt/ChangeExcerptTitle/deleteExcerpt. Linked copies (Chord, Note, Rest, lyrics,
+  parentheses, Trill.linkedClone, EngravingItem.linkedClone with an undoable Link). Score.scoreList(), staffById,
+  linkMeasures; Staff.findLinkedInScore/initFromStaff, the Staff constructor calls initFromStaffType like C++; voice
+  visibility; remapBracketsAndBarlines; manageExclusionFromParts / MeasureBase.getInScore (insertBox clones to all
+  parts). Reading parts inside the main file (read460/read302), CompatUtils.assignInitialPartToExcerpts, the .mscz
+  loader links the parts' measures. Score.update lays out all scores of scoreList(). sizeIsSpatiumDependent is reset
+  only for 4.40+ files (read410 version guard): compare baseline updated for articulation-1/mmrest-6 (their first
+  staff now matches MuseScore's SVG exactly) and mmrest-11.
+- Notation/app: notation/internal/excerptnotation.ts, MasterNotation excerpt management (excerpts, potentialExcerpts,
+  setExcerpts, createEmptyExcerpt, resetExcerpt, sortExcerpts), notationscene/partlistmodel.ts (PartListModel,
+  NotationSwitchListModel). The library API takes `Score` (master or part) instead of MasterScore almost everywhere;
+  the current notation is switchable (scoreview currentScore()/currentMasterScore()). App: dialogs/PartsDialog.tsx,
+  components/NotationSwitchPanel.tsx (tabs for the score and the open parts), action "parts".
+- Tests: test/parts.test.ts (MuseScore's parts_tests: creation, styles, spanners, ties, exclusion, remove/undo; 13
+  skipped until stage 3), test/partsnotation.test.ts; e2e: opening and editing a part.
+- TODO(port) (stage 3): linked editing — Staff.staffList() is only the staff itself, the scoreList()/linked staff
+  TODOs in edit.ts/cmd.ts/splitjoinmeasure.ts etc. (adding elements, measures, time signatures... in the score is
+  not yet done in the parts and vice versa); unlinkPropertyFromMaster; the tabs' context menu.

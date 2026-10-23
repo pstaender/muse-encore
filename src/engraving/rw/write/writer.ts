@@ -27,6 +27,7 @@ import type { track_idx_t } from '../../types/types'
 import type { Segment } from '../../dom/segment'
 import type { EngravingItem } from '../../dom/engravingitem'
 import type { SelectionFilter } from '../../dom/selectionfilter'
+import { MScore } from '../../dom/mscore'
 
 /** the version MuseScore 4.7.5 writes (Constants::MSC_VERSION_STR, application version and revision) */
 export const MSC_VERSION_STR = '4.70'
@@ -51,8 +52,22 @@ class WriteScoreHook {
         }
     }
 
-    onWriteExcerpts302(_score: Score, _xml: XmlWriter, _ctx: WriteContext): void {
-        // C++ writes the excerpts into the main file only in test mode
+    onWriteExcerpts302(score: Score, xml: XmlWriter, ctx: WriteContext): void {
+        let isWriteExcerpts = false
+
+        //! NOTE If the test mode, because the tests have not yet been adapted to the new format
+        if (MScore.testMode) {
+            isWriteExcerpts = true
+        }
+
+        if (isWriteExcerpts && score.isMaster() && !ctx.shouldWriteRange()) {
+            for (const excerpt of score.masterScore().excerpts()) {
+                const es = excerpt.excerptScore()
+                if (es && es !== score) {
+                    Writer.write(es, xml, ctx, this) // recursion write
+                }
+            }
+        }
     }
 }
 

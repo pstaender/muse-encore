@@ -8,7 +8,7 @@
  */
 import {
     applyInspectorChanges as libApplyInspectorChanges, applyPaletteElement as libApplyPaletteElement, hasSelection,
-    type InspectorChange, type MasterScore, type PaletteElement,
+    type InspectorChange, type Score, type PaletteElement,
 } from '../../src/index'
 import * as lib from '../../src/index'
 import { scoreChanged as viewScoreChanged } from '../scoreview'
@@ -23,7 +23,7 @@ export function scoreChanged(): void {
 // ---------------------------------------------------------------------------------
 
 /** the palette element can be applied to the score's selection (Palette::applyPaletteElement needs a selection) */
-export function canApplyPaletteElement(score: MasterScore | null): boolean {
+export function canApplyPaletteElement(score: Score | null): boolean {
     return !!score && hasSelection(score)
 }
 
@@ -31,7 +31,7 @@ export function canApplyPaletteElement(score: MasterScore | null): boolean {
  * Applies a palette cell's element to the selection (Palette::applyPaletteElement with the keyboard modifiers:
  * shift = range/all staves behaviour). `element` is the cell's element as the palette library returns it.
  */
-export function applyPaletteElement(score: MasterScore, element: PaletteElement, modifiers: { shift: boolean; ctrl: boolean } = { shift: false, ctrl: false }): boolean {
+export function applyPaletteElement(score: Score, element: PaletteElement, modifiers: { shift: boolean; ctrl: boolean } = { shift: false, ctrl: false }): boolean {
     return libApplyPaletteElement(score, element, modifiers)
 }
 
@@ -39,7 +39,7 @@ export function applyPaletteElement(score: MasterScore, element: PaletteElement,
 //   Properties panel (AbstractInspectorModel::onPropertyValueChanged -> EngravingItem::undoChangeProperty)
 // ---------------------------------------------------------------------------------
 
-export function canChangeProperties(score: MasterScore | null): boolean {
+export function canChangeProperties(score: Score | null): boolean {
     return !!score
 }
 
@@ -47,7 +47,7 @@ export function canChangeProperties(score: MasterScore | null): boolean {
  * Applies the changes the Properties panel computed with the library (inspectorPropertyChanges,
  * inspectorPropertyResets, inspectorArrangeChanges) in one undo command. Returns true if the score changed.
  */
-export function applyInspectorChanges(score: MasterScore, changes: readonly InspectorChange[]): boolean {
+export function applyInspectorChanges(score: Score, changes: readonly InspectorChange[]): boolean {
     return libApplyInspectorChanges(score, changes)
 }
 
@@ -55,47 +55,47 @@ export function applyInspectorChanges(score: MasterScore, changes: readonly Insp
 //   Layout panel (LayoutPanelTreeModel -> INotationParts)
 // ---------------------------------------------------------------------------------
 
-export function canEditParts(score: MasterScore | null): boolean {
+export function canEditParts(score: Score | null): boolean {
     return !!score
 }
 
 /** "Add linked staff" (INotationParts::appendLinkedStaff) is not ported (Excerpt::cloneStaff) */
-export function canAddLinkedStaff(_score: MasterScore | null): boolean {
+export function canAddLinkedStaff(_score: Score | null): boolean {
     return false
 }
 
 /** INotationParts::setPartVisible */
-export function setPartVisible(score: MasterScore, partId: string, visible: boolean): boolean {
+export function setPartVisible(score: Score, partId: string, visible: boolean): boolean {
     return lib.setPartVisible(score, partId, visible)
 }
 
 /** INotationParts::setStaffVisible (staff id: the library's Staff id, as in the layout panel's rows) */
-export function setStaffVisible(score: MasterScore, staffId: string, visible: boolean): boolean {
+export function setStaffVisible(score: Score, staffId: string, visible: boolean): boolean {
     return lib.setStaffVisible(score, staffId, visible)
 }
 
 /** INotationParts::removeParts */
-export function removeParts(score: MasterScore, partIds: readonly string[]): boolean {
+export function removeParts(score: Score, partIds: readonly string[]): boolean {
     return lib.removeParts(score, partIds)
 }
 
 /** INotationParts::removeStaves */
-export function removeStaves(score: MasterScore, staffIds: readonly string[]): boolean {
+export function removeStaves(score: Score, staffIds: readonly string[]): boolean {
     return lib.removeStaves(score, staffIds)
 }
 
 /** INotationParts::moveParts: the parts are moved before (or after) the destination part */
-export function moveParts(score: MasterScore, partIds: readonly string[], destinationPartId: string, after: boolean): boolean {
+export function moveParts(score: Score, partIds: readonly string[], destinationPartId: string, after: boolean): boolean {
     return lib.moveParts(score, partIds, destinationPartId, after)
 }
 
 /** INotationParts::moveStaves: the staves are moved before (or after) the destination staff */
-export function moveStaves(score: MasterScore, staffIds: readonly string[], destinationStaffId: string, after: boolean): boolean {
+export function moveStaves(score: Score, staffIds: readonly string[], destinationStaffId: string, after: boolean): boolean {
     return lib.moveStaves(score, staffIds, destinationStaffId, after)
 }
 
 /** INotationParts::appendStaff / appendLinkedStaff ("Add staff", "Add linked staff") */
-export function addStaff(score: MasterScore, partId: string, linked: boolean): boolean {
+export function addStaff(score: Score, partId: string, linked: boolean): boolean {
     if (linked) {
         return false // TODO(port): NotationParts::appendLinkedStaff (Excerpt::cloneStaff)
     }
@@ -103,36 +103,36 @@ export function addStaff(score: MasterScore, partId: string, linked: boolean): b
 }
 
 /** INotationParts::addSystemObjects (Add > System markings: the staves get a copy of the top system markings) */
-export function addSystemObjects(score: MasterScore, staffIds: readonly string[]): boolean {
+export function addSystemObjects(score: Score, staffIds: readonly string[]): boolean {
     return lib.addSystemObjects(score, staffIds)
 }
 
 /** INotationParts::removeSystemObjects */
-export function removeSystemObjects(score: MasterScore, staffIds: readonly string[]): boolean {
+export function removeSystemObjects(score: Score, staffIds: readonly string[]): boolean {
     return lib.removeSystemObjects(score, staffIds)
 }
 
 /** INotationParts::moveSystemObjects (a system markings layer moved to another staff) */
-export function moveSystemObjects(score: MasterScore, sourceStaffId: string, destinationStaffId: string): boolean {
+export function moveSystemObjects(score: Score, sourceStaffId: string, destinationStaffId: string): boolean {
     return lib.moveSystemObjects(score, sourceStaffId, destinationStaffId)
 }
 
 /** INotationParts::moveSystemObjectLayerBelowBottomStaff / moveSystemObjectLayerAboveBottomStaff */
-export function moveSystemObjectLayerBottomStaff(score: MasterScore, below: boolean): boolean {
+export function moveSystemObjectLayerBottomStaff(score: Score, below: boolean): boolean {
     return lib.moveSystemObjectLayerBottomStaff(score, below)
 }
 
 /** INotationParts::setScoreOrder (the panel's context menu "Instrument ordering"; id of orders.xml or "custom") */
-export function setScoreOrder(score: MasterScore, orderId: string): boolean {
+export function setScoreOrder(score: Score, orderId: string): boolean {
     return lib.setScoreOrder(score, orderId)
 }
 
 /** "Replace instrument" (INotationParts::replaceInstrument): the part gets the instrument of the template */
-export function replacePartInstrument(score: MasterScore, partId: string, templateId: string): boolean {
+export function replacePartInstrument(score: Score, partId: string, templateId: string): boolean {
     return lib.replacePartInstrument(score, partId, templateId)
 }
 
 /** INotationParts::setParts with the result of the instruments dialog (instrument template ids appended) */
-export function addInstruments(score: MasterScore, instrumentIds: readonly string[]): boolean {
+export function addInstruments(score: Score, instrumentIds: readonly string[]): boolean {
     return lib.addInstruments(score, instrumentIds)
 }

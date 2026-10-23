@@ -3,8 +3,9 @@
  * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
- * Port of the parts of src/notation/internal/masternotation.cpp that create a new score
- * (setupNewScore, applyOptions). No undo stack, no excerpts, no playback.
+ * Port of src/notation/internal/masternotation.cpp: creating a new score (setupNewScore, applyOptions) and the
+ * excerpts (parts) of the score with their notations (ExcerptNotation; the Parts dialog and the notation tabs).
+ * The library keeps one MasterNotation per master score (index.ts). No playback here (NotationPlayback is separate).
  */
 
 import { Fraction } from '../../engraving/types/fraction'
@@ -19,6 +20,13 @@ import { VBox } from '../../engraving/dom/box'
 import { TempoText } from '../../engraving/dom/tempotext'
 import { ScoreRenderer } from '../../engraving/rendering/score/scorerenderer'
 import type { MasterScore } from '../../engraving/dom/masterscore'
+import type { Score } from '../../engraving/dom/score'
+import type { Part } from '../../engraving/dom/part'
+import { Excerpt } from '../../engraving/dom/excerpt'
+import { TranslatableString } from '../../framework/global/types/translatablestring'
+import { ExcerptNotation } from './excerptnotation'
+import { Notification, type NotationUndoStack } from './notationundostack'
+import '../../engraving/editing/editexcerpt'
 import type { Measure } from '../../engraving/dom/measure'
 import type { TimeSig } from '../../engraving/dom/timesig'
 import type { TextBase } from '../../engraving/dom/textbase'
@@ -100,7 +108,15 @@ function createMeasures(masterScore: MasterScore, scoreOptions: ScoreCreateOptio
 }
 
 export class MasterNotation {
-    constructor(private m_score: MasterScore) {}
+    private m_excerpts: ExcerptNotation[] = []
+    private m_potentialExcerpts: ExcerptNotation[] = []
+    private m_potentialExcerptsForcedDirty = false
+    private m_excerptsChanged = new Notification()
+
+    /**
+     * undoStackOf: the undo stack of a notation (the master score's notation or an excerpt's; C++ Notation::undoStack())
+     */
+    constructor(private m_score: MasterScore, private m_undoStackOf: ((score: Score) => NotationUndoStack) | null = null) {}
 
     masterScore(): MasterScore { return this.m_score }
 
@@ -283,5 +299,269 @@ export class MasterNotation {
         ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
 
         // TODO(port): m_notationPlayback->reload()
+    }
+
+    // =================================================================================================================
+    //   excerpts
+    // =================================================================================================================
+
+    private undoStack(): NotationUndoStack {
+        return this.m_undoStackOf!(this.m_score)
+    }
+
+    private createAndInitExcerptNotation(excerpt: Excerpt): ExcerptNotation {
+        const excerptNotation = new ExcerptNotation(excerpt, this.m_undoStackOf!)
+        excerptNotation.init()
+
+        return excerptNotation
+    }
+
+    /** MasterNotation::initAfterSettingScore (the excerpts part): called once for a loaded or new score */
+    initExcerptNotations(excerpts: readonly Excerpt[]): void {
+        const notationExcerpts: ExcerptNotation[] = []
+
+        for (const excerpt of excerpts) {
+            if (excerpt.isEmpty()) {
+                this.masterScore().initEmptyExcerpt(excerpt)
+            }
+
+            notationExcerpts.push(this.createAndInitExcerptNotation(excerpt))
+        }
+
+        this.masterScore().setExcerptsChanged(false)
+
+        this.doSetExcerpts(notationExcerpts)
+    }
+
+    initExcerpts(excerpts: readonly ExcerptNotation[]): void {
+        for (const excerptNotation of excerpts) {
+            this.masterScore().initExcerpt(excerptNotation.excerpt())
+            excerptNotation.init()
+            // TODO(port): initNotationSoloMuteState (the mixer)
+        }
+    }
+
+    setExcerpts(excerpts: readonly ExcerptNotation[]): void {
+        if (this.m_excerpts.length === excerpts.length && this.m_excerpts.every((e, i) => e === excerpts[i])) {
+            return
+        }
+
+        const score = this.masterScore()
+
+        this.undoStack().prepareChanges(new TranslatableString('undoableAction', 'Add/remove parts'))
+
+        // Delete old excerpts (that are not included in the new list)
+        for (const excerptNotation of this.m_excerpts) {
+            if (excerpts.includes(excerptNotation)) {
+                continue
+            }
+
+            score.deleteExcerpt(excerptNotation.excerpt())
+        }
+
+        // Init new excerpts
+        for (let i = 0; i < excerpts.length; ++i) {
+            const excerptNotation = excerpts[i]
+
+            if (this.m_excerpts.includes(excerptNotation)) {
+                const msExcerpts = score.excerpts()
+                const from = msExcerpts.indexOf(excerptNotation.excerpt())
+                if (from >= 0 && from !== i) {
+                    // muse::moveItem
+                    const [item] = msExcerpts.splice(from, 1)
+                    msExcerpts.splice(Math.min(i, msExcerpts.length), 0, item)
+                }
+                continue
+            }
+
+            score.initAndAddExcerpt(excerptNotation.excerpt(), false)
+            excerptNotation.init()
+            // TODO(port): initNotationSoloMuteState (the mixer)
+        }
+
+        score.setExcerptsChanged(false)
+
+        this.undoStack().commitChanges()
+
+        this.doSetExcerpts([...excerpts])
+    }
+
+    resetExcerpt(excerptNotation: ExcerptNotation | null): void {
+        if (!excerptNotation || !excerptNotation.isInited()) {
+            return
+        }
+
+        this.undoStack().prepareChanges(new TranslatableString('undoableAction', 'Reset part'))
+
+        const oldExcerpt = excerptNotation.excerpt()
+        this.masterScore().deleteExcerpt(oldExcerpt)
+
+        const newExcerpt = oldExcerpt.clone(false)
+        this.masterScore().initAndAddExcerpt(newExcerpt, false)
+
+        newExcerpt.excerptScore()!.setIsOpen(oldExcerpt.excerptScore()?.isOpen() ?? false)
+
+        excerptNotation.reinit(newExcerpt)
+
+        this.masterScore().setExcerptsChanged(false)
+
+        this.undoStack().commitChanges()
+    }
+
+    sortExcerpts(excerpts: ExcerptNotation[]): void {
+        const partIdList = this.masterScore().parts().map(part => part.id())
+        const indexOf = (id: string): number => {
+            const i = partIdList.indexOf(id)
+            return i < 0 ? Number.MAX_SAFE_INTEGER : i // muse::nidx
+        }
+
+        excerpts.sort((f, s) => {
+            //! NOTE: excertps created by users are always at the end of the list in alphabetical order
+            if (f.isCustom() && !s.isCustom()) {
+                return 1
+            } else if (!f.isCustom() && s.isCustom()) {
+                return -1
+            } else if (f.isCustom() && s.isCustom()) {
+                return f.name() < s.name() ? -1 : f.name() > s.name() ? 1 : 0
+            }
+
+            //! NOTE: sort standard excerpts in the order of their initial parts in the main score
+            return indexOf(f.excerpt().initialPartId()) - indexOf(s.excerpt().initialPartId())
+        })
+    }
+
+    setExcerptIsOpen(excerptNotation: ExcerptNotation, open: boolean): void {
+        if (excerptNotation.isOpen() === open) {
+            return
+        }
+
+        excerptNotation.setIsOpen(open)
+
+        if (open) {
+            const score = excerptNotation.score()
+            if (score) {
+                ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1)) // C++ msScore()->doLayout()
+            }
+        }
+    }
+
+    private doSetExcerpts(excerpts: ExcerptNotation[]): void {
+        this.m_excerpts = excerpts
+        this.m_excerptsChanged.notify()
+
+        // (MasterNotationParts uses the master score's excerpts directly)
+
+        this.updatePotentialExcerpts()
+    }
+
+    /** MasterNotation::updateExcerpts: called after a change of the score (C++ changesChannel), e.g. an undone part */
+    updateExcerpts(): void {
+        if (!this.masterScore().excerptsChanged()) {
+            return
+        }
+
+        const updatedExcerpts: ExcerptNotation[] = []
+
+        const excerpts = this.masterScore().excerpts()
+
+        // exclude notations for old excerpts
+        for (const excerptNotation of this.m_excerpts) {
+            if (excerpts.includes(excerptNotation.excerpt())) {
+                updatedExcerpts.push(excerptNotation)
+                continue
+            }
+        }
+
+        // create notations for new excerpts
+        for (const excerpt of excerpts) {
+            if (this.containsExcerpt(excerpt)) {
+                continue
+            }
+
+            const excerptNotation = this.createAndInitExcerptNotation(excerpt)
+            const open = excerpt.excerptScore()?.isOpen() ?? false
+            if (open) {
+                ScoreRenderer.layoutScore(excerptNotation.score()!, new Fraction(0, 1), new Fraction(-1, 1))
+            }
+
+            // TODO(port): initNotationSoloMuteState (the mixer)
+
+            updatedExcerpts.push(excerptNotation)
+        }
+
+        this.doSetExcerpts(updatedExcerpts)
+
+        this.masterScore().setExcerptsChanged(false)
+    }
+
+    private updatePotentialExcerpts(): void {
+        const findExcerptByPart = (excerpts: readonly ExcerptNotation[], part: Part): ExcerptNotation | undefined =>
+            excerpts.find(notation => notation.excerpt().initialPartId() === part.id())
+
+        const potentialExcerpts: ExcerptNotation[] = []
+        const partsWithoutExcerpt: Part[] = []
+
+        for (const part of this.masterScore().parts()) {
+            if (findExcerptByPart(this.m_excerpts, part)) {
+                continue
+            }
+
+            if (!this.m_potentialExcerptsForcedDirty) {
+                const it = findExcerptByPart(this.m_potentialExcerpts, part)
+                if (it) {
+                    potentialExcerpts.push(it)
+                    continue
+                }
+            }
+
+            partsWithoutExcerpt.push(part)
+        }
+
+        const excerpts = Excerpt.createExcerptsFromParts(partsWithoutExcerpt, this.masterScore())
+
+        for (const excerpt of excerpts) {
+            potentialExcerpts.push(new ExcerptNotation(excerpt, this.m_undoStackOf!))
+        }
+
+        this.m_potentialExcerpts = potentialExcerpts
+        this.m_potentialExcerptsForcedDirty = false
+    }
+
+    private containsExcerpt(excerpt: Excerpt): boolean {
+        return this.m_excerpts.some(excerptNotation => excerptNotation.excerpt() === excerpt)
+    }
+
+    /** MasterNotation::onPartsChanged (the parts of the master score were changed) */
+    onPartsChanged(): void {
+        this.m_potentialExcerptsForcedDirty = true
+    }
+
+    createEmptyExcerpt(name: string): ExcerptNotation {
+        const excerptNotation = new ExcerptNotation(new Excerpt(this.masterScore()), this.m_undoStackOf!)
+        excerptNotation.setName(name)
+
+        return excerptNotation
+    }
+
+    excerpts(): readonly ExcerptNotation[] {
+        this.updateExcerpts()
+        return this.m_excerpts
+    }
+
+    excerptsChanged(): Notification { return this.m_excerptsChanged }
+
+    hasParts(): boolean {
+        return this.masterScore().parts().length > 0
+    }
+
+    potentialExcerpts(): readonly ExcerptNotation[] {
+        this.updatePotentialExcerpts()
+
+        return this.m_potentialExcerpts
+    }
+
+    /** the excerpt notation of an excerpt score (null for the master score) */
+    excerptNotationOf(score: Score): ExcerptNotation | null {
+        return this.excerpts().find(e => e.score() === score) ?? null
     }
 }

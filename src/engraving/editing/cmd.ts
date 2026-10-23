@@ -207,16 +207,22 @@ Score.prototype.endCmd = function (this: Score, rollback = false, layoutAllParts
     // TODO(port): changesChannel().send(changes)
 }
 
-Score.prototype.update = function (this: Score, resetCmdState = true, _layoutAllParts = false): void {
+Score.prototype.update = function (this: Score, resetCmdState = true, layoutAllParts = false): void {
     if (this.updatesLocked()) {
         return
     }
 
     const ms = this.masterScore()
     const cs = ms.cmdState()
-    // TODO(port): deletePostponed(), scoreList() (excerpts)
+    // (deletePostponed(): elements are garbage collected)
     if (cs.layoutRange()) {
-        ms.doLayoutRange(cs.startTick(), cs.endTick())
+        const scores = ms.scoreList()
+        for (const s of scores) {
+            if (s !== this && !s.isOpen() && scores.length > 1 && !layoutAllParts) {
+                continue
+            }
+            s.doLayoutRange(cs.startTick(), cs.endTick())
+        }
     }
 
     if (this.needSetUpTempoMap()) {
@@ -229,9 +235,11 @@ Score.prototype.update = function (this: Score, resetCmdState = true, _layoutAll
         cs.reset()
     }
 
-    const sel = this.selection()
-    if (sel.isRange() && !sel.isLocked()) {
-        sel.updateSelectedElements()
+    for (const score of ms.scoreList()) {
+        const sel = score.selection()
+        if (sel.isRange() && !sel.isLocked()) {
+            sel.updateSelectedElements()
+        }
     }
 }
 

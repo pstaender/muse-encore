@@ -27,6 +27,9 @@ import { StaffRead } from '../read460/staffread'
 import { ScoreOrder } from '../../dom/scoreorder'
 import { TRead } from '../read460/tread'
 import { ReadChordListHook } from '../compat/readchordlisthook'
+import { DefaultStyle } from '../../style/defaultstyle'
+import { Excerpt } from '../../dom/excerpt'
+import { CompatUtils } from '../compat/compatutils'
 
 export class Read302 {
     readScoreFile(score: Score, e: XmlReader): boolean {
@@ -127,9 +130,35 @@ export class Read302 {
             } else if (tag === 'Tracklist') {
                 e.skipCurrentElement()
             } else if (tag === 'Score') { // recursion
-                e.skipCurrentElement() // TODO(port): excerpts
+                ctx.tracks().clear() // ???
+                const m = score.masterScore()
+                const s = m.createScore()
+
+                // ReadStyleHook::setupDefaultStyle(s)
+                const defaultsVersion = m.style().defaultStyleVersion()
+                s.setStyle(DefaultStyle.resolveStyleDefaults(defaultsVersion))
+                s.style().setDefaultStyleVersion(defaultsVersion)
+
+                const ex = new Excerpt(m)
+                ex.setExcerptScore(s)
+                ctx.setLastMeasure(null)
+
+                const curScore = ctx.score()
+                ctx.setScore(s)
+
+                s.setIsOpen(true)
+                Read302.readScoreTag(s, e, ctx)
+
+                ctx.setScore(curScore)
+
+                s.linkMeasures(m)
+                ex.setTracksMapping([...ctx.tracks()])
+                m.addExcerpt(ex)
             } else if (tag === 'name') {
-                e.skipCurrentElement() // only used by excerpts
+                const n = e.readText()
+                if (!score.isMaster()) { // ignore the name if it's not a child score
+                    score.excerpt()!.setName(n, /*saveAndNotify*/ false)
+                }
             } else if (tag === 'layoutMode') {
                 if (ctx.forcePageMode()) {
                     e.skipCurrentElement()
@@ -174,6 +203,10 @@ export class Read302 {
 
         for (const staff of score.staves()) {
             staff.updateOttava()
+        }
+
+        if (score.isMaster()) {
+            CompatUtils.assignInitialPartToExcerpts(score.masterScore().excerpts())
         }
 
         return true

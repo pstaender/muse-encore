@@ -9,7 +9,7 @@
 import { createContext, useContext, useEffect, useId, useRef, useState } from 'react'
 import {
     inspectorPropertyChanges, inspectorPropertyResets, type InspectorModelInfo, type InspectorPropertyInfo,
-    type InspectorPropertyRef, type InspectorValue, type MasterScore,
+    type InspectorPropertyRef, type InspectorValue, type Score,
 } from '../../../src/index'
 import { ICON_CODES } from '../../actions/uiactiondata'
 import { qtrc } from '../../i18n'
@@ -22,7 +22,7 @@ export const icon = (name: string): string => ICON_CODES[name] ? String.fromCode
 // ---------------------------------------------------------------------------------
 
 export interface InspectorContextValue {
-    score: MasterScore | null
+    score: Score | null
     /** false while the score cannot be changed (no editing yet): the controls show the values, disabled */
     canEdit: boolean
 }

@@ -193,6 +193,24 @@ export abstract class MeasureBase extends EngravingItem {
         return mb
     }
 
+    /** the linked measure base in the score (a frame) or the measure at the tick (useNextMeasureFallback for frames) */
+    getInScore(score: import('./score').Score, useNextMeasureFallback: boolean): MeasureBase | null {
+        let newMB: MeasureBase | null = null
+        if (!this.isMeasure() && !this.excludeFromOtherParts()) {
+            for (const e of this.linkList()) {
+                if (e.score() === score) {
+                    newMB = e as MeasureBase
+                    break
+                }
+            }
+        }
+        if (this.isMeasure() || (!newMB && useNextMeasureFallback)) {
+            newMB = score.tick2measure(this.tick())
+        }
+        // C++: LOGD("measure base not found in score")
+        return newMB
+    }
+
     sectionBreakElement(): LayoutBreak | null {
         if (this.sectionBreak()) {
             for (const e of this.el()) {

@@ -5,11 +5,11 @@
  * (NotationActionController::addMeasures).
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { addMeasures, type AddBoxesTarget, type MasterScore } from '../../src/index'
+import { addMeasures, type AddBoxesTarget, type Score } from '../../src/index'
 import { qtrc, useLanguage } from '../i18n'
 import { currentScore, scoreChanged } from '../scoreview'
 
-function SelectMeasuresCountDialog({ score, target, onClose }: { score: MasterScore; target: AddBoxesTarget; onClose: () => void }): React.JSX.Element {
+function SelectMeasuresCountDialog({ score, target, onClose }: { score: Score; target: AddBoxesTarget; onClose: () => void }): React.JSX.Element {
     useLanguage()
     const ref = useRef<HTMLDialogElement>(null)
     const [measuresCount, setMeasuresCount] = useState(1)
@@ -53,7 +53,7 @@ function SelectMeasuresCountDialog({ score, target, onClose }: { score: MasterSc
     )
 }
 
-let s_open: { key: number; score: MasterScore; target: AddBoxesTarget } | null = null
+let s_open: { key: number; score: Score; target: AddBoxesTarget } | null = null
 let s_key = 0
 const listeners = new Set<() => void>()
 

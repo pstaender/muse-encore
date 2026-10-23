@@ -53,6 +53,7 @@ import { lrint } from '../../framework/global/realfn'
 import { absStepFromLine, step2pitch } from './utils'
 import { step2tpc } from './pitchspelling'
 import { ElementEditData, EditDataType } from '../editing/elementeditdata'
+import { linkHooks } from './engravingobject'
 
 export const INVALID_LINE = -10000
 
@@ -175,9 +176,16 @@ export class Note extends EngravingItem {
         super(ElementType.NOTE, parent, ElementFlag.MOVABLE)
     }
 
-    /** C++ copy constructor: accidental, attached elements, dots and outgoing ties are copied, other links are not */
+    /**
+     * C++ copy constructor Note(const Note&, bool link): accidental, attached elements, dots and outgoing ties are
+     * copied (with link: linked to the original's)
+     */
     protected override onCloned(original: this): void {
         super.onCloned(original)
+        const link = this.isLinkedCopy(original)
+        if (link) {
+            linkHooks.undoLink(this, original)
+        }
         this.m_accidental = null
         this.m_el = []
         this.m_dots = []
@@ -198,7 +206,11 @@ export class Note extends EngravingItem {
             if (e.isFingering() && stf && stf.isTabStaff(this.tick()) && !tabFingering) { // tablature has no fingering
                 continue
             }
-            this.add(e.clone())
+            const ce = e.clone()
+            this.add(ce)
+            if (link) {
+                linkHooks.undoLink(ce, e)
+            }
         }
 
         if (original.laissezVib() || original.outgoingPartialTie()) {
@@ -207,6 +219,9 @@ export class Note extends EngravingItem {
             t.setStartNote(this)
             t.setTick(this.tick())
             this.setTieFor(t)
+            if (link) {
+                linkHooks.undoLink(t, original.m_tieFor!)
+            }
         } else if (original.m_tieFor) {
             const t = original.m_tieFor.clone() as Tie
             t.setStartNote(this)
@@ -221,6 +236,9 @@ export class Note extends EngravingItem {
             t.setEndNote(this)
             t.setTick(this.tick())
             this.setTieBack(t)
+            if (link) {
+                linkHooks.undoLink(t, original.m_tieBack!)
+            }
         }
 
         for (const dot of original.m_dots) {

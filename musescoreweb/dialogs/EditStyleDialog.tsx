@@ -9,7 +9,7 @@
 import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import {
     Align, AlignH, AlignV, Color, FontStyle, PAGE_LIST, PAGE_STACK, PointF, createEditStyle, notationStyle, uiText,
-    type EditStyle, type MasterScore, type UiLayout, type UiWidget, type WidgetState,
+    type EditStyle, type Score, type UiLayout, type UiWidget, type WidgetState,
 } from '../../src/index'
 import { ICON_CODES } from '../actions/uiactiondata'
 import { qtrc, useLanguage } from '../i18n'
@@ -21,7 +21,7 @@ const icon = (code: number): string => String.fromCodePoint(code)
 
 interface Ctx {
     es: EditStyle
-    score: MasterScore
+    score: Score
     goToTextStylePage: (codeOrIndex: string | number) => void
 }
 
@@ -344,7 +344,7 @@ function WidgetView({ ctx, w, disabled: parentDisabled }: { ctx: Ctx; w: UiWidge
 // ---------------------------------------------------------------------------------
 
 function EditStyleDialog({ score, pageCode, subPageCode, onClose }: {
-    score: MasterScore; pageCode?: string; subPageCode?: string; onClose: () => void
+    score: Score; pageCode?: string; subPageCode?: string; onClose: () => void
 }): React.JSX.Element {
     useLanguage()
     const ref = useRef<HTMLDialogElement>(null)
@@ -446,7 +446,7 @@ function EditStyleDialog({ score, pageCode, subPageCode, onClose }: {
     )
 }
 
-let s_open: { key: number; score: MasterScore; pageCode?: string; subPageCode?: string } | null = null
+let s_open: { key: number; score: Score; pageCode?: string; subPageCode?: string } | null = null
 let s_key = 0
 const listeners = new Set<() => void>()
 

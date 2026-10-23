@@ -9,7 +9,7 @@
  */
 
 import { RectF } from '../framework/draw/types/geometry'
-import type { MasterScore } from '../engraving/dom/masterscore'
+import type { Score } from '../engraving/dom/score'
 import { SegmentType, type Segment } from '../engraving/dom/segment'
 import { Fraction } from '../engraving/types/fraction'
 
@@ -17,9 +17,9 @@ export class PlaybackCursor {
     private m_visible = false
     private m_rect = new RectF()
 
-    constructor(private m_score: MasterScore | null = null) {}
+    constructor(private m_score: Score | null = null) {}
 
-    setScore(score: MasterScore | null): void { this.m_score = score }
+    setScore(score: Score | null): void { this.m_score = score }
 
     move(tick: number): void {
         this.m_rect = this.resolveCursorRectByTick(tick)

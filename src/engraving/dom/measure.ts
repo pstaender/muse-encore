@@ -345,6 +345,19 @@ export class Measure extends MeasureBase {
         }
     }
 
+    insertStaff(staff: Staff, staffIdx: staff_idx_t): void {
+        for (let s = this.first(); s; s = s.next()) {
+            s.insertStaff(staffIdx)
+        }
+
+        const ms = new MStaff()
+        ms.setLines(new StaffLines(this))
+        ms.lines().setParent(this)
+        ms.lines().setTrack(staffIdx * VOICES)
+        ms.lines().setVisible(!staff.isLinesInvisible(this.tick()))
+        this.insertMStaff(ms, staffIdx)
+    }
+
     insertMStaff(staff: MStaff, idx: staff_idx_t): void {
         this.m_mstaves.splice(idx, 0, staff)
         for (let staffIdx = 0; staffIdx < this.m_mstaves.length; ++staffIdx) {

@@ -10,7 +10,7 @@ import type { TempoText } from '../dom/tempotext'
 import { staffTextHooks } from '../dom/stafftextbase'
 import { Fraction } from '../types/fraction'
 import { VOICES, type staff_idx_t } from '../types/types'
-import { EngravingObject } from '../dom/engravingobject'
+import { EngravingObject, linkHooks } from '../dom/engravingobject'
 import type { EngravingItem } from '../dom/engravingitem'
 import type { DurationElement } from '../dom/durationelement'
 import type { ChordRest } from '../dom/chordrest'
@@ -455,6 +455,10 @@ EngravingObject.prototype.undoUnlink = function (this: EngravingObject): void {
 
 staffTextHooks.undoLink = (e1: EngravingItem, e2: EngravingItem): void => {
     e1.score().undo(new Link(e1, e2))
+}
+
+linkHooks.undoLink = (e1: EngravingObject, e2: EngravingObject): void => {
+    e2.score().undo(new Link(e1, e2))
 }
 
 /** link e1 to e2 */

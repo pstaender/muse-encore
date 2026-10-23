@@ -258,13 +258,41 @@ export class Score extends EngravingObject {
     protected m_needSetUpTempoMap = false
 
     /** C++ Score(MasterScore* parent, const MStyle& s) with parent: a part (excerpt) score */
-    constructor(parent: import('./masterscore').MasterScore | null = null) {
+    /**
+     * C++ Score(MasterScore* parent, bool forcePartStyle = true) for a part score: most style settings are inherited from
+     * the master score (TODO(port): DefaultStyle::defaultStyleForParts, the style file for parts of the preferences)
+     */
+    constructor(parent: import('./masterscore').MasterScore | null = null, forcePartStyle = true) {
         super(ElementType.SCORE, null)
         this.m_masterScore = parent
         this.m_score = this
         this.m_style = DefaultStyle.defaultStyle().clone()
-        this.m_style.precomputeValues()
         this.m_selection = new Selection(this)
+        if (parent) {
+            // inherit most style settings from parent
+            this.m_style = parent.style().clone()
+
+            // but borrow defaultStyle page layout settings
+            for (const i of [Sid.pageWidth, Sid.pageHeight, Sid.pagePrintableWidth, Sid.pageEvenLeftMargin,
+                Sid.pageOddLeftMargin, Sid.pageEvenTopMargin, Sid.pageEvenBottomMargin, Sid.pageOddTopMargin,
+                Sid.pageOddBottomMargin, Sid.pageTwosided, Sid.spatium]) {
+                this.m_style.set(i, DefaultStyle.defaultStyle().value(i))
+            }
+            // and force some style settings that just make sense for parts
+            if (forcePartStyle) {
+                this.m_style.set(Sid.concertPitch, false)
+                this.m_style.set(Sid.createMultiMeasureRests, true)
+                this.m_style.set(Sid.dividerLeft, false)
+                this.m_style.set(Sid.dividerRight, false)
+            }
+        }
+        // update style values
+        this.m_style.precomputeValues()
+        if (parent) {
+            this.checkChordList()
+            this.m_synthesizerState = parent.m_synthesizerState
+            this.m_mscVersion = parent.m_mscVersion
+        }
     }
 
     override score(): Score { return this }
@@ -274,6 +302,8 @@ export class Score extends EngravingObject {
     }
 
     excerpt(): Excerpt | null { return this.m_excerpt }
+    /** the name of the excerpt (part) of this score */
+    name(): string { return this.m_excerpt ? this.m_excerpt.name() : '' }
     setExcerpt(e: Excerpt | null): void { this.m_excerpt = e }
 
     synthesizerState(): SynthesizerState { return this.m_synthesizerState }
@@ -1307,6 +1337,52 @@ export class Score extends EngravingObject {
     staff(n: number): Staff | null { return n >= 0 && n < this.m_staves.length ? this.m_staves[n] : null }
     staffIdx(staff: Staff): staff_idx_t { return this.m_staves.indexOf(staff) }
 
+    /** links the measures to the measures of the (master) score (scorefile.cpp) */
+    linkMeasures(score: Score): void {
+        let mbMaster = score.first()
+        for (let mb = this.first(); mb; mb = mb.next()) {
+            if (!mb.isMeasure()) {
+                continue
+            }
+            while (mbMaster && !mbMaster.isMeasure()) {
+                mbMaster = mbMaster.next()
+            }
+            if (!mbMaster) {
+                // C++: LOGD("Measures in MasterScore and Score are not in sync.")
+                break
+            }
+            mb.linkTo(mbMaster)
+            mbMaster = mbMaster.next()
+        }
+    }
+
+    /** the master score and the scores of its excerpts */
+    scoreList(): Score[] {
+        const root = this.masterScore()
+        const scores: Score[] = [root]
+        for (const ex of root.excerpts()) {
+            const s = ex.excerptScore()
+            if (s) {
+                scores.push(s)
+            }
+        }
+        return scores
+    }
+
+    setPlaylistDirty(): void {
+        this.masterScore().setPlaylistDirty()
+    }
+
+    staffById(staffId: string): Staff | null {
+        for (const staff of this.m_staves) {
+            if (staff.id() === staffId) {
+                return staff
+            }
+        }
+
+        return null
+    }
+
     /** C++ Score::staffIdx(const Part*): index of the first staff of the part */
     staffIdxOfPart(part: Part): staff_idx_t {
         let idx = 0
@@ -2187,6 +2263,13 @@ export class Score extends EngravingObject {
     dummySystem(): System { return scoreDummyHooks.system!(this) }
 
     chordList(): ChordList { return this.m_chordList }
+
+    /** the user offsets etc. of all elements follow a new spatium (C++ Score::spatiumChanged) */
+    spatiumChanged(oldValue: number, newValue: number): void {
+        this.scanElements(e => e.spatiumChanged(oldValue, newValue))
+        // C++: m_layoutOptions.noteHeadWidth = ...; createPaddingTable() (the padding table is computed by the layout)
+        this.setNoteHeadWidth(null)
+    }
 
     /** C++ Score::checkChordList() (dom/utils.cpp) */
     checkChordList(): void {

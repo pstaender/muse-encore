@@ -5,7 +5,7 @@
  * objectName of their host widget (e.g. "groupBox_beams" -> BeamsPage.qml), appended to the host's layout.
  */
 import { useEffect } from 'react'
-import type { MasterScore, NotationStyle } from '../../../src/index'
+import type { Score, NotationStyle } from '../../../src/index'
 import { scoreChanged } from '../../scoreview'
 import { AccidentalsPage } from './qml/AccidentalsPage'
 import { BeamsPage } from './qml/BeamsPage'
@@ -26,7 +26,7 @@ import { TupletCenteringSelector } from './qml/TupletCenteringSelector'
 import { VoltasPage } from './qml/VoltasPage'
 
 export interface QmlPageProps {
-    score: MasterScore
+    score: Score
     style: NotationStyle
     /** EditStyle::goToTextStylePage(QString code) / goToTextStylePage(int index) */
     goToTextStylePage: (codeOrIndex: string | number) => void

@@ -28,6 +28,7 @@ import type { System } from './system'
 import type { Segment } from './segment'
 import type { TranslatableString } from '../../framework/global/types/translatablestring'
 import { TConv } from '../types/typesconv'
+import { linkHooks } from './engravingobject'
 
 const trillStyle: ElementStyle = [
     { sid: Sid.trillPlacement, pid: Pid.PLACEMENT },
@@ -126,6 +127,17 @@ export class Trill extends SLine {
         this.m_ornament = original.m_ornament ? original.m_ornament.clone() as Ornament : null
         this.m_accidental = null
         this.m_cueNoteChord = null
+    }
+
+    override linkedClone(): EngravingItem {
+        const linkedTrill = this.clone() as Trill
+        if (this.m_ornament) {
+            const linkedOrnament = this.m_ornament.linkedClone() as Ornament
+            linkedTrill.setOrnament(linkedOrnament)
+        }
+        linkedTrill.setAutoplace(true)
+        linkHooks.undoLink(linkedTrill, this)
+        return linkedTrill
     }
 
     override getPropertyStyle(pid: Pid): Sid {

@@ -603,6 +603,32 @@ export abstract class Spanner extends EngravingItem {
      * Given a spanner and its new end element, the start element of a new spanner 'parallel' to the old one (the note
      * linked to the old start note in the score and track of the new end)
      */
+    static endElementFromSpanner(sp: Spanner, newStart: EngravingItem): Note | null {
+        if (sp.anchor() !== SpannerAnchor.NOTE) {
+            return null
+        }
+
+        const oldStart = sp.startElement() as unknown as Note | null
+        const oldEnd = sp.endElement() as unknown as Note | null
+        if (oldStart === null || oldEnd === null) {
+            return null
+        }
+        let newEnd: Note | null = null
+        const score = newStart.score()
+        // determine the track where to expect the 'parallel' start element
+        const newTrack = newStart.track() + (oldEnd.track() - oldStart.track())
+        // look in notes linked to oldEnd for a note with the
+        // same score as new score and appropriate track
+        for (const newEl of oldEnd.linkList()) {
+            const n = newEl as unknown as Note
+            if (n.score() === score && n.track() === newTrack) {
+                newEnd = n
+                break
+            }
+        }
+        return newEnd
+    }
+
     static startElementFromSpanner(sp: Spanner, newEnd: EngravingItem): Note | null {
         if (sp.anchor() !== SpannerAnchor.NOTE) {
             return null

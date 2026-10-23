@@ -30,6 +30,7 @@ import { openBreaksDialog } from '../dialogs/BreaksDialog'
 import { loadStyle, saveStyle } from '../stylefiles'
 import { showSearchPopup } from '../components/SearchPopup'
 import { openProjectPropertiesDialog } from '../dialogs/ProjectPropertiesDialog'
+import { openPartsDialog } from '../dialogs/PartsDialog'
 import { AddBoxesTarget, canAddCustomTuplet, hasSelection } from '../../src/index'
 import { currentScore } from '../scoreview'
 import { actionsChanged, isActionEnabled, registerAction, triggerAction } from './actions'
@@ -66,6 +67,8 @@ export function registerAppActions(): void {
     registerAction('staff-properties', { run: openStaffProperties, enabled: () => scoreShown() && canOpenStaffProperties(), context: 'notation' })
     // NotationActionController::openSelectionMoreOptions (enabled with a selection like C++ hasSelection)
     // the Format menu: NotationActionController::openPageSettingsDialog, openBreaksDialog, loadStyle, saveStyle
+    // NotationActionController::openPartsDialog
+    registerAction('parts', { run: openPartsDialog, enabled: scoreShown })
     // ProjectActionsController::openProjectProperties
     registerAction('project-properties', { run: openProjectPropertiesDialog, enabled: scoreShown })
     // SearchPopupModel: Find / Go to

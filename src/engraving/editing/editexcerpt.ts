@@ -3,11 +3,9 @@
  * MuseScore-Web — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  * Copyright (C) 2021-2026 MuseScore Limited and others
  *
- * Port of parts of src/engraving/editing/editexcerpt.h/.cpp (AddExcerpt, RemoveExcerpt, SwapExcerpt, ChangeExcerptTitle) and of
- * MasterScore::deleteExcerpt / removeExcerpt (excerpt.cpp, masterscore.cpp), which are added to MasterScore by this
- * module (module augmentation).
- *
- * TODO(port): creating excerpts (Excerpt::createExcerpt, cloneStaff, ...)
+ * Port of src/engraving/editing/editexcerpt.h/.cpp (AddExcerpt, RemoveExcerpt, SwapExcerpt, ChangeExcerptTitle) and of
+ * the MasterScore functions of excerpt.cpp/masterscore.cpp (deleteExcerpt, removeExcerpt, initAndAddExcerpt,
+ * initExcerpt, initEmptyExcerpt) and Score::clone (score.cpp), which are added by this module (module augmentation).
  */
 
 import { VOICES } from '../types/types'
@@ -15,14 +13,93 @@ import { MasterScore } from '../dom/masterscore'
 import { CommandType, UndoCommand } from './undo'
 import { Unlink } from './addremoveelement'
 import type { EngravingObject } from '../dom/engravingobject'
-import type { Excerpt } from '../dom/excerpt'
 import type { EditData } from './editdata'
+import { Score } from '../dom/score'
+import { Excerpt, type TracksMap } from '../dom/excerpt'
+import { Sid } from '../style/styledef'
+import './edit'
 
 declare module '../dom/masterscore' {
     interface MasterScore {
         removeExcerpt(ex: Excerpt): void
         deleteExcerpt(excerpt: Excerpt): void
+        /** creates the excerpt's score (initExcerpt) and adds the excerpt (AddExcerpt; fakeUndo: without the undo stack) */
+        initAndAddExcerpt(excerpt: Excerpt, fakeUndo: boolean): void
+        /** creates the score of the excerpt from its parts (Excerpt::createExcerpt); an inited excerpt is laid out */
+        initExcerpt(excerpt: Excerpt): void
+        /** an empty excerpt (MasterNotation::createEmptyExcerpt): only the measures are cloned */
+        initEmptyExcerpt(excerpt: Excerpt): void
     }
+}
+
+declare module '../dom/score' {
+    interface Score {
+        /** C++ Score::clone(): a copy of this (part) score as the score of a new excerpt (not added to the master score) */
+        clone(): Score
+    }
+}
+
+MasterScore.prototype.initAndAddExcerpt = function (this: MasterScore, excerpt: Excerpt, fakeUndo: boolean): void {
+    this.initExcerpt(excerpt)
+
+    const excerptCmd = new AddExcerpt(excerpt)
+    if (fakeUndo) {
+        excerptCmd.redo(null)
+    } else {
+        excerpt.excerptScore()!.undo(excerptCmd)
+    }
+}
+
+MasterScore.prototype.initExcerpt = function (this: MasterScore, excerpt: Excerpt): void {
+    if (excerpt.inited()) {
+        excerpt.excerptScore()!.doLayout()
+        return
+    }
+
+    const score = new Score(this.masterScore())
+    excerpt.setExcerptScore(score)
+    score.style().set(Sid.createMultiMeasureRests, true)
+    this.initParts(excerpt)
+
+    Excerpt.createExcerpt(excerpt)
+    excerpt.setInited(true)
+
+    if (!score.style().isDefault(Sid.timeSigPlacement)) {
+        score.resetStyleValue(Sid.timeSigPlacement)
+    }
+}
+
+MasterScore.prototype.initEmptyExcerpt = function (this: MasterScore, excerpt: Excerpt): void {
+    if (excerpt.inited()) {
+        return
+    }
+
+    Excerpt.cloneMeasures(this, excerpt.excerptScore()!)
+    excerpt.setInited(true)
+}
+
+Score.prototype.clone = function (this: Score): Score {
+    // TODO: see comments regarding setting version in corresponding code in 3.x branch
+    // and also compare to MasterScore::clone()
+    const excerpt = new Excerpt(this.masterScore())
+    excerpt.setName(this.name())
+
+    const tracks: TracksMap = []
+
+    for (const part of this.parts()) {
+        excerpt.parts().push(part)
+
+        for (let track = part.startTrack(); track < part.endTrack(); ++track) {
+            tracks.push([track, track])
+        }
+    }
+
+    excerpt.setTracksMapping(tracks)
+
+    this.masterScore().initAndAddExcerpt(excerpt, true)
+    this.masterScore().removeExcerpt(excerpt)
+
+    return excerpt.excerptScore()!
 }
 
 MasterScore.prototype.removeExcerpt = function (this: MasterScore, ex: Excerpt): void {

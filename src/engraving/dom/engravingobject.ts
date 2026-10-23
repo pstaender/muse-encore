@@ -111,6 +111,17 @@ export enum PropertyPropagation {
     NONE, PROPAGATE, UNLINK,
 }
 
+/**
+ * C++ score()->undo(new Link(e1, e2)) for the DOM (editing/addremoveelement.ts sets it to the undo command Link; the
+ * DOM cannot create undo commands): links e1 to e2
+ */
+export const linkHooks: { undoLink: (e1: EngravingObject, e2: EngravingObject) => void } = {
+    undoLink: (e1, e2) => e1.linkTo(e2),
+}
+
+/** the original of the linked copy being made (C++ copy constructors with `bool link = true`) */
+let s_linkedCopyOriginal: EngravingObject | null = null
+
 export abstract class EngravingObject {
     protected m_elementStyle: ElementStyle = EMPTY_STYLE
     protected m_propertyFlagsList: PropertyFlags[] = []
@@ -253,6 +264,25 @@ export abstract class EngravingObject {
 
     protected onCloned(_original: this): void {}
 
+    /**
+     * C++ copy constructor with `link = true` (e.g. Chord(const Chord&, bool link)): `make` clones this object; the
+     * onCloned() of the copy sees isLinkedCopy(original)
+     */
+    protected makeLinkedCopy<T>(make: () => T): T {
+        const prev = s_linkedCopyOriginal
+        s_linkedCopyOriginal = this
+        try {
+            return make()
+        } finally {
+            s_linkedCopyOriginal = prev
+        }
+    }
+
+    /** in onCloned(original): the copy is made with `link = true` */
+    protected isLinkedCopy(original: EngravingObject): boolean {
+        return s_linkedCopyOriginal === original
+    }
+
     protected addChild(o: EngravingObject): void {
         if (o === this) {
             return
@@ -382,7 +412,14 @@ export abstract class EngravingObject {
                 }
             }
         } else if (id === Pid.EXCLUDE_FROM_OTHER_PARTS) {
-            // TODO(port): manageExclusionFromParts (excerpts)
+            if (this.isEngravingItem() && this.getProperty(Pid.EXCLUDE_FROM_OTHER_PARTS) !== v) {
+                const delegate = this.propertyDelegate(id) as EngravingItem | null
+                if (delegate) {
+                    delegate.manageExclusionFromParts(v as boolean)
+                } else {
+                    (this as unknown as EngravingItem).manageExclusionFromParts(v as boolean)
+                }
+            }
         } else if (id === Pid.VOICE_ASSIGNMENT) {
             if (v !== VoiceAssignment.CURRENT_VOICE_ONLY) {
                 changeProperties(this, Pid.VOICE, 0, ps)

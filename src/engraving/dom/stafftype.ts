@@ -1032,6 +1032,7 @@ export class StaffTypeList {
     private m_staffTypeChanges = new SortedMap<StaffType>()
 
     uniqueStaffType(): boolean { return this.m_staffTypeChanges.empty() }
+    staffTypeChanges(): SortedMap<StaffType> { return this.m_staffTypeChanges }
     isStaffTypeStartFrom(tick: Fraction): boolean { return this.m_staffTypeChanges.has(tick.ticks()) }
 
     /** the start and end tick of the staff type at tick (end -1: to the end of the score) */

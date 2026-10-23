@@ -651,13 +651,78 @@ Score.prototype.updateBracesAndBarlines = function (this: Score, part: Part, new
 /**
  * Reconstructs brackets and barlines based on how they are in the masterScore. Must be called after creating an
  * excerpt or adding new parts to it.
- * TODO(port): excerpt scores (the master score has nothing to do)
  */
 Score.prototype.remapBracketsAndBarlines = function (this: Score): void {
     if (this.isMaster()) {
         return
     }
-    throw new Error('TODO(port): Score::remapBracketsAndBarlines for excerpts')
+
+    // Remove all brackets
+    for (const staff of this.staves()) {
+        for (const bracket of staff.brackets()) {
+            bracket.setBracketType(BracketType.NO_BRACKET)
+        }
+    }
+    // Remap all brackets from masterScore
+    const master = this.masterScore()
+    for (let masterStaffIdx = 0; masterStaffIdx < master.nstaves(); ++masterStaffIdx) {
+        let masterStaff = master.staff(masterStaffIdx)!
+        const brackets = [...masterStaff.brackets()]
+
+        for (let bracketIdx = 0; bracketIdx < brackets.length; ++bracketIdx) {
+            const bracket = brackets[bracketIdx]
+            let firstBracketed: Staff | null = null
+            let span = 0
+
+            // There is no guarantee that bracket->bracketSpan() is correctly bounded,
+            // so masterStaffIdx + bracket->bracketSpan() might be > master->nstaves(),
+            // in which case masterStaff below will become null.
+            const endSpannedMasterStaffIdx = Math.min(masterStaffIdx + bracket.bracketSpan(), master.nstaves())
+
+            for (let spannedMasterStIdx = masterStaffIdx; spannedMasterStIdx < endSpannedMasterStaffIdx; ++spannedMasterStIdx) {
+                masterStaff = master.staff(spannedMasterStIdx)!
+
+                const linkedStaff = masterStaff.findLinkedInScore(this)
+                if (!linkedStaff) {
+                    continue
+                }
+
+                if (!firstBracketed) {
+                    firstBracketed = linkedStaff
+                }
+
+                ++span
+            }
+
+            if (firstBracketed && span > 1) {
+                firstBracketed.setBracketType(bracketIdx, bracket.bracketType())
+                firstBracketed.setBracketSpan(bracketIdx, span)
+            }
+        }
+    }
+
+    // Remap all barline spans from masterScore
+    for (const staff of this.staves()) {
+        let masterStaff = staff.findLinkedInScore(this.masterScore())
+        if (!masterStaff || !masterStaff.barLineSpan()) {
+            continue
+        }
+        // Look in the masterScore for all the staves spanned by a common barline.
+        // If at least one of them is also in this score, then connect it through.
+        let extendBarline = false
+        let span = masterStaff.barLineSpan()
+        while (!extendBarline && span && masterStaff.idx() + 1 < master.nstaves()) {
+            masterStaff = this.masterScore().staff(masterStaff.idx() + 1)!
+            span = masterStaff.barLineSpan()
+            if (masterStaff.findLinkedInScore(this)) {
+                extendBarline = true
+                break
+            }
+        }
+        if (extendBarline) {
+            staff.setBarLineSpan(true)
+        }
+    }
 }
 
 Score.prototype.undoAddBracket = function (this: Score, staff: Staff, level: number, type: BracketType, span: number): void {
@@ -919,7 +984,7 @@ Score.prototype.insertBox = function (this: Score, type: ElementType, beforeMeas
     this.undo(new InsertMeasures(newMeasureBase, newMeasureBase))
 
     if (options.cloneBoxToAllParts) {
-        // TODO(port): newMeasureBase->manageExclusionFromParts(false) (excerpts)
+        newMeasureBase.manageExclusionFromParts(/*exclude =*/ false)
     }
 
     return newMeasureBase

@@ -25,6 +25,7 @@ import { NoteVal } from './input'
 import type { EditData } from '../editing/editdata'
 import { tupletFactories } from './tuplet'
 import { arg, mtrc } from '../../framework/global/translation'
+import { linkHooks } from './engravingobject'
 
 /** factories registered by the corresponding modules (avoid runtime import cycles) */
 export const restFactories: {
@@ -74,9 +75,14 @@ export class Rest extends ChordRest {
         }
     }
 
-    /** C++ copy constructor (link: TODO(port), see linkedClone()) */
+    /** C++ copy constructor Rest(const Rest&, bool link) (link: copyLinked()) */
     protected override onCloned(original: this): void {
         super.onCloned(original)
+        const link = this.isLinkedCopy(original)
+        if (link) {
+            linkHooks.undoLink(this, original)
+            this.setAutoplace(true)
+        }
         this.m_verticalClearance = new RestVerticalClearance()
         this.m_alignWithOtherRests = true
         this.m_dots = []
@@ -85,8 +91,17 @@ export class Rest extends ChordRest {
             this.add(dot.clone())
         }
         if (original.m_deadSlapped) {
-            this.add(original.m_deadSlapped.clone())
+            const ndc = original.m_deadSlapped.clone()
+            this.add(ndc)
+            if (link) {
+                linkHooks.undoLink(ndc, original.m_deadSlapped)
+            }
         }
+    }
+
+    /** C++ linkedClone(): new Rest(*this, true) (MMRest: new MMRest(*this, true)) */
+    override linkedClone(): EngravingItem {
+        return this.copyLinked()
     }
 
     hack_toRestType(): void {

@@ -5,7 +5,7 @@
  * number of measures, locks every system as it is, or removes the system locks.
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { AddRemoveSystemLockType, addRemoveSystemLocks, prepareBreaksDialog, type MasterScore } from '../../src/index'
+import { AddRemoveSystemLockType, addRemoveSystemLocks, prepareBreaksDialog, type Score } from '../../src/index'
 import { qtrc, useLanguage } from '../i18n'
 import { currentScore, scoreChanged } from '../scoreview'
 
@@ -15,7 +15,7 @@ const DEFAULT_INTERVAL = 4
 
 type Choice = 'interval' | 'lock' | 'remove'
 
-function BreaksDialog({ score, onClose }: { score: MasterScore; onClose: () => void }): React.JSX.Element {
+function BreaksDialog({ score, onClose }: { score: Score; onClose: () => void }): React.JSX.Element {
     useLanguage()
     const ref = useRef<HTMLDialogElement>(null)
     const allSelected = useRef(false)
@@ -95,7 +95,7 @@ function BreaksDialog({ score, onClose }: { score: MasterScore; onClose: () => v
     )
 }
 
-let s_open: { key: number; score: MasterScore } | null = null
+let s_open: { key: number; score: Score } | null = null
 let s_key = 0
 const listeners = new Set<() => void>()
 

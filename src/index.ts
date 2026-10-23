@@ -48,6 +48,7 @@ import { MscSaver } from './engraving/rw/mscsaver'
 import { Writer } from './engraving/rw/write/writer'
 import { EngravingCompat } from './engraving/compat/engravingcompat'
 import { MasterScore } from './engraving/dom/masterscore'
+import type { Score } from './engraving/dom/score'
 import { ContinuousPanel } from './notationscene/continuouspanel'
 import { LayoutMode } from './engraving/dom/score'
 import { ScoreRenderer } from './engraving/rendering/score/scorerenderer'
@@ -89,6 +90,7 @@ import type { ViewMouseEvent } from './notationscene/notationviewinputcontroller
 import type { NotationKeyEvent } from './notation/internal/notationinteraction'
 // (imports of the parts section)
 import { MasterNotationParts } from './notation/internal/masternotationparts'
+import { NotationParts } from './notation/internal/notationparts'
 import { InsertMode as PartsInsertMode } from './notation/internal/notationparts'
 // (editing modules that register the undo commands of DOM classes: dom -> editing hooks)
 import './engraving/editing/editpart'
@@ -100,6 +102,8 @@ import type { NotationUndoStack } from './notation/internal/notationundostack'
 import type { AddRemoveSystemLockType } from './notation/notationtypes'
 import { NotationElements } from './notation/internal/notationelements'
 import { ProjectPropertiesModel } from './project/projectpropertiesmodel'
+import { MasterNotation } from './notation/internal/masternotation'
+import { NotationSwitchListModel, PartListModel, type NotationContext } from './notationscene/partlistmodel'
 import { SelectType } from './engraving/dom/select'
 
 export { initEngravingFonts, fontsInitialized, type FontFileLoader } from './engraving/engravingmodule'
@@ -202,7 +206,7 @@ export function layoutScore(score: MasterScore, options: LayoutScoreOptions = {}
     }
 }
 
-const s_compatDone = new WeakSet<MasterScore>()
+const s_compatDone = new WeakSet<Score>()
 
 /**
  * The view modes of MuseScore's notation view (NotationPainting::setViewMode) plus 'fit-width' (not in MuseScore):
@@ -214,7 +218,7 @@ const s_compatDone = new WeakSet<MasterScore>()
  */
 export type ViewMode = 'page' | 'continuous-horizontal' | 'continuous-vertical' | 'fit-width'
 
-export function viewMode(score: MasterScore): ViewMode {
+export function viewMode(score: Score): ViewMode {
     switch (score.layoutMode()) {
     case LayoutMode.LINE:
     case LayoutMode.HORIZONTAL_FIXED:
@@ -230,7 +234,7 @@ export function viewMode(score: MasterScore): ViewMode {
  * Sets the view mode and lays out the score again if it changed. `width`: the page width of 'fit-width' in inches
  * (the systems are this width minus the page margins). Returns true if the layout changed.
  */
-export function setViewMode(score: MasterScore, mode: ViewMode, width = 0): boolean {
+export function setViewMode(score: Score, mode: ViewMode, width = 0): boolean {
     const layoutMode = mode === 'continuous-horizontal' ? LayoutMode.LINE
         : mode === 'continuous-vertical' || mode === 'fit-width' ? LayoutMode.SYSTEM : LayoutMode.PAGE
     const reflowWidth = mode === 'fit-width' ? Math.round(width * DPI) : 0
@@ -249,7 +253,7 @@ export function setViewMode(score: MasterScore, mode: ViewMode, width = 0): bool
  * Runs `fn` with the score laid out in the page view (e.g. for printing or a thumbnail of the first page, like
  * Score::print) and lays it out in its view mode again afterwards.
  */
-export function withPageView<T>(score: MasterScore, fn: () => T): T {
+export function withPageView<T>(score: Score, fn: () => T): T {
     const layoutMode = score.layoutMode()
     const reflowWidth = score.reflowWidth()
     if (layoutMode === LayoutMode.PAGE) {
@@ -268,14 +272,21 @@ export function withPageView<T>(score: MasterScore, fn: () => T): T {
 }
 
 /** MuseScore saves laid out scores (multimeasure rests, compatibility conversions of old files happen with the layout) */
-function ensureLaidOut(score: MasterScore): void {
-    if (!s_compatDone.has(score)) {
-        layoutScore(score)
+function ensureLaidOut(score: Score): void {
+    if (s_compatDone.has(score)) {
+        return
+    }
+    if (score.isMaster()) {
+        layoutScore(score as MasterScore)
+    } else {
+        // a part (excerpt) score: ExcerptNotation::init lays it out (no compatibility conversions of its own)
+        ScoreRenderer.layoutScore(score, new Fraction(0, 1), new Fraction(-1, 1))
+        s_compatDone.add(score)
     }
 }
 
 /** The main .mscx file of the score as MuseScore 4.7.5 writes it (Writer::writeScore; the style is in score_style.mss) */
-export function writeMscx(score: MasterScore): string {
+export function writeMscx(score: Score): string {
     ensureLaidOut(score)
     return Writer.writeScore(score)
 }
@@ -291,18 +302,18 @@ export function saveMscz(score: MasterScore, fileName?: string): Uint8Array {
     return writer.zipData()
 }
 
-export function pageCount(score: MasterScore): number {
+export function pageCount(score: Score): number {
     return score.npages()
 }
 
 /** the page format of the style in inches (the page size of the page view, also in the continuous views) */
-export function pageFormatSize(score: MasterScore): { width: number; height: number } {
+export function pageFormatSize(score: Score): { width: number; height: number } {
     // not Paint.pageSizeInch: that is the size of the first laid out page (the long page of a continuous view)
     return { width: score.style().styleD(Sid.pageWidth), height: score.style().styleD(Sid.pageHeight) }
 }
 
 /** page size in inches (in the continuous views the size of their single page) */
-export function pageSize(score: MasterScore, pageIdx = 0): { width: number; height: number } {
+export function pageSize(score: Score, pageIdx = 0): { width: number; height: number } {
     const bbox = score.pages()[pageIdx]?.ldata().bbox()
     if (!bbox) {
         const s = Paint.pageSizeInch(score)
@@ -312,7 +323,7 @@ export function pageSize(score: MasterScore, pageIdx = 0): { width: number; heig
 }
 
 /** the bounding box of a system of a page (inches from the page's top left), e.g. a preview of the first system */
-export function systemRect(score: MasterScore, pageIdx = 0, systemIdx = 0): { x: number; y: number; width: number; height: number } | null {
+export function systemRect(score: Score, pageIdx = 0, systemIdx = 0): { x: number; y: number; width: number; height: number } | null {
     const system = score.pages()[pageIdx]?.systems()[systemIdx]
     if (!system) {
         return null
@@ -322,12 +333,12 @@ export function systemRect(score: MasterScore, pageIdx = 0, systemIdx = 0): { x:
 }
 
 /** true if the score is laid out for two-sided printing (style "pageTwosided"): odd pages are right-hand pages */
-export function isTwoSided(score: MasterScore): boolean {
+export function isTwoSided(score: Score): boolean {
     return score.style().styleB(Sid.pageTwosided)
 }
 
 /** score title (metaTag "workTitle" or the first title text), empty if none */
-export function scoreTitle(score: MasterScore): string {
+export function scoreTitle(score: Score): string {
     return score.metaTag('workTitle') || ''
 }
 
@@ -386,7 +397,7 @@ unknown | Promise<unknown>) | null): void {
  * Draws one page onto a 2D canvas context. The canvas should have the size pageSize() * dpi
  * (multiply with window.devicePixelRatio and pass a correspondingly higher dpi for sharp output on HiDPI screens).
  */
-export function drawPage(score: MasterScore, pageIdx: number, ctx: Canvas2D, options: DrawPageOptions = {}): void {
+export function drawPage(score: Score, pageIdx: number, ctx: Canvas2D, options: DrawPageOptions = {}): void {
     const dpi = options.dpi ?? 100
     const scale = dpi / DPI
     const r = options.region
@@ -412,7 +423,7 @@ export function drawPage(score: MasterScore, pageIdx: number, ctx: Canvas2D, opt
     }
 }
 
-const s_continuousPanels = new WeakMap<MasterScore, ContinuousPanel>()
+const s_continuousPanels = new WeakMap<Score, ContinuousPanel>()
 
 /**
  * The continuous view (horizontal): MuseScore's ContinuousPanel, the staff names, clefs, key and time signatures at the
@@ -423,7 +434,7 @@ const s_continuousPanels = new WeakMap<MasterScore, ContinuousPanel>()
  * contents: with the key of the contents the canvas shows (`shownKey`), nothing is painted if they are unchanged
  * (`painted` false). The contents don't depend on `left` otherwise.
  */
-export function drawContinuousPanel(score: MasterScore, ctx: Canvas2D,
+export function drawContinuousPanel(score: Score, ctx: Canvas2D,
     options: { dpi: number; left: number; top?: number; shownKey?: string }): { width: number; key: string; painted: boolean } | null {
     if (!score.lineMode() || !score.npages()) {
         return null
@@ -445,7 +456,7 @@ export function drawContinuousPanel(score: MasterScore, ctx: Canvas2D,
 }
 
 /** the range selection rectangle (MuseScore's notation view paints it after the score) */
-function drawSelectionRange(score: MasterScore, pageIdx: number, painter: Painter, scaling: number): void {
+function drawSelectionRange(score: Score, pageIdx: number, painter: Painter, scaling: number): void {
     const page = score.pages()[pageIdx]
     if (!page) {
         return
@@ -463,7 +474,7 @@ function drawSelectionRange(score: MasterScore, pageIdx: number, painter: Painte
 }
 
 /** the page of the note input cursor, -1 if not in note input mode */
-function noteInputCursorPage(score: MasterScore): number {
+function noteInputCursorPage(score: Score): number {
     if (!score.noteEntryMode()) {
         return -1
     }
@@ -472,7 +483,7 @@ function noteInputCursorPage(score: MasterScore): number {
 }
 
 /** C++ NoteInputCursor::paint (the cursor drawn by MuseScore's notation view; TODO(port): TAB string marks) */
-function drawNoteInputCursor(score: MasterScore, painter: Painter): void {
+function drawNoteInputCursor(score: Score, painter: Painter): void {
     const noteInput = notationState(score).interaction.noteInput()
     const state = noteInput.state()
     const fillColor = EngravingConfiguration.selectionColor(state.voice())
@@ -516,7 +527,7 @@ export interface DrawPageSvgOptions {
 }
 
 /** Draws one page as SVG (vector graphics, size in inches, each glyph outline defined once and reused) */
-export function drawPageSvg(score: MasterScore, pageIdx: number, options: DrawPageSvgOptions = {}): string {
+export function drawPageSvg(score: Score, pageIdx: number, options: DrawPageSvgOptions = {}): string {
     const provider = new SvgPaintProvider(options.defs ?? new SvgGlyphDefs(), options.defs ? `p${pageIdx}-` : '')
     const painter = new Painter(provider, fontProvider(), 'page_' + pageIdx)
     const isPrinting = options.printing ?? true
@@ -749,9 +760,9 @@ interface NotationState {
     style: NotationStyle
 }
 
-const s_notationStates = new WeakMap<MasterScore, NotationState>()
+const s_notationStates = new WeakMap<Score, NotationState>()
 
-function notationState(score: MasterScore): NotationState {
+function notationState(score: Score): NotationState {
     let st = s_notationStates.get(score)
     if (!st) {
         const interaction = new NotationInteraction(score)
@@ -768,7 +779,7 @@ function notationState(score: MasterScore): NotationState {
 }
 
 /** a point of a page (inches from the page's top left) in canvas coordinates; null if there is no such page */
-function pagePointToCanvas(score: MasterScore, pageIdx: number, x: number, y: number): PointF | null {
+function pagePointToCanvas(score: Score, pageIdx: number, x: number, y: number): PointF | null {
     const page = score.pages()[pageIdx]
     if (!page) {
         return null
@@ -791,7 +802,7 @@ export interface HitTestOptions {
  * dpi), null if none. On empty staff space inside a measure this is the measure. type: the element type (MuseScore's
  * xml name, e.g. "Note", "Measure"), name: its translated user name.
  */
-export function hitTest(score: MasterScore, pageIdx: number, x: number, y: number, options: HitTestOptions = {}): { type: string; name: string } | null {
+export function hitTest(score: Score, pageIdx: number, x: number, y: number, options: HitTestOptions = {}): { type: string; name: string } | null {
     const pos = pagePointToCanvas(score, pageIdx, x, y)
     if (!pos) {
         return null
@@ -800,7 +811,7 @@ export function hitTest(score: MasterScore, pageIdx: number, x: number, y: numbe
     return e ? { type: e.typeName(), name: e.translatedTypeUserName() } : null
 }
 
-function selectionSnapshot(score: MasterScore): unknown[] {
+function selectionSnapshot(score: Score): unknown[] {
     const sel = score.selection()
     return [sel.state(), sel.startSegment(), sel.endSegment(), sel.staffStart(), sel.staffEnd(), ...sel.elements()]
 }
@@ -814,7 +825,7 @@ function selectionDiffers(a: unknown[], b: unknown[]): boolean {
  * of the staves deselects); returns true if the selection changed. No new layout is needed, only a repaint of
  * selectionBounds() before and after.
  */
-export function selectAt(score: MasterScore, pageIdx: number, x: number, y: number, mode: SelectMode,
+export function selectAt(score: Score, pageIdx: number, x: number, y: number, mode: SelectMode,
     options: HitTestOptions = {}): boolean {
     const pos = pagePointToCanvas(score, pageIdx, x, y)
     if (!pos) {
@@ -826,12 +837,12 @@ export function selectAt(score: MasterScore, pageIdx: number, x: number, y: numb
 }
 
 /** deselects all (Escape); returns true if there was a selection */
-export function clearSelection(score: MasterScore): boolean {
+export function clearSelection(score: Score): boolean {
     return notationState(score).interaction.clearSelection()
 }
 
 /** selects the whole score (Ctrl+A) */
-export function selectAll(score: MasterScore): void {
+export function selectAll(score: Score): void {
     notationState(score).interaction.selectAll()
 }
 
@@ -842,7 +853,7 @@ export { TransposeMode, TransposeDirection, AutoOnOff, PreferSharpFlat } from '.
  * with the number of measures (MuseScore asks for it with its SelectMeasuresCountDialog): NotationActionController::
  * addMeasures. Returns false if the target needs a selection and there is none.
  */
-export function addMeasures(score: MasterScore, count: number, target: AddBoxesTarget): boolean {
+export function addMeasures(score: Score, count: number, target: AddBoxesTarget): boolean {
     const actions = notationState(score).actions
     if ((target === AddBoxesTarget.BeforeSelection || target === AddBoxesTarget.AfterSelection) && !hasSelection(score)) {
         return false
@@ -863,7 +874,7 @@ export interface RealizableChordSymbol {
 }
 
 /** the selected chord symbols that can be realized (MuseScore's RealizeHarmonyDialog lists them) */
-export function realizableChordSymbols(score: MasterScore): RealizableChordSymbol[] {
+export function realizableChordSymbols(score: Score): RealizableChordSymbol[] {
     const res: RealizableChordSymbol[] = []
     for (const e of score.selection().elements()) {
         if (!e.isHarmony()) {
@@ -889,7 +900,7 @@ export function realizableChordSymbols(score: MasterScore): RealizableChordSymbo
  * RealizeHarmonyDialog::accept: realizes the selected chord symbols into notes (one undo step). Without options the
  * voicing and duration of each chord symbol are used ("Override with custom options" unchecked).
  */
-export function realizeChordSymbols(score: MasterScore, options: { literal: boolean; voicing: Voicing; duration: HDuration } | null): boolean {
+export function realizeChordSymbols(score: Score, options: { literal: boolean; voicing: Voicing; duration: HDuration } | null): boolean {
     const interaction = notationState(score).interaction
     if (score.selection().isNone()) {
         return false
@@ -901,12 +912,12 @@ export function realizeChordSymbols(score: MasterScore, options: { literal: bool
 export { Voicing, HDuration } from './engraving/dom/realizedharmony'
 
 /** the action tuplet-dialog ("Other…" of the tuplets) can be used: a note or rest is selected */
-export function canAddCustomTuplet(score: MasterScore): boolean {
+export function canAddCustomTuplet(score: Score): boolean {
     return notationState(score).actions.noteOrRestSelected()
 }
 
 /** the defaults of MuseScore's TupletDialog: the number and bracket types of the score's style */
-export function customTupletDefaults(score: MasterScore): { numberType: TupletNumberType; bracketType: TupletBracketType } {
+export function customTupletDefaults(score: Score): { numberType: TupletNumberType; bracketType: TupletBracketType } {
     return {
         numberType: score.style().styleI(Sid.tupletNumberType) as TupletNumberType,
         bracketType: score.style().styleI(Sid.tupletBracketType) as TupletBracketType,
@@ -917,7 +928,7 @@ export function customTupletDefaults(score: MasterScore): { numberType: TupletNu
  * The action custom-tuplet (TupletDialog::apply): a tuplet with the ratio actualNotes/normalNotes on the selection
  * (or the note input position); false if it can not be added.
  */
-export function addCustomTuplet(score: MasterScore, actualNotes: number, normalNotes: number, numberType: TupletNumberType,
+export function addCustomTuplet(score: Score, actualNotes: number, normalNotes: number, numberType: TupletNumberType,
     bracketType: TupletBracketType): boolean {
     const actions = notationState(score).actions
     if (!actions.noteOrRestSelected()) {
@@ -957,7 +968,7 @@ export function setSelectInstrumentProvider(provider: (() => string | null) | nu
 }
 
 /** prepares the selection for the Transpose dialog: selects the whole score if nothing is selected */
-export function prepareTransposeSelection(score: MasterScore): TransposeSelectionInfo {
+export function prepareTransposeSelection(score: Score): TransposeSelectionInfo {
     const interaction = notationState(score).interaction
     let allSelected = false
     if (score.selection().isNone()) {
@@ -974,7 +985,7 @@ export function prepareTransposeSelection(score: MasterScore): TransposeSelectio
  * with allSelected (prepareTransposeSelection) the selection is cleared afterwards. Returns false if a note could not
  * be transposed (out of the pitch range).
  */
-export function transposeSelection(score: MasterScore, options: TransposeOptions, allSelected = false): boolean {
+export function transposeSelection(score: Score, options: TransposeOptions, allSelected = false): boolean {
     const interaction = notationState(score).interaction
     const ok = interaction.transpose(options)
     if (allSelected) {
@@ -989,16 +1000,16 @@ export function transposeSelection(score: MasterScore, options: TransposeOptions
  * staff), Ctrl+Alt+Up/Down (top/bottom note), Shift(+Ctrl)+Home/End (to the start/end of the system/score),
  * Ctrl+Home/End (first/last element), Escape, Ctrl+A. key like KeyboardEvent.key; returns true if handled.
  */
-export function moveSelection(score: MasterScore, key: string, mods: { shift: boolean; ctrl: boolean; alt: boolean }): boolean {
+export function moveSelection(score: Score, key: string, mods: { shift: boolean; ctrl: boolean; alt: boolean }): boolean {
     return notationState(score).controller.keyAction(key, mods)
 }
 
-export function hasSelection(score: MasterScore): boolean {
+export function hasSelection(score: Score): boolean {
     return !score.selection().isNone()
 }
 
 /** status bar text of the selection (MuseScore's accessibility info, translated through mtrc), empty if none */
-export function selectionInfo(score: MasterScore): string {
+export function selectionInfo(score: Score): string {
     return notationState(score).accessibility.accessibilityInfo()
 }
 
@@ -1006,7 +1017,7 @@ export function selectionInfo(score: MasterScore): string {
  * The pages and rectangles (inches from the page's top left) of the selection, to repaint them and to scroll the
  * selection into view: the range selection frames (one per system) and the bounding boxes of the selected elements.
  */
-export function selectionBounds(score: MasterScore): { page: number; x: number; y: number; width: number; height: number }[] {
+export function selectionBounds(score: Score): { page: number; x: number; y: number; width: number; height: number }[] {
     const res: { page: number; x: number; y: number; width: number; height: number }[] = []
     const pages = score.pages()
     const add = (pageIdx: number, r: RectF): void => {
@@ -1042,7 +1053,7 @@ export function selectionBounds(score: MasterScore): { page: number; x: number; 
  * NotationActionController. The score is laid out again when it changed. Returns false if the action is not
  * available or not enabled (isActionEnabled).
  */
-export function executeAction(score: MasterScore, code: string): boolean {
+export function executeAction(score: Score, code: string): boolean {
     return notationState(score).actions.dispatch(code)
 }
 
@@ -1056,35 +1067,35 @@ export function isCheckableAction(code: string): boolean {
     return NotationActionController.isCheckableAction(code)
 }
 
-export function isActionAvailable(score: MasterScore, code: string): boolean {
+export function isActionAvailable(score: Score, code: string): boolean {
     return notationState(score).actions.isActionAvailable(code)
 }
 
 /** like the enabled state of MuseScore's actions (e.g. delete needs a selection, undo something to undo) */
-export function isActionEnabled(score: MasterScore, code: string): boolean {
+export function isActionEnabled(score: Score, code: string): boolean {
     return notationState(score).actions.canReceiveAction(code)
 }
 
 /** the checked state of the note input toolbar's buttons (MuseScore's NoteInputBarModel): durations, dots, ... */
-export function isActionChecked(score: MasterScore, code: string): boolean {
+export function isActionChecked(score: Score, code: string): boolean {
     return notationState(score).actions.isActionChecked(code)
 }
 
-export function canUndo(score: MasterScore): boolean {
+export function canUndo(score: Score): boolean {
     return score.undoStack().canUndo()
 }
 
-export function canRedo(score: MasterScore): boolean {
+export function canRedo(score: Score): boolean {
     return score.undoStack().canRedo()
 }
 
 /** undoes the last command; returns false if there is nothing to undo */
-export function undo(score: MasterScore): boolean {
+export function undo(score: Score): boolean {
     return executeAction(score, 'action://notation/undo')
 }
 
 /** redoes the last undone command; returns false if there is nothing to redo */
-export function redo(score: MasterScore): boolean {
+export function redo(score: Score): boolean {
     return executeAction(score, 'action://notation/redo')
 }
 
@@ -1100,7 +1111,7 @@ export interface UndoStackInfo {
     size: number
 }
 
-export function undoStackInfo(score: MasterScore): UndoStackInfo {
+export function undoStackInfo(score: Score): UndoStackInfo {
     const stack = notationState(score).interaction.undoStack()
     return {
         canUndo: stack.canUndo(),
@@ -1113,12 +1124,12 @@ export function undoStackInfo(score: MasterScore): UndoStackInfo {
 }
 
 /** true if the score was changed since it was opened, created or last saved (markSaved) */
-export function isModified(score: MasterScore): boolean {
+export function isModified(score: Score): boolean {
     return score.dirty()
 }
 
 /** marks the current state as saved (undoing or redoing makes the score modified again) */
-export function markSaved(score: MasterScore): void {
+export function markSaved(score: Score): void {
     score.undoStack().setClean()
 }
 
@@ -1126,7 +1137,7 @@ export function markSaved(score: MasterScore): void {
  * marks the score as modified although nothing was changed since it was loaded (NotationProject::markAsUnsaved: a new
  * score, a score restored from an autosave); undo does not make it unmodified, only markSaved does
  */
-export function markUnsaved(score: MasterScore): void {
+export function markUnsaved(score: Score): void {
     score.undoStack().setUnclean()
 }
 
@@ -1158,7 +1169,7 @@ export interface NoteInputStateInfo {
 }
 
 /** the state of the note input (also outside of note input mode: the duration etc. of the selection) */
-export function noteInputState(score: MasterScore): NoteInputStateInfo {
+export function noteInputState(score: Score): NoteInputStateInfo {
     const is = score.inputState()
     const d = is.duration()
     return {
@@ -1174,7 +1185,7 @@ export function noteInputState(score: MasterScore): NoteInputStateInfo {
 }
 
 /** the note input cursor (inches from the page's top left) for repainting and scrolling it into view; null if none */
-export function noteInputCursorBounds(score: MasterScore): { page: number; x: number; y: number; width: number; height: number } | null {
+export function noteInputCursorBounds(score: Score): { page: number; x: number; y: number; width: number; height: number } | null {
     const pageIdx = noteInputCursorPage(score)
     if (pageIdx < 0) {
         return null
@@ -1319,7 +1330,7 @@ export interface SelectionPropertyInfo {
     count: number
 }
 
-function selectionItems(score: MasterScore): EngravingItem[] {
+function selectionItems(score: Score): EngravingItem[] {
     return [...score.selection().elements()]
 }
 
@@ -1327,7 +1338,7 @@ function selectionItems(score: MasterScore): EngravingItem[] {
  * The properties of the selected items for an inspector (like MuseScore's AbstractInspectorModel::loadPropertyItem):
  * all properties the items have, or only the given ones (by name). Keyed by property name.
  */
-export function selectionProperties(score: MasterScore, names?: readonly string[]): Record<string, SelectionPropertyInfo> {
+export function selectionProperties(score: Score, names?: readonly string[]): Record<string, SelectionPropertyInfo> {
     const items = selectionItems(score)
     const res: Record<string, SelectionPropertyInfo> = {}
     if (!items.length) {
@@ -1375,7 +1386,7 @@ export function selectionProperties(score: MasterScore, names?: readonly string[
  * MuseScore's inspector (a styled value becomes unstyled); the value as in selectionProperties. Returns false if no
  * selected item has the property or the value cannot be converted.
  */
-export function changeSelectionProperty(score: MasterScore, name: string, value: PropertyJsonValue): boolean {
+export function changeSelectionProperty(score: Score, name: string, value: PropertyJsonValue): boolean {
     const pid = propertyId(name)
     if (pid === Pid.END) {
         return false
@@ -1393,7 +1404,7 @@ export function changeSelectionProperty(score: MasterScore, name: string, value:
 }
 
 /** resets a property of all selected items that have it to its default (style) value, as one undoable command */
-export function resetSelectionProperty(score: MasterScore, name: string): boolean {
+export function resetSelectionProperty(score: Score, name: string): boolean {
     const pid = propertyId(name)
     if (pid === Pid.END) {
         return false
@@ -1411,7 +1422,7 @@ export function resetSelectionProperty(score: MasterScore, name: string): boolea
  * inspectorArrangeChanges) as one undoable command, like AbstractInspectorModel::setPropertyValue /
  * onPropertyValueReset ("Edit %1" / "Reset %1" with the first change's property). Returns false if nothing was applied.
  */
-export function applyInspectorChanges(score: MasterScore, changes: readonly InspectorChange[]): boolean {
+export function applyInspectorChanges(score: Score, changes: readonly InspectorChange[]): boolean {
     if (!changes.length) {
         return false
     }
@@ -1495,7 +1506,7 @@ const PALETTE_BREAK_TYPES = { page: 0, line: 1, section: 2, noBreak: 3 } as cons
  * Creates a palette element (like the cells of MuseScore's palettes) for the given score (it uses the score's style).
  * Returns null for unknown names. The element is not added to the score: applyPaletteElement() adds copies of it.
  */
-export function createPaletteElement(score: MasterScore, spec: PaletteElementSpec): PaletteElement | null {
+export function createPaletteElement(score: Score, spec: PaletteElementSpec): PaletteElement | null {
     const e = Factory.createItemByName(spec.type === 'Hairpin' ? 'HairPin' : spec.type, scoreDummy(score)) // xml names
     if (!e) {
         return null
@@ -1577,7 +1588,7 @@ export function paletteElementName(element: PaletteElement): string {
  * selection. Undoable; the score is laid out again. modifiers: ctrl applies key/time signatures to the selected staff
  * only, shift adds a note to a chord. Returns false if nothing is selected.
  */
-export function applyPaletteElement(score: MasterScore, element: PaletteElement,
+export function applyPaletteElement(score: Score, element: PaletteElement,
     modifiers: { ctrl?: boolean; shift?: boolean } = {}): boolean {
     let m = 0
     if (modifiers.ctrl) {
@@ -1593,19 +1604,22 @@ export function applyPaletteElement(score: MasterScore, element: PaletteElement,
 //   parts and staves (MuseScore's Layout panel and instruments dialog: MasterNotationParts / NotationParts)
 // ---------------------------------------------------------------------------------------------------------------------
 
-const s_notationParts = new WeakMap<MasterScore, MasterNotationParts>()
+const s_notationParts = new WeakMap<Score, NotationParts>()
 
-function notationParts(score: MasterScore): MasterNotationParts {
+/** INotation::parts(): MasterNotationParts of the master score, NotationParts of a part (excerpt) score */
+function notationParts(score: Score): NotationParts {
     let p = s_notationParts.get(score)
     if (!p) {
-        p = new MasterNotationParts(score, notationState(score).interaction)
+        p = score.isMaster()
+            ? new MasterNotationParts(score as MasterScore, notationState(score).interaction)
+            : new NotationParts(score, notationState(score).interaction)
         s_notationParts.set(score, p)
     }
     return p
 }
 
 /** runs a NotationParts command; true if it recorded an undoable change */
-function runPartsCommand(score: MasterScore, cmd: (parts: MasterNotationParts) => void): boolean {
+function runPartsCommand(score: Score, cmd: (parts: NotationParts) => void): boolean {
     const stack = score.undoStack()
     const index = stack.currentIndex()
     const size = stack.size()
@@ -1617,7 +1631,7 @@ function runPartsCommand(score: MasterScore, cmd: (parts: MasterNotationParts) =
  * "Replace instrument" of the Layout panel (PartTreeItem::replaceInstrument): the part gets the instrument of the
  * template (and its staff type), transposing the notes, key signatures and chord symbols for a new transposition.
  */
-export function replacePartInstrument(score: MasterScore, partId: string, templateId: string): boolean {
+export function replacePartInstrument(score: Score, partId: string, templateId: string): boolean {
     const part = score.parts().find(p => p.id() === partId)
     const templ = searchTemplate(templateId)
     if (!part || !templ) {
@@ -1630,7 +1644,7 @@ export function replacePartInstrument(score: MasterScore, partId: string, templa
 }
 
 /** the selected instrument change (the element of the action "change-instrument"), null if none */
-export function selectedInstrumentChange(score: MasterScore): { partId: string; instrumentId: string; tick: number } | null {
+export function selectedInstrumentChange(score: Score): { partId: string; instrumentId: string; tick: number } | null {
     const element = score.selection().element()
     if (!element || !element.isInstrumentChange()) {
         return null
@@ -1640,7 +1654,7 @@ export function selectedInstrumentChange(score: MasterScore): { partId: string; 
 }
 
 /** "Select instrument…" of an instrument change (InstrumentsActionsController::changeInstrument) */
-export function changeInstrumentChange(score: MasterScore, templateId: string): boolean {
+export function changeInstrumentChange(score: Score, templateId: string): boolean {
     const key = selectedInstrumentChange(score)
     const templ = searchTemplate(templateId)
     if (!key || !templ) {
@@ -1651,7 +1665,7 @@ export function changeInstrumentChange(score: MasterScore, templateId: string): 
 }
 
 /** "Prefer sharps/flats" of a part (INotationParts::setPartSharpFlat): 0 none, 1 sharps, 2 flats, 3 auto */
-export function setPartSharpFlat(score: MasterScore, partId: string, sharpFlat: PreferSharpFlat): boolean {
+export function setPartSharpFlat(score: Score, partId: string, sharpFlat: PreferSharpFlat): boolean {
     return runPartsCommand(score, p => p.setPartSharpFlat(partId, sharpFlat))
 }
 
@@ -1659,7 +1673,7 @@ export function setPartSharpFlat(score: MasterScore, partId: string, sharpFlat: 
  * The Staff/Part properties dialog (MuseScore's EditStaff) for the staff of the selection (or of the hit element
  * context); null if there is no staff. The dialog edits its values and calls apply().
  */
-export function createEditStaff(score: MasterScore): EditStaff | null {
+export function createEditStaff(score: Score): EditStaff | null {
     const editStaff = new EditStaff(notationState(score).interaction, notationParts(score))
     return editStaff.isValid() ? editStaff : null
 }
@@ -1668,7 +1682,7 @@ export function createEditStaff(score: MasterScore): EditStaff | null {
  * notes dialog for a note, else its Select dialog, for the context item (the selected element or the right-clicked
  * one); null without a context item. The dialog edits values and calls apply() on OK.
  */
-export function createSelectDialog(score: MasterScore): SelectDialog | SelectNoteDialog | null {
+export function createSelectDialog(score: Score): SelectDialog | SelectNoteDialog | null {
     const interaction = notationState(score).interaction
     const item = interaction.contextItem()
     if (!item) {
@@ -1686,7 +1700,7 @@ export { EditStaff, type EditStaffValues, type EditStaffString } from './notatio
  * "3-7", a page "p2", a rehearsal mark "rA" or its name); the selection is cleared first. Returns the found elements'
  * count; the app shows the selection (C++ showItem).
  */
-export function searchNotation(score: MasterScore, text: string): number {
+export function searchNotation(score: Score, text: string): number {
     const interaction = notationState(score).interaction
     interaction.clearSelection()
 
@@ -1706,8 +1720,90 @@ export function createProjectPropertiesModel(score: MasterScore, filePath = ''):
 }
 export { ProjectPropertiesModel, type ProjectProperty, type ProjectMeta } from './project/projectpropertiesmodel'
 
+// =====================================================================================================================
+//   parts (excerpts): the MasterNotation's excerpt notations, the current notation (C++ GlobalContext), the Parts
+//   dialog (PartListModel) and the notation tabs (NotationSwitchListModel)
+// =====================================================================================================================
+
+const s_masterNotations = new WeakMap<MasterScore, MasterNotation>()
+const s_currentNotations = new WeakMap<MasterScore, Score>()
+const s_currentNotationListeners = new Set<(master: MasterScore) => void>()
+
+/** the MasterNotation of the score (of its master score), with its excerpt notations (initExcerptNotations) */
+export function masterNotation(score: Score): MasterNotation {
+    const master = score.masterScore()
+    let mn = s_masterNotations.get(master)
+    if (!mn) {
+        mn = new MasterNotation(master, s => notationState(s).interaction.undoStack())
+        s_masterNotations.set(master, mn)
+        mn.initExcerptNotations(master.excerpts())
+    }
+    return mn
+}
+
+/** the score of the current notation of a project: its master score or an open part (C++ currentNotation) */
+export function currentNotation(score: Score): Score {
+    const master = score.masterScore()
+    return s_currentNotations.get(master) ?? master
+}
+
+/**
+ * C++ GlobalContext::setCurrentNotation: shows the master score or a part; a part is laid out first if needed. The
+ * listeners of onCurrentNotationChanged are called.
+ */
+export function setCurrentNotation(score: Score): void {
+    const master = score.masterScore()
+    if (currentNotation(master) === score) {
+        return
+    }
+    if (!score.isMaster()) {
+        ensureLaidOut(score)
+    }
+    s_currentNotations.set(master, score)
+    for (const l of [...s_currentNotationListeners]) {
+        l(master)
+    }
+}
+
+export function onCurrentNotationChanged(listener: (master: MasterScore) => void): () => void {
+    s_currentNotationListeners.add(listener)
+    return () => s_currentNotationListeners.delete(listener)
+}
+
+/** the NotationContext of a project (for the Parts dialog and the tabs) */
+export function notationContext(score: Score): NotationContext {
+    const master = score.masterScore()
+    return {
+        masterNotation: () => masterNotation(master),
+        currentNotation: () => currentNotation(master),
+        setCurrentNotation: (s: Score) => setCurrentNotation(s),
+    }
+}
+
+/** the model of the Parts dialog (File > Parts…); call load() */
+export function createPartListModel(score: Score): PartListModel {
+    return new PartListModel(notationContext(score))
+}
+
+/** the model of the notation tabs (the score and its open parts); call load() */
+export function createNotationSwitchListModel(score: Score): NotationSwitchListModel {
+    return new NotationSwitchListModel(notationContext(score))
+}
+
+/** the part (excerpt) name of a part score; null for a master score */
+export function partScoreName(score: Score): string | null {
+    return score.isMaster() ? null : score.excerpt()?.name() ?? null
+}
+
+export {
+    PartListModel, NotationSwitchListModel, type NotationContext, type PartListItem, type NotationSwitchItem,
+    type NotationSwitchMenuItem, type SelectionModifiers,
+} from './notationscene/partlistmodel'
+export { MasterNotation } from './notation/internal/masternotation'
+export { ExcerptNotation } from './notation/internal/excerptnotation'
+
 /** the style of the score (MuseScore's INotationStyle) for the Style and Page Settings dialogs and load/save style */
-export function notationStyle(score: MasterScore): NotationStyle {
+export function notationStyle(score: Score): NotationStyle {
     return notationState(score).style
 }
 
@@ -1715,7 +1811,7 @@ export function notationStyle(score: MasterScore): NotationStyle {
  * The undo stack of the notation (INotation::undoStack): the Style and Page Settings dialogs collect their changes
  * in one command (prepareChanges when shown, commitChanges on OK, rollbackChanges on Cancel).
  */
-export function notationUndoStack(score: MasterScore): NotationUndoStack {
+export function notationUndoStack(score: Score): NotationUndoStack {
     return notationState(score).interaction.undoStack()
 }
 
@@ -1723,7 +1819,7 @@ export function notationUndoStack(score: MasterScore): NotationUndoStack {
  * The Style dialog (MuseScore's EditStyle, action "edit-style") for the score: the states of the widgets of
  * editstyle.ui (PAGE_LIST, PAGE_STACK) that the app renders; show() when shown, accept() on OK, reject() on Cancel.
  */
-export function createEditStyle(score: MasterScore): EditStyle {
+export function createEditStyle(score: Score): EditStyle {
     return new EditStyle(score, notationStyle(score), notationUndoStack(score))
 }
 export {
@@ -1739,7 +1835,7 @@ export { PAGE_LIST, PAGE_STACK, type UiString, type UiWidget, type UiLayout, typ
  * BreaksDialog::showEvent (the "Measures per system" dialog, action "measures-per-system"): selects the whole score
  * if there is no range selection; returns whether it did (pass it to addRemoveSystemLocks).
  */
-export function prepareBreaksDialog(score: MasterScore): { allSelected: boolean } {
+export function prepareBreaksDialog(score: Score): { allSelected: boolean } {
     const interaction = notationState(score).interaction
     if (!score.selection().isRange()) {
         interaction.selectAll()
@@ -1749,7 +1845,7 @@ export function prepareBreaksDialog(score: MasterScore): { allSelected: boolean 
 }
 
 /** BreaksDialog::accept: INotationInteraction::addRemoveSystemLocks; the selection of prepareBreaksDialog is cleared */
-export function addRemoveSystemLocks(score: MasterScore, intervalType: AddRemoveSystemLockType, interval: number,
+export function addRemoveSystemLocks(score: Score, intervalType: AddRemoveSystemLockType, interval: number,
     allSelected = false): void {
     const interaction = notationState(score).interaction
     interaction.addRemoveSystemLocks(intervalType, interval)
@@ -1759,7 +1855,7 @@ export function addRemoveSystemLocks(score: MasterScore, intervalType: AddRemove
 }
 
 /** the Page Settings dialog (MuseScore's PageSettings) of the score; the dialog calls show() first */
-export function createPageSettings(score: MasterScore, metricUnit: boolean, setMetricUnit: (mm: boolean) => void): PageSettings {
+export function createPageSettings(score: Score, metricUnit: boolean, setMetricUnit: (mm: boolean) => void): PageSettings {
     return new PageSettings(score, notationState(score).style, notationState(score).interaction.undoStack(), metricUnit, setMetricUnit)
 }
 export {
@@ -1779,38 +1875,38 @@ export { StaffGroup, NoteHeadScheme, TextStyleType } from './engraving/types/typ
  * The items of the score's context menu (MuseScore's NotationContextMenuModel) for the right-clicked element (the hit
  * element context of the last mouse press) or the selection: action codes with optional titles ([context, source]).
  */
-export function contextMenuItems(score: MasterScore): ContextMenuItem[] {
+export function contextMenuItems(score: Score): ContextMenuItem[] {
     return new NotationContextMenuModel(notationState(score).interaction).loadItems()
 }
 export type { ContextMenuItem, ContextMenuTitle } from './notationscene/notationcontextmenumodel'
 
 /** shows or hides a part (INotationParts::setPartVisible); ids are Part.id() */
-export function setPartVisible(score: MasterScore, partId: string, visible: boolean): boolean {
+export function setPartVisible(score: Score, partId: string, visible: boolean): boolean {
     return runPartsCommand(score, p => p.setPartVisible(partId, visible))
 }
 
 /** shows or hides a staff (INotationParts::setStaffVisible); ids are Staff.id() */
-export function setStaffVisible(score: MasterScore, staffId: string, visible: boolean): boolean {
+export function setStaffVisible(score: Score, staffId: string, visible: boolean): boolean {
     return runPartsCommand(score, p => p.setStaffVisible(staffId, visible))
 }
 
 /** removes instruments (INotationParts::removeParts; the part scores of these instruments are deleted too) */
-export function removeParts(score: MasterScore, partIds: readonly string[]): boolean {
+export function removeParts(score: Score, partIds: readonly string[]): boolean {
     return runPartsCommand(score, p => p.removeParts(partIds))
 }
 
 /** removes staves (INotationParts::removeStaves) */
-export function removeStaves(score: MasterScore, staffIds: readonly string[]): boolean {
+export function removeStaves(score: Score, staffIds: readonly string[]): boolean {
     return runPartsCommand(score, p => p.removeStaves(staffIds))
 }
 
 /** moves instruments before (or after) the destination instrument (INotationParts::moveParts) */
-export function moveParts(score: MasterScore, partIds: readonly string[], destinationPartId: string, after: boolean): boolean {
+export function moveParts(score: Score, partIds: readonly string[], destinationPartId: string, after: boolean): boolean {
     return runPartsCommand(score, p => p.moveParts(partIds, destinationPartId, after ? PartsInsertMode.After : PartsInsertMode.Before))
 }
 
 /** moves staves of one instrument before (or after) the destination staff (INotationParts::moveStaves) */
-export function moveStaves(score: MasterScore, staffIds: readonly string[], destinationStaffId: string, after: boolean): boolean {
+export function moveStaves(score: Score, staffIds: readonly string[], destinationStaffId: string, after: boolean): boolean {
     return runPartsCommand(score, p => p.moveStaves(staffIds, destinationStaffId, after ? PartsInsertMode.After : PartsInsertMode.Before))
 }
 
@@ -1818,7 +1914,7 @@ export function moveStaves(score: MasterScore, staffIds: readonly string[], dest
  * appends a staff to an instrument ("Add staff": StaffControlTreeItem::appendNewItem creates a staff with the
  * instrument's clef for the new staff index and calls INotationParts::appendStaff)
  */
-export function appendStaff(score: MasterScore, partId: string): boolean {
+export function appendStaff(score: Score, partId: string): boolean {
     const part = score.parts().find(p => p.id() === partId)
     if (!part) {
         return false
@@ -1829,27 +1925,27 @@ export function appendStaff(score: MasterScore, partId: string): boolean {
 }
 
 /** the staves get a copy of the top system markings (INotationParts::addSystemObjects) */
-export function addSystemObjects(score: MasterScore, staffIds: readonly string[]): boolean {
+export function addSystemObjects(score: Score, staffIds: readonly string[]): boolean {
     return runPartsCommand(score, p => p.addSystemObjects(staffIds))
 }
 
 /** removes the system markings layers of the staves (INotationParts::removeSystemObjects) */
-export function removeSystemObjects(score: MasterScore, staffIds: readonly string[]): boolean {
+export function removeSystemObjects(score: Score, staffIds: readonly string[]): boolean {
     return runPartsCommand(score, p => p.removeSystemObjects(staffIds))
 }
 
 /** moves a system markings layer to another staff (INotationParts::moveSystemObjects) */
-export function moveSystemObjects(score: MasterScore, sourceStaffId: string, destinationStaffId: string): boolean {
+export function moveSystemObjects(score: Score, sourceStaffId: string, destinationStaffId: string): boolean {
     return runPartsCommand(score, p => p.moveSystemObjects(sourceStaffId, destinationStaffId))
 }
 
 /** INotationParts::moveSystemObjectLayerBelowBottomStaff (below = true) / moveSystemObjectLayerAboveBottomStaff */
-export function moveSystemObjectLayerBottomStaff(score: MasterScore, below: boolean): boolean {
+export function moveSystemObjectLayerBottomStaff(score: Score, below: boolean): boolean {
     return runPartsCommand(score, p => below ? p.moveSystemObjectLayerBelowBottomStaff() : p.moveSystemObjectLayerAboveBottomStaff())
 }
 
 /** sets the instrument order (INotationParts::setScoreOrder; an id of scoreOrders() or 'custom') */
-export function setScoreOrder(score: MasterScore, orderId: string): boolean {
+export function setScoreOrder(score: Score, orderId: string): boolean {
     const order = orderId === 'custom' ? customOrder() : instrumentOrders().find(o => o.id === orderId)?.clone()
     if (!order) {
         return false
@@ -1865,7 +1961,7 @@ export type ScorePartSpec = { partId: string; soloist?: boolean } | { instrument
  * list are removed, new instruments are added, all are sorted in the order of the list. `orderId`: the score order
  * (default: the current one). Returns false for unknown ids or if nothing changed.
  */
-export function setInstruments(score: MasterScore, parts: readonly ScorePartSpec[], orderId?: string): boolean {
+export function setInstruments(score: Score, parts: readonly ScorePartSpec[], orderId?: string): boolean {
     const list: PartInstrumentList = []
     for (const spec of parts) {
         if ('partId' in spec) {
@@ -1893,7 +1989,7 @@ export function setInstruments(score: MasterScore, parts: readonly ScorePartSpec
  * Adds instruments (template ids) to the score: the existing parts are kept; the new ones are inserted where the
  * score order sorts them (appended for a custom or customized order), like the instruments dialog does.
  */
-export function addInstruments(score: MasterScore, instrumentIds: readonly string[]): boolean {
+export function addInstruments(score: Score, instrumentIds: readonly string[]): boolean {
     const order = score.scoreOrder()
     const sorted = order.id !== 'custom' && !order.customized && order.groups.length > 0
     const specs: { spec: ScorePartSpec; index: number }[] = score.parts().map(p => ({
@@ -1961,7 +2057,7 @@ export const CLIPBOARD_FORMATS: readonly string[] = [mimeSymbolFormat, mimeSymbo
     TextEditData.mimeRichTextFormat]
 
 /** the selection as MuseScore's clipboard data (format and xml text), null without a selection */
-export function selectionMimeData(score: MasterScore): { format: string; data: string } | null {
+export function selectionMimeData(score: Score): { format: string; data: string } | null {
     const sel = score.selection()
     const format = sel.mimeType()
     if (!format || !sel.canCopy()) {
@@ -1990,7 +2086,7 @@ export interface ViewPointerEvent {
     dpi?: number
 }
 
-function viewMouseEvent(score: MasterScore, e: ViewPointerEvent): ViewMouseEvent | null {
+function viewMouseEvent(score: Score, e: ViewPointerEvent): ViewMouseEvent | null {
     const pos = pagePointToCanvas(score, e.page, e.x, e.y)
     if (!pos) {
         return null
@@ -2004,7 +2100,7 @@ function viewMouseEvent(score: MasterScore, e: ViewPointerEvent): ViewMouseEvent
 }
 
 /** C++ NotationViewInputController::mousePressEvent (selection, start of drags, grips, text cursor) */
-export function viewMousePress(score: MasterScore, e: ViewPointerEvent): void {
+export function viewMousePress(score: Score, e: ViewPointerEvent): void {
     const ev = viewMouseEvent(score, e)
     if (ev) {
         notationState(score).controller.mousePressEvent(ev, hitWidth(e.dpi ?? 100))
@@ -2015,7 +2111,7 @@ export function viewMousePress(score: MasterScore, e: ViewPointerEvent): void {
  * C++ mouseMoveEvent (drag of elements and grips, lasso with Shift on empty space, text selection); returns the
  * logical move of the canvas (inches) when the view should be moved instead
  */
-export function viewMouseMove(score: MasterScore, e: ViewPointerEvent): { moveCanvas: { x: number; y: number } | null; outgoingDrag: OutgoingElementDrag | null } {
+export function viewMouseMove(score: Score, e: ViewPointerEvent): { moveCanvas: { x: number; y: number } | null; outgoingDrag: OutgoingElementDrag | null } {
     const ev = viewMouseEvent(score, e)
     if (!ev) {
         return { moveCanvas: null, outgoingDrag: null }
@@ -2066,18 +2162,18 @@ function dragModifiers(e: ViewDragEvent): number {
 }
 
 /** dragEnterEvent: starts the drop of an element (mimeData: MIME_SYMBOL_FORMAT data); false if it cannot be read */
-export function viewDragEnter(score: MasterScore, mimeData: string): boolean {
+export function viewDragEnter(score: Score, mimeData: string): boolean {
     return notationState(score).interaction.startDropSingle(mimeData)
 }
 
 /** dragMoveEvent: returns true if the element can be dropped at the position (the target is highlighted) */
-export function viewDragMove(score: MasterScore, e: ViewDragEvent): boolean {
+export function viewDragMove(score: Score, e: ViewDragEvent): boolean {
     const pos = pagePointToCanvas(score, e.page, e.x, e.y)
     return !!pos && notationState(score).interaction.updateDropSingle(pos, dragModifiers(e))
 }
 
 /** dropEvent: drops the element (one undoable command); returns true if it was dropped. The drop ends. */
-export function viewDrop(score: MasterScore, e: ViewDragEvent): boolean {
+export function viewDrop(score: Score, e: ViewDragEvent): boolean {
     const pos = pagePointToCanvas(score, e.page, e.x, e.y)
     const interaction = notationState(score).interaction
     const accepted = !!pos && interaction.dropSingle(pos, dragModifiers(e))
@@ -2086,17 +2182,17 @@ export function viewDrop(score: MasterScore, e: ViewDragEvent): boolean {
 }
 
 /** the current drop target of a drag over the view (highlighted), null if none */
-export function viewDropTarget(score: MasterScore): { type: string; name: string } | null {
+export function viewDropTarget(score: Score): { type: string; name: string } | null {
     const t = notationState(score).interaction.dropTargetItem()
     return t ? { type: t.typeName(), name: t.translatedTypeUserName() } : null
 }
 
 /** dragLeaveEvent: ends the drop without dropping */
-export function viewDragLeave(score: MasterScore): void {
+export function viewDragLeave(score: Score): void {
     notationState(score).interaction.endDrop()
 }
 
-export function viewMouseRelease(score: MasterScore, e: ViewPointerEvent): void {
+export function viewMouseRelease(score: Score, e: ViewPointerEvent): void {
     const ev = viewMouseEvent(score, e)
     if (ev) {
         notationState(score).controller.mouseReleaseEvent(ev)
@@ -2104,7 +2200,7 @@ export function viewMouseRelease(score: MasterScore, e: ViewPointerEvent): void 
 }
 
 /** C++ mouseDoubleClickEvent (starts text editing, selects a word or all notes of a chord) */
-export function viewMouseDoubleClick(score: MasterScore, e: ViewPointerEvent): void {
+export function viewMouseDoubleClick(score: Score, e: ViewPointerEvent): void {
     const ev = viewMouseEvent(score, e)
     if (ev) {
         notationState(score).controller.mouseDoubleClickEvent(ev)
@@ -2112,7 +2208,7 @@ export function viewMouseDoubleClick(score: MasterScore, e: ViewPointerEvent): v
 }
 
 /** to be called after the double click interval (C++ QTimer): a third click selects the whole text */
-export function viewResetTripleClick(score: MasterScore): void {
+export function viewResetTripleClick(score: Score): void {
     notationState(score).controller.resetTripleClick()
 }
 
@@ -2163,22 +2259,22 @@ function notationKeyEvent(e: ViewKeyEvent): NotationKeyEvent {
  * C++ shortcutOverrideEvent: true if the key goes to the notation view (editing of a text or element, Enter to edit
  * a selected text) instead of being a shortcut; then viewKeyPress handles it
  */
-export function viewShortcutOverride(score: MasterScore, e: ViewKeyEvent): boolean {
+export function viewShortcutOverride(score: Score, e: ViewKeyEvent): boolean {
     return notationState(score).controller.shortcutOverrideEvent(notationKeyEvent(e))
 }
 
 /** C++ keyPressEvent (editing of the edited text or element); returns true if the key was handled */
-export function viewKeyPress(score: MasterScore, e: ViewKeyEvent): boolean {
+export function viewKeyPress(score: Score, e: ViewKeyEvent): boolean {
     return notationState(score).controller.keyPressEvent(notationKeyEvent(e))
 }
 
 /** C++ keyReleaseEvent: releasing Shift hides the time tick anchors shown while it is held */
-export function viewKeyRelease(score: MasterScore, e: ViewKeyEvent): void {
+export function viewKeyRelease(score: Score, e: ViewKeyEvent): void {
     notationState(score).controller.keyReleaseEvent(notationKeyEvent(e))
 }
 
 /** C++ inputMethodEvent: text typed into the edited text (commit), or the preedit string of an input method composition */
-export function viewInputText(score: MasterScore, commit: string, preedit = ''): void {
+export function viewInputText(score: Score, commit: string, preedit = ''): void {
     notationState(score).controller.inputMethodEvent(commit, preedit)
 }
 
@@ -2194,7 +2290,7 @@ export interface TextEditingInfo {
 }
 
 /** ends the editing of a text (before saving: ProjectActionsController::saveProjectAt); false if no text was edited */
-export function endTextEditing(score: MasterScore): boolean {
+export function endTextEditing(score: Score): boolean {
     const interaction = notationState(score).interaction
     if (!interaction.isTextEditingStarted()) {
         return false
@@ -2203,7 +2299,7 @@ export function endTextEditing(score: MasterScore): boolean {
     return true
 }
 
-export function textEditingInfo(score: MasterScore): TextEditingInfo {
+export function textEditingInfo(score: Score): TextEditingInfo {
     const interaction = notationState(score).interaction
     const text = interaction.isTextEditingStarted() ? interaction.editedText() : null
     if (!text) {
@@ -2219,12 +2315,12 @@ export function textEditingInfo(score: MasterScore): TextEditingInfo {
 }
 
 /** true while elements, a grip or the lasso are dragged */
-export function isDragging(score: MasterScore): boolean {
+export function isDragging(score: Score): boolean {
     return notationState(score).interaction.isDragStarted()
 }
 
 /** the edit mode overlays: the edited text (cursor, selection, frame), the grips, the lasso */
-function drawEditMode(score: MasterScore, page: EngravingItem, painter: Painter, scaling: number): void {
+function drawEditMode(score: Score, page: EngravingItem, painter: Painter, scaling: number): void {
     const interaction = notationState(score).interaction
     const opt = { isPrinting: false }
     const edited = interaction.editData().element
@@ -2252,7 +2348,7 @@ export interface PageRect {
     height: number
 }
 
-function pageRectOf(score: MasterScore, pageIdx: number, r: RectF): PageRect | null {
+function pageRectOf(score: Score, pageIdx: number, r: RectF): PageRect | null {
     const page = score.pages()[pageIdx]
     if (!page || !r.isValid()) {
         return null
@@ -2266,7 +2362,7 @@ function pageRectOf(score: MasterScore, pageIdx: number, r: RectF): PageRect | n
  * (inches from the page's top left), like moving the mouse over MuseScore's notation view. Returns its bounds for
  * repainting (drawShadowNote), null if it is not shown (not in note input mode or no input position there).
  */
-export function showShadowNote(score: MasterScore, pageIdx: number, x: number, y: number): PageRect | null {
+export function showShadowNote(score: Score, pageIdx: number, x: number, y: number): PageRect | null {
     const pos = pagePointToCanvas(score, pageIdx, x, y)
     const st = notationState(score)
     if (!pos || !st.controller.hoverMove(pos)) {
@@ -2279,7 +2375,7 @@ export function showShadowNote(score: MasterScore, pageIdx: number, x: number, y
 }
 
 /** hides the shadow note (the mouse left the view); returns true if it was shown */
-export function hideShadowNote(score: MasterScore): boolean {
+export function hideShadowNote(score: Score): boolean {
     const shown = score.shadowNote().visible() && score.shadowNote().isValid()
     notationState(score).controller.hoverLeave()
     return shown
@@ -2289,7 +2385,7 @@ export function hideShadowNote(score: MasterScore): boolean {
  * Draws only the shadow note (if shown) onto a transparent canvas, with the same coordinates as drawPage (dpi,
  * region): MuseScore's view paints it over the score.
  */
-export function drawShadowNote(score: MasterScore, pageIdx: number, ctx: Canvas2D,
+export function drawShadowNote(score: Score, pageIdx: number, ctx: Canvas2D,
     options: { dpi?: number; region?: { x: number; y: number; width: number; height: number } } = {}): void {
     const page = score.pages()[pageIdx]
     const note = score.shadowNote()
@@ -2309,7 +2405,7 @@ export function drawShadowNote(score: MasterScore, pageIdx: number, ctx: Canvas2
  * A right click at a point of a page in note input mode removes the note there (MuseScore's "remove-note"); returns
  * false outside of note input mode. The score is laid out again.
  */
-export function rightClickAt(score: MasterScore, pageIdx: number, x: number, y: number): boolean {
+export function rightClickAt(score: Score, pageIdx: number, x: number, y: number): boolean {
     const pos = pagePointToCanvas(score, pageIdx, x, y)
     return !!pos && notationState(score).controller.rightClick(pos)
 }
@@ -2319,10 +2415,10 @@ export function rightClickAt(score: MasterScore, pageIdx: number, x: number, y: 
  * a timer ("realtime-advance" in the automatic real-time mode). Returns a function that removes the listener.
  */
 /** C++ NotationInteraction::findAndSelectChordRest (the "pause-and-select" action): selects the chord/rest at a tick */
-export function findAndSelectChordRest(score: MasterScore, tick: number): void {
+export function findAndSelectChordRest(score: Score, tick: number): void {
     notationState(score).interaction.findAndSelectChordRest(Fraction.fromTicks(tick))
 }
 
-export function onNotationChanged(score: MasterScore, listener: () => void): () => void {
+export function onNotationChanged(score: Score, listener: () => void): () => void {
     return notationState(score).interaction.notationChanged().onNotify(listener)
 }

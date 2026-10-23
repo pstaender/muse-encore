@@ -5,7 +5,7 @@
  */
 import { useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import {
-    PageSettings, createPageSettings, type MasterScore, type PageSettingsSpinBox,
+    PageSettings, createPageSettings, type Score, type PageSettingsSpinBox,
 } from '../../src/index'
 import { qtrc, useLanguage } from '../i18n'
 import { currentScore, scoreChanged } from '../scoreview'
@@ -68,7 +68,7 @@ function DoubleSpinBox({ name, ps, label, onChanged }: {
     )
 }
 
-function PageSettingsDialog({ score, onClose }: { score: MasterScore; onClose: () => void }): React.JSX.Element {
+function PageSettingsDialog({ score, onClose }: { score: Score; onClose: () => void }): React.JSX.Element {
     useLanguage()
     const ref = useRef<HTMLDialogElement>(null)
     const accepted = useRef(false)
@@ -227,7 +227,7 @@ function PageSettingsDialog({ score, onClose }: { score: MasterScore; onClose: (
     )
 }
 
-let s_open: { key: number; score: MasterScore } | null = null
+let s_open: { key: number; score: Score } | null = null
 let s_key = 0
 const listeners = new Set<() => void>()
 

@@ -20,6 +20,7 @@ import type { ElementStyle, EngravingObject } from './engravingobject'
 import { MeasureBase } from './measurebase'
 import { Pid } from './property'
 import { Text } from './text'
+import type { InsertMeasureOptions } from '../editing/edit'
 
 const FRET_BOX_DIAGRAMS_SEPARATOR = ','
 
@@ -85,6 +86,21 @@ export abstract class Box extends MeasureBase {
     setBottomGap(val: Spatium): void { this.m_bottomGap = val }
     isAutoSizeEnabled(): boolean { return this.m_isAutoSizeEnabled }
     setAutoSizeEnabled(val: boolean): void { this.m_isAutoSizeEnabled = val }
+
+    copyValues(origin: Box): void {
+        this.m_boxHeight = origin.boxHeight()
+        this.m_boxWidth = origin.boxWidth()
+
+        const factor = this.magS() / origin.magS()
+        this.m_bottomGap = origin.bottomGap().times(factor)
+        this.m_topGap = origin.topGap().times(factor)
+        this.m_bottomMargin = origin.bottomMargin() * factor
+        this.m_topMargin = origin.topMargin() * factor
+        this.m_leftMargin = origin.leftMargin() * factor
+        this.m_rightMargin = origin.rightMargin() * factor
+
+        this.setSizeIsSpatiumDependent(origin.sizeIsSpatiumDependent())
+    }
 
     isTitleFrame(): boolean {
         return this.score().first() === (this as unknown as MeasureBase) && this.isVBox()
@@ -160,6 +176,97 @@ export abstract class Box extends MeasureBase {
             return !this.isTitleFrame()
         default:
             return super.propertyDefault(id)
+        }
+    }
+
+    override manageExclusionFromParts(exclude: boolean): void {
+        // manage Layout Breaks - remove old ones first
+        const sectionBreak = this.sectionBreakElement()
+        if (sectionBreak) {
+            sectionBreak.manageExclusionFromParts(true)
+        }
+
+        const titleFrame = this.isTitleFrame()
+        if (exclude) {
+            const links = [...this.linkList()]
+            for (const linkedObject of links) {
+                // Only remove title frame from score
+                if (linkedObject.score() === this.score()
+                    || (!this.score().isMaster() && titleFrame && !linkedObject.score().isMaster())) {
+                    continue
+                }
+                const linkedItem = linkedObject as EngravingItem
+                if (linkedItem.selected()) {
+                    linkedItem.score().deselect(linkedItem)
+                }
+                linkedItem.score().undoRemoveElement(linkedItem, false)
+                linkedItem.undoUnlink()
+            }
+
+            // manage Layout Breaks - there are no linked boxes, so add linked Line Breaks to previous measure
+            if (sectionBreak && !titleFrame) {
+                const prevMeasure = this.prevMeasure()
+                if (prevMeasure) {
+                    for (const score of this.masterScore().scoreList()) {
+                        if (score === this.score()) {
+                            continue
+                        }
+                        const localPrevMeasure = score.tick2measure(prevMeasure.tick())
+                        if (localPrevMeasure) {
+                            const newSectionBreak = sectionBreak.linkedClone()
+                            newSectionBreak.setScore(score)
+                            newSectionBreak.setParent(localPrevMeasure)
+                            score.doUndoAddElement(newSectionBreak)
+                        }
+                    }
+                }
+            }
+        } else {
+            for (const score of this.masterScore().scoreList()) {
+                if (score === this.score() || (titleFrame && !this.score().isMaster() && !score.isMaster())) {
+                    continue
+                }
+
+                const newMB = this.next() ? this.next()!.getInScore(score, true) : null
+                // Score::InsertMeasureOptions (editing/edit.ts, not imported here: import cycle)
+                const options: InsertMeasureOptions = {
+                    createEmptyMeasures: false, moveSignaturesClef: true, needDeselectAll: true, cloneBoxToAllParts: false,
+                    moveStaffTypeChanges: true, ignoreBarLines: false,
+                }
+                const newFrame = score.insertBox(this.type(), newMB, options)!
+                newFrame.setExcludeFromOtherParts(false)
+                // newFrame->setSizeIsSpatiumDependent(!titleFrame);
+
+                if (!this.isFBox()) {
+                    for (const item of this.el()) {
+                        // Don't add instrument name from current part
+                        if (item.isText() && (item as Text).textStyleType() === TextStyleType.INSTRUMENT_EXCERPT) {
+                            continue
+                        }
+                        // add frame items (Layout Break, Title, ...)
+                        newFrame.add(item.linkedClone())
+                    }
+                }
+
+                if (this.isTBox()) {
+                    const thisText = (this as unknown as TBox).text()
+                    newFrame.add(thisText.linkedClone())
+                }
+
+                if (!score.isMaster() && titleFrame) {
+                    // Title frame - add part name
+                    const partLabel = score.name()
+                    if (partLabel) {
+                        const txt = new Text(newFrame, TextStyleType.INSTRUMENT_EXCERPT)
+                        txt.setPlainText(partLabel)
+                        newFrame.add(txt)
+
+                        score.setMetaTag('partName', partLabel)
+                    }
+                }
+
+                newFrame.linkTo(this)
+            }
         }
     }
 }

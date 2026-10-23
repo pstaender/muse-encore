@@ -12,7 +12,7 @@ import { useSyncExternalStore } from 'react'
 import {
     BoundaryTick, CTRL_PROGRAM, LoopBoundaryType, ME_CONTROLLER, ME_NOTEON, ME_PITCHBEND, findAndSelectChordRest,
     notationPlayback, rangeSelectionPartIds, selectionPlaybackInfo, setPlaybackController, type EngravingItem,
-    type IPlaybackController, type MasterScore, type MeasureBeat, type NoteVal, type PlayParams, type PlaybackChannel,
+    type IPlaybackController, type MasterScore, type Score, type MeasureBeat, type NoteVal, type PlayParams, type PlaybackChannel,
     type PlaybackMidiEvent, type Segment,
 } from '../../src/index'
 import { actionsChanged, registerAction } from '../actions/actions'
@@ -140,7 +140,7 @@ function resumeAudio(): void {
 //   the events of the score
 // ---------------------------------------------------------------------------------
 
-let s_score: MasterScore | null = null
+let s_score: Score | null = null
 let s_dirty = true
 let s_channels: PlaybackChannel[] = []
 let s_metronomeChannel = 0

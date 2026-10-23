@@ -74,6 +74,7 @@ export class Staff extends EngravingItem {
         super(ElementType.STAFF, null)
         this.m_part = part
         this.setScore(part.score())
+        this.initFromStaffType(null)
     }
 
     id(): string { return this.m_id }
@@ -482,6 +483,47 @@ export class Staff extends EngravingItem {
         this.setDefaultClefType(t.clefType(cidx))
     }
 
+    /** the staff of the score with the same ID (linked staves of excerpts share their ID) */
+    override findLinkedInScore(score: import('./score').Score | null): Staff | null {
+        if (!score) {
+            return null
+        }
+        for (const staff of score.staves()) {
+            if (staff.id() === this.id()) {
+                return staff
+            }
+        }
+
+        return null
+    }
+
+    /** C++ init(const Staff*): the settings of another staff (a linked staff of an excerpt) */
+    initFromStaff(s: Staff): void {
+        this.m_id = s.m_id
+
+        this.setStaffType(new Fraction(0, 1), s.m_staffTypeList.staffType(new Fraction(0, 1)))
+        const changes = s.m_staffTypeList.staffTypeChanges()
+        for (let i = 0; i < changes.size(); ++i) {
+            this.setStaffType(Fraction.fromTicks(changes.keyAt(i)), changes.valueAt(i).clone())
+        }
+
+        this.setDefaultClefType(s.defaultClefType())
+        this.m_barLineFrom = s.m_barLineFrom
+        this.m_barLineTo = s.m_barLineTo
+        this.m_hideWhenEmpty = s.m_hideWhenEmpty
+        this.m_cutaway = s.m_cutaway
+        this.m_showIfEntireSystemEmpty = s.m_showIfEntireSystemEmpty
+        this.m_hideSystemBarLine = s.m_hideSystemBarLine
+        this.m_mergeMatchingRests = s.m_mergeMatchingRests
+        this.setColor(s.color())
+        this.m_userDist = s.m_userDist
+        this.m_visibilityVoices = [...s.m_visibilityVoices]
+        this.m_capoMap = new SortedMap<CapoParams>()
+        for (let i = 0; i < s.m_capoMap.size(); ++i) {
+            this.m_capoMap.set(s.m_capoMap.keyAt(i), s.m_capoMap.valueAt(i))
+        }
+    }
+
     /** list of linked staves; TODO(port): linked staves (excerpts) */
     staffList(): Staff[] { return [this] }
 
@@ -616,7 +658,53 @@ export class Staff extends EngravingItem {
     userDist(): Spatium { return this.m_userDist }
     setUserDist(val: Spatium): void { this.m_userDist = val }
 
-    isVoiceVisible(voice: number): boolean { return this.m_visibilityVoices[voice] }
+    visibilityVoices(): readonly boolean[] { return this.m_visibilityVoices }
+
+    isVoiceVisible(voice: number): boolean {
+        if (voice >= VOICES) {
+            return false
+        }
+
+        return this.m_visibilityVoices[voice]
+    }
+
+    setVoiceVisible(voice: number, visible: boolean): void {
+        if (voice >= VOICES) {
+            return
+        }
+
+        this.m_visibilityVoices[voice] = visible
+    }
+
+    canDisableVoice(): boolean {
+        return this.m_visibilityVoices.filter(v => v).length > 1
+    }
+
+    /** tracks: C++ TracksMap (std::multimap<master track, track>) as pairs sorted by the master track */
+    updateVisibilityVoices(masterStaff: Staff, tracks: ReadonlyArray<readonly [number, number]>): void {
+        if (!tracks.length) {
+            this.m_visibilityVoices = [true, true, true, true]
+            return
+        }
+
+        const voices = [false, false, false, false]
+
+        const masterStaffIdx = masterStaff.idx()
+        const staffIdx = this.idx()
+
+        let voiceIndex = 0
+        for (let voice = 0; voice < VOICES; voice++) {
+            const masterTrack = masterStaffIdx * VOICES + voice % VOICES
+            const track = staffIdx * VOICES + voiceIndex % VOICES
+            const isVoiceVisible = tracks.some(([k, v]) => k === masterTrack && v === track)
+            if (isVoiceVisible) {
+                voices[voice] = true
+                voiceIndex++
+            }
+        }
+
+        this.m_visibilityVoices = voices
+    }
 
     shouldShowMeasureNumbers(): boolean {
         const placementMode = this.style().styleV(Sid.measureNumberPlacementMode) as MeasureNumberPlacement

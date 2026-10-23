@@ -1427,3 +1427,6 @@ dialog.project-properties .file-info { border-top: 1px solid var(--border); padd
 .file-info-row .property-info .property-name { width: auto; }
 .property-info .property-value { color: var(--muted); overflow-wrap: anywhere; }
 dialog.project-properties .dialog-buttons .spacer { flex: 1; }
+.notation-tab { cursor: default; border-bottom-color: transparent; }
+.notation-tab[aria-selected="true"] { border-bottom-color: var(--accent); }
+.notation-tab:not([aria-selected="true"]) .notation-tab-title { font-weight: 400; }

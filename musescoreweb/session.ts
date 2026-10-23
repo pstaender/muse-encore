@@ -16,7 +16,7 @@ import {
 import { baseName, isMsczName, msczFileName, pickFileToOpen, saveToComputer, writeFile } from './files'
 import { arg, qtrc } from './i18n'
 import {
-    clearScore, currentScore, fontsReady, handlers, hideBusy, resumeBusy, scoreChanged, scoreSaved, setScoreName, setStatus, showBusy,
+    clearScore, currentMasterScore, currentScore, fontsReady, handlers, hideBusy, resumeBusy, scoreChanged, scoreSaved, setScoreName, setStatus, showBusy,
     showScore, viewShown,
 } from './scoreview'
 import { settings, updateSettings, type StoredMigrationOptions } from './settings'
@@ -425,12 +425,13 @@ export async function createNewScore(options: NewScoreOptions): Promise<void> {
 // ---------------------------------------------------------------------------------
 
 export function canSave(): boolean {
-    return !!state.current && !!currentScore()
+    return !!state.current && !!currentMasterScore()
 }
 
 /** ProjectActionsController::saveProjectAt: an edited text is ended first */
-function endEditing(s: MasterScore): void {
-    if (endTextEditing(s)) {
+function endEditing(_s: MasterScore): void {
+    const s = currentScore() // the text is edited in the current notation (a part or the score)
+    if (s && endTextEditing(s)) {
         scoreChanged(false)
     }
 }
@@ -460,7 +461,7 @@ function saved(s: MasterScore, current: CurrentScore, where: string): void {
  * its file on the computer if there is one.
  */
 export async function saveScore(): Promise<boolean> {
-    const s = currentScore()
+    const s = currentMasterScore()
     const current = state.current
     if (!s || !current) {
         return false
@@ -497,7 +498,7 @@ export async function saveScore(): Promise<boolean> {
 /** File > Save as: asks for the name (and whether to save to the computer, too) and saves the score as a new score */
 export async function saveScoreAs(): Promise<boolean> {
     const current = state.current
-    if (!currentScore() || !current) {
+    if (!currentMasterScore() || !current) {
         return false
     }
     // ProjectConfiguration::defaultSavingFilePath: the title of a new score, otherwise the file name
@@ -515,7 +516,7 @@ export async function saveScoreAs(): Promise<boolean> {
 }
 
 async function saveAs(name: string, toComputer: boolean): Promise<boolean> {
-    const s = currentScore()
+    const s = currentMasterScore()
     const current = state.current
     if (!s || !current) {
         return false
@@ -561,7 +562,7 @@ async function saveAs(name: string, toComputer: boolean): Promise<boolean> {
 
 /** File > Save a copy: saves the score on the computer (OpenSaveProjectScenario::askLocalPath: "<name> - copy") */
 export async function saveCopy(): Promise<void> {
-    const s = currentScore()
+    const s = currentMasterScore()
     if (!s || !state.current) {
         return
     }
@@ -591,7 +592,7 @@ async function closeOpenedScore(goToHome = false): Promise<boolean> {
     if (!state.current) {
         return true
     }
-    const s = currentScore()
+    const s = currentMasterScore()
     if (s && isModified(s)) {
         const answer = await ask<SaveChangesAnswer | undefined>('saveChanges')
         if (!answer || answer === 'cancel' || (answer === 'save' && !(await saveScore()))) {
@@ -650,7 +651,7 @@ handlers.openFile = (f) => void openFile(f)
 
 // unsaved changes: the browser asks before the page is left
 window.addEventListener('beforeunload', (e) => {
-    const s = currentScore()
+    const s = currentMasterScore()
     if (s && isModified(s)) {
         e.preventDefault()
     }

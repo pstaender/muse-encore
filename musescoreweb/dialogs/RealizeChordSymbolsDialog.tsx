@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import {
-    HDuration, Voicing, realizableChordSymbols, realizeChordSymbols, type MasterScore, type RealizableChordSymbol,
+    HDuration, Voicing, realizableChordSymbols, realizeChordSymbols, type Score, type RealizableChordSymbol,
 } from '../../src/index'
 import { qtrc, useLanguage } from '../i18n'
 import { currentScore, scoreChanged } from '../scoreview'
@@ -14,7 +14,7 @@ import { currentScore, scoreChanged } from '../scoreview'
 const tr = (s: string): string => qtrc('RealizeHarmonyDialogBase', s)
 const trv = (s: string): string => qtrc('VoicingSelect', s)
 
-function RealizeChordSymbolsDialog({ score, onClose }: { score: MasterScore; onClose: () => void }): React.JSX.Element {
+function RealizeChordSymbolsDialog({ score, onClose }: { score: Score; onClose: () => void }): React.JSX.Element {
     useLanguage()
     const ref = useRef<HTMLDialogElement>(null)
     const [chords] = useState<RealizableChordSymbol[]>(() => realizableChordSymbols(score))
@@ -94,7 +94,7 @@ function RealizeChordSymbolsDialog({ score, onClose }: { score: MasterScore; onC
     )
 }
 
-let s_open: { key: number; score: MasterScore } | null = null
+let s_open: { key: number; score: Score } | null = null
 let s_key = 0
 const listeners = new Set<() => void>()
 

@@ -1046,6 +1046,50 @@ describe.skipIf(!CHROME || !hasSubmodule)('musescoreweb (editor)', () => {
         await context.close()
     }, 120000)
 
+    it('opens a part from the Parts dialog and edits it', async () => {
+        const { page, context } = await newPage()
+        await context.route(`${SCORE_HOST}parts.mscx`, route => route.fulfill({
+            body: readFileSync(`${ROOT}MuseScore/src/engraving/tests/parts_data/part-all.mscx`),
+            headers: { 'access-control-allow-origin': '*' },
+        }))
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}parts.mscx`)}`)
+        await scoreShown(page)
+        expect(await page.locator('.notation-tab').count()).toBe(1)
+
+        // File > Parts…: the parts of the instruments (not created yet); select both (Shift+click) and open them
+        await page.click('.menubar > button:has-text("File")')
+        await page.click('.menu-popup .menu-item:has-text("Parts…")')
+        await page.waitForSelector('dialog.parts-dialog[open]')
+        expect(await page.$$eval('dialog.parts-dialog .part-title', els => els.map(e => e.textContent))).toEqual(['Alto', 'Tenor'])
+        expect(await page.isDisabled('dialog.parts-dialog .dialog-buttons .primary')).toBe(true)
+        await page.click('dialog.parts-dialog .part-row >> nth=0')
+        await page.click('dialog.parts-dialog .part-row >> nth=1', { modifiers: ['Shift'] })
+        await page.click('dialog.parts-dialog .dialog-buttons .primary') // Open selected
+        await page.waitForSelector('dialog.parts-dialog', { state: 'detached' })
+        await page.waitForFunction(() => document.querySelectorAll('.notation-tab').length === 3)
+        expect(await page.textContent('.notation-tab[aria-selected="true"] .notation-tab-title')).toBe('Tenor')
+        // creating the parts is a change of the score
+        await page.waitForFunction(() => document.getElementById('title')!.textContent!.startsWith('*'))
+
+        // editing in the part: one more undo step, undo reverts it
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+f')
+        await page.keyboard.type('1')
+        await page.keyboard.press('Enter')
+        await page.waitForFunction(() => /^Range selection/.test(document.getElementById('status')!.textContent!))
+        await page.click('.menubar > button:has-text("Format")')
+        await page.hover('.menu-item:has-text("Stretch")')
+        await page.click('.menu-item:has-text("Increase layout stretch")')
+        await page.focus('#viewport')
+        await page.keyboard.press('ControlOrMeta+z') // the stretch
+        await page.keyboard.press('ControlOrMeta+z') // the parts
+        await page.waitForFunction(() => !document.getElementById('title')!.textContent!.startsWith('*'))
+        // the undone parts: their tabs are gone
+        await page.waitForFunction(() => document.querySelectorAll('.notation-tab').length === 1)
+        expect(await page.getAttribute('.notation-tab >> nth=0', 'aria-selected')).toBe('true')
+        await context.close()
+    }, 120000)
+
     it('selects similar elements from the context menu (Select > Similar, More…)', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)

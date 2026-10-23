@@ -4,13 +4,13 @@
  * the ratio and the number and bracket types (defaults from the score's style); OK puts the tuplet (custom-tuplet).
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { TupletBracketType, TupletNumberType, addCustomTuplet, customTupletDefaults, type MasterScore } from '../../src/index'
+import { TupletBracketType, TupletNumberType, addCustomTuplet, customTupletDefaults, type Score } from '../../src/index'
 import { qtrc, useLanguage } from '../i18n'
 import { currentScore, scoreChanged } from '../scoreview'
 
 const tr = (s: string, disambiguation = ''): string => qtrc('TupletDialog', s, disambiguation)
 
-function TupletDialog({ score, onClose }: { score: MasterScore; onClose: () => void }): React.JSX.Element {
+function TupletDialog({ score, onClose }: { score: Score; onClose: () => void }): React.JSX.Element {
     useLanguage()
     const ref = useRef<HTMLDialogElement>(null)
     const [defaults] = useState(() => customTupletDefaults(score))
@@ -91,7 +91,7 @@ function TupletDialog({ score, onClose }: { score: MasterScore; onClose: () => v
     )
 }
 
-let s_open: { key: number; score: MasterScore } | null = null
+let s_open: { key: number; score: Score } | null = null
 let s_key = 0
 const listeners = new Set<() => void>()
 

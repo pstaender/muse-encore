@@ -132,6 +132,10 @@ export class MasterScore extends Score {
                 break
             }
         }
+
+        if (!excerpt.tracksMapping().length) { // SHOULDN'T HAPPEN, protected in the UI, but it happens during read-in!!!
+            excerpt.updateTracksMapping()
+        }
     }
 
     /** C++ createScore(): a part score with the base style */
@@ -151,7 +155,7 @@ export class MasterScore extends Score {
     setExcerptsChanged(val: boolean): void { this.m_cmdState.excerptsChanged = val }
     excerptsChanged(): boolean { return this.m_cmdState.excerptsChanged }
 
-    setPlaylistDirty(): void {
+    override setPlaylistDirty(): void {
         this.m_expandedRepeatList.setScoreChanged()
         this.m_nonExpandedRepeatList.setScoreChanged()
     }

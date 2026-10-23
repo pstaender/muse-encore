@@ -1,12 +1,12 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * MuseScore's IInteractive::error / warning message boxes: a text, an optional detail text and buttons; the promise
+ * MuseScore's IInteractive::error / warning / question message boxes: a text, an optional detail text and buttons; the promise
  * resolves with the clicked button (or 'cancel' if the box was closed with Escape).
  */
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { qtrc, useLanguage } from '../i18n'
 
-export type MessageButton = 'ok' | 'cancel'
+export type MessageButton = 'ok' | 'cancel' | 'yes' | 'no'
 
 interface Message {
     key: number
@@ -43,11 +43,13 @@ function MessageBox({ message }: { message: Message }): React.JSX.Element {
             onClose={() => {
                 const v = ref.current?.returnValue
                 setMessage(null)
-                message.resolve(v === 'ok' ? 'ok' : 'cancel')
+                message.resolve(v === 'ok' || v === 'yes' || v === 'no' ? v : message.buttons.includes('no') ? 'no' : 'cancel')
             }}>
             <p id="message-box-text"><strong>{message.text}</strong></p>
             {message.detail && <p>{message.detail}</p>}
             <form method="dialog" className="dialog-buttons">
+                {message.buttons.includes('no') && <button className="secondary" value="no">{qtrc('global', 'No')}</button>}
+                {message.buttons.includes('yes') && <button className="primary" value="yes" autoFocus>{qtrc('global', 'Yes')}</button>}
                 {message.buttons.includes('cancel') && <button className="secondary" value="cancel">{qtrc('global', 'Cancel')}</button>}
                 {message.buttons.includes('ok') && <button className="primary" value="ok" autoFocus>{qtrc('global', 'OK')}</button>}
             </form>

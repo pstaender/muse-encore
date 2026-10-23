@@ -8,6 +8,7 @@
  */
 
 import type { AlignH } from '../../types/types'
+import type { Excerpt } from '../../dom/excerpt'
 import { Pid, PropertyFlags } from '../../dom/property'
 import type { TextLineBase } from '../../dom/textlinebase'
 import { Spatium } from '../../types/dimension'
@@ -24,6 +25,42 @@ import type { Image } from '../../dom/image'
 const PRE_470_DPI = 360
 
 export class CompatUtils {
+    /** the initial part of excerpts read from older files: the part with the excerpt's name */
+    static assignInitialPartToExcerpts(excerpts: readonly Excerpt[]): void {
+        const assignedPartIdSet = new Set<string>()
+
+        const assignInitialPartId = (excerpt: Excerpt, initialPartId: string): void => {
+            excerpt.setInitialPartId(initialPartId)
+            assignedPartIdSet.add(initialPartId)
+        }
+
+        for (const excerpt of excerpts) {
+            for (const part of excerpt.excerptScore()!.parts()) {
+                if (excerpt.name() === part.partName()) {
+                    assignInitialPartId(excerpt, part.id())
+                    break
+                }
+            }
+        }
+
+        for (const excerpt of excerpts) {
+            if (excerpt.initialPartId()) {
+                continue
+            }
+
+            for (const part of excerpt.excerptScore()!.parts()) {
+                if (assignedPartIdSet.has(part.id())) {
+                    continue
+                }
+
+                if (excerpt.name().includes(part.partName())) {
+                    assignInitialPartId(excerpt, part.id())
+                    break
+                }
+            }
+        }
+    }
+
     /** The frame radius used to be expressed in raster units and divided by 2 at drawing. Since 4.7 it is expressed in spatium. */
     static convertPre470FrameRadius(frameRadius: number): Spatium {
         return new Spatium(frameRadius * (DPI / PRE_470_DPI) / (STYLE_VALUES[Sid.spatium].defaultValue as number) / 2)

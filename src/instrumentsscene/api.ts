@@ -8,7 +8,7 @@
  * `LayoutPanelNotationParts` the app passes (null: the model is read-only).
  */
 
-import type { MasterScore } from '../engraving/dom/masterscore'
+import type { Score } from '../engraving/dom/score'
 import { AbstractLayoutPanelTreeItem, type LayoutPanelNotationParts } from './abstractlayoutpaneltreeitem'
 import { LayoutPanelTreeModel } from './layoutpaneltreemodel'
 import { PartTreeItem } from './parttreeitem'
@@ -24,7 +24,7 @@ export type { RootTreeItem } from './roottreeitem'
 export { LayoutPanelTreeModel, type SelectModifiers } from './layoutpaneltreemodel'
 
 /** the layout panel's tree of a score */
-export function createLayoutPanelModel(score: MasterScore, parts: LayoutPanelNotationParts | null = null): LayoutPanelTreeModel {
+export function createLayoutPanelModel(score: Score, parts: LayoutPanelNotationParts | null = null): LayoutPanelTreeModel {
     return new LayoutPanelTreeModel(score, parts)
 }
 
@@ -49,7 +49,7 @@ export function layoutPanelPartNames(item: AbstractLayoutPanelTreeItem): { name:
 }
 
 /** the score's instrument order (LayoutPanelContextMenuModel: the checked item of "Instrument ordering") */
-export function layoutPanelScoreOrder(score: MasterScore): { id: string; name: string; customized: boolean } {
+export function layoutPanelScoreOrder(score: Score): { id: string; name: string; customized: boolean } {
     const order = score.scoreOrder()
     return { id: order.id, name: order.name, customized: order.customized }
 }

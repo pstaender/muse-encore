@@ -60,6 +60,8 @@ export class MScore {
     static pedalEventsMinTicks = 1 // set by EngravingModule::onInit
     static nudgeStep10 = 1.0 // Ctrl + cursor key (default 1.0)
     static nudgeStep50 = 0.01 // Alt  + cursor key (default 0.01)
+    /** MuseScore's engraving tests: e.g. the excerpts are written into the main file */
+    static testMode = false
 
     // the snap-to-grid raster (NotationConfiguration: horizontal/vertical grid size, default 2 per spatium)
     private static s_hRaster = 2

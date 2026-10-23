@@ -11,7 +11,7 @@ import { Brush, Pen, PenCapStyle, PenJoinStyle, PenStyle } from '../framework/dr
 import { Color } from '../framework/draw/types/color'
 import { PointF, PolygonF, RectF } from '../framework/draw/types/geometry'
 import type { Painter } from '../framework/draw/painter'
-import type { MasterScore } from '../engraving/dom/masterscore'
+import type { Score } from '../engraving/dom/score'
 import { LoopBoundaryType } from '../engraving/dom/score'
 import { SegmentType, type Segment } from '../engraving/dom/segment'
 import { Fraction } from '../engraving/types/fraction'
@@ -25,9 +25,9 @@ export class LoopMarker {
     private m_visible = false
     private m_rect = new RectF()
 
-    constructor(private m_type: LoopBoundaryType, private m_score: MasterScore | null = null) {}
+    constructor(private m_type: LoopBoundaryType, private m_score: Score | null = null) {}
 
-    setScore(score: MasterScore | null): void { this.m_score = score }
+    setScore(score: Score | null): void { this.m_score = score }
     setVisible(visible: boolean): void { this.m_visible = visible }
     visible(): boolean { return this.m_visible }
     rect(): RectF { return this.m_rect }

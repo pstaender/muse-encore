@@ -660,7 +660,10 @@ export abstract class ChordRest extends DurationElement {
 
         this.m_lyrics = []
         for (const l of original.m_lyrics) { // make deep copy
-            const nl = l.clone() as Lyrics // TODO(port): link (Factory::copyLyrics with link)
+            const nl = l.clone() as Lyrics
+            if (this.isLinkedCopy(original)) {
+                nl.linkTo(l)
+            }
             nl.setParent(this)
             nl.setTrack(this.track())
             this.m_lyrics.push(nl)

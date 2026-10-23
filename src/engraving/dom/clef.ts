@@ -235,4 +235,23 @@ export class Clef extends EngravingItem {
         }
         return mtrc('engraving', TConv.translatedUserNameClefType(this.clefType()))
     }
+
+    override manageExclusionFromParts(exclude: boolean): void {
+        if (exclude) {
+            super.manageExclusionFromParts(exclude)
+        } else {
+            const measure = this.findMeasure()
+            let nextEl: EngravingItem | null = measure && this.rtick().eq(measure.ticks()) ? measure.next() : null
+            if (!nextEl) {
+                // TODO(port): EngravingItem::nextElement(): the first element of the staff in the next segments
+                const staffIdx = this.staffIdx()
+                for (let s = this.segment()?.next1() ?? null; s && !nextEl; s = s.next1()) {
+                    for (let track = staffIdx * 4; track < staffIdx * 4 + 4 && !nextEl; ++track) {
+                        nextEl = s.element(track)
+                    }
+                }
+            }
+            this.score().undoChangeClef(this.staff()!, nextEl!, this.clefType(), false, this)
+        }
+    }
 }

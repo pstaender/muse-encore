@@ -10,6 +10,7 @@
  */
 
 import { DPI } from '../engraving/types/types'
+import type { Score } from '../engraving/dom/score'
 import type { MasterScore } from '../engraving/dom/masterscore'
 import type { EngravingItem } from '../engraving/dom/engravingitem'
 import { PointF, type RectF } from '../framework/draw/types/geometry'
@@ -43,16 +44,18 @@ export interface PlaybackPageRect {
 const s_playbacks = new WeakMap<MasterScore, NotationPlayback>()
 
 /** the NotationPlayback of a score (C++ masterNotation->playback()) */
-export function notationPlayback(score: MasterScore): NotationPlayback {
-    let p = s_playbacks.get(score)
+export function notationPlayback(score: Score): NotationPlayback {
+    // a part's playback is the playback of its master score
+    const master = score.masterScore()
+    let p = s_playbacks.get(master)
     if (!p) {
-        p = new NotationPlayback(score)
-        s_playbacks.set(score, p)
+        p = new NotationPlayback(master)
+        s_playbacks.set(master, p)
     }
     return p
 }
 
-function canvasRectToPage(score: MasterScore, r: RectF): PlaybackPageRect | null {
+function canvasRectToPage(score: Score, r: RectF): PlaybackPageRect | null {
     if (!r.isValid() || r.isNull()) {
         return null
     }
@@ -71,7 +74,7 @@ function canvasRectToPage(score: MasterScore, r: RectF): PlaybackPageRect | null
 }
 
 /** the playback cursor at a (raw) tick of the score: PlaybackCursor::resolveCursorRectByTick */
-export function playbackCursorBounds(score: MasterScore, tick: number): PlaybackPageRect | null {
+export function playbackCursorBounds(score: Score, tick: number): PlaybackPageRect | null {
     return canvasRectToPage(score, new PlaybackCursor(score).resolveCursorRectByTick(tick))
 }
 
@@ -87,7 +90,7 @@ export interface LoopMarkerGeometry {
 }
 
 /** the loop in/out markers to draw (none while the loop is disabled) */
-export function loopMarkers(score: MasterScore): LoopMarkerGeometry[] {
+export function loopMarkers(score: Score): LoopMarkerGeometry[] {
     const playback = notationPlayback(score)
     const boundaries = playback.loopBoundaries()
     if (!boundaries.enabled || playback.loopBoundariesIsNull()) {
@@ -123,7 +126,7 @@ export function elementTick(element: EngravingItem): number {
 }
 
 /** the elements selected now (for "play from selection") and the start tick of a range selection (or -1) */
-export function selectionPlaybackInfo(score: MasterScore): { elements: EngravingItem[]; rangeStartTick: number; rangeEndTick: number; isNone: boolean } {
+export function selectionPlaybackInfo(score: Score): { elements: EngravingItem[]; rangeStartTick: number; rangeEndTick: number; isNone: boolean } {
     const sel = score.selection()
     return {
         elements: [...sel.elements()],
@@ -134,7 +137,7 @@ export function selectionPlaybackInfo(score: MasterScore): { elements: Engraving
 }
 
 /** the parts of a range selection (C++ selectionRange()->selectedParts()), their ids */
-export function rangeSelectionPartIds(score: MasterScore): string[] {
+export function rangeSelectionPartIds(score: Score): string[] {
     const sel = score.selection()
     if (!sel.isRange()) {
         return []
@@ -150,7 +153,7 @@ export function rangeSelectionPartIds(score: MasterScore): string[] {
 }
 
 /** the number of systems with staves on a page (AbstractNotationPaintView::needAdjustCanvasVerticallyWhilePlayback) */
-export function pageSystemCount(score: MasterScore, pageIdx: number): number {
+export function pageSystemCount(score: Score, pageIdx: number): number {
     const page = score.pages()[pageIdx]
     return page ? page.systems().filter(s => s.staves().length > 0).length : 0
 }

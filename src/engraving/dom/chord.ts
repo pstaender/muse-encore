@@ -45,6 +45,7 @@ import type { TremoloTwoChord } from './tremolotwochord'
 import type { Trill } from './trill'
 import type { TremoloSingleChord } from './tremolosinglechord'
 import type { Parenthesis } from './parenthesis'
+import { linkHooks } from './engravingobject'
 
 /** factories registered by the corresponding modules (avoid runtime import cycles) */
 export const chordFactories: {
@@ -214,11 +215,15 @@ export class Chord extends ChordRest {
     }
 
     // -----------------------------------------------------------------------------------------------------------------
-    //   copy constructor (C++ Chord(const Chord&, bool link = false); link: TODO(port), use linkedClone())
+    //   copy constructor (C++ Chord(const Chord&, bool link = false); link: copyLinked() / linkedClone())
     // -----------------------------------------------------------------------------------------------------------------
 
     protected override onCloned(original: this): void {
         super.onCloned(original)
+        const link = this.isLinkedCopy(original)
+        if (link) {
+            linkHooks.undoLink(this, original)
+        }
         // members the C++ copy constructor does not copy keep their default values
         this.m_noteParens = []
         this.m_notes = []
@@ -241,13 +246,16 @@ export class Chord extends ChordRest {
         this.m_allowKerningBelow = true
 
         for (const onote of original.m_notes) {
-            this.add(onote.clone())
+            this.add(onote.copyLinked(link)) // Factory::copyNote(*onote, link)
         }
         for (const gn of original.m_graceNotes) {
-            this.add(gn.clone())
+            this.add(gn.copyLinked(link))
         }
         for (const a of original.m_articulations) { // make deep copy
             const na = a.clone() as Articulation
+            if (link) {
+                linkHooks.undoLink(na, a)
+            }
             na.setParent(this)
             na.setTrack(this.track())
             this.m_articulations.push(na)
@@ -272,14 +280,25 @@ export class Chord extends ChordRest {
             this.add(original.m_stemSlash.clone())
         }
         if (original.m_arpeggio) {
-            this.add(original.m_arpeggio.clone())
+            const a = original.m_arpeggio.clone()
+            this.add(a)
+            if (link) {
+                linkHooks.undoLink(a, original.m_arpeggio)
+            }
         }
 
         if (original.m_tremoloSingleChord) {
-            this.add(original.m_tremoloSingleChord.clone())
+            const t = original.m_tremoloSingleChord.clone()
+            if (link) {
+                linkHooks.undoLink(t, original.m_tremoloSingleChord)
+            }
+            this.add(t)
         } else if (original.m_tremoloTwoChord) {
             if (original.m_tremoloTwoChord.chord1() === original) {
                 const t = original.m_tremoloTwoChord.clone() as TremoloTwoChord
+                if (link) {
+                    linkHooks.undoLink(t, original.m_tremoloTwoChord)
+                }
                 t.setChords(this, null)
                 this.add(t)
             }
@@ -292,6 +311,9 @@ export class Chord extends ChordRest {
                 this.add(ncl)
                 if (cl.note()) {
                     (ncl as unknown as { setNote(n: Note | null): void }).setNote(this.findNote(cl.note()!.pitch()))
+                }
+                if (link) {
+                    linkHooks.undoLink(ncl, e)
                 }
             }
         }
@@ -308,6 +330,13 @@ export class Chord extends ChordRest {
             const newRightParen = info.rightParen().clone() as Parenthesis
             newRightParen.setParent(this)
 
+            if (link && !info.leftParen().generated()) {
+                linkHooks.undoLink(newLeftParen, info.leftParen())
+            }
+            if (link && !info.rightParen().generated()) {
+                linkHooks.undoLink(newRightParen, info.rightParen())
+            }
+
             const newNotes: Note[] = []
             for (const note of info.notes()) {
                 newNotes.push(this.findNote(note.pitch())!)
@@ -315,6 +344,15 @@ export class Chord extends ChordRest {
 
             this.m_noteParens.push(new NoteParenthesisInfo(newLeftParen, newRightParen, newNotes))
         }
+    }
+
+    override styleChanged(): void {
+        this.scanElements(e => e.styleChanged())
+    }
+
+    /** C++ linkedClone(): new Chord(*this, true) */
+    override linkedClone(): EngravingItem {
+        return this.copyLinked()
     }
 
     override intrinsicMag(): number {
@@ -745,6 +783,14 @@ export class Chord extends ChordRest {
     setEndsNoteAnchoredLine(val: boolean): void { this.m_endsNoteAnchoredLine = val }
 
     graceNotes(): Chord[] { return this.m_graceNotes }
+
+    graceNoteAt(idx: number): Chord | null {
+        if (idx > this.m_graceNotes.length) {
+            return null
+        }
+
+        return this.m_graceNotes[idx] ?? null
+    }
 
     override removeMarkings(keepTremolo = false): void {
         if (this.m_tremoloSingleChord && !keepTremolo) {

@@ -24,6 +24,8 @@ import { PageSettingsDialogHost } from './dialogs/PageSettingsDialog'
 import { BreaksDialogHost } from './dialogs/BreaksDialog'
 import { MessageBoxHost } from './components/MessageBox'
 import { SearchPopup } from './components/SearchPopup'
+import { NotationSwitchPanel } from './components/NotationSwitchPanel'
+import { PartsDialogHost } from './dialogs/PartsDialog'
 import { ProjectPropertiesDialogHost } from './dialogs/ProjectPropertiesDialog'
 import { ScoreContextMenuHost } from './components/ScoreContextMenu'
 import { PreferencesDialog } from './dialogs/PreferencesDialog'
@@ -36,7 +38,7 @@ import { NewScoreDialog } from './newscore/NewScoreDialog'
 import { PanelDock } from './panels/PanelDock'
 import { resetPalettesState } from './panels/palettes/palettestate'
 import { setChrome, useScoreView, viewport, viewShown } from './scoreview'
-import { answerDialog, closeScore, openStored, saveChangesTitle, setView, showDialog, useSession } from './session'
+import { answerDialog, openStored, saveChangesTitle, setView, showDialog, useSession } from './session'
 import { resetSettings } from './settings'
 import { ToolBarDock, ToolBarRows, toolbarMenuItems } from './toolbars/ToolBars'
 import { restoreDefaultLayout, useToolBarLayout } from './toolbars/layout'
@@ -101,24 +103,6 @@ function StatusBar(): React.JSX.Element {
 }
 
 /** the tab of the open score above the score (MuseScore's NotationSwitchPanel) */
-function NotationTab(): React.JSX.Element | null {
-    useLanguage()
-    const v = useScoreView()
-    if (!v.hasScore) {
-        return null
-    }
-    return (
-        <div className="notation-tabs" role="tablist" aria-label={qtrc('notation', 'Scores')}>
-            <div className="notation-tab" role="tab" aria-selected="true" title={v.tooltip}>
-                <span id="title" className="notation-tab-title">{(v.modified ? '*' : '') + v.title}</span>
-                <button id="clear" className="icon" title={qtrc('global', 'Close')} aria-label={qtrc('global', 'Close')} onClick={closeScore}>
-                    {''}
-                </button>
-            </div>
-        </div>
-    )
-}
-
 export function App(): React.JSX.Element {
     useLanguage()
     useActions()
@@ -189,7 +173,7 @@ export function App(): React.JSX.Element {
             <div className="notation-row" hidden={!score}>
                 <div ref={sideRef} className="side-chrome">{score && <PanelDock />}</div>
                 <div className="score-area">
-                    <NotationTab />
+                    <NotationSwitchPanel />
                     <div ref={viewportHost} className="viewport-host" />
                     {score && <SearchPopup />}
                 </div>
@@ -213,6 +197,7 @@ export function App(): React.JSX.Element {
             <BreaksDialogHost />
             <MessageBoxHost />
             <ProjectPropertiesDialogHost />
+            <PartsDialogHost />
             <ScoreContextMenuHost />
             <SelectInstrumentHost />
             {session.dialog === 'saveChanges' && <SaveChangesDialog key={session.question} onClose={answer} />}

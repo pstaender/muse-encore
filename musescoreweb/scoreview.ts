@@ -12,7 +12,7 @@ import { useSyncExternalStore } from 'react'
 import {
     clearSelection, drawPage, drawPageSvg, setCanLayoutIcons, hasSelection, initEngravingFonts, isModified, isTwoSided, moveSelection,
     noteInputCursorBounds, noteInputState, onImageDecoded, onNotationChanged, pageCount, pageSize, scoreTitle, selectAll, selectionBounds, selectionInfo,
-    SvgGlyphDefs, type MasterScore, setViewMode as setScoreViewMode, type ViewMode, drawContinuousPanel,
+    SvgGlyphDefs, type MasterScore, type Score, currentNotation, onCurrentNotationChanged, setViewMode as setScoreViewMode, type ViewMode, drawContinuousPanel,
     // copy/paste, text editing, drag
     CLIPBOARD_FORMATS, clipboardContents, executeAction, isActionEnabled, isDragging, setClipboardContents, setClipboardImage, textEditingInfo,
     viewInputText, viewKeyPress, viewMouseDoubleClick, viewMouseMove, viewMousePress, viewMouseRelease, viewResetTripleClick,
@@ -105,8 +105,14 @@ export function useScoreView(): ScoreViewState {
     return useSyncExternalStore(onScoreViewChanged, scoreViewState)
 }
 
-export function currentScore(): MasterScore | null {
+/** the score of the current notation: the master score or an open part (C++ currentNotation) */
+export function currentScore(): Score | null {
     return score
+}
+
+/** the master score of the open project (C++ currentMasterNotation; saving, playback, the Parts dialog) */
+export function currentMasterScore(): MasterScore | null {
+    return master
 }
 
 // ---------------------------------------------------------------------------------
@@ -124,7 +130,8 @@ const MAX_CANVAS_SIZE = 16384 // also pages longer than this (continuous views)
 const FIT_MODES = ['page-width', 'whole-page'] as const
 export type FitMode = typeof FIT_MODES[number]
 
-let score: MasterScore | null = null
+let master: MasterScore | null = null
+let score: Score | null = null
 let fileName = ''
 const settings: ViewSettings = { ...appSettings().view }
 const saveSettings = (s: ViewSettings): void => updateSettings('view', s)
@@ -200,7 +207,15 @@ fontsReady.then(() => setStatus('Ready'), (e: Error) => setStatus(`Error: ${e.me
 
 /** shows a laid out score; `name` is the file name (or the title of a new score) */
 export function showScore(s: MasterScore, name: string): void {
+    master = s
+    fileName = name
+    showNotation(currentNotation(s))
+}
+
+/** shows the score of a notation (the master score or a part) */
+function showNotation(s: Score): void {
     unsubscribeNotation?.()
+    removeShadowNote()
     score = s
     // changes made by a timer (real-time note input) are shown like the changes of commands
     unsubscribeNotation = onNotationChanged(s, () => {
@@ -208,17 +223,28 @@ export function showScore(s: MasterScore, name: string): void {
         externalChangeTimer = window.setTimeout(() => scoreChanged(), 0)
     })
     publish({ selection: '', modified: isModified(s), noteInput: noteInputState(s).active, selectionVersion: viewState.selectionVersion + 1, scoreVersion: viewState.scoreVersion + 1 })
-    fileName = name
     printPagesDiv.replaceChildren()
     applyViewMode()
     buildPages()
 }
+
+// NotationSwitchListModel / the Parts dialog: another notation of the open project becomes the current one
+// (the tabs may switch while React renders them: the view is switched afterwards)
+onCurrentNotationChanged((m) => {
+    queueMicrotask(() => {
+        if (m === master && score !== currentNotation(m)) {
+            showNotation(currentNotation(m))
+            viewShown()
+        }
+    })
+})
 
 export function clearScore(): void {
     unsubscribeNotation?.()
     unsubscribeNotation = null
     removeShadowNote()
     score = null
+    master = null
     publish({ selection: '', modified: false, noteInput: false, selectionVersion: viewState.selectionVersion + 1, scoreVersion: viewState.scoreVersion + 1 })
     fileName = ''
     printPagesDiv.replaceChildren()

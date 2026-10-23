@@ -21,7 +21,7 @@ import {
 } from '../types/types'
 import { Sid } from '../style/styledef'
 import { Shape } from '../infrastructure/shape'
-import { EngravingObject, PropertyPropagation } from './engravingobject'
+import { EngravingObject, PropertyPropagation, linkHooks } from './engravingobject'
 import { Pid, PropertyFlags, PropertyGroup, propertyGroup, propertyLink, propertyLinkSameScore, propertyType } from './property'
 import type { Staff } from './staff'
 import type { Part } from './part'
@@ -674,6 +674,7 @@ export abstract class EngravingItem extends EngravingObject {
     isPositionLinkedToMaster(): boolean { return this.m_isPositionLinkedToMaster }
     isAppearanceLinkedToMaster(): boolean { return this.m_isAppearanceLinkedToMaster }
     excludeFromOtherParts(): boolean { return this.m_excludeFromOtherParts }
+    setExcludeFromOtherParts(v: boolean): void { this.m_excludeFromOtherParts = v }
 
     // offset
 
@@ -781,24 +782,35 @@ export abstract class EngravingItem extends EngravingObject {
     /** C++ linkedClone() */
     linkedClone(): EngravingItem {
         const e = this.clone()
-        e.setAutoplace(true)
-        e.linkTo(this)
+        linkHooks.undoLink(e, this)
         return e
+    }
+
+    /** C++ copy constructor with `link`: a copy whose parts are linked to the original's (Chord, Note, Rest, ...) */
+    copyLinked(link = true): this {
+        return link ? this.makeLinkedCopy(() => this.clone() as this) : this.clone() as this
     }
 
     protected override onCloned(original: this): void {
         super.onCloned(original)
+        const link = this.isLinkedCopy(original)
         this.m_layoutData = null
         this.setFlag(ElementFlag.SELECTED, false)
         if (original.m_leftParenthesis) {
             this.m_leftParenthesis = original.m_leftParenthesis.clone()
             this.m_leftParenthesis.setParent(this)
             this.m_leftParenthesis.setTrack(this.track())
+            if (link) {
+                linkHooks.undoLink(this.m_leftParenthesis, original.m_leftParenthesis)
+            }
         }
         if (original.m_rightParenthesis) {
             this.m_rightParenthesis = original.m_rightParenthesis.clone()
             this.m_rightParenthesis.setParent(this)
             this.m_rightParenthesis.setTrack(this.track())
+            if (link) {
+                linkHooks.undoLink(this.m_rightParenthesis, original.m_rightParenthesis)
+            }
         }
     }
 
@@ -1071,7 +1083,6 @@ export abstract class EngravingItem extends EngravingObject {
 
     setbbox(r: RectF): void { this.mutldata().setBbox(r) }
 
-    /** TODO(port): Staff::findLinkedInScore (excerpts): only system objects are found in other scores */
     findLinkedInScore(score: import('./score').Score | null): EngravingItem | null {
         const links = this.links()
         if (!score || !this.staff() || !links || links.length === 0) {
@@ -1088,8 +1099,13 @@ export abstract class EngravingItem extends EngravingObject {
             return null
         }
 
-        // C++: staff()->findLinkedInScore(score): the linked staff in the other score (no excerpts in the port)
-        return null
+        const linkedStaffInScore = this.staff()!.findLinkedInScore(score)
+
+        if (!linkedStaffInScore) {
+            return null
+        }
+
+        return this.findLinkedInStaff(linkedStaffInScore)
     }
 
     findLinkedInStaff(staff: Staff): EngravingItem | null {
@@ -1956,6 +1972,26 @@ export abstract class EngravingItem extends EngravingObject {
 
     /** for debugging */
     override toString(): string { return `${this.typeName()}` }
+
+    /** the element is excluded from (removed from) or included in (added to) the other scores (parts) */
+    manageExclusionFromParts(exclude: boolean): void {
+        if (exclude) {
+            const links = [...this.linkList()]
+            for (const linkedObject of links) {
+                if (linkedObject.score() === this.score()) {
+                    continue
+                }
+                const linkedItem = linkedObject as EngravingItem
+                if (linkedItem.selected()) {
+                    linkedItem.score().deselect(linkedItem)
+                }
+                linkedItem.score().undoRemoveElement(linkedItem, false)
+                linkedItem.undoUnlink()
+            }
+        } else {
+            this.score().undoAddElement(this, /*addToLinkedStaves*/ true, /*ctrlModifier*/ false, this)
+        }
+    }
 }
 
 /** muse::String::number(double, prec = 6): fixed precision without trailing zeros */
