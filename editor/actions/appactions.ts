@@ -190,7 +190,7 @@ export function registerAppActions(): void {
     registerAction('online-handbook', { run: () => openUrl(`https://handbook.musescore.org?tag=handbook&locale=${currentLanguage()}`) })
     registerAction('ask-help', { run: () => openUrl(`https://musescore.org/redirect/post/question?locale=${currentLanguage()}`) })
     registerAction('accessibility-statement', { run: () => openUrl('https://musescore.org/about/musescore-studio-accessibility-statement') })
-    registerAction('about-musescore', { run: () => showDialog('about') })
+    registerAction('about-musescore', { run: () => showDialog('about') }, { title: [null, '&About MuseEncore…'] })
     registerAction('revert-factory', { run: () => showDialog('revertFactory') })
 
     // the states depend on the session, the score view and the toolbars

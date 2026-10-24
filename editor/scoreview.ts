@@ -302,7 +302,7 @@ function makePage(idx: number): HTMLDivElement {
 function publishName(): void {
     const title = score ? scoreBaseName(fileName) : ''
     publish({ hasScore: !!score, title, tooltip: score ? [scoreTitle(score), fileName].filter(Boolean).join(' – ') : '' })
-    document.title = score ? `${title} – MuseEncore Editor` : 'MuseEncore Editor'
+    document.title = score ? `${title} – MuseEncore` : 'MuseEncore'
 }
 
 /** the score got another file name (Save as) */

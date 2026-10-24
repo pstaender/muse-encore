@@ -1176,7 +1176,9 @@ dialog.save-score .hint { max-width: none; }
 dialog.save-score .dialog-buttons .spacer { flex: 1; }
 
 dialog.about { width: min(460px, calc(100vw - 32px)); }
-dialog.about h2 { font-size: 20px; }
+dialog.about h2 { font-size: 20px; margin: 0; }
+.about-header { display: flex; align-items: center; gap: 16px; }
+.about-header p { margin: 4px 0 0; }
 
 /* the text field of the notation's text editing: invisible, at the text cursor (for input methods) */
 .notation-text-input {

@@ -4,7 +4,9 @@
  * follows and links to MuseScore; it is neither an official MuseScore project nor an official fork.
  */
 import { useEffect, useRef } from 'react'
-import { arg, qtrc, useLanguage } from '../i18n'
+import { version } from '../../package.json'
+import logoUrl from '../../logo/muse-encore-logo.svg'
+import { arg, qtrc, useLanguage, webtr } from '../i18n'
 
 const REFERENCE_VERSION = '4.7.5'
 const REFERENCE_REVISION = '3654226'
@@ -17,10 +19,16 @@ export function AboutDialog({ onClose }: { onClose: () => void }): React.JSX.Ele
     }, [])
     return (
         <dialog ref={ref} className="about" aria-labelledby="about-title" onClose={onClose}>
-            <h2 id="about-title">MuseEncore Editor</h2>
+            <div className="about-header">
+                <img src={logoUrl} alt="" width={64} height={64} />
+                <div>
+                    <h2 id="about-title">MuseEncore</h2>
+                    <p>{qtrc('appshell/about', 'Version:')} {version}</p>
+                </div>
+            </div>
             <p>
                 A port of <a href="https://musescore.org" target="_blank" rel="noopener">MuseScore Studio</a> to the web.
-                {' '}{qtrc('appshell/about', 'Version:')} MuseScore Studio {REFERENCE_VERSION}
+                {' '}{webtr('Based on:')} MuseScore Studio {REFERENCE_VERSION}
                 {' '}({qtrc('appshell/about', 'Revision:')} {REFERENCE_REVISION})
             </p>
             <p>MuseEncore is neither an official MuseScore project nor an official fork of MuseScore.</p>

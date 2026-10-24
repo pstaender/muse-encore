@@ -22,7 +22,7 @@ Studio 4.7.5 (included as a git submodule).
 - **MuseEncore Viewer** (`viewer/`): opens, displays and plays scores. It is also available as the npm package
   [muse-encore-viewer](packages/viewer/README.md), to show scores in any web page like an inline PDF viewer
   ([example](https://pstaender.github.io/muse-encore/viewer-package/example/)).
-- **MuseEncore Editor** (`editor/`): a score editor based on the viewer.
+- **MuseEncore** (`editor/`): a score editor based on the viewer.
 
 This is a vibe-coded project: the code is written with an AI coding assistant. Its functionality is tested at a
 high level by a human, in addition to the automated tests that compare every page with MuseScore's own output.
