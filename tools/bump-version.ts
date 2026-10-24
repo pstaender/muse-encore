@@ -3,7 +3,7 @@
  * MuseEncore — port of MuseScore Studio (https://github.com/musescore/MuseScore)
  *
  * Bumps the version of MuseEncore (package.json and package-lock.json) and, if wanted, the one of the npm package
- * muse-encore-viewer (packages/viewer/package.json), commits it ("Bumps version to x.y.z") and creates the tag vx.y.z.
+ * muse-encore-viewer (packages/viewer/package.json, and its CDN URL in packages/viewer/example/index.html), commits it ("Bumps version to x.y.z") and creates the tag vx.y.z.
  * Nothing is pushed or published.
  *
  *   npm run bump-version [-- <version> [<viewer version> | -]]
@@ -21,6 +21,8 @@ import { fileURLToPath } from 'node:url'
 const ROOT = resolve(fileURLToPath(import.meta.url), '../..')
 const FILES = ['package.json', 'package-lock.json'].filter(f => existsSync(join(ROOT, f)))
 const VIEWER_FILE = 'packages/viewer/package.json'
+/** files with the CDN URL of the viewer package (https://cdn.jsdelivr.net/npm/muse-encore-viewer@x.y.z/...) */
+const VIEWER_CDN_FILES = ['packages/viewer/example/index.html'].filter(f => existsSync(join(ROOT, f)))
 const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
 
 function git(...args: string[]): string {
@@ -63,9 +65,15 @@ function setVersion(file: string, version: string): void {
     writeFileSync(path, JSON.stringify(json, null, 2) + '\n')
 }
 
+/** sets the version of the viewer package in its CDN URLs */
+function setCdnVersion(file: string, version: string): void {
+    const path = join(ROOT, file)
+    writeFileSync(path, readFileSync(path, 'utf8').replace(/(muse-encore-viewer@)[^/'"\s]+/g, `$1${version}`))
+}
+
 async function main(rl: Interface): Promise<void> {
-    if (git('status', '--porcelain', '--', ...FILES, VIEWER_FILE)) {
-        fail(`${[...FILES, VIEWER_FILE].join(' / ')} have uncommitted changes`)
+    if (git('status', '--porcelain', '--', ...FILES, VIEWER_FILE, ...VIEWER_CDN_FILES)) {
+        fail(`${[...FILES, VIEWER_FILE, ...VIEWER_CDN_FILES].join(' / ')} have uncommitted changes`)
     }
     const current = readVersion('package.json')
     const ask = async (question: string, suggestion: string): Promise<string> =>
@@ -92,6 +100,10 @@ async function main(rl: Interface): Promise<void> {
     if (viewerVersion) {
         setVersion(VIEWER_FILE, viewerVersion)
         files.push(VIEWER_FILE)
+        for (const file of VIEWER_CDN_FILES) {
+            setCdnVersion(file, viewerVersion)
+            files.push(file)
+        }
     }
     // only the version files, other changes of the working tree stay uncommitted
     const message = `Bumps version to ${version}` + (viewerVersion ? ` (muse-encore-viewer ${viewerVersion})` : '')

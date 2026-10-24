@@ -29,9 +29,9 @@ applyMuseEncoreViewer(document.getElementById('score'), 'scores/example.mscz')
 From a CDN, without a build step:
 
 ```html
-<div id="score" style="height: 600px"></div>
+<div id="score" style="aspect-ratio: 3/4; width: 100%; height: auto;"></div>
 <script type="module">
-    import applyMuseEncoreViewer from 'https://cdn.jsdelivr.net/npm/muse-encore-viewer@0.1.0/dist/muse-encore-viewer.js'
+    import applyMuseEncoreViewer from 'https://cdn.jsdelivr.net/npm/muse-encore-viewer@latest/dist/muse-encore-viewer.js'
 
     applyMuseEncoreViewer('#score', 'scores/example.mscz', { toolbarGroups: { playback: true } })
 </script>
