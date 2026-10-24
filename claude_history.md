@@ -1649,3 +1649,9 @@
   opened (also MuseScore files). The viewer has no dialogs (no GUI behaviour).
 - MuseScore 4.7.5 has no MIDI import panel (only MuseScore 3 had one): not ported.
 - Tests: test/importsettings.test.ts; e2e: the MusicXML question, MIDI warning, Cannot read file, Import preferences.
+
+## 2026-10-24 — Viewer: About dialog
+
+- The keyboard shortcuts dialog (the "?" button) has an "About…" button that opens a separate About dialog: the logo
+  (logo/muse-encore-logo.svg, inlined), "MuseEncore Viewer", the version of the npm package (packages/viewer/package.json)
+  and the GitHub homepage with the GitHub mark. Keyboard shortcuts are off while it is open.
