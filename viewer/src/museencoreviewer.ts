@@ -1177,6 +1177,9 @@ html, body { margin: 0; padding: 0; background: #fff; }
         this.playPosition.disabled = !has
         // the continuous views have one page: no page layout
         btn.layoutH.disabled = btn.layoutV.disabled = !has || !pageView
+        // nor page navigation or centering of a page
+        btn.prev.parentElement!.hidden = !this.m_groups.pageNavigation || !pageView
+        btn.center.hidden = !pageView
         this.zoomSelect.disabled = !has
         this.updateZoomSelect() // the fit modes of the view mode
         this.updatePageInfo()
