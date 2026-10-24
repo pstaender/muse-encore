@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>muse-encore-viewer example (development)</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/minimaxcss@latest/minimax-starter.css"
+    />
+    <style>
+      body {
+        max-width: 960px;
+        margin: 32px auto;
+        padding: 0 16px;
+      }
+      .score {
+        aspect-ratio: 1.5;
+        width: 100%;
+        height: auto;
+        margin: 24px 0;
+        border: 1px solid #ccc;
+        margin-bottom: 6rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>muse-encore-viewer</h1>
+
+    <div id="examples"></div>
+
+    <script type="module">
+      import applyMuseEncoreViewer from "../dist/muse-encore-viewer.js?{timestamp}";
+
+      const url =
+        new URLSearchParams(location.search).get("url") ?? "score.mscz";
+      const options = [
+        { disableToolbar: true },
+        {
+          continuousView: "window-fit",
+          disableToolbar: true,
+        },
+        {
+          continuousView: "horizontal",
+          toolbarGroups: {
+            playback: true,
+            print: false,
+            fullScreen: false,
+            pageView: false,
+          },
+          showStatusBar: true,
+          keyboardShortcuts: true,
+        },
+      ];
+      options.forEach((option) => {
+        const pre = document.createElement("pre");
+        pre.textContent = JSON.stringify(option, null, 2);
+        const div = document.createElement("div");
+        div.classList.add("score");
+        document.getElementById("examples").append(pre, div);
+        applyMuseEncoreViewer(div, url, option);
+      });
+    </script>
+  </body>
+</html>

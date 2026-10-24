@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Builds the npm package "muse-encore-viewer" in packages/viewer: the bundled ES module (viewer/vite.lib.config.ts),
-// its type declarations (from viewer/src/types.ts), the runtime fonts and the license.
+// its type declarations (from viewer/src/types.ts), the runtime fonts and the license; example/auto.html from
+// example/auto_template.html with the build time as the module's query (no stale module from the browser cache).
 // npm run build:viewer-package; then `npm publish` in packages/viewer.
 import { execFileSync } from 'node:child_process'
-import { cpSync, copyFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, copyFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { build } from 'vite'
 
@@ -39,4 +40,8 @@ export default applyMuseEncoreViewer
 rmSync(join(PKG, 'fonts'), { recursive: true, force: true })
 cpSync(join(ROOT, 'fonts'), join(PKG, 'fonts'), { recursive: true, filter: src => !src.endsWith('.DS_Store') })
 copyFileSync(join(ROOT, 'LICENSE'), join(PKG, 'LICENSE'))
+
+const example = readFileSync(join(PKG, 'example/auto_template.html'), 'utf8')
+writeFileSync(join(PKG, 'example/auto.html'),
+    example.replaceAll('../dist/muse-encore-viewer.js?{timestamp}', `../dist/muse-encore-viewer.js?${Date.now()}`))
 console.log(`built ${PKG}`)
