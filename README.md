@@ -4,7 +4,6 @@
 
 * [Run the Editor right now in your browser 🚀](https://pstaender.github.io/musescoreweb/editor/)
 * [Run the Viewer right now in your browser 🚀](https://pstaender.github.io/musescoreweb/viewer/)
-* [Example of the Muse Encore Viewer as inline viewer](https://pstaender.github.io/musescoreweb/packages/viewer/example/)
 
 Overview of demos: [pstaender.github.io/muse-encore](https://pstaender.github.io/muse-encore/)
 
