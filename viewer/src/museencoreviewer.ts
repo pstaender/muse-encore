@@ -279,6 +279,7 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
     private pages: HTMLDivElement[] = []
     private readonly visible = new Set<HTMLDivElement>()
     private renderTimer = 0
+    private scrollRenderTimer = 0
     private reflowTimer = 0
     private layoutVersion = 0 // counts the layouts of the score (the continuous panel repaints after a new one)
     private viewSwitch = 0
@@ -684,6 +685,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         this.removeImageListener()
         this.playback?.dispose()
         clearTimeout(this.renderTimer)
+        clearTimeout(this.scrollRenderTimer)
         clearTimeout(this.reflowTimer)
         clearTimeout(this.toolbarHideTimer)
         clearTimeout(this.dragTimer)
@@ -1622,7 +1624,13 @@ html, body { margin: 0; padding: 0; background: #fff; }
         on(viewport, 'scroll', () => {
             this.updatePageInfo()
             this.scheduleContinuousPanel()
-            this.scheduleRender(60) // tiles of zoomed-in pages follow the view
+            // tiles of zoomed-in pages follow the view, also while it keeps moving (smooth panning while playing)
+            if (!this.scrollRenderTimer) {
+                this.scrollRenderTimer = window.setTimeout(() => {
+                    this.scrollRenderTimer = 0
+                    this.renderVisible()
+                }, 60)
+            }
             if (!this.programmaticScroll) {
                 this.userMovedView()
             }
