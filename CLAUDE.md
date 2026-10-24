@@ -3,7 +3,7 @@
 TypeScript port of the MuseScore Studio engraving engine (reference: **v4.7.5, commit 3654226**).
 Goal: read `.mscz`/`.mscx` files and render them in the browser so that they look exactly like
 the desktop app. License: GPL-3.0-only (same as MuseScore).
-MuseEncore (MuseEncore Editor, MuseEncore Viewer) is neither an official MuseScore project nor an official fork;
+MuseEncore (the editor; with MuseEncore Viewer) is neither an official MuseScore project nor an official fork;
 "MuseScore" only names the original software. The project was called "MuseScore Web" before: the browser storage
 keys and database names (`musescoreweb:*`, `musescoreweb-scores`, `musescore-web-viewer`) keep that name so existing
 users keep their data. The repository is https://github.com/pstaender/muse-encore (GitHub Pages:
@@ -100,7 +100,7 @@ packages/viewer/        the npm package "muse-encore-viewer" (package.json, READ
                         tools/build-viewer-package.ts with viewer/vite.lib.config.ts: one bundled ES module for CDNs)
 shared/                 code of both apps: playback/ (Synthesizer interface, SpessaSynth + MS Basic.sf3 loaded on first use and
                         cached, player.ts scheduler), vite-plugin-sound.ts (serves/copies the soundfont)
-editor/                 MuseEncore Editor, Vite score editor app: React UI (App.tsx, home/, newscore/, dialogs/ mirror MuseScore's
+editor/                 MuseEncore (the editor), Vite score editor app: React UI (App.tsx, home/, newscore/, dialogs/ mirror MuseScore's
                         QML pages), menu bar (menus/appmenu.ts = AppMenuModel), toolbars (toolbars/: docks, note input bar),
                         actions (actions/: MuseScore's UiActions + shortcuts, generated uiactiondata.ts; appactions.ts =
                         the handlers), i18n.ts (MuseScore's translations via vite-plugin-locales.ts; the app's own
@@ -169,6 +169,8 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
   compare-out/musicxml/ref)
 - `npm run compare:mscx` - diff writeMscx/saveMscz output (main .mscx, style, parts) against MuseScore's own re-save
   (`mscore -o out.mscx`, cached in compare-out/mscx/ref); EIDs are normalized
+- `npm run bump-version [-- <version>]` - set the version of package.json (asks, suggesting the next patch version),
+  commit "Bumps version to x.y.z" and tag vx.y.z (no push)
 - `npx tsx tools/gen/<gen-*.ts> MuseScore` - regenerate tables from the reference sources (symids, styledef,
   property, typesconv, noteheads, accidentals, textstyle, drumset, instrumenttemplates, scoreorders, soundmapping, harmonytodiagram [-> fonts], uiactions [-> editor/actions])
 

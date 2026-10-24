@@ -1,6 +1,6 @@
 {
-  "name": "museencore",
-  "version": "0.1.0",
+  "name": "muse-encore",
+  "version": "1.1.1",
   "description": "TypeScript port of the MuseScore Studio (v4.7.5) engraving engine: read .mscz/.mscx files and render them in the browser",
   "license": "GPL-3.0-only",
   "type": "module",
@@ -35,7 +35,8 @@
     "compare:all": "tsx tools/compare-all.ts",
     "compare:mscx": "tsx tools/compare-mscx.ts",
     "compare:musicxml": "tsx tools/compare-musicxml.ts",
-    "roundtrip": "tsx tools/roundtrip.ts"
+    "roundtrip": "tsx tools/roundtrip.ts",
+    "bump-version": "tsx tools/bump-version.ts"
   },
   "dependencies": {
     "fflate": "^0.8.3",
