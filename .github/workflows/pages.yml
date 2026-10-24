@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Builds the viewer and the editor and publishes them on GitHub Pages:
-# https://pstaender.github.io/muse-encore/ (landing page), .../viewer/ and .../editor/
+# https://pstaender.github.io/muse-encore/ (landing page), .../viewer/, .../editor/ and the example of the npm package
+# muse-encore-viewer: .../viewer-package/example/
 name: GitHub Pages
 
 on:
@@ -34,6 +35,12 @@ jobs:
         run: npx vite build viewer --base=/${{ github.event.repository.name }}/viewer/ --outDir ../_site/viewer
       - name: Build the editor
         run: npx vite build editor --base=/${{ github.event.repository.name }}/editor/ --outDir ../_site/editor
+      - name: Build the viewer package and its example
+        # the example imports ../dist/muse-encore-viewer.js, which loads the fonts from ../fonts/
+        run: |
+          npm run build:viewer-package
+          mkdir -p _site/viewer-package
+          cp -R packages/viewer/dist packages/viewer/fonts packages/viewer/example _site/viewer-package/
       - name: Landing page
         run: cp .github/pages/index.html _site/ && touch _site/.nojekyll
       - uses: actions/configure-pages@v5

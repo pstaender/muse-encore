@@ -2,8 +2,9 @@
 
 ### A browser-native port of MuseScore
 
-* [Run the Editor right now in your browser 🚀](https://pstaender.github.io/musescoreweb/editor/)
-* [Run the Viewer right now in your browser 🚀](https://pstaender.github.io/musescoreweb/viewer/)
+* [Run the Editor right now in your browser 🚀](https://pstaender.github.io/muse-encore/editor/)
+* [Run the Viewer right now in your browser 🚀](https://pstaender.github.io/muse-encore/viewer/)
+* [Scores embedded in a web page with the viewer package 🎼](https://pstaender.github.io/muse-encore/viewer-package/example/)
 
 Overview of demos: [pstaender.github.io/muse-encore](https://pstaender.github.io/muse-encore/)
 
@@ -19,7 +20,8 @@ Studio 4.7.5 (included as a git submodule).
 > MuseScore project. "MuseScore" is used here only to name the original software this project is based on.
 
 - **MuseEncore Viewer** (`viewer/`): opens, displays and plays scores. It is also available as the npm package
-  [muse-encore-viewer](packages/viewer/README.md), to show scores in any web page like an inline PDF viewer.
+  [muse-encore-viewer](packages/viewer/README.md), to show scores in any web page like an inline PDF viewer
+  ([example](https://pstaender.github.io/muse-encore/viewer-package/example/)).
 - **MuseEncore Editor** (`editor/`): a score editor based on the viewer.
 
 This is a vibe-coded project: the code is written with an AI coding assistant. Its functionality is tested at a
