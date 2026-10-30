@@ -331,12 +331,16 @@ export function pageInches(idx: number): { width: number; height: number } | nul
 
 let s_programmaticScroll = 0
 
+/** a rectangle of a page (inches) */
+type Rect = { x: number; y: number; width: number; height: number }
+
 /**
  * C++ AbstractNotationPaintView::adjustCanvasPosition (and alignToCurrentPageBorder): moves the view so that a
- * rectangle of a page (inches) is visible, with a border; returns true if the view moved
+ * rectangle of a page (inches) is visible, with a border; returns true if the view moved. Unlike C++, the continuous
+ * views keep the position across their direction (vertical in the horizontal view, horizontal in the vertical one)
+ * unless the rectangle is moved into the view on that axis: alignToCurrentPageBorder would align it to the page there.
  */
-export function adjustViewToRect(pageIdx: number, r: { x: number; y: number; width: number; height: number }, adjustVertically: boolean,
-                                 borderInches: number): boolean {
+export function adjustViewToRect(pageIdx: number, r: Rect, adjustVertically: boolean, borderInches: number): boolean {
     const el = pages[pageIdx]
     if (!el || !score) {
         return false
@@ -344,7 +348,10 @@ export function adjustViewToRect(pageIdx: number, r: { x: number; y: number; wid
     const pr = el.getBoundingClientRect()
     const f = pr.width / pageSize(score, pageIdx).width
     const vr = viewport.getBoundingClientRect()
-    const view = { left: vr.left, top: vr.top, width: viewport.clientWidth, height: viewport.clientHeight }
+    // account for the continuous panel if panning in the continuous view
+    const panelWidth = settings.viewMode !== 'continuous-horizontal' ? 0
+        : panelBox.isConnected ? panelBox.getBoundingClientRect().width : s_panelWidth
+    const view = { left: vr.left + panelWidth, top: vr.top, width: viewport.clientWidth - panelWidth, height: viewport.clientHeight }
     const show = { left: pr.left + r.x * f, top: pr.top + r.y * f, width: r.width * f, height: r.height * f }
     const right = (b: { left: number; width: number }): number => b.left + b.width
     const bottom = (b: { top: number; height: number }): number => b.top + b.height
@@ -357,45 +364,70 @@ export function adjustViewToRect(pageIdx: number, r: { x: number; y: number; wid
     }
 
     const border = borderInches * f
-    const pos = { x: view.left, y: view.top }
+    const pos = { x: vr.left, y: vr.top }
+    let movedX = false
+    let movedY = false
 
+    // the rectangle is placed right of the panel
+    let afterPanel = false
     if (show.left < view.left) {
-        pos.x = show.left - border
+        pos.x = show.left - border - panelWidth
+        movedX = afterPanel = true
     } else if (show.left > right(view)) {
-        pos.x = right(show) - view.width + border
+        pos.x = right(show) - viewport.clientWidth + border
+        movedX = true
     } else if (view.width >= show.width && right(show) > right(view)) {
-        pos.x = show.left - border
+        pos.x = show.left - border - panelWidth
+        movedX = afterPanel = true
     }
 
     if (adjustVertically) {
         if (show.top < view.top && bottom(show) < bottom(view)) {
             pos.y = show.top - border
+            movedY = true
         } else if (show.top > bottom(view)) {
             pos.y = bottom(show) - view.height + border
+            movedY = true
         } else if (view.height >= show.height && bottom(show) > bottom(view)) {
             pos.y = show.top - border
+            movedY = true
         }
     }
 
     // alignToCurrentPageBorder
-    if (pos.x < pr.left || view.width >= pr.width) {
-        pos.x = pr.left
-    } else if (view.width < pr.width && view.width + pos.x > pr.right) {
-        pos.x = pr.right - view.width
+    const fullWidth = viewport.clientWidth
+    if (settings.viewMode !== 'continuous-vertical' || movedX) {
+        if (pos.x < pr.left || fullWidth >= pr.width) {
+            pos.x = pr.left
+        } else if (fullWidth < pr.width && fullWidth + pos.x > pr.right) {
+            pos.x = pr.right - fullWidth
+        }
     }
-    if (pos.y < pr.top || view.height >= pr.height) {
-        pos.y = pr.top
-    } else if (view.height < pr.height && view.height + pos.y > pr.bottom) {
-        pos.y = pr.bottom - view.height
+    if (settings.viewMode !== 'continuous-horizontal' || movedY) {
+        if (pos.y < pr.top || view.height >= pr.height) {
+            pos.y = pr.top
+        } else if (view.height < pr.height && view.height + pos.y > pr.bottom) {
+            pos.y = pr.bottom - view.height
+        }
     }
 
-    const dx = Math.round(pos.x - view.left)
-    const dy = Math.round(pos.y - view.top)
+    const dx = Math.round(pos.x - vr.left)
+    const dy = Math.round(pos.y - vr.top)
     if (!dx && !dy) {
         return false
     }
     s_programmaticScroll++
     viewport.scrollBy(dx, dy)
+    if (afterPanel && settings.viewMode === 'continuous-horizontal') {
+        // not in C++: the panel is drawn for the new position now, and the view corrects for its width (unknown when it
+        // was not shown before, e.g. at the start of the score) instead of moving again in the next frame
+        updateContinuousPanel()
+        const d = Math.round((panelBox.isConnected ? panelBox.getBoundingClientRect().width : 0) - panelWidth)
+        if (d) {
+            viewport.scrollBy(-d, 0)
+            updateContinuousPanel()
+        }
+    }
     requestAnimationFrame(() => { s_programmaticScroll = Math.max(0, s_programmaticScroll - 1) })
     return true
 }
@@ -404,15 +436,19 @@ export function adjustViewToRect(pageIdx: number, r: { x: number; y: number; wid
  * not in MuseScore (the playalong): moves the view so that a rectangle of a page (inches) is fully visible, not covered
  * by the continuous panel at the left edge, with a margin; if it has to move, `context` (a rectangle containing
  * `r`, e.g. with the previous measure) is shown instead when it fits. The rectangle is placed at the left (top) of the
- * view so that what follows is visible. Returns true if the view moved.
+ * view so that what follows is visible. `ahead` (what follows `r` on the page, e.g. the next measure) turns the view one
+ * step early: it moves when `ahead` is cut off at the right (bottom), so the measure played next is visible before it is
+ * reached. The continuous views only move in their direction (the horizontal one only horizontally, the vertical one
+ * only vertically): the position across it stays where the user put it. Returns true if the view moved.
  */
-export function showRectInView(pageIdx: number, r: { x: number; y: number; width: number; height: number },
-                               context?: { x: number; y: number; width: number; height: number }, marginInches = 0.2,
+export function showRectInView(pageIdx: number, r: Rect, context?: Rect, ahead?: Rect, marginInches = 0.2,
                                recheck = true): boolean {
     const el = pages[pageIdx]
     if (!el || !score) {
         return false
     }
+    const followX = settings.viewMode !== 'continuous-vertical'
+    const followY = settings.viewMode !== 'continuous-horizontal'
     const pr = el.getBoundingClientRect()
     const f = pr.width / pageSize(score, pageIdx).width
     const vr = viewport.getBoundingClientRect()
@@ -421,17 +457,19 @@ export function showRectInView(pageIdx: number, r: { x: number; y: number; width
     const inset = settings.viewMode !== 'continuous-horizontal' ? 0
         : panelBox.isConnected ? panelBox.getBoundingClientRect().width : s_panelWidth
     const view = { left: vr.left + inset + margin, top: vr.top + margin, right: vr.left + viewport.clientWidth - margin, bottom: vr.top + viewport.clientHeight - margin }
-    const toView = (x: { x: number; y: number; width: number; height: number }): { left: number; top: number; right: number; bottom: number } =>
+    const toView = (x: Rect): { left: number; top: number; right: number; bottom: number } =>
         ({ left: pr.left + x.x * f, top: pr.top + x.y * f, right: pr.left + (x.x + x.width) * f, bottom: pr.top + (x.y + x.height) * f })
     const show = toView(r)
+    const next = ahead ? toView(ahead) : null
     let dx = 0
     let dy = 0
-    if (show.left < view.left || show.right > view.right) {
+    if (followX && (show.left < view.left || show.right > view.right
+        || (next && next.left >= show.left && next.right > view.right && Math.abs(next.top - show.top) < 1))) {
         const c = context ? toView(context) : null
         const target = c && c.right - c.left <= view.right - view.left ? c : show
         dx = target.left - view.left
     }
-    if (show.top < view.top || show.bottom > view.bottom) {
+    if (followY && (show.top < view.top || show.bottom > view.bottom || (next && next.top > show.top && next.bottom > view.bottom))) {
         dy = show.bottom - show.top <= view.bottom - view.top ? show.top - view.top : show.top - vr.top
     }
     dx = Math.round(dx)
@@ -446,7 +484,7 @@ export function showRectInView(pageIdx: number, r: { x: number; y: number; width
     requestAnimationFrame(() => { s_programmaticScroll = Math.max(0, s_programmaticScroll - 1) })
     if (recheck) {
         // once the panel is drawn for the new position (its width is known then)
-        requestAnimationFrame(() => requestAnimationFrame(() => showRectInView(pageIdx, r, context, marginInches, false)))
+        requestAnimationFrame(() => requestAnimationFrame(() => showRectInView(pageIdx, r, context, ahead, marginInches, false)))
     }
     return viewport.scrollLeft !== left || viewport.scrollTop !== top
 }

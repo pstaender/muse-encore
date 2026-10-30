@@ -32,6 +32,8 @@ export interface PlayalongState {
     number: number
     /** the raw tick of the measure played before it (-1: none) */
     prevTick: number
+    /** the raw tick of the measure played after it (-1: none) */
+    nextTick: number
     count: number
     practice: boolean
     /** the pitches of the last chord heard */
@@ -41,7 +43,7 @@ export interface PlayalongState {
 }
 
 let state: PlayalongState = {
-    active: false, mode: 'playalong', status: 'off', error: '', index: -1, tick: -1, number: 0, prevTick: -1, count: 0,
+    active: false, mode: 'playalong', status: 'off', error: '', index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0,
     practice: settings().playback.playalongPractice, heard: [], latency: 0,
 }
 const listeners = new Set<() => void>()
@@ -174,8 +176,9 @@ function buildFollower(startIndex: number): void {
 function showMeasure(): void {
     const m = s_follower ? s_measures[s_follower.measure()] : undefined
     publish(m
-        ? { index: m.index, tick: m.tick, number: m.number, prevTick: s_measures[m.index - 1]?.tick ?? -1, count: s_measures.length }
-        : { index: -1, tick: -1, number: 0, prevTick: -1, count: 0 })
+        ? { index: m.index, tick: m.tick, number: m.number, prevTick: s_measures[m.index - 1]?.tick ?? -1,
+            nextTick: s_measures[m.index + 1]?.tick ?? -1, count: s_measures.length }
+        : { index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0 })
 }
 
 async function start(): Promise<void> {
@@ -227,7 +230,7 @@ async function stop(): Promise<void> {
     ++s_session
     grouper.clear()
     s_follower = null
-    publish({ active: false, status: 'off', error: '', heard: [], index: -1, tick: -1, number: 0, prevTick: -1, count: 0 })
+    publish({ active: false, status: 'off', error: '', heard: [], index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0 })
     await s_detector?.stop()
 }
 

@@ -1732,4 +1732,12 @@
   align the notes with the levels (the model output ends 15.3 hops before the window end). Stats: rejected, floorDb.
   The microphone is opened without automatic gain control, noise suppression and echo cancellation. Fixed: the close
   buttons of the score tab and of the instrument dialogs had lost their icon glyph (empty string): ICON_CODES.CLOSE_X_ROUNDED.
+- Follow-up 7 (view panning, also for the playback): adjustViewToRect (C++ adjustCanvasPosition) now accounts for the
+  continuous panel's width like C++ (the bar was placed under the panel after a page turn); the panel is drawn for the
+  new position at once and the view corrects for its width in the same frame (no second jump at the first turn). Not in
+  C++: the continuous views keep the position across their direction (alignToCurrentPageBorder no longer snaps the
+  vertical position in the horizontal view, or the horizontal one in the vertical view) unless it had to move; without
+  smooth panning, the playback in the horizontal view pans on the whole measure played (it moves when the measure
+  starts and does not fit, not when the cursor reaches the edge). Playalong: showRectInView gets the measure played next
+  (state.nextTick) and turns one measure early, and only moves in the direction of a continuous view.
 
