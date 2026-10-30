@@ -9,6 +9,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { qtrc } from '../i18n'
 import { ChooseInstrumentsPage } from '../newscore/ChooseInstrumentsPage'
 import { orderList, type OrderChoice, type ScoreInstrument } from '../newscore/instrumentmodels'
+import { ICON_CODES } from '../actions/uiactiondata'
 
 interface Request {
     key: number
@@ -58,7 +59,7 @@ function SelectInstrumentDialog({ request }: { request: Request }): React.JSX.El
             }}>
             <header className="dialog-header">
                 <h2 id="select-instrument-title">{qtrc('instruments', 'Select instrument')}</h2>
-                <button className="icon" aria-label={qtrc('global', 'Close')} title={qtrc('global', 'Close')} onClick={() => ref.current?.close()}>{''}</button>
+                <button className="icon" aria-label={qtrc('global', 'Close')} title={qtrc('global', 'Close')} onClick={() => ref.current?.close()}>{String.fromCodePoint(ICON_CODES.CLOSE_X_ROUNDED)}</button>
             </header>
             <div className="dialog-page">
                 <ChooseInstrumentsPage instruments={instruments} setInstruments={setInstruments} order={order} setOrder={setOrder}

@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from 'react'
 import { qtrc } from '../../i18n'
 import { ChooseInstrumentsPage } from '../../newscore/ChooseInstrumentsPage'
 import { orderList, type OrderChoice, type ScoreInstrument } from '../../newscore/instrumentmodels'
+import { ICON_CODES } from '../../actions/uiactiondata'
 
 export function InstrumentsDialog({ onClose }: { onClose: (instrumentIds: string[] | null) => void }): React.JSX.Element {
     const ref = useRef<HTMLDialogElement>(null)
@@ -25,7 +26,7 @@ export function InstrumentsDialog({ onClose }: { onClose: (instrumentIds: string
             onClose={() => onClose(result.current)}>
             <header className="dialog-header">
                 <h2 id="instruments-dialog-title">{qtrc('instruments', 'Add or remove instruments')}</h2>
-                <button className="icon" aria-label={qtrc('global', 'Close')} title={qtrc('global', 'Close')} onClick={() => ref.current?.close()}>{''}</button>
+                <button className="icon" aria-label={qtrc('global', 'Close')} title={qtrc('global', 'Close')} onClick={() => ref.current?.close()}>{String.fromCodePoint(ICON_CODES.CLOSE_X_ROUNDED)}</button>
             </header>
             <div className="dialog-page">
                 <ChooseInstrumentsPage instruments={instruments} setInstruments={setInstruments} order={order} setOrder={setOrder} />

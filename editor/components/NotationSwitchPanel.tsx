@@ -12,6 +12,7 @@ import type { MenuItem } from '../menus/appmenu'
 import { currentMasterScore, useScoreView } from '../scoreview'
 import { closeScore } from '../session'
 import { MenuPopup } from './Menu'
+import { ICON_CODES } from '../actions/uiactiondata'
 
 /** the model of the tabs of the current score */
 function switchModel(): ReturnType<typeof createNotationSwitchListModel> | null {
@@ -82,7 +83,7 @@ export function NotationSwitchPanel(): React.JSX.Element | null {
                             e.stopPropagation()
                             closeNotation(i)
                         }}>
-                        {''}
+                        {String.fromCodePoint(ICON_CODES.CLOSE_X_ROUNDED)}
                     </button>
                 </div>
             ))}

@@ -88,6 +88,8 @@ export interface PlaybackSettings {
     playRepeats: boolean
     /** isPlayChordSymbolsEnabled */
     playChordSymbols: boolean
+    /** "Playalong practice" (not in MuseScore): the playalong also follows repeated, skipped and earlier measures */
+    playalongPractice: boolean
     /** PlaybackConfiguration::playNotesWhenEditing ("Hear playback when adding, editing, and selecting notes") */
     playNotesWhenEditing: boolean
     /** playChordWhenEditing */
@@ -150,7 +152,7 @@ const DEFAULTS: AppSettings = {
     panels: { open: ['palettesPanel', 'instrumentsPanel', 'inspectorPanel'], current: 'palettesPanel', width: 300, collapsed: false },
     palettes: null,
     playback: {
-        muted: false, metronome: false, countIn: false, pan: true, smoothPan: false, playRepeats: true, playChordSymbols: true,
+        muted: false, metronome: false, countIn: false, pan: true, smoothPan: false, playRepeats: true, playChordSymbols: true, playalongPractice: false,
         playNotesWhenEditing: true, playChordWhenEditing: true, playHarmonyWhenEditing: true,
         playPreviewNotesInInputByDuration: true, playPreviewNotesWithScoreDynamics: true, notePlayDuration: 500,
     },
@@ -249,7 +251,7 @@ function sanitizePlayback(p: Partial<PlaybackSettings>): PlaybackSettings {
     const b = (k: keyof PlaybackSettings): boolean => typeof p[k] === 'boolean' ? p[k] as boolean : d[k] as boolean
     return {
         muted: b('muted'), metronome: b('metronome'), countIn: b('countIn'), pan: b('pan'), smoothPan: b('smoothPan'), playRepeats: b('playRepeats'),
-        playChordSymbols: b('playChordSymbols'), playNotesWhenEditing: b('playNotesWhenEditing'),
+        playChordSymbols: b('playChordSymbols'), playalongPractice: b('playalongPractice'), playNotesWhenEditing: b('playNotesWhenEditing'),
         playChordWhenEditing: b('playChordWhenEditing'), playHarmonyWhenEditing: b('playHarmonyWhenEditing'),
         playPreviewNotesInInputByDuration: b('playPreviewNotesInInputByDuration'),
         playPreviewNotesWithScoreDynamics: b('playPreviewNotesWithScoreDynamics'),

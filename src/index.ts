@@ -140,6 +140,7 @@ export * from './inspector/api'
 export * from './notationscene/styledialog/api'
 // playback: MIDI events, positions/times, playback cursor, loop markers
 export * from './playback/api'
+export * from './playalong/api'
 export {
     setFallbackFontEngine, createCanvasFallbackFontEngine, type FallbackFontEngine, type FallbackFont,
 } from './framework/draw/internal/fontprovider'
@@ -1146,6 +1147,20 @@ export function selectionBounds(score: Score): { page: number; x: number; y: num
  */
 export function executeAction(score: Score, code: string): boolean {
     return notationState(score).actions.dispatch(code)
+}
+
+/**
+ * MIDI note input (NotationMidiInput, note-on events): enters pitches played together at the note input position (the
+ * editor enters the notes detected from the microphone with it); true if the note input changed (a new chord, or
+ * the pitches of the input by duration)
+ */
+export function enterMidiNotes(score: Score, pitches: readonly number[]): boolean {
+    const actions = notationState(score).actions
+    if (!score.inputState().noteEntryMode() || !pitches.length) {
+        return false
+    }
+    actions.midiInput().onNoteOns(pitches)
+    return true
 }
 
 /** the action codes executeAction() handles (the same for every score) */

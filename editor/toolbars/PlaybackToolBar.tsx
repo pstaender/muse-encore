@@ -3,16 +3,19 @@
  * The playback toolbar (MuseScore's PlaybackToolBar.qml / PlaybackToolBarActions.qml / PlaybackToolBarModel): the
  * actions of PlaybackUiActions::defaultPlaybackToolConfig (rewind, play/pause, loop, metronome; loop in/out are in the
  * settings menu of the docked toolbar), the "Playback settings" menu, the play time, measure and beat, the tempo with
- * the speed popup. Not in MuseScore: the mute button and the progress of loading the sounds.
+ * the speed popup. Not in MuseScore: the mute button, the progress of loading the sounds and the playalong (its button;
+ * while it is on the previous/next measure buttons, the practice mode and the measure followed; in note input mode the
+ * button enters the notes played; the notes heard are shown in the status bar).
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { actionDescription, isActionEnabled, shortcutText, triggerAction, useActions } from '../actions/actions'
 import { ICON_CODES } from '../actions/uiactiondata'
 import { MenuPopup } from '../components/Menu'
-import { qtrc, trString, useLanguage } from '../i18n'
+import { qtrc, trString, useLanguage, webtr } from '../i18n'
 import type { MenuItem } from '../menus/appmenu'
 import { rewindTo, rewindToBeat, setTempoMultiplier, usePlaybackState } from '../playback/playbackcontroller'
 import { ActionButton } from './ToolBars'
+import { usePlayalongState } from '../playalong/playalongcontroller'
 
 const icon = (code: number): string => String.fromCodePoint(code)
 
@@ -231,6 +234,37 @@ function LoadingInfo(): React.JSX.Element | null {
     )
 }
 
+/** the playalong (not in MuseScore): its button; while on the measure buttons, the practice mode and the status */
+function Playalong(): React.JSX.Element {
+    useLanguage()
+    const st = usePlayalongState()
+    let status = ''
+    if (st.status === 'loading') {
+        status = webtr('Starting the note detection…')
+    } else if (st.status === 'error') {
+        status = st.error
+    }
+    return (
+        <>
+            <ActionButton code="playalong" />
+            {st.active && st.mode === 'playalong' && (
+                <>
+                    <ActionButton code="playalong-prev" />
+                    <span className="playalong-measure-number" role="status" aria-label={qtrc('playback', 'Measure', 'Measure number')}>
+                        {st.number > 0 ? st.number : '–'}
+                    </span>
+                    <ActionButton code="playalong-next" />
+                    <ActionButton code="playalong-practice" />
+                </>
+            )}
+            {st.active && st.mode === 'noteinput' && st.status === 'listening' && (
+                <span className="playalong-status" role="status">{webtr('Entering the notes you play')}</span>
+            )}
+            {status && <span className={`playalong-status${st.status === 'error' ? ' error' : ''}`} role="status">{status}</span>}
+        </>
+    )
+}
+
 export function PlaybackToolBar(): React.JSX.Element {
     useLanguage()
     return (
@@ -246,6 +280,8 @@ export function PlaybackToolBar(): React.JSX.Element {
             <TimeField />
             <MeasureBeatFields />
             <TempoButton />
+            <span className="tool-separator" role="separator" aria-orientation="vertical" />
+            <Playalong />
         </>
     )
 }

@@ -44,6 +44,7 @@ import { answerDialog, openStored, saveChangesTitle, setView, showDialog, useSes
 import { resetSettings } from './settings'
 import { ToolBarDock, ToolBarRows, toolbarMenuItems } from './toolbars/ToolBars'
 import { restoreDefaultLayout, useToolBarLayout } from './toolbars/layout'
+import { heardNotesText, usePlayalongState } from './playalong/playalongcontroller'
 
 const MAX_RECENT_IN_MENU = 20
 
@@ -93,9 +94,17 @@ function RestoreSessionDialog({ onClose }: { onClose: (answer: unknown) => void 
 
 function StatusBar(): React.JSX.Element {
     const v = useScoreView()
+    const playalong = usePlayalongState()
+    const heard = heardNotesText(playalong)
     return (
         <footer className={`statusbar${v.statusError ? ' error' : ''}`}>
-            <span id="status" aria-live="polite">{v.selection ? plainText(v.selection) : v.status}</span>
+            <span id="status" aria-live="polite">
+                {heard && (
+                    // the notes heard by the playalong change often: not announced
+                    <span className="status-heard" aria-live="off" title={`${heard} (${playalong.latency.toFixed(1)} s)`}>{heard}</span>
+                )}
+                {v.selection ? plainText(v.selection) : v.status}
+            </span>
             <span className="statusbar-separator" aria-hidden="true" />
             <ConcertPitchControl />
             <span className="statusbar-separator" aria-hidden="true" />

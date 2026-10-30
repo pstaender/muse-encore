@@ -4,7 +4,7 @@
 // the SVG of all pages exactly, redo repeats the change.
 import { beforeAll, describe, expect, it } from 'vitest'
 import {
-    createScore, defaultNewScoreOptions, executeAction, isActionChecked, isActionEnabled, redo, undo, type MasterScore,
+    createScore, defaultNewScoreOptions, enterMidiNotes, executeAction, isActionChecked, isActionEnabled, redo, undo, type MasterScore,
 } from '../src/index'
 import { SegmentType } from '../src/engraving/dom/segment'
 import { SelectType } from '../src/engraving/dom/select'
@@ -328,5 +328,43 @@ describe('note input methods and line/tuplet commands', () => {
         score.select(m2.first(SegmentType.ChordRest)!.next(SegmentType.ChordRest)!.element(0), SelectType.SINGLE, 0)
         const after = scoreHash(score)
         checkUndoRedo(score, 4, before, after)
+    })
+})
+
+describe('MIDI note input (enterMidiNotes: the notes detected from the microphone)', () => {
+    beforeAll(async () => {
+        await initFonts()
+    })
+
+    it('enters notes and chords at the input position, undoable', () => {
+        const score = newScore()
+        const m1 = score.firstMeasure()!
+        selectFirstRest(score)
+        run(score, 'note-input', 'pad-note-4')
+        const before = scoreHash(score)
+        expect(enterMidiNotes(score, [72])).toBe(true)
+        expect(enterMidiNotes(score, [72, 76, 79])).toBe(true)
+        expect(enterMidiNotes(score, [74])).toBe(true)
+        expect(contents(m1)).toEqual(['72:1/4', '72+76+79:1/4', '74:1/4', 'r:1/4'])
+        const after = scoreHash(score)
+        checkUndoRedo(score, 5, before, after)
+        // outside of note input nothing is entered
+        run(score, 'note-input')
+        expect(enterMidiNotes(score, [60])).toBe(false)
+    })
+
+    it('spells with the accidental of the input state, transposing instruments get the sounding pitch', () => {
+        const score = createScore({ ...defaultNewScoreOptions(), instruments: [{ id: 'bb-trumpet' }], measures: 2 })
+        expect(score.noteVal(61, 0, false).pitch).toBe(61)
+        // written pitch input (allowTransposition): the sounding pitch is a major second lower
+        expect(score.noteVal(62, 0, true).pitch).toBe(60)
+    })
+
+    it('the input by duration takes the pitches for the next input', () => {
+        const score = newScore()
+        selectFirstRest(score)
+        run(score, 'note-input-by-duration')
+        expect(enterMidiNotes(score, [67, 71])).toBe(true)
+        expect(score.inputState().notes().map(n => n.pitch)).toEqual([67, 71])
     })
 })

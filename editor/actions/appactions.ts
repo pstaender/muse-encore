@@ -38,7 +38,9 @@ import { currentScore } from '../scoreview'
 import { actionsChanged, isActionEnabled, registerAction, triggerAction } from './actions'
 import { registerNotationActions } from './notationactions'
 import { registerPlaybackActions } from '../playback/playbackcontroller'
+import { registerPlayalongActions } from '../playalong/playalongcontroller'
 import '../playback/playbackview'
+import '../playalong/playalongview'
 
 const scoreShown = (): boolean => scoreViewState().hasScore && session().view === 'score'
 const hasScore = (): boolean => !!session().current
@@ -185,6 +187,7 @@ export function registerAppActions(): void {
 
     // ---- playback (PlaybackController) ----
     registerPlaybackActions()
+    registerPlayalongActions()
 
     // ---- help (ApplicationActionController) ----
     registerAction('online-handbook', { run: () => openUrl(`https://handbook.musescore.org?tag=handbook&locale=${currentLanguage()}`) })

@@ -1440,3 +1440,23 @@ dialog.project-properties .dialog-buttons .spacer { flex: 1; }
 .notation-tab { cursor: default; border-bottom-color: transparent; }
 .notation-tab[aria-selected="true"] { border-bottom-color: var(--accent); }
 .notation-tab:not([aria-selected="true"]) .notation-tab-title { font-weight: 400; }
+
+/* playalong (not in MuseScore): the measure followed, the measure number, the notes heard (in the status bar) */
+.playalong-measure {
+    position: absolute;
+    z-index: 1;
+    pointer-events: none;
+    background: rgba(0, 101, 191, .12);
+    border: 2px solid rgba(0, 101, 191, .6);
+    border-radius: 3px;
+    box-sizing: border-box;
+    transition: left .15s, top .15s, width .15s;
+}
+.playalong-measure-number {
+    min-width: 2.5em;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+.statusbar .status-heard { margin-right: 1.5em; font-variant-numeric: tabular-nums; }
+.playalong-status { font-size: .9em; white-space: nowrap; margin: 0 .5em; }
+.playalong-status.error { color: var(--danger); }

@@ -401,6 +401,57 @@ export function adjustViewToRect(pageIdx: number, r: { x: number; y: number; wid
 }
 
 /**
+ * not in MuseScore (the playalong): moves the view so that a rectangle of a page (inches) is fully visible, not covered
+ * by the continuous panel at the left edge, with a margin; if it has to move, `context` (a rectangle containing
+ * `r`, e.g. with the previous measure) is shown instead when it fits. The rectangle is placed at the left (top) of the
+ * view so that what follows is visible. Returns true if the view moved.
+ */
+export function showRectInView(pageIdx: number, r: { x: number; y: number; width: number; height: number },
+                               context?: { x: number; y: number; width: number; height: number }, marginInches = 0.2,
+                               recheck = true): boolean {
+    const el = pages[pageIdx]
+    if (!el || !score) {
+        return false
+    }
+    const pr = el.getBoundingClientRect()
+    const f = pr.width / pageSize(score, pageIdx).width
+    const vr = viewport.getBoundingClientRect()
+    const margin = marginInches * f
+    // the panel appears when the view moves away from the start of the score: its last width
+    const inset = settings.viewMode !== 'continuous-horizontal' ? 0
+        : panelBox.isConnected ? panelBox.getBoundingClientRect().width : s_panelWidth
+    const view = { left: vr.left + inset + margin, top: vr.top + margin, right: vr.left + viewport.clientWidth - margin, bottom: vr.top + viewport.clientHeight - margin }
+    const toView = (x: { x: number; y: number; width: number; height: number }): { left: number; top: number; right: number; bottom: number } =>
+        ({ left: pr.left + x.x * f, top: pr.top + x.y * f, right: pr.left + (x.x + x.width) * f, bottom: pr.top + (x.y + x.height) * f })
+    const show = toView(r)
+    let dx = 0
+    let dy = 0
+    if (show.left < view.left || show.right > view.right) {
+        const c = context ? toView(context) : null
+        const target = c && c.right - c.left <= view.right - view.left ? c : show
+        dx = target.left - view.left
+    }
+    if (show.top < view.top || show.bottom > view.bottom) {
+        dy = show.bottom - show.top <= view.bottom - view.top ? show.top - view.top : show.top - vr.top
+    }
+    dx = Math.round(dx)
+    dy = Math.round(dy)
+    if (!dx && !dy) {
+        return false
+    }
+    const left = viewport.scrollLeft
+    const top = viewport.scrollTop
+    s_programmaticScroll++
+    viewport.scrollBy(dx, dy)
+    requestAnimationFrame(() => { s_programmaticScroll = Math.max(0, s_programmaticScroll - 1) })
+    if (recheck) {
+        // once the panel is drawn for the new position (its width is known then)
+        requestAnimationFrame(() => requestAnimationFrame(() => showRectInView(pageIdx, r, context, marginInches, false)))
+    }
+    return viewport.scrollLeft !== left || viewport.scrollTop !== top
+}
+
+/**
  * C++ AbstractNotationPaintView::adjustCanvasPositionSmoothPan: the rectangle of a page (inches) moves to the middle of
  * the view horizontally (vertically too if it is not in the view); returns true if the view moved
  */
@@ -997,6 +1048,8 @@ const panelCanvas = document.createElement('canvas')
 panelBox.appendChild(panelCanvas)
 let panelFrame = 0
 let panelShownKey = ''
+/** the width of the panel when it was shown last (css pixels) */
+let s_panelWidth = 0
 
 function scheduleContinuousPanel(): void {
     if (!panelFrame) {
@@ -1045,7 +1098,8 @@ function updateContinuousPanel(): void {
     }
     panelShownKey = viewKey + result.key
     Object.assign(panelCanvas.style, { width: `${widthCss}px`, height: `${pr.height}px` })
-    Object.assign(panelBox.style, { width: `${Math.min(widthCss, result.width * cssPerInch)}px`, height: `${pr.height}px` })
+    s_panelWidth = Math.min(widthCss, result.width * cssPerInch)
+    Object.assign(panelBox.style, { width: `${s_panelWidth}px`, height: `${pr.height}px` })
     if (panelBox.parentElement !== el) {
         el.prepend(panelBox)
     }
