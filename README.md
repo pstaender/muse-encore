@@ -2,9 +2,9 @@
 
 ### A browser-native port of MuseScore
 
-* [Run the Editor right now in your browser 🚀](https://pstaender.github.io/muse-encore/editor/)
-* [Run the Viewer right now in your browser 🚀](https://pstaender.github.io/muse-encore/viewer/)
-* [Scores embedded in a web page with the viewer package 🎼](https://pstaender.github.io/muse-encore/viewer-package/example/)
+* [Run the Editor right now in your browser](https://pstaender.github.io/muse-encore/editor/)
+* [Run the Viewer right now in your browser](https://pstaender.github.io/muse-encore/viewer/)
+* [Scores embedded in a web page with the viewer package](https://pstaender.github.io/muse-encore/viewer-package/example/)
 
 Overview of demos: [pstaender.github.io/muse-encore](https://pstaender.github.io/muse-encore/)
 
@@ -32,6 +32,9 @@ Like MuseScore, this project is licensed under the GNU General Public License v3
 
 ## Differences from MuseScore
 
+* Note detection from the microphone (not in MuseScore yet): the editor detects the notes you play, enters them into
+  the score in note input mode and offers a playalong mode that follows the score while you play. Everything is
+  processed in the browser.
 * Continuous view (see the screenshots below):
   * a different look (in my opinion, a better one)
   * an additional "fit to window" mode, which lays out the score as wide as the window
