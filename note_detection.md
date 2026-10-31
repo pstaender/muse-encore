@@ -61,6 +61,28 @@ microphone ─► AudioInput (recorder worklet, main thread)
 - Tests: `test/levelgate.test.ts` (floor measurement, click and quiet-note rejection, louder rooms, music without a
   pause, initial digital silence).
 
+### Overtone filter
+
+- **Finding:** low piano notes (e.g. D2) have strong overtones (octave, octave + fifth, two octaves, …). basic-pitch rates
+  each pitch on its own and reports them as notes; in note input they were written into the score.
+- **Adjustment:** `overtonefilter.ts` (in the worker, after the de-duplication, before the level gate). A new note is
+  dropped as an overtone when a lower note of the decoded notes (also one reported before) starts within
+  `OVERTONE_ONSET_FRAMES` (4, ~46 ms), the distance is a harmonic (12, 19, 24, 28, 31, 34, 36 semitones), and its
+  amplitude (basic-pitch's mean activation) is below a ratio of the lower note's:
+
+  | Level | Fundamentals | Harmonics | Ratio (octave) |
+  |---|---|---|---|
+  | Off | – | – | – |
+  | Normal (default) | below C4 | 2–6 | 0.9 (0.6) |
+  | Strong | below C5 | 2–8 | 1.5 (1.0) |
+
+  The octave needs a weaker note because real octaves are common in the bass and struck about as strongly.
+- Setting: Playback settings menu → "Overtone filter" (Off / Normal / Strong), `settings.playback.playalongOvertoneFilter`;
+  changed while listening with `NoteDetector.configure`. `__museencorePlayalong.stats().overtones` counts the dropped notes.
+- The ratios are guesses: not yet checked with a real piano. A real octave weaker than the ratio is dropped too; an
+  overtone decoded in an earlier update than its fundamental slips through.
+- Tests: `test/overtonefilter.test.ts`.
+
 ### Score following (`follower.ts`)
 
 The follower runs an online Viterbi alignment of the detected chords against the measures in played order. The order
@@ -107,8 +129,8 @@ the follower never runs ahead).
 
 - **Untested with real instruments and real microphones.** Thresholds (level gate, similarity, penalties) are tuned on
   synthesized audio and simulations.
-- Polyphonic piano with pedal: basic-pitch can report overtones and sympathetic notes. The follower tolerates them, but
-  note input will write them into the score.
+- Polyphonic piano with pedal: basic-pitch can report overtones and sympathetic notes. The overtone filter removes the
+  overtones of low notes; the follower tolerates the rest, but note input writes them into the score.
 - The displayed bar doesn't advance on its own (by time) while nothing is heard.
 - No Web MIDI input. A MIDI keyboard would be an exact `NoteDetector` and could reuse the whole pipeline.
 - Debugging: `window.__museencorePlayalong` exposes `{stats, state, tempo}`.

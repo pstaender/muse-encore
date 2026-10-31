@@ -4,18 +4,20 @@
  * through a MessagePort at the sample rate of the audio context and is resampled to 22050 Hz here; the model runs on
  * the latest window every ~100 ms (LiveTranscriber), the notes of the last seconds are decoded, and each note is
  * reported once when it appears, if it is loud enough (LevelGate: not keys pressed without sounding, clicks, the noise
- * of the room). So the main thread (the score view) does not slow down the detection, and the other way round.
+ * of the room) and not an overtone of a lower note (overtonefilter.ts). So the main thread (the score view) does not slow down the detection, and the other way round.
  */
 import * as tf from '@tensorflow/tfjs'
-import type { DetectedNote, NoteDetectorStats } from '../notedetector'
+import { DEFAULT_NOTE_DETECTOR_SETTINGS, type DetectedNote, type NoteDetectorSettings, type NoteDetectorStats } from '../notedetector'
 import { MODEL_SAMPLE_RATE, StreamResampler } from './audioinput'
 import { BasicPitch } from './inference'
 import { HOP, LevelGate } from './levelgate'
+import { overtoneOf } from './overtonefilter'
 import { FRAMES_PER_SECOND, LiveTranscriber, type DetectionSettings, type TranscriptionUpdate } from './transcriber'
 
 /** the messages to the worker */
 export type ToWorker =
-    | { type: 'start'; modelUrl: string; sampleRate: number; port: MessagePort }
+    | { type: 'start'; modelUrl: string; sampleRate: number; port: MessagePort; settings: NoteDetectorSettings }
+    | { type: 'settings'; settings: NoteDetectorSettings }
     | { type: 'stop' }
 
 /** the messages from the worker */
@@ -57,8 +59,9 @@ let s_transcriber: LiveTranscriber | null = null
 let s_port: MessagePort | null = null
 /** the start frames of the notes reported, by pitch */
 let s_reported = new Map<number, number[]>()
-let s_stats: NoteDetectorStats = { processingMs: 0, latency: 0, updates: 0, rejected: 0, floorDb: 0 }
+let s_stats: NoteDetectorStats = { processingMs: 0, latency: 0, updates: 0, rejected: 0, overtones: 0, floorDb: 0 }
 let s_gate = new LevelGate()
+let s_settings: NoteDetectorSettings = DEFAULT_NOTE_DETECTOR_SETTINGS
 
 async function start(modelUrl: string, sampleRate: number, port: MessagePort): Promise<void> {
     stop()
@@ -89,7 +92,7 @@ function stop(): void {
     s_port?.close()
     s_port = null
     s_reported = new Map()
-    s_stats = { processingMs: 0, latency: 0, updates: 0, rejected: 0, floorDb: 0 }
+    s_stats = { processingMs: 0, latency: 0, updates: 0, rejected: 0, overtones: 0, floorDb: 0 }
 }
 
 function onUpdate(update: TranscriptionUpdate): void {
@@ -108,6 +111,11 @@ function onUpdate(update: TranscriptionUpdate): void {
             continue
         }
         starts.push(note.startFrame)
+        // compared with all notes decoded (the lower note may have been reported before)
+        if (overtoneOf(note, update.notes, s_settings.overtoneFilter)) {
+            ++s_stats.overtones
+            continue
+        }
         const hop = Math.round(update.endSample / HOP - LAST_FRAME_TO_WINDOW_END - (update.lastFrame - note.startFrame))
         if (!s_gate.accepts(hop)) {
             ++s_stats.rejected
@@ -131,9 +139,12 @@ function onUpdate(update: TranscriptionUpdate): void {
 scope.onmessage = (event: MessageEvent<ToWorker>): void => {
     const msg = event.data
     if (msg.type === 'start') {
+        s_settings = msg.settings
         start(msg.modelUrl, msg.sampleRate, msg.port).catch((e: unknown) => {
             scope.postMessage({ type: 'error', message: e instanceof Error ? e.message : String(e) })
         })
+    } else if (msg.type === 'settings') {
+        s_settings = msg.settings
     } else if (msg.type === 'stop') {
         stop()
     }

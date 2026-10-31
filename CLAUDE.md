@@ -104,7 +104,7 @@ shared/                 code of both apps: playback/ (Synthesizer interface, Spe
                         cached, player.ts scheduler), vite-plugin-sound.ts (serves/copies the soundfont), notedetection/
                         (NoteDetector interface: microphone -> notes; basicpitch/ = Spotify's basic-pitch, Apache-2.0,
                         vendored with its TensorFlow.js model, loaded on demand, running in a Web Worker (worker.ts;
-                        the audio worklet sends the audio to it; levelgate.ts drops too quiet notes); replaceable in
+                        the audio worklet sends the audio to it; levelgate.ts drops too quiet notes, overtonefilter.ts the overtones of low notes); replaceable in
                         createNoteDetector)
 editor/                 MuseEncore (the editor), Vite score editor app: React UI (App.tsx, home/, newscore/, dialogs/ mirror MuseScore's
                         QML pages), menu bar (menus/appmenu.ts = AppMenuModel), toolbars (toolbars/: docks, note input bar),

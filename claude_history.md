@@ -1749,4 +1749,9 @@
   the microphone button), like MuseScore's toolbar buttons that take no focus. The playalong mode follows the note input
   while the microphone is on (it was fixed at the start: started before N, it kept following and entered no notes):
   N switches to entering the notes played, leaving the note input follows again (started in note input: it stops).
+- Follow-up 9: overtone filter of the note detection (shared/notedetection/basicpitch/overtonefilter.ts, in the worker):
+  a weaker note at a harmonic distance above a low note starting at the same time is not reported (piano bass: octave,
+  twelfth, ... were detected). Levels Off/Normal/Strong in the Playback settings menu (settings.playback.
+  playalongOvertoneFilter, NoteDetector.configure, worker message 'settings'); stats.overtones; test/overtonefilter.test.ts.
+  Ratios not verified with a real piano.
 

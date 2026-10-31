@@ -13,11 +13,11 @@
 import { useSyncExternalStore } from 'react'
 import { enterMidiNotes, playalongMeasureBounds, playalongMeasures, rangeSelectionPartIds, selectionPlaybackInfo, type PlayalongMeasure } from '../../src/index'
 import { actionsChanged, registerAction, triggerAction } from '../actions/actions'
-import { ICON_CODES } from '../actions/uiactiondata'
+import { ICON_CODES, type TrString } from '../actions/uiactiondata'
 import { webtr } from '../i18n'
 import { currentScore, onScoreViewChanged, scoreChanged, scoreViewState } from '../scoreview'
-import { settings, updateSettings } from '../settings'
-import { createNoteDetector, type NoteDetector } from '../../shared/notedetection/notedetector'
+import { onSettingsChanged, settings, updateSettings } from '../settings'
+import { createNoteDetector, type NoteDetector, type OvertoneFilterLevel } from '../../shared/notedetection/notedetector'
 import { ChordGrouper, PlayalongFollower } from './follower'
 import { playbackState } from '../playback/playbackcontroller'
 
@@ -222,7 +222,9 @@ async function start(): Promise<void> {
         publish({ active: true, status: 'loading', error: '' })
     }
     try {
-        s_detector ??= await createNoteDetector({ baseUrl: import.meta.env.BASE_URL, input: detectorInput() })
+        s_detector ??= await createNoteDetector({
+            baseUrl: import.meta.env.BASE_URL, input: detectorInput(), settings: { overtoneFilter: overtoneFilter() },
+        })
         if (session !== s_session) {
             return
         }
@@ -332,6 +334,23 @@ function measureInAdjacentSystem(delta: -1 | 1): number {
     return best ? measureIndexAtTick(best.tick, state.index) : -1
 }
 
+function overtoneFilter(): OvertoneFilterLevel {
+    return settings().playback.playalongOvertoneFilter
+}
+
+function setOvertoneFilter(level: OvertoneFilterLevel): void {
+    updateSettings('playback', { playalongOvertoneFilter: level })
+}
+
+let s_overtoneFilter = overtoneFilter()
+onSettingsChanged(() => {
+    if (overtoneFilter() !== s_overtoneFilter) {
+        s_overtoneFilter = overtoneFilter()
+        s_detector?.configure({ overtoneFilter: s_overtoneFilter })
+        actionsChanged()
+    }
+})
+
 function togglePractice(): void {
     const practice = !state.practice
     updateSettings('playback', { playalongPractice: practice })
@@ -395,6 +414,14 @@ export function registerPlayalongActions(): void {
         description: [null, 'Playalong practice: also follow when you repeat measures, go back or skip measures'],
         icon: ICON_CODES.LOOP, checkable: true,
     })
+    // the overtone filter of the note detection (playback settings menu)
+    const levels: [OvertoneFilterLevel, TrString][] = [['off', ['global', 'Off']], ['normal', ['inspector', 'Normal']], ['strong', [null, 'Strong']]]
+    for (const [level, title] of levels) {
+        registerAction(`playalong-overtone-filter-${level}`, { run: () => setOvertoneFilter(level), checked: () => overtoneFilter() === level }, {
+            title, checkable: true,
+            description: [null, 'Overtone filter: the overtones of low notes (piano) are not taken for notes played'],
+        })
+    }
     const following = (): boolean => state.active && state.mode === 'playalong'
     // the arrow keys (APP_SHORTCUTS in actions.ts) move the playalong instead of the selection while it follows
     registerAction('playalong-prev', { run: () => step(-1), enabled: () => following() && state.index > 0, context: 'notation', priority: 2 }, {

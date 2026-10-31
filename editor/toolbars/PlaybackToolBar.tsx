@@ -51,7 +51,10 @@ function MuteButton(): React.JSX.Element {
     )
 }
 
-/** the "Playback settings" menu: PlaybackUiActions::settingsActions and (docked) the loop boundary actions */
+/**
+ * the "Playback settings" menu: PlaybackUiActions::settingsActions, the overtone filter of the playalong (not in
+ * MuseScore) and (docked) the loop boundary actions
+ */
 const SETTINGS_ITEMS: MenuItem[] = [
     { kind: 'action', code: 'repeat' },
     { kind: 'action', code: 'play-chord-symbols' },
@@ -59,6 +62,14 @@ const SETTINGS_ITEMS: MenuItem[] = [
     { kind: 'action', code: 'pan' },
     { kind: 'action', code: 'smooth-pan' },
     { kind: 'action', code: 'countin' },
+    { kind: 'separator' },
+    {
+        kind: 'menu', id: 'playalong-overtone-filter', title: [null, 'Overtone filter'], items: [
+            { kind: 'action', code: 'playalong-overtone-filter-off' },
+            { kind: 'action', code: 'playalong-overtone-filter-normal' },
+            { kind: 'action', code: 'playalong-overtone-filter-strong' },
+        ],
+    },
     { kind: 'separator' },
     { kind: 'action', code: 'loop-in' },
     { kind: 'action', code: 'loop-out' },

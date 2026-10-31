@@ -24,6 +24,8 @@ export interface NoteDetector {
     /** asks for the microphone and starts listening; calls onNote for each new note */
     start(onNote: (note: DetectedNote) => void): Promise<void>
     stop(): Promise<void>
+    /** changes the settings while listening (also taken by the next start) */
+    configure(settings: Partial<NoteDetectorSettings>): void
     /** the pitches sounding now (for showing what is heard) */
     activePitches(): number[]
     /** how fast the detection is (for showing it, and for finding problems) */
@@ -38,15 +40,31 @@ export interface NoteDetectorStats {
     updates: number
     /** the notes not reported because they were too quiet */
     rejected: number
+    /** the notes not reported because they were overtones of a lower note */
+    overtones: number
     /** the noise floor of the microphone (dBFS) */
     floorDb: number
 }
+
+/**
+ * the overtone filter: notes at the distance of a harmonic above a lower note starting at the same time and clearly
+ * weaker are not reported (low piano notes); 'strong' also filters higher notes and stronger overtones (and then
+ * more real octaves)
+ */
+export type OvertoneFilterLevel = 'off' | 'normal' | 'strong'
+
+export interface NoteDetectorSettings {
+    overtoneFilter: OvertoneFilterLevel
+}
+
+export const DEFAULT_NOTE_DETECTOR_SETTINGS: NoteDetectorSettings = { overtoneFilter: 'normal' }
 
 export interface NoteDetectorOptions {
     /** the base URL of the app (the detector's files, e.g. its model, are served below it) */
     baseUrl: string
     /** 'test-melody': a synthesized melody instead of the microphone (development) */
     input?: 'microphone' | 'test-melody'
+    settings?: Partial<NoteDetectorSettings>
 }
 
 /** the note detector (loaded on first use: its model and libraries are big) */

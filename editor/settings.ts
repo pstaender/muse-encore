@@ -4,6 +4,7 @@
  * them). Storage can be unavailable (private windows, blocked site data): then the defaults are used for the session.
  */
 import { useSyncExternalStore } from 'react'
+import type { OvertoneFilterLevel } from '../shared/notedetection/notedetector'
 import { defaultExportConfiguration, defaultImportConfiguration, setImportConfiguration, type ExportConfiguration, type ImportConfiguration } from '../src/index'
 
 export interface ViewSettings {
@@ -90,6 +91,8 @@ export interface PlaybackSettings {
     playChordSymbols: boolean
     /** "Playalong practice" (not in MuseScore): the playalong also follows repeated, skipped and earlier measures */
     playalongPractice: boolean
+    /** the overtone filter of the note detection (not in MuseScore): not reporting the overtones of low (piano) notes */
+    playalongOvertoneFilter: OvertoneFilterLevel
     /** PlaybackConfiguration::playNotesWhenEditing ("Hear playback when adding, editing, and selecting notes") */
     playNotesWhenEditing: boolean
     /** playChordWhenEditing */
@@ -152,7 +155,7 @@ const DEFAULTS: AppSettings = {
     panels: { open: ['palettesPanel', 'instrumentsPanel', 'inspectorPanel'], current: 'palettesPanel', width: 300, collapsed: false },
     palettes: null,
     playback: {
-        muted: false, metronome: false, countIn: false, pan: true, smoothPan: false, playRepeats: true, playChordSymbols: true, playalongPractice: false,
+        muted: false, metronome: false, countIn: false, pan: true, smoothPan: false, playRepeats: true, playChordSymbols: true, playalongPractice: false, playalongOvertoneFilter: 'normal',
         playNotesWhenEditing: true, playChordWhenEditing: true, playHarmonyWhenEditing: true,
         playPreviewNotesInInputByDuration: true, playPreviewNotesWithScoreDynamics: true, notePlayDuration: 500,
     },
@@ -258,6 +261,7 @@ function sanitizePlayback(p: Partial<PlaybackSettings>): PlaybackSettings {
         // NotePreviewSection: 0..10000 ms
         notePlayDuration: typeof p.notePlayDuration === 'number' && p.notePlayDuration >= 0 && p.notePlayDuration <= 10000
             ? p.notePlayDuration : d.notePlayDuration,
+        playalongOvertoneFilter: (['off', 'normal', 'strong'] as const).find(l => l === p.playalongOvertoneFilter) ?? d.playalongOvertoneFilter,
     }
 }
 
