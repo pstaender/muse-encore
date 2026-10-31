@@ -1,37 +1,335 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: GPL-3.0-only -->
+<!-- The landing page of https://pstaender.github.io/muse-encore/ (copied by .github/workflows/pages.yml, which
+     replaces __VERSION__ with the version of package.json and copies logo/muse-encore-logo.svg to logo.svg). -->
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MuseEncore</title>
-<style>
-    :root { color-scheme: light dark; --bg: #f5f5f7; --fg: #1d1d1f; --card: #fff; --muted: #6e6e73; --accent: #1e6fd9; }
-    @media (prefers-color-scheme: dark) { :root { --bg: #1c1c1e; --fg: #f5f5f7; --card: #2c2c2e; --muted: #a1a1a6; --accent: #4a9eff; } }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--fg);
-        font: 16px/1.5 system-ui, -apple-system, sans-serif; }
-    main { max-width: 640px; padding: 32px 16px; }
-    h1 { margin: 0 0 8px; }
-    p { color: var(--muted); }
-    .apps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin: 24px 0; }
-    a.app { display: block; padding: 20px; border-radius: 12px; background: var(--card); color: inherit; text-decoration: none;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
-    a.app:hover { outline: 2px solid var(--accent); }
-    a.app strong { display: block; font-size: 1.15em; color: var(--accent); }
-    a { color: var(--accent); }
-</style>
-</head>
-<body>
-<main>
-    <h1>MuseEncore</h1>
-    <p>A port of MuseScore Studio's engraving engine from C++ to TypeScript that runs entirely in the browser.
-        MuseEncore is neither an official MuseScore project nor an official fork of MuseScore.</p>
-    <div class="apps">
-        <a class="app" href="editor/"><strong>MuseEncore</strong>Create and edit scores, play them back, save .mscz files.</a>
-        <a class="app" href="viewer/"><strong>MuseEncore Viewer</strong>Open and display .mscz/.mscx files.</a>
-        <a class="app" href="viewer-package/example/"><strong>Viewer package example</strong>Scores embedded in a web page with the npm package muse-encore-viewer.</a>
-    </div>
-    <p>Source code: <a href="https://github.com/pstaender/muse-encore">github.com/pstaender/muse-encore</a> (GPL-3.0)</p>
-</main>
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MuseEncore</title>
+    <meta
+      name="description"
+      content="MuseScore Studio's engraving engine ported to TypeScript: open, edit and play scores in the browser."
+    />
+    <link rel="icon" href="logo.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --fg: #f5f3ff;
+        --muted: rgba(245, 243, 255, 0.68);
+        --glass: rgba(15, 12, 55, 0.42);
+        --glass-hover: rgba(30, 22, 90, 0.55);
+        --line: rgba(255, 255, 255, 0.14);
+        --violet: #5606ff;
+        --rose: #fe8989;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+      body {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        color: var(--fg);
+        font:
+          16px/1.5 system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+        /* shown until (or instead of) the WebGL gradient */
+        background:
+          radial-gradient(60% 50% at 30% 70%, rgba(86, 6, 255, 0.55), transparent 70%),
+          radial-gradient(50% 40% at 70% 35%, rgba(254, 137, 137, 0.35), transparent 70%),
+          #000;
+      }
+      #bg {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        opacity: 0;
+        transition: opacity 1.6s ease;
+      }
+      #bg.ready {
+        opacity: 1;
+      }
+      main {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        max-width: 880px;
+        padding: 48px 16px;
+        text-align: center;
+      }
+      .logo {
+        width: 112px;
+        height: 112px;
+        border-radius: 26px;
+        box-shadow:
+          0 0 0 1px var(--line),
+          0 20px 60px rgba(86, 6, 255, 0.55);
+        animation: float 6s ease-in-out infinite;
+      }
+      @keyframes float {
+        50% {
+          transform: translateY(-8px);
+        }
+      }
+      h1 {
+        margin: 20px 0 4px;
+        font-size: clamp(2.6rem, 8vw, 4.2rem);
+        line-height: 1.05;
+        letter-spacing: -0.03em;
+        background: linear-gradient(100deg, #fff 30%, var(--rose) 75%, #b9a0ff);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .version {
+        display: inline-block;
+        margin: 8px 0 0;
+        padding: 2px 12px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--glass);
+        backdrop-filter: blur(8px);
+        color: var(--muted);
+        font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
+        text-decoration: none;
+      }
+      .version:hover {
+        color: var(--fg);
+      }
+      .tagline {
+        max-width: 560px;
+        margin: 20px auto 40px;
+        font-size: 1.15rem;
+        color: var(--muted);
+      }
+      .tagline strong {
+        color: var(--fg);
+        font-weight: 600;
+      }
+      .apps {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+        gap: 16px;
+        text-align: left;
+      }
+      a.app {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--glass);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        color: var(--muted);
+        text-decoration: none;
+        transition:
+          transform 0.2s ease,
+          background 0.2s ease,
+          border-color 0.2s ease;
+      }
+      a.app:hover,
+      a.app:focus-visible {
+        transform: translateY(-4px);
+        background: var(--glass-hover);
+        border-color: rgba(254, 137, 137, 0.6);
+        outline: none;
+      }
+      a.app strong {
+        color: var(--fg);
+        font-size: 1.15rem;
+      }
+      a.app .go {
+        margin-top: auto;
+        padding-top: 10px;
+        color: var(--fg);
+        font-weight: 600;
+        font-size: 0.95rem;
+      }
+      a.app .go::after {
+        content: " →";
+        display: inline-block;
+        transition: transform 0.2s ease;
+      }
+      a.app:hover .go::after {
+        transform: translateX(4px);
+      }
+      a.app.primary {
+        background: linear-gradient(140deg, rgba(86, 6, 255, 0.75), rgba(254, 137, 137, 0.55));
+        border-color: rgba(255, 255, 255, 0.3);
+        color: rgba(255, 255, 255, 0.85);
+      }
+      a.app.primary:hover {
+        background: linear-gradient(140deg, rgba(86, 6, 255, 0.9), rgba(254, 137, 137, 0.7));
+      }
+      code {
+        font: 0.85em ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: var(--fg);
+        white-space: nowrap;
+      }
+      footer {
+        margin-top: 44px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+      .github {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 20px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.45);
+        backdrop-filter: blur(8px);
+        color: var(--fg);
+        font-size: 0.95rem;
+        font-weight: 600;
+        text-decoration: none;
+        transition: background 0.2s ease;
+      }
+      .github:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .github svg {
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
+      }
+      footer p {
+        max-width: 520px;
+        margin: 0;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .logo {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bg" aria-hidden="true"></div>
+    <main>
+      <img class="logo" src="logo.svg" alt="MuseEncore logo" width="112" height="112" />
+      <h1>MuseEncore</h1>
+      <a class="version" id="version" href="https://github.com/pstaender/muse-encore/releases/tag/v__VERSION__"
+        >v__VERSION__</a
+      >
+      <p class="tagline">
+        MuseScore Studio's engraving engine, ported to TypeScript.
+        <strong>Open, edit and play scores right in your browser</strong>, with no install.
+      </p>
+      <div class="apps">
+        <a class="app primary" href="editor/">
+          <strong>Start composing</strong>
+          <span>Create and edit scores, play them back and save .mscz files.</span>
+          <span class="go">Open the editor</span>
+        </a>
+        <a class="app" href="viewer/">
+          <strong>View a score</strong>
+          <span>Open a .mscz or .mscx file and read it like a sheet of paper.</span>
+          <span class="go">Open the viewer</span>
+        </a>
+        <a class="app" href="viewer-package/example/">
+          <strong>Embed scores</strong>
+          <span>Put scores on your own web page with <code>npm i muse-encore-viewer</code>.</span>
+          <span class="go">See the example</span>
+        </a>
+      </div>
+      <footer>
+        <a class="github" href="https://github.com/pstaender/muse-encore">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path
+              d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+            />
+          </svg>
+          Source code on GitHub
+        </a>
+        <p>Made with AI assistance by Philipp Staender</p>
+      </footer>
+    </main>
+
+    <script>
+      // the version is filled in by the Pages workflow; hide the placeholder when the page is opened directly
+      const version = document.getElementById("version");
+      if (version.textContent.includes("__")) version.hidden = true;
+    </script>
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "https://esm.sh/react@18.3.1",
+          "react/": "https://esm.sh/react@18.3.1/",
+          "react-dom/client": "https://esm.sh/react-dom@18.3.1/client?external=react",
+          "three": "https://esm.sh/three@0.169.0",
+          "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.17.10?external=react,react-dom,three",
+          "@shadergradient/react": "https://esm.sh/@shadergradient/react@2.4.20?external=react,react-dom,three,@react-three/fiber"
+        }
+      }
+    </script>
+    <script type="module">
+      // background: ShaderGradient (https://github.com/ruucm/shadergradient), "universe" look
+      import { createElement as h } from "react";
+      import { createRoot } from "react-dom/client";
+      import { ShaderGradientCanvas, ShaderGradient } from "@shadergradient/react";
+
+      const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const bg = document.getElementById("bg");
+      createRoot(bg).render(
+        h(
+          ShaderGradientCanvas,
+          { style: { position: "absolute", inset: 0 }, pixelDensity: 1, fov: 45, pointerEvents: "none" },
+          h(ShaderGradient, {
+            animate: still ? "off" : "on",
+            type: "waterPlane",
+            shader: "defaults",
+            bgColor1: "#000000",
+            bgColor2: "#000000",
+            brightness: 1.1,
+            cAzimuthAngle: 180,
+            cDistance: 3.9,
+            cPolarAngle: 115,
+            cameraZoom: 1,
+            color1: "#5606ff",
+            color2: "#fe8989",
+            color3: "#000000",
+            envPreset: "city",
+            grain: "off",
+            lightType: "3d",
+            positionX: -0.5,
+            positionY: 0.1,
+            positionZ: 0,
+            range: "disabled",
+            rangeStart: 0,
+            rangeEnd: 40,
+            reflection: 0.1,
+            rotationX: 0,
+            rotationY: 0,
+            rotationZ: 235,
+            uAmplitude: 0,
+            uDensity: 1.1,
+            uFrequency: 5.5,
+            uSpeed: 0.1,
+            uStrength: 2.4,
+            uTime: 0.2,
+            wireframe: false,
+          }),
+        ),
+      );
+      // fade in once the canvas has had time to draw its first frames
+      setTimeout(() => bg.classList.add("ready"), 400);
+    </script>
+  </body>
 </html>

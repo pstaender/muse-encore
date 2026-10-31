@@ -44,7 +44,10 @@ jobs:
           # the example's score (not in the repository: packages/viewer/example/score.mscz is ignored)
           cp MuseScore/demos/Amazing_grace.mscz _site/viewer-package/example/score.mscz
       - name: Landing page
-        run: cp .github/pages/index.html _site/ && touch _site/.nojekyll
+        run: |
+          sed "s/__VERSION__/$(node -p "require('./package.json').version")/g" .github/pages/index.html > _site/index.html
+          cp logo/muse-encore-logo.svg _site/logo.svg
+          touch _site/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
