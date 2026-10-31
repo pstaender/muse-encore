@@ -7,10 +7,11 @@
  * NoteDetector (shared/notedetection), the following is PlayalongFollower (follower.ts), the measure is shown by
  * playalongview.ts. Followed are the parts of the selection when playalong starts (else all parts).
  * In note input mode the same button enters the notes played instead (like MIDI input in MuseScore: the chords detected
- * are entered at the input position with enterMidiNotes) until the note input ends.
+ * are entered at the input position with enterMidiNotes). The microphone stays on when the note input starts or ends
+ * (it then enters notes, or follows again); started in note input mode, it ends with the note input.
  */
 import { useSyncExternalStore } from 'react'
-import { enterMidiNotes, playalongMeasures, rangeSelectionPartIds, selectionPlaybackInfo, type PlayalongMeasure } from '../../src/index'
+import { enterMidiNotes, playalongMeasureBounds, playalongMeasures, rangeSelectionPartIds, selectionPlaybackInfo, type PlayalongMeasure } from '../../src/index'
 import { actionsChanged, registerAction, triggerAction } from '../actions/actions'
 import { ICON_CODES } from '../actions/uiactiondata'
 import { webtr } from '../i18n'
@@ -181,6 +182,27 @@ function showMeasure(): void {
         : { index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0 })
 }
 
+/** playalong started in note input mode: it ends with the note input (else it follows the score again) */
+let s_startedInNoteInput = false
+
+/** follows the score from the selected measure (the parts of the selection) */
+function startFollowing(): void {
+    s_partIds = selectedPartIds()
+    s_scoreVersion = scoreViewState().scoreVersion
+    const tick = selectionTick()
+    s_measures = currentScore() ? playalongMeasures(currentScore()!, s_partIds) : []
+    buildFollower(tick >= 0 ? Math.max(0, measureIndexAtTick(tick, 0)) : 0)
+    publish({ mode: 'playalong', heard: [] })
+    showMeasure()
+}
+
+/** enters the notes played (note input mode) */
+function enterNoteInputMode(): void {
+    grouper.clear()
+    s_follower = null
+    publish({ mode: 'noteinput', heard: [], index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0 })
+}
+
 async function start(): Promise<void> {
     const score = currentScore()
     if (!score || state.active) {
@@ -191,17 +213,13 @@ async function start(): Promise<void> {
     if (playbackState().playing) {
         triggerAction('pause')
     }
-    if (scoreViewState().noteInput) {
-        grouper.clear()
-        publish({ active: true, mode: 'noteinput', status: 'loading', error: '', heard: [] })
+    s_startedInNoteInput = scoreViewState().noteInput
+    if (s_startedInNoteInput) {
+        enterNoteInputMode()
+        publish({ active: true, status: 'loading', error: '' })
     } else {
-        s_partIds = selectedPartIds()
-        s_scoreVersion = scoreViewState().scoreVersion
-        s_measures = playalongMeasures(score, s_partIds)
-        const tick = selectionTick()
-        buildFollower(tick >= 0 ? Math.max(0, measureIndexAtTick(tick, 0)) : 0)
-        publish({ active: true, mode: 'playalong', status: 'loading', error: '', heard: [] })
-        showMeasure()
+        startFollowing()
+        publish({ active: true, status: 'loading', error: '' })
     }
     try {
         s_detector ??= await createNoteDetector({ baseUrl: import.meta.env.BASE_URL, input: detectorInput() })
@@ -255,6 +273,65 @@ function step(delta: number): void {
     showMeasure()
 }
 
+/** goes to another measure (an index in the played order) */
+function goTo(index: number): void {
+    if (!s_follower || index < 0 || index === state.index) {
+        return
+    }
+    s_follower.setMeasure(index)
+    grouper.clear()
+    showMeasure()
+}
+
+/** the view shows systems above each other (not the horizontal continuous view) */
+function systemsStacked(): boolean {
+    return scoreViewState().viewMode !== 'continuous-horizontal'
+}
+
+/**
+ * the measure in the system above (delta -1) or below (+1) the followed one: the one nearest to its horizontal
+ * center; the occurrence in the played order nearest to the followed one
+ */
+function measureInAdjacentSystem(delta: -1 | 1): number {
+    const score = currentScore()
+    const current = s_measures[state.index]
+    if (!score || !current) {
+        return -1
+    }
+    const cur = playalongMeasureBounds(score, current.tick)
+    if (!cur) {
+        return -1
+    }
+    const ticks = [...new Set(s_measures.map(m => m.tick))]
+    const bounds = ticks.map(tick => ({ tick, b: playalongMeasureBounds(score, tick) }))
+        .filter((e): e is { tick: number; b: NonNullable<typeof cur> } => !!e.b)
+    // systems ordered by page and y (a system's measures have the same y)
+    const order = (b: typeof cur): number => delta * (b.page !== cur.page ? b.page - cur.page : b.y - cur.y)
+    const EPS = 0.01
+    let system: number | null = null
+    for (const { b } of bounds) {
+        const o = order(b)
+        if (o > EPS && (system === null || o < system)) {
+            system = o
+        }
+    }
+    if (system === null) {
+        return -1
+    }
+    const center = cur.x + cur.width / 2
+    let best: { tick: number; dist: number } | null = null
+    for (const { tick, b } of bounds) {
+        if (Math.abs(order(b) - system) > EPS) {
+            continue
+        }
+        const dist = center < b.x ? b.x - center : center > b.x + b.width ? center - b.x - b.width : 0
+        if (!best || dist < best.dist) {
+            best = { tick, dist }
+        }
+    }
+    return best ? measureIndexAtTick(best.tick, state.index) : -1
+}
+
 function togglePractice(): void {
     const practice = !state.practice
     updateSettings('playback', { playalongPractice: practice })
@@ -274,11 +351,19 @@ onScoreViewChanged(() => {
         void stop()
         return
     }
-    if (state.mode === 'noteinput') {
-        // entering notes changes the score: nothing to follow; ends with the note input
-        if (!v.noteInput) {
+    // the microphone stays on when the note input starts or ends: it enters the notes played while the note input
+    // is on (the score changes: nothing to follow)
+    if (v.noteInput && state.mode !== 'noteinput') {
+        enterNoteInputMode()
+    } else if (!v.noteInput && state.mode === 'noteinput') {
+        if (s_startedInNoteInput) {
             void stop()
+            return
         }
+        s_selectionVersion = v.selectionVersion
+        startFollowing()
+    }
+    if (state.mode === 'noteinput') {
         return
     }
     if (v.scoreVersion !== s_scoreVersion) {
@@ -311,10 +396,17 @@ export function registerPlayalongActions(): void {
         icon: ICON_CODES.LOOP, checkable: true,
     })
     const following = (): boolean => state.active && state.mode === 'playalong'
-    registerAction('playalong-prev', { run: () => step(-1), enabled: () => following() && state.index > 0, context: 'notation' }, {
+    // the arrow keys (APP_SHORTCUTS in actions.ts) move the playalong instead of the selection while it follows
+    registerAction('playalong-prev', { run: () => step(-1), enabled: () => following() && state.index > 0, context: 'notation', priority: 2 }, {
         title: [null, 'Previous measure'], icon: ICON_CODES.ARROW_LEFT,
     })
-    registerAction('playalong-next', { run: () => step(1), enabled: () => following() && state.index < state.count - 1, context: 'notation' }, {
+    registerAction('playalong-next', { run: () => step(1), enabled: () => following() && state.index < state.count - 1, context: 'notation', priority: 2 }, {
         title: [null, 'Next measure'], icon: ICON_CODES.ARROW_RIGHT,
+    })
+    registerAction('playalong-up', { run: () => goTo(measureInAdjacentSystem(-1)), enabled: () => following() && systemsStacked(), context: 'notation', priority: 2 }, {
+        title: [null, 'Measure above'],
+    })
+    registerAction('playalong-down', { run: () => goTo(measureInAdjacentSystem(1)), enabled: () => following() && systemsStacked(), context: 'notation', priority: 2 }, {
+        title: [null, 'Measure below'],
     })
 }

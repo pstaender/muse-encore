@@ -1457,6 +1457,6 @@ dialog.project-properties .dialog-buttons .spacer { flex: 1; }
     text-align: center;
     font-variant-numeric: tabular-nums;
 }
-.statusbar .status-heard { margin-right: 1.5em; font-variant-numeric: tabular-nums; }
+.statusbar .status-heard { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; font-variant-numeric: tabular-nums; }
 .playalong-status { font-size: .9em; white-space: nowrap; margin: 0 .5em; }
 .playalong-status.error { color: var(--danger); }

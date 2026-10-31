@@ -1740,4 +1740,13 @@
   smooth panning, the playback in the horizontal view pans on the whole measure played (it moves when the measure
   starts and does not fit, not when the cursor reaches the edge). Playalong: showRectInView gets the measure played next
   (state.nextTick) and turns one measure early, and only moves in the direction of a continuous view.
+- Follow-up 8: the notes heard are shown after the status text, before the concert pitch button (their changing
+  length no longer moves the status text or the controls). While the playalong follows, the arrow keys move it: Left/Right the previous/next measure (playalong-prev/next),
+  Up/Down (playalong-up/down, "Measure above"/"Measure below", not in the horizontal continuous view) the measure of the
+  system above/below nearest to the current measure's horizontal center. The app's actions have shortcuts in
+  APP_SHORTCUTS (actions.ts) and take precedence over MuseScore's (next-chord, pitch-up, ...) with priority 2 while
+  enabled. Arrow keys on a button focused by a mouse click (not :focus-visible) now go to the score (e.g. after clicking
+  the microphone button), like MuseScore's toolbar buttons that take no focus. The playalong mode follows the note input
+  while the microphone is on (it was fixed at the start: started before N, it kept following and entered no notes):
+  N switches to entering the notes played, leaving the note input follows again (started in note input: it stops).
 

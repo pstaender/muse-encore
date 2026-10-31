@@ -108,11 +108,23 @@ export function useActions(): number {
  * Escape (another key like Ctrl/Option+Space does not reach the page in every browser and system)
  */
 function shortcutTable(): Record<string, readonly string[]> {
-    const table = isMac ? SHORTCUTS_MAC : SHORTCUTS
+    // the app's actions come last: of several disabled actions with the key, MuseScore's is the one tried
+    const table = { ...(isMac ? SHORTCUTS_MAC : SHORTCUTS), ...APP_SHORTCUTS }
     if (!settings().web.spacePan) {
         return table
     }
     return { ...table, play: [] }
+}
+
+/**
+ * the shortcuts of the app's own actions (not in MuseScore); they share keys with MuseScore's actions and take
+ * precedence while enabled (ActionHandler.priority)
+ */
+const APP_SHORTCUTS: Record<string, readonly string[]> = {
+    'playalong-prev': ['Left'],
+    'playalong-next': ['Right'],
+    'playalong-up': ['Up'],
+    'playalong-down': ['Down'],
 }
 
 let s_spacePan = settings().web.spacePan
@@ -204,7 +216,13 @@ function outsideNotationContext(t: HTMLElement | null, combo: KeyCombo): boolean
         return true
     }
     const plain = !combo.ctrl && !combo.alt && !combo.meta
-    return plain && CONTROL_KEYS.has(combo.key) && !!t.closest('button, [role="tab"], a, summary')
+    const control = t.closest('button, [role="tab"], a, summary')
+    if (!plain || !CONTROL_KEYS.has(combo.key) || !control) {
+        return false
+    }
+    // a button clicked with the mouse (MuseScore's toolbar buttons take no focus): the arrows go to the score;
+    // reached with the keyboard it keeps them
+    return !(combo.key.startsWith('Arrow') && control.tagName === 'BUTTON' && !control.matches(':focus-visible'))
 }
 
 /** the action whose shortcut the event is, if it has a handler; text fields keep their keys */

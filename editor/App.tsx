@@ -99,12 +99,16 @@ function StatusBar(): React.JSX.Element {
     return (
         <footer className={`statusbar${v.statusError ? ' error' : ''}`}>
             <span id="status" aria-live="polite">
-                {heard && (
-                    // the notes heard by the playalong change often: not announced
-                    <span className="status-heard" aria-live="off" title={`${heard} (${playalong.latency.toFixed(1)} s)`}>{heard}</span>
-                )}
                 {v.selection ? plainText(v.selection) : v.status}
             </span>
+            {heard && (
+                // after the status (which takes the free space), before the controls: its changing length moves
+                // neither; the notes heard by the playalong change often: not announced
+                <>
+                    <span className="statusbar-separator" aria-hidden="true" />
+                    <span className="status-heard" aria-live="off" title={`${heard} (${playalong.latency.toFixed(1)} s)`}>{heard}</span>
+                </>
+            )}
             <span className="statusbar-separator" aria-hidden="true" />
             <ConcertPitchControl />
             <span className="statusbar-separator" aria-hidden="true" />

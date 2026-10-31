@@ -89,8 +89,10 @@ the follower never runs ahead).
 - The view turns one measure early (when the measure played next would be cut off), so the next measure is visible
   before it is reached. In the continuous views it only moves along their direction: the vertical position in the
   horizontal view (the horizontal one in the vertical view) stays where the user put it.
-- The notes heard appear in the status bar ("Notes heard: …", `aria-live="off"` so screen readers aren't flooded). The
-  delay is shown on hover.
+- The notes heard appear in the status bar before the concert pitch button ("Notes heard: …", `aria-live="off"` so screen readers aren't
+  flooded), so their changing length doesn't move the other items. The delay is shown on hover.
+- Keys while following: ←/→ go to the previous/next measure in the played order; ↑/↓ go to the measure in the system
+  above/below (page view and vertical continuous view). They replace the selection's arrow keys while the playalong is on.
 
 ### Note input from the microphone
 
@@ -98,7 +100,8 @@ the follower never runs ahead).
   `NotationMidiInput.onNoteOns`, a port of MuseScore's note-on handling (`Score.addMidiPitch` / `noteVal` from
   edit.cpp) that goes through the undo stack.
 - Note durations come from the input duration. The detector reports onsets only.
-- The mode ends when note input ends.
+- The microphone stays on when note input starts or ends: pressing N while following switches to entering notes,
+  leaving note input follows the score again. Started in note input mode, it ends with the note input.
 
 ## Known limitations / next steps
 
