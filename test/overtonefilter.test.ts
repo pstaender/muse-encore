@@ -2,13 +2,14 @@
 // The overtone filter of the note detection (shared/notedetection/basicpitch/overtonefilter.ts): weaker notes at the
 // distance of a harmonic above a low note starting at the same time are not reported; real octaves and chords are.
 import { describe, expect, it } from 'vitest'
-import { overtoneOf, OVERTONE_ONSET_FRAMES, type OvertoneCandidate } from '../shared/notedetection/basicpitch/overtonefilter'
+import { overtoneOf, overtoneParams, OVERTONE_ONSET_FRAMES, type OvertoneCandidate } from '../shared/notedetection/basicpitch/overtonefilter'
 
 const n = (pitchMidi: number, amplitude: number, startFrame = 100): OvertoneCandidate => ({ pitchMidi, amplitude, startFrame })
 
 /** the pitches reported of notes decoded together */
 function reported(notes: OvertoneCandidate[], level: 'off' | 'normal' | 'strong'): number[] {
-    return notes.filter(x => !overtoneOf(x, notes, level)).map(x => x.pitchMidi)
+    const p = overtoneParams({ overtoneFilter: level, calibration: null })
+    return notes.filter(x => !overtoneOf(x, notes, p)).map(x => x.pitchMidi)
 }
 
 describe('overtone filter', () => {

@@ -83,6 +83,31 @@ microphone ─► AudioInput (recorder worklet, main thread)
   overtone decoded in an earlier update than its fundamental slips through.
 - Tests: `test/overtonefilter.test.ts`.
 
+### Calibration
+
+- **Why:** the overtone ratios and the level threshold above are guesses. They depend on the instrument, the microphone
+  and the room.
+- **How:** Playback settings menu → "Overtone filter" → "Calibrate the note detection…" (after a separator, at the end of the list) opens the calibration sheet
+  (`editor/playalong/calibration.mscx`, piano, 11 measures) and starts the playalong in calibration mode. The current
+  measure is highlighted, and a small non-modal box (`CalibrationBox.tsx`) says what to play. The step kind comes from
+  the measure's notes (`calibrationSteps`):
+
+  | Measures | Kind | Measured |
+  |---|---|---|
+  | 1 (rest) | silence, 3 s | the noise floor |
+  | 2–5 (C2, D2, F2, A2, *f let ring*) | loud | the amplitude of each harmonic found, relative to the note |
+  | 6–8 (C2+C3, D2+D3, F2+F3, *mf let ring*) | octave | the amplitude of a real octave, relative to the lower note |
+  | 9–11 (C4, E4, G4, *pp*) | soft | the level above the noise floor |
+
+- A step ends `COLLECT_SECONDS` (1 s) after all its notes were found, so late overtones are counted too. A step can be
+  skipped. The worker sends every new note before any filtering (`DetectionUpdate.raw`, with its level).
+- **Result** (`calibrationOf`): the octave ratio lies halfway between the strongest octave overtone and the weakest real
+  octave (if they overlap, 0.9 × the real octave, so played octaves are kept); the other harmonics: 1.15 × the strongest
+  one found; the level gate: 4 dB below the softest note (6–25 dB). Missing measurements keep the Normal values.
+- "Use these values" saves them (`settings.playback.playalongCalibration`) and sets the overtone filter to
+  "Calibrated". The calibration's level threshold applies with every filter level.
+- Tests: `test/calibration.test.ts` (the sheet's steps, the step advance, the values).
+
 ### Score following (`follower.ts`)
 
 The follower runs an online Viterbi alignment of the detected chords against the measures in played order. The order

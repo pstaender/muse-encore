@@ -1754,4 +1754,12 @@
   twelfth, ... were detected). Levels Off/Normal/Strong in the Playback settings menu (settings.playback.
   playalongOvertoneFilter, NoteDetector.configure, worker message 'settings'); stats.overtones; test/overtonefilter.test.ts.
   Ratios not verified with a real piano.
+- Follow-up 10: calibration of the note detection ("Calibrate the note detection…" in the Playback settings menu):
+  opens editor/playalong/calibration.mscx (made with MuseScore from MusicXML; "let ring" next to the dynamics) and starts the playalong in mode
+  'calibration' (Calibrator in shared/notedetection/calibration.ts instead of the follower; the step's measure is
+  highlighted; CalibrationBox.tsx guides: silence, loud low notes, bass octaves, soft notes; Skip/Cancel, at the end
+  Repeat/Use these values; the menu item is at the end of the Overtone filter submenu). The worker reports the notes before filtering (DetectionUpdate.raw with the level); the
+  result (overtone ratios, level gate threshold) is stored as settings.playback.playalongCalibration and the overtone
+  filter level "Calibrated". Checked headless with the test melody (steps, skip, saving); not with a real piano.
+  The calibration sheet is opened like a file, so it appears in the home screen's score list.
 

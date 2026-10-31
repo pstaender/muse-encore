@@ -104,7 +104,8 @@ shared/                 code of both apps: playback/ (Synthesizer interface, Spe
                         cached, player.ts scheduler), vite-plugin-sound.ts (serves/copies the soundfont), notedetection/
                         (NoteDetector interface: microphone -> notes; basicpitch/ = Spotify's basic-pitch, Apache-2.0,
                         vendored with its TensorFlow.js model, loaded on demand, running in a Web Worker (worker.ts;
-                        the audio worklet sends the audio to it; levelgate.ts drops too quiet notes, overtonefilter.ts the overtones of low notes); replaceable in
+                        the audio worklet sends the audio to it; levelgate.ts drops too quiet notes, overtonefilter.ts the overtones of low notes); calibration.ts (the values measured with
+                        the calibration sheet); replaceable in
                         createNoteDetector)
 editor/                 MuseEncore (the editor), Vite score editor app: React UI (App.tsx, home/, newscore/, dialogs/ mirror MuseScore's
                         QML pages), menu bar (menus/appmenu.ts = AppMenuModel), toolbars (toolbars/: docks, note input bar),
@@ -117,7 +118,8 @@ editor/                 MuseEncore (the editor), Vite score editor app: React UI
                         Dexie), settings.ts (localStorage), playback/ (playbackcontroller.ts = playback actions on shared/playback,
                         playbackview.ts cursor/pan/loop markers; `?synth=none` = no sound), playalong/ (Playalong, not
                         in MuseScore: follower.ts = score following, playalongcontroller.ts, playalongview.ts; in note
-                        input mode the button enters the notes played (enterMidiNotes = NotationMidiInput note-ons);
+                        input mode the button enters the notes played (enterMidiNotes = NotationMidiInput note-ons); calibration of the note
+                        detection with calibration.mscx and CalibrationBox.tsx;
                         `?playalong-input=test-melody` instead of the microphone), panels/ (the left dock: PanelDock.tsx tabs + splitter,
                         panels.ts state, palettes/ (palette tree stored as PaletteTree XML in localStorage, dialogs),
                         layout/, inspector/ UIs; editbridge.ts = all score changes of the

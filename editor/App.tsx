@@ -25,6 +25,7 @@ import { BreaksDialogHost } from './dialogs/BreaksDialog'
 import { CustomizeKitDialogHost } from './dialogs/CustomizeKitDialog'
 import { MessageBoxHost } from './components/MessageBox'
 import { SearchPopup } from './components/SearchPopup'
+import { CalibrationBox } from './playalong/CalibrationBox'
 import { NotationSwitchPanel } from './components/NotationSwitchPanel'
 import { PartsDialogHost } from './dialogs/PartsDialog'
 import { ProjectPropertiesDialogHost } from './dialogs/ProjectPropertiesDialog'
@@ -191,6 +192,7 @@ export function App(): React.JSX.Element {
                     <NotationSwitchPanel />
                     <div ref={viewportHost} className="viewport-host" />
                     {score && <SearchPopup />}
+                    {score && <CalibrationBox />}
                 </div>
             </div>
             <div ref={bottomRef} className="bottom-chrome">

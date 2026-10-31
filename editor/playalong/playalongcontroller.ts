@@ -17,14 +17,18 @@ import { ICON_CODES, type TrString } from '../actions/uiactiondata'
 import { webtr } from '../i18n'
 import { currentScore, onScoreViewChanged, scoreChanged, scoreViewState } from '../scoreview'
 import { onSettingsChanged, settings, updateSettings } from '../settings'
-import { createNoteDetector, type NoteDetector, type OvertoneFilterLevel } from '../../shared/notedetection/notedetector'
+import { createNoteDetector, type DetectionUpdate, type NoteDetector, type NoteDetectorSettings, type OvertoneFilterLevel } from '../../shared/notedetection/notedetector'
+import { calibrationSteps, Calibrator, type CalibrationKind, type CalibrationResult } from '../../shared/notedetection/calibration'
+import calibrationSheet from './calibration.mscx?raw'
+
+const CALIBRATION_FILE_NAME = 'Note detection calibration.mscx'
 import { ChordGrouper, PlayalongFollower } from './follower'
 import { playbackState } from '../playback/playbackcontroller'
 
 export interface PlayalongState {
     active: boolean
-    /** following the score, or entering the notes played (note input) */
-    mode: 'playalong' | 'noteinput'
+    /** following the score, entering the notes played (note input), or calibrating the note detection */
+    mode: 'playalong' | 'noteinput' | 'calibration'
     status: 'off' | 'loading' | 'listening' | 'error'
     error: string
     /** the measure followed: its index in the played order, its raw tick and number (-1: none) */
@@ -41,11 +45,13 @@ export interface PlayalongState {
     heard: number[]
     /** how late the notes are reported (s) */
     latency: number
+    /** the calibration: the step (of the steps, steps: done) and its kind, the result when done */
+    calibration: { step: number; steps: number; kind: CalibrationKind | null; result: CalibrationResult | null } | null
 }
 
 let state: PlayalongState = {
     active: false, mode: 'playalong', status: 'off', error: '', index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0,
-    practice: settings().playback.playalongPractice, heard: [], latency: 0,
+    practice: settings().playback.playalongPractice, heard: [], latency: 0, calibration: null,
 }
 const listeners = new Set<() => void>()
 
@@ -97,6 +103,10 @@ let s_scoreVersion = -1
 let s_session = 0
 
 const grouper = new ChordGrouper((pitches, time) => {
+    if (state.mode === 'calibration') {
+        publish({ heard: pitches, latency: s_detector?.stats().latency ?? 0 })
+        return
+    }
     if (state.mode === 'noteinput') {
         const score = currentScore()
         if (score && enterMidiNotes(score, [...pitches].sort((a, b) => a - b))) {
@@ -175,7 +185,8 @@ function buildFollower(startIndex: number): void {
 }
 
 function showMeasure(): void {
-    const m = s_follower ? s_measures[s_follower.measure()] : undefined
+    const index = s_calibrator ? s_calibrator.step() : s_follower ? s_follower.measure() : -1
+    const m = s_measures[index]
     publish(m
         ? { index: m.index, tick: m.tick, number: m.number, prevTick: s_measures[m.index - 1]?.tick ?? -1,
             nextTick: s_measures[m.index + 1]?.tick ?? -1, count: s_measures.length }
@@ -203,7 +214,40 @@ function enterNoteInputMode(): void {
     publish({ mode: 'noteinput', heard: [], index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0 })
 }
 
-async function start(): Promise<void> {
+/** the calibration of the note detection (on the calibration sheet) */
+let s_calibrator: Calibrator | null = null
+
+function startCalibrating(): void {
+    const score = currentScore()
+    s_measures = score ? playalongMeasures(score, null) : []
+    s_calibrator = new Calibrator(calibrationSteps(s_measures.map(m => m.events.flatMap(e => e.pitches))))
+    grouper.clear()
+    publish({ mode: 'calibration', heard: [] })
+    showCalibration()
+}
+
+function showCalibration(): void {
+    const c = s_calibrator
+    if (!c) {
+        publish({ calibration: null })
+        return
+    }
+    const done = c.done()
+    publish({ calibration: { step: c.step(), steps: c.steps.length, kind: done ? null : c.steps[c.step()].kind, result: done ? c.result() : null } })
+    showMeasure()
+}
+
+function onDetectionUpdate(update: DetectionUpdate): void {
+    if (s_calibrator?.onUpdate(update)) {
+        showCalibration()
+    }
+}
+
+function detectorSettings(): NoteDetectorSettings {
+    return { overtoneFilter: overtoneFilter(), calibration: settings().playback.playalongCalibration }
+}
+
+async function start(calibrate = false): Promise<void> {
     const score = currentScore()
     if (!score || state.active) {
         return
@@ -213,8 +257,11 @@ async function start(): Promise<void> {
     if (playbackState().playing) {
         triggerAction('pause')
     }
-    s_startedInNoteInput = scoreViewState().noteInput
-    if (s_startedInNoteInput) {
+    s_startedInNoteInput = !calibrate && scoreViewState().noteInput
+    if (calibrate) {
+        startCalibrating()
+        publish({ active: true, status: 'loading', error: '' })
+    } else if (s_startedInNoteInput) {
         enterNoteInputMode()
         publish({ active: true, status: 'loading', error: '' })
     } else {
@@ -223,12 +270,12 @@ async function start(): Promise<void> {
     }
     try {
         s_detector ??= await createNoteDetector({
-            baseUrl: import.meta.env.BASE_URL, input: detectorInput(), settings: { overtoneFilter: overtoneFilter() },
+            baseUrl: import.meta.env.BASE_URL, input: detectorInput(), settings: detectorSettings(),
         })
         if (session !== s_session) {
             return
         }
-        await s_detector.start(note => grouper.add(note.pitch, note.time))
+        await s_detector.start(note => grouper.add(note.pitch, note.time), onDetectionUpdate)
         if (session !== s_session) {
             await s_detector.stop()
             return
@@ -250,7 +297,8 @@ async function stop(): Promise<void> {
     ++s_session
     grouper.clear()
     s_follower = null
-    publish({ active: false, status: 'off', error: '', heard: [], index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0 })
+    s_calibrator = null
+    publish({ active: false, status: 'off', error: '', heard: [], index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0, calibration: null })
     await s_detector?.stop()
 }
 
@@ -342,14 +390,50 @@ function setOvertoneFilter(level: OvertoneFilterLevel): void {
     updateSettings('playback', { playalongOvertoneFilter: level })
 }
 
-let s_overtoneFilter = overtoneFilter()
+let s_detectorSettings = detectorSettings()
 onSettingsChanged(() => {
-    if (overtoneFilter() !== s_overtoneFilter) {
-        s_overtoneFilter = overtoneFilter()
-        s_detector?.configure({ overtoneFilter: s_overtoneFilter })
+    const d = detectorSettings()
+    if (d.overtoneFilter !== s_detectorSettings.overtoneFilter || d.calibration !== s_detectorSettings.calibration) {
+        s_detectorSettings = d
+        s_detector?.configure(d)
         actionsChanged()
     }
 })
+
+/** "Calibrate the note detection…": opens the calibration sheet and listens step by step */
+async function calibrate(): Promise<void> {
+    if (state.active) {
+        await stop()
+    }
+    const { openFileData } = await import('../session')
+    const data = new TextEncoder().encode(calibrationSheet).buffer as ArrayBuffer
+    await openFileData(CALIBRATION_FILE_NAME, data, 'file')
+    if (currentScore() && scoreViewState().hasScore) {
+        await start(true)
+    }
+}
+
+/** the calibration's step is not played (e.g. not recognized) */
+export function skipCalibrationStep(): void {
+    s_calibrator?.skip()
+    showCalibration()
+}
+
+/** starts the calibration again */
+export function repeatCalibration(): void {
+    if (state.mode === 'calibration' && state.active) {
+        startCalibrating()
+    }
+}
+
+/** ends the calibration; use: the values measured are taken (the overtone filter becomes "Calibrated") */
+export function finishCalibration(use: boolean): void {
+    const result = state.calibration?.result
+    if (use && result) {
+        updateSettings('playback', { playalongCalibration: result.calibration, playalongOvertoneFilter: 'calibrated' })
+    }
+    void stop()
+}
 
 function togglePractice(): void {
     const practice = !state.practice
@@ -368,6 +452,9 @@ onScoreViewChanged(() => {
     }
     if (!currentScore()) {
         void stop()
+        return
+    }
+    if (state.mode === 'calibration') {
         return
     }
     // the microphone stays on when the note input starts or ends: it enters the notes played while the note input
@@ -415,13 +502,22 @@ export function registerPlayalongActions(): void {
         icon: ICON_CODES.LOOP, checkable: true,
     })
     // the overtone filter of the note detection (playback settings menu)
-    const levels: [OvertoneFilterLevel, TrString][] = [['off', ['global', 'Off']], ['normal', ['inspector', 'Normal']], ['strong', [null, 'Strong']]]
+    const levels: [OvertoneFilterLevel, TrString][] = [
+        ['off', ['global', 'Off']], ['normal', ['inspector', 'Normal']], ['strong', [null, 'Strong']], ['calibrated', [null, 'Calibrated']],
+    ]
     for (const [level, title] of levels) {
-        registerAction(`playalong-overtone-filter-${level}`, { run: () => setOvertoneFilter(level), checked: () => overtoneFilter() === level }, {
+        registerAction(`playalong-overtone-filter-${level}`, {
+            run: () => setOvertoneFilter(level), checked: () => overtoneFilter() === level,
+            enabled: () => level !== 'calibrated' || !!settings().playback.playalongCalibration,
+        }, {
             title, checkable: true,
             description: [null, 'Overtone filter: the overtones of low notes (piano) are not taken for notes played'],
         })
     }
+    registerAction('playalong-calibrate', { run: () => void calibrate() }, {
+        title: [null, 'Calibrate the note detection…'],
+        description: [null, 'Play the notes of a calibration sheet: the note detection measures your instrument and microphone'],
+    })
     const following = (): boolean => state.active && state.mode === 'playalong'
     // the arrow keys (APP_SHORTCUTS in actions.ts) move the playalong instead of the selection while it follows
     registerAction('playalong-prev', { run: () => step(-1), enabled: () => following() && state.index > 0, context: 'notation', priority: 2 }, {

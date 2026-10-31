@@ -51,7 +51,11 @@ export class LevelGate {
     private blockSilent = false
 
     constructor(options: LevelGateOptions = DEFAULT_LEVEL_GATE) {
-        this.options = options
+        this.options = { ...options }
+    }
+
+    setOptions(options: Partial<LevelGateOptions>): void {
+        Object.assign(this.options, options)
     }
 
     /** the hops measured since the start (the hop index of the next samples) */

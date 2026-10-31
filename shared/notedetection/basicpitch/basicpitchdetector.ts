@@ -6,7 +6,7 @@
  * recorder worklet sends the audio directly to the worker. The model (model/) is served at <base>/basic-pitch/
  * (vite-plugin-basicpitch.ts).
  */
-import { DEFAULT_NOTE_DETECTOR_SETTINGS, type DetectedNote, type NoteDetector, type NoteDetectorOptions, type NoteDetectorSettings, type NoteDetectorStats } from '../notedetector'
+import { DEFAULT_NOTE_DETECTOR_SETTINGS, type DetectedNote, type DetectionUpdate, type NoteDetector, type NoteDetectorOptions, type NoteDetectorSettings, type NoteDetectorStats } from '../notedetector'
 import { AudioInput } from './audioinput'
 import type { FromWorker, ToWorker } from './worker'
 
@@ -39,7 +39,7 @@ export class BasicPitchDetector implements NoteDetector {
         }
     }
 
-    async start(onNote: (note: DetectedNote) => void): Promise<void> {
+    async start(onNote: (note: DetectedNote) => void, onUpdate?: (update: DetectionUpdate) => void): Promise<void> {
         await this.stop()
         const w = worker()
         const channel = new MessageChannel()
@@ -53,6 +53,7 @@ export class BasicPitchDetector implements NoteDetector {
                 } else if (msg.type === 'update') {
                     this.active = msg.active
                     this.m_stats = msg.stats
+                    onUpdate?.({ time: msg.time, raw: msg.raw, floorDb: msg.stats.floorDb })
                     for (const note of msg.notes) {
                         onNote(note)
                     }

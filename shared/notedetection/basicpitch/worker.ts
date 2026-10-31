@@ -7,11 +7,11 @@
  * of the room) and not an overtone of a lower note (overtonefilter.ts). So the main thread (the score view) does not slow down the detection, and the other way round.
  */
 import * as tf from '@tensorflow/tfjs'
-import { DEFAULT_NOTE_DETECTOR_SETTINGS, type DetectedNote, type NoteDetectorSettings, type NoteDetectorStats } from '../notedetector'
+import { DEFAULT_NOTE_DETECTOR_SETTINGS, type DetectedNote, type NoteDetectorSettings, type NoteDetectorStats, type RawNote } from '../notedetector'
 import { MODEL_SAMPLE_RATE, StreamResampler } from './audioinput'
 import { BasicPitch } from './inference'
-import { HOP, LevelGate } from './levelgate'
-import { overtoneOf } from './overtonefilter'
+import { DEFAULT_LEVEL_GATE, HOP, LevelGate } from './levelgate'
+import { overtoneOf, overtoneParams } from './overtonefilter'
 import { FRAMES_PER_SECOND, LiveTranscriber, type DetectionSettings, type TranscriptionUpdate } from './transcriber'
 
 /** the messages to the worker */
@@ -24,7 +24,7 @@ export type ToWorker =
 export type FromWorker =
     | { type: 'ready' }
     | { type: 'error'; message: string }
-    | { type: 'update'; notes: DetectedNote[]; active: number[]; stats: NoteDetectorStats }
+    | { type: 'update'; notes: DetectedNote[]; raw: RawNote[]; time: number; active: number[]; stats: NoteDetectorStats }
 
 const SETTINGS: DetectionSettings = {
     onsetThreshold: 0.5,
@@ -77,6 +77,7 @@ async function start(modelUrl: string, sampleRate: number, port: MessagePort): P
     s_port = port
     const gate = new LevelGate()
     s_gate = gate
+    applySettings()
     port.onmessage = (event: MessageEvent<Float32Array>) => {
         const samples = resampler ? resampler.process(event.data) : event.data
         gate.push(samples)
@@ -84,6 +85,11 @@ async function start(modelUrl: string, sampleRate: number, port: MessagePort): P
     }
     transcriber.start()
     scope.postMessage({ type: 'ready' })
+}
+
+/** the level gate's threshold: calibrated, else the default */
+function applySettings(): void {
+    s_gate.setOptions({ overFloorDb: s_settings.calibration?.overFloorDb ?? DEFAULT_LEVEL_GATE.overFloorDb })
 }
 
 function stop(): void {
@@ -100,6 +106,8 @@ function onUpdate(update: TranscriptionUpdate): void {
     s_stats.updates = n + 1
     s_stats.processingMs = n ? 0.9 * s_stats.processingMs + 0.1 * update.inferenceMs : update.inferenceMs
     const notes: DetectedNote[] = []
+    const raw: RawNote[] = []
+    const overtones = overtoneParams(s_settings)
     const oldest = update.lastFrame - 2 * HISTORY_SECONDS * FRAMES_PER_SECOND
     for (const note of [...update.notes].sort((a, b) => a.startFrame - b.startFrame)) {
         let starts = s_reported.get(note.pitchMidi)
@@ -111,12 +119,13 @@ function onUpdate(update: TranscriptionUpdate): void {
             continue
         }
         starts.push(note.startFrame)
+        const hop = Math.round(update.endSample / HOP - LAST_FRAME_TO_WINDOW_END - (update.lastFrame - note.startFrame))
+        raw.push({ pitch: note.pitchMidi, time: note.startFrame / FRAMES_PER_SECOND, amplitude: note.amplitude, levelDb: s_gate.noteLevelDb(hop) })
         // compared with all notes decoded (the lower note may have been reported before)
-        if (overtoneOf(note, update.notes, s_settings.overtoneFilter)) {
+        if (overtoneOf(note, update.notes, overtones)) {
             ++s_stats.overtones
             continue
         }
-        const hop = Math.round(update.endSample / HOP - LAST_FRAME_TO_WINDOW_END - (update.lastFrame - note.startFrame))
         if (!s_gate.accepts(hop)) {
             ++s_stats.rejected
             continue
@@ -133,7 +142,7 @@ function onUpdate(update: TranscriptionUpdate): void {
         }
     }
     s_stats.floorDb = s_gate.floorDb()
-    scope.postMessage({ type: 'update', notes, active: update.notes.filter(x => x.active).map(x => x.pitchMidi), stats: { ...s_stats } })
+    scope.postMessage({ type: 'update', notes, raw, time: update.lastFrame / FRAMES_PER_SECOND, active: update.notes.filter(x => x.active).map(x => x.pitchMidi), stats: { ...s_stats } })
 }
 
 scope.onmessage = (event: MessageEvent<ToWorker>): void => {
@@ -145,6 +154,7 @@ scope.onmessage = (event: MessageEvent<ToWorker>): void => {
         })
     } else if (msg.type === 'settings') {
         s_settings = msg.settings
+        applySettings()
     } else if (msg.type === 'stop') {
         stop()
     }
