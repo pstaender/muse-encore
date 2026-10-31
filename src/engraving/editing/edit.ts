@@ -8032,3 +8032,66 @@ Score.prototype.cloneVoice = function (this: Score, strack: track_idx_t, dtrack:
     }
 }
 
+
+// =====================================================================================================================
+//   noteVal, addMidiPitch (edit.cpp): the pitches of MIDI input (here: the notes detected from the microphone)
+// =====================================================================================================================
+
+// (imports of this section; ES imports are hoisted)
+import { pitch2tpc, Prefer } from '../dom/pitchspelling'
+
+declare module '../dom/score' {
+    interface Score {
+        /** the NoteVal of a MIDI pitch on a staff (spelled with the accidental of the input state as a hint) */
+        noteVal(pitch: number, staffIdx: number, allowTransposition: boolean): NoteVal
+        /** adds a MIDI pitch at the input position (addFlag: to the chord) */
+        addMidiPitch(pitch: number, addFlag: boolean, allowTransposition: boolean): Note | null
+    }
+}
+
+Score.prototype.noteVal = function (this: Score, pitch: number, staffIdx: number, allowTransposition: boolean): NoteVal {
+    const nval = new NoteVal(pitch)
+
+    const st = this.staff(staffIdx)
+    if (!st) {
+        return nval
+    }
+
+    const concertPitch = this.style().styleB(Sid.concertPitch)
+    const v = st.part().instrument(this.inputState().tick()).transpose()
+
+    // If an accidental is set in the input state, use it as a hint for the pitch spelling
+    const at = this.inputState().accidentalType()
+    if (at === AccidentalType.FLAT || at === AccidentalType.SHARP) {
+        const prefer = at === AccidentalType.SHARP ? Prefer.SHARPS : Prefer.FLATS
+        if (concertPitch || v.isZero()) {
+            // Note: using Key::C always and ignoring actual key signature. Otherwise, flat mode would still use sharps
+            // sometimes if they're in the key, and vice versa, which seems contrary to the intent of the hint.
+            nval.tpc1 = pitch2tpc(nval.pitch, Key.C, prefer)
+            const vFlipped = v.clone()
+            vFlipped.flip()
+            nval.tpc2 = Transpose.transposeTpc(nval.tpc1, vFlipped, true)
+        } else {
+            // Spell the transposed pitch first, then convert to concert pitch
+            let writtenPitch = nval.pitch
+            if (!allowTransposition) {
+                writtenPitch -= v.chromatic
+            }
+            nval.tpc2 = pitch2tpc(writtenPitch, Key.C, prefer)
+            nval.tpc1 = Transpose.transposeTpc(nval.tpc2, v, true)
+        }
+    }
+
+    // if transposing, interpret MIDI pitch as representing desired written pitch
+    // set pitch based on corresponding sounding pitch
+    if (!concertPitch && allowTransposition) {
+        nval.pitch += v.chromatic
+    }
+
+    return nval
+}
+
+Score.prototype.addMidiPitch = function (this: Score, pitch: number, addFlag: boolean, allowTransposition: boolean): Note | null {
+    const nval = this.noteVal(pitch, this.inputState().staffIdx(), allowTransposition)
+    return this.addPitch(nval, addFlag)
+}

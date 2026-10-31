@@ -25,6 +25,7 @@ import { BreaksDialogHost } from './dialogs/BreaksDialog'
 import { CustomizeKitDialogHost } from './dialogs/CustomizeKitDialog'
 import { MessageBoxHost } from './components/MessageBox'
 import { SearchPopup } from './components/SearchPopup'
+import { CalibrationBox } from './playalong/CalibrationBox'
 import { NotationSwitchPanel } from './components/NotationSwitchPanel'
 import { PartsDialogHost } from './dialogs/PartsDialog'
 import { ProjectPropertiesDialogHost } from './dialogs/ProjectPropertiesDialog'
@@ -44,6 +45,7 @@ import { answerDialog, openStored, saveChangesTitle, setView, showDialog, useSes
 import { resetSettings } from './settings'
 import { ToolBarDock, ToolBarRows, toolbarMenuItems } from './toolbars/ToolBars'
 import { restoreDefaultLayout, useToolBarLayout } from './toolbars/layout'
+import { heardNotesText, usePlayalongState } from './playalong/playalongcontroller'
 
 const MAX_RECENT_IN_MENU = 20
 
@@ -93,9 +95,21 @@ function RestoreSessionDialog({ onClose }: { onClose: (answer: unknown) => void 
 
 function StatusBar(): React.JSX.Element {
     const v = useScoreView()
+    const playalong = usePlayalongState()
+    const heard = heardNotesText(playalong)
     return (
         <footer className={`statusbar${v.statusError ? ' error' : ''}`}>
-            <span id="status" aria-live="polite">{v.selection ? plainText(v.selection) : v.status}</span>
+            <span id="status" aria-live="polite">
+                {v.selection ? plainText(v.selection) : v.status}
+            </span>
+            {heard && (
+                // after the status (which takes the free space), before the controls: its changing length moves
+                // neither; the notes heard by the playalong change often: not announced
+                <>
+                    <span className="statusbar-separator" aria-hidden="true" />
+                    <span className="status-heard" aria-live="off" title={`${heard} (${playalong.latency.toFixed(1)} s)`}>{heard}</span>
+                </>
+            )}
             <span className="statusbar-separator" aria-hidden="true" />
             <ConcertPitchControl />
             <span className="statusbar-separator" aria-hidden="true" />
@@ -178,6 +192,7 @@ export function App(): React.JSX.Element {
                     <NotationSwitchPanel />
                     <div ref={viewportHost} className="viewport-host" />
                     {score && <SearchPopup />}
+                    {score && <CalibrationBox />}
                 </div>
             </div>
             <div ref={bottomRef} className="bottom-chrome">

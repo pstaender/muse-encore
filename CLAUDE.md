@@ -73,6 +73,8 @@ src/
                         .mxl; import/: the MusicXML import), capella (.cap/.capx import), guitarpro (Guitar Pro 1-7 and
                         Power Tab import); readers.ts registers the import readers (NotationReadersRegister)
   playback              IPlaybackController (set by the app; the notation scene seeks/plays through it); api.ts
+  playalong             api.ts: the measures in the played order with their pitches, their rectangles (the editor's
+                        Playalong, not in MuseScore)
   notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands),
                         PlaybackCursor, LoopMarker, ContinuousPanel (left edge of the horizontal continuous view),
                         NotationContextMenuModel (the score's context menu), EditStaff/EditStaffType (the logic of the
@@ -99,7 +101,12 @@ viewer/                 MuseEncore Viewer: src/museencoreviewer.ts is the viewer
 packages/viewer/        the npm package "muse-encore-viewer" (package.json, README; dist/ + fonts/ are built by
                         tools/build-viewer-package.ts with viewer/vite.lib.config.ts: one bundled ES module for CDNs)
 shared/                 code of both apps: playback/ (Synthesizer interface, SpessaSynth + MS Basic.sf3 loaded on first use and
-                        cached, player.ts scheduler), vite-plugin-sound.ts (serves/copies the soundfont)
+                        cached, player.ts scheduler), vite-plugin-sound.ts (serves/copies the soundfont), notedetection/
+                        (NoteDetector interface: microphone -> notes; basicpitch/ = Spotify's basic-pitch, Apache-2.0,
+                        vendored with its TensorFlow.js model, loaded on demand, running in a Web Worker (worker.ts;
+                        the audio worklet sends the audio to it; levelgate.ts drops too quiet notes, overtonefilter.ts the overtones of low notes); calibration.ts (the values measured with
+                        the calibration sheet); replaceable in
+                        createNoteDetector)
 editor/                 MuseEncore (the editor), Vite score editor app: React UI (App.tsx, home/, newscore/, dialogs/ mirror MuseScore's
                         QML pages), menu bar (menus/appmenu.ts = AppMenuModel), toolbars (toolbars/: docks, note input bar),
                         actions (actions/: MuseScore's UiActions + shortcuts, generated uiactiondata.ts; appactions.ts =
@@ -109,7 +116,11 @@ editor/                 MuseEncore (the editor), Vite score editor app: React UI
                         the current drag), session.ts (open/create/save scores; the migration dialog
                         dialogs/MigrationDialog.tsx), db.ts (IndexedDB via
                         Dexie), settings.ts (localStorage), playback/ (playbackcontroller.ts = playback actions on shared/playback,
-                        playbackview.ts cursor/pan/loop markers; `?synth=none` = no sound), panels/ (the left dock: PanelDock.tsx tabs + splitter,
+                        playbackview.ts cursor/pan/loop markers; `?synth=none` = no sound), playalong/ (Playalong, not
+                        in MuseScore: follower.ts = score following, playalongcontroller.ts, playalongview.ts; in note
+                        input mode the button enters the notes played (enterMidiNotes = NotationMidiInput note-ons); calibration of the note
+                        detection with calibration.mscx and CalibrationBox.tsx;
+                        `?playalong-input=test-melody` instead of the microphone), panels/ (the left dock: PanelDock.tsx tabs + splitter,
                         panels.ts state, palettes/ (palette tree stored as PaletteTree XML in localStorage, dialogs),
                         layout/, inspector/ UIs; editbridge.ts = all score changes of the
                         panels; the Layout panel's commands go through the library's NotationParts port)

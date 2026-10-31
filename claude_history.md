@@ -1655,3 +1655,111 @@
 - The keyboard shortcuts dialog (the "?" button) has an "About…" button that opens a separate About dialog: the logo
   (logo/muse-encore-logo.svg, inlined), "MuseEncore Viewer", the version of the npm package (packages/viewer/package.json)
   and the GitHub homepage with the GitHub mark. Keyboard shortcuts are off while it is open.
+
+## 2026-10-30 — Editor: Playalong (not in MuseScore)
+- Playalong button in the playback toolbar (microphone icon): listens to the microphone, detects the notes played and
+  follows the score measure by measure in the played order (RepeatList unrolled: repeats, voltas, D.C./D.S., codas).
+  Starts at the selected measure (and follows the parts of the selection, else all parts); selecting a measure while
+  it is on continues there. While on: previous/next measure buttons, the measure number, "Playalong practice" (setting
+  `playback.playalongPractice`), the notes heard. The measure is highlighted in the score view and the view follows it.
+  Playback is paused when it starts (the microphone would hear it).
+- Library: `src/playalong/api.ts` — `playalongMeasures(score, partIds)` (measures in the played order with the
+  sounding pitches per chord/rest segment; tied notes and unplayed notes left out) and `playalongMeasureBounds`.
+- Score following: `editor/playalong/follower.ts` (`PlayalongFollower`, `ChordGrouper`; pure, test/playalong.test.ts).
+  Notes within 100 ms form a chord. Similarity: exact pitch 1, octave error 0.55, semitone off 0.45; partial chords
+  count, notes not belonging to the event lower it. The next expected event accepts lenient matches, events up to 3
+  ahead (missed notes) need the right pitches. Jumps (follow mode: up to 2 measures ahead; practice mode: 16 measures
+  back or ahead) need several chords in a row (2, practice 3 or 2 from a measure start) while the current position
+  missed some of them. A constant tuning offset of ±1–2 semitones is learned from the matches.
+- Note detection behind `shared/notedetection/notedetector.ts` (`NoteDetector`, `createNoteDetector`, loaded with a
+  dynamic import): the current implementation is Spotify's basic-pitch (Apache-2.0), vendored in
+  `shared/notedetection/basicpitch/` from the local basic-pitch-ts checkout (its live demo's transcriber/audio input;
+  the MIDI file writing removed) with the TensorFlow.js model (served/copied to `basic-pitch/` by
+  vite-plugin-basicpitch.ts). New dependency `@tensorflow/tfjs` (only in the detector's lazy chunk, ~1 MB).
+  To replace the detection, implement `NoteDetector` and change `createNoteDetector`; to remove it, delete
+  shared/notedetection, editor/playalong, src/playalong and their few wiring lines (appactions.ts, PlaybackToolBar.tsx,
+  vite.config.ts, settings.ts, style.css).
+- `?playalong-input=test-melody`: a synthesized melody instead of the microphone (development).
+- Follow-up (user: it moved on too early in songs with repeated parts): the current position only looks ahead within
+  the current measure; the next measure is entered after its last event was played. Other positions are only kept
+  while the current one misses (cleared when it matches), so a jump needs chords in a row the current position
+  missed; leaving a measure whose last event was missed needs one more chord, more than that missed two more. A lone
+  octave error no longer matches (it only supports chords). Follow mode jumps only to measure starts. Timing: the
+  tempo (median seconds per tick of the recent matches, pauses left out) is estimated; skipping events and crossing
+  the barline are refused when the chord comes much too early (late is always fine).
+- Missing: following through measures without notes (rests) by tempo (the next played note jumps over them);
+  a tuning/sensitivity UI; the viewer has no playalong yet.
+- Follow-up 2 (still too early; practice mode jumped from measure 2 to 15; the measure cut off at the left in the
+  continuous view): the next measure is only reachable when the measure was played to a degree (60 % of its events,
+  its last event with a clear match; a lenient match is upgraded when the chord is played again). A chord fitting the
+  event just played better than the next one is a repetition (or a double detection), it does not skip ahead.
+  Practice mode looks only at 3 measures back and 2 ahead; jumps over more than one measure need one more chord per
+  measure. The tuning offset is learned after 4 agreeing matches. View: `showRectInView` (scoreview.ts) keeps the
+  measure fully visible right of the continuous panel (its last width is remembered: it appears only after the view
+  moved; checked again after the panel was drawn), with the previous measure in practice mode if it fits.
+- Follow-up 3 (practice mode did not move on): the greedy follower (one position + confirmed jumps) was replaced by a
+  probabilistic alignment (Viterbi over the events near the current measure: next event, skips with a penalty, more
+  for skipping the end of a measure, stays for extra/wrong notes or repeated chords, jumps to measure starts; the
+  chord similarity and the timing fit are the scores; the measure shown changes when another measure is better by a
+  margin). The window counts measures with events (rests are passed) and is anchored on the best position; it grows
+  ahead when the best position does not move (lost). test/playalongsim.test.ts plays demo scores (piano both hands,
+  a lead sheet) with simulated detection errors (25 % notes missed, octave errors, extra notes, jitter): it never runs
+  ahead of the player in straight playing; with noise it is right after 60-97 % of the chords (the lead sheet with 2-3
+  notes per measure is the hardest). The parts followed are those of the selection (a piano: both staves).
+- Follow-up 4 (the detection fell behind with many notes): basic-pitch's melodia trick (notes without onsets: one
+  scan of the whole history per remaining note, ~10 times a second) is off and the decoded history is 2.5 s: in
+  Chrome ~35 ms per update (every 93 ms), notes reported 0.1-0.2 s after they start, not growing. The NoteDetector
+  has stats() (processing time, latency; window.__museencorePlayalong, the tooltip of the notes heard). Notes reported
+  after a later chord was processed are dropped (ChordGrouper). The follower uses the time since the last chord: once
+  the tempo is known, skipping events, the end of a measure and jumps ahead are cheaper when the time fits, skips may
+  go as far as the time reaches and the window grows with it (measures the detection missed are passed: simulated
+  with every 5th measure undetected, 83-93 % right; without it two scores were lost).
+- Follow-up 5: the detection runs in a Web Worker (shared/notedetection/basicpitch/worker.ts: resampling, TensorFlow.js,
+  decoding, de-duplication; the recorder worklet gets a MessagePort and sends the audio directly to it; the editor's
+  Vite config builds workers as ES modules; the worker chunk has TensorFlow.js, the main thread part is 5 kB). In
+  Chrome ~30 ms per update in the worker, notes 0.1-0.2 s late. Note input from the microphone: in note input mode
+  the playalong button enters the chords detected at the input position (like MIDI input): Score.noteVal/addMidiPitch
+  (edit.cpp) and NotationMidiInput.onNoteOns (doProcessEvents/addNoteToScore/addNoteEventsToInputState for note-on
+  events; the input by duration takes the pitches as the input notes; realtime auto advances on the first note) are
+  ported; library API enterMidiNotes(score, pitches). Each detected chord is pressed and released (no note-offs:
+  real-time modes do not extend notes by their duration). It stops with the note input. Not done: note durations from
+  the played lengths (the input duration is used), MIDI devices (Web MIDI could use the same path).
+- Follow-up 6: the notes heard are shown in the status bar (#status, a nested aria-live="off" span) instead of the
+  toolbar. Level gate (shared/notedetection/basicpitch/levelgate.ts, test/levelgate.test.ts) in the worker: notes whose
+  mean level over ~100 ms after their start is not 15 dB above the noise floor (the quietest ~93 ms block of the last
+  60 s, at most -50 dBFS: music from the start is not the room's noise) or below -60 dBFS are not reported (keys
+  pressed without sounding, clicks). The transcriber's updates report the sample their window ends at (endSample) to
+  align the notes with the levels (the model output ends 15.3 hops before the window end). Stats: rejected, floorDb.
+  The microphone is opened without automatic gain control, noise suppression and echo cancellation. Fixed: the close
+  buttons of the score tab and of the instrument dialogs had lost their icon glyph (empty string): ICON_CODES.CLOSE_X_ROUNDED.
+- Follow-up 7 (view panning, also for the playback): adjustViewToRect (C++ adjustCanvasPosition) now accounts for the
+  continuous panel's width like C++ (the bar was placed under the panel after a page turn); the panel is drawn for the
+  new position at once and the view corrects for its width in the same frame (no second jump at the first turn). Not in
+  C++: the continuous views keep the position across their direction (alignToCurrentPageBorder no longer snaps the
+  vertical position in the horizontal view, or the horizontal one in the vertical view) unless it had to move; without
+  smooth panning, the playback in the horizontal view pans on the whole measure played (it moves when the measure
+  starts and does not fit, not when the cursor reaches the edge). Playalong: showRectInView gets the measure played next
+  (state.nextTick) and turns one measure early, and only moves in the direction of a continuous view.
+- Follow-up 8: the notes heard are shown after the status text, before the concert pitch button (their changing
+  length no longer moves the status text or the controls). While the playalong follows, the arrow keys move it: Left/Right the previous/next measure (playalong-prev/next),
+  Up/Down (playalong-up/down, "Measure above"/"Measure below", not in the horizontal continuous view) the measure of the
+  system above/below nearest to the current measure's horizontal center. The app's actions have shortcuts in
+  APP_SHORTCUTS (actions.ts) and take precedence over MuseScore's (next-chord, pitch-up, ...) with priority 2 while
+  enabled. Arrow keys on a button focused by a mouse click (not :focus-visible) now go to the score (e.g. after clicking
+  the microphone button), like MuseScore's toolbar buttons that take no focus. The playalong mode follows the note input
+  while the microphone is on (it was fixed at the start: started before N, it kept following and entered no notes):
+  N switches to entering the notes played, leaving the note input follows again (started in note input: it stops).
+- Follow-up 9: overtone filter of the note detection (shared/notedetection/basicpitch/overtonefilter.ts, in the worker):
+  a weaker note at a harmonic distance above a low note starting at the same time is not reported (piano bass: octave,
+  twelfth, ... were detected). Levels Off/Normal/Strong in the Playback settings menu (settings.playback.
+  playalongOvertoneFilter, NoteDetector.configure, worker message 'settings'); stats.overtones; test/overtonefilter.test.ts.
+  Ratios not verified with a real piano.
+- Follow-up 10: calibration of the note detection ("Calibrate the note detection…" in the Playback settings menu):
+  opens editor/playalong/calibration.mscx (made with MuseScore from MusicXML; "let ring" next to the dynamics) and starts the playalong in mode
+  'calibration' (Calibrator in shared/notedetection/calibration.ts instead of the follower; the step's measure is
+  highlighted; CalibrationBox.tsx guides: silence, loud low notes, bass octaves, soft notes; Skip/Cancel, at the end
+  Repeat/Use these values; the menu item is at the end of the Overtone filter submenu). The worker reports the notes before filtering (DetectionUpdate.raw with the level); the
+  result (overtone ratios, level gate threshold) is stored as settings.playback.playalongCalibration and the overtone
+  filter level "Calibrated". Checked headless with the test melody (steps, skip, saving); not with a real piano.
+  The calibration sheet is opened like a file, so it appears in the home screen's score list.
+

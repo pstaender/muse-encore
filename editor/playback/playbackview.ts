@@ -3,11 +3,11 @@
  * The playback in the score view (MuseScore's AbstractNotationPaintView: the playback cursor and the loop markers):
  * the cursor (the vertical line at the play position, PlaybackCursor) while playing, moved each frame; the view follows
  * it ("Pan score automatically": adjustCanvasPosition; paused for 2 s when the user moves the view; in the continuous view
- * (horizontal) with "Smooth panning" the score moves under the cursor in the middle of the view); the markers of
- * the loop boundaries (LoopMarker) while the loop is on. Both are elements on the page elements (in percent of the
- * page, so they follow the zoom).
+ * (horizontal) with "Smooth panning" the score moves under the cursor in the middle of the view, without it the view
+ * keeps the whole measure played visible); the markers of the loop boundaries (LoopMarker) while the loop is on. Both
+ * are elements on the page elements (in percent of the page, so they follow the zoom).
  */
-import { loopMarkers, playbackCursorBounds, pageSystemCount } from '../../src/index'
+import { loopMarkers, playalongMeasureBounds, playbackCursorBounds, pageSystemCount } from '../../src/index'
 import { settings } from '../settings'
 import { adjustViewToRect, centerViewOnRect, currentScore, onPagesBuilt, onScoreViewChanged, onUserMovedView, pageElement, pageInches, scoreViewState } from '../scoreview'
 import { onPlaybackPosition, onPlaybackStateChanged, playbackState } from './playbackcontroller'
@@ -72,7 +72,13 @@ function movePlaybackCursor(tick: number, playing: boolean): void {
         const inView = r.right > vr.left && r.left < vr.right && r.bottom > vr.top && r.top < vr.bottom
         const adjustVertically = !inView || pageSystemCount(score, b.page) > 1
         // BORDER_SPACING_RATIO = 3 spatium; the cursor is 0.4 spatium wide
-        adjustViewToRect(b.page, b, adjustVertically, 3 * b.width / 0.4)
+        const border = 3 * b.width / 0.4
+        // not in MuseScore: the continuous view (horizontal) shows the whole measure played, not only the cursor (it
+        // would be cut off at the right before the view moves, and its start would be at the left edge after it)
+        const m = scoreViewState().viewMode === 'continuous-horizontal' ? playalongMeasureBounds(score, tick) : null
+        if (!(m && m.page === b.page && adjustViewToRect(b.page, m, adjustVertically, border))) {
+            adjustViewToRect(b.page, b, adjustVertically, border)
+        }
     }
 }
 
