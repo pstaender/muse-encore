@@ -400,6 +400,8 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
     private playalongShownTick = -1
     private autoScrollPausedUntil = 0
     private programmaticScroll = 0
+    /** the scroll position the view was last moved to by the script (its scroll event may come late, iOS) */
+    private scrollTarget: { left: number; top: number } | null = null
 
     constructor(element: HTMLElement, source?: MuseEncoreScoreSource | null, options: MuseEncoreViewerAppOptions = {}) {
         this.element = element
@@ -1694,29 +1696,54 @@ html, body { margin: 0; padding: 0; background: #fff; }
      */
     private adjustViewToCursor(pageEl: HTMLDivElement, smoothPan: boolean): void {
         const viewport = this.viewport
-        const vr = viewport.getBoundingClientRect()
-        const view = { left: vr.left, top: vr.top, width: viewport.clientWidth, height: viewport.clientHeight }
-        const c = this.cursor.getBoundingClientRect()
-        let dx = 0
-        let dy = 0
+        const view = { left: viewport.scrollLeft, top: viewport.scrollTop, width: viewport.clientWidth, height: viewport.clientHeight }
+        const c = this.contentRect(this.cursor)
+        let left = view.left
+        let top = view.top
         if (smoothPan) {
-            dx = c.left - (view.left + view.width / 2)
+            left = c.left - view.width / 2
         } else {
             const border = 3 * c.width / 0.4
             if (c.left < view.left || c.right > view.left + view.width) {
-                dx = c.left - border - view.left
+                left = c.left - border
             }
             if (c.top < view.top || c.bottom > view.top + view.height) {
                 // the system at the top of the view (or centered if the page fits)
-                const pr = pageEl.getBoundingClientRect()
-                dy = pr.height <= view.height ? pr.top + pr.height / 2 - (view.top + view.height / 2) : c.top - border - view.top
+                const pr = this.contentRect(pageEl)
+                top = pr.height <= view.height ? pr.top + pr.height / 2 - view.height / 2 : c.top - border
             }
         }
-        if (Math.round(dx) || Math.round(dy)) {
-            this.programmaticScroll++
-            viewport.scrollBy(Math.round(dx), Math.round(dy))
-            requestAnimationFrame(() => { this.programmaticScroll = Math.max(0, this.programmaticScroll - 1) })
+        this.scrollViewTo(left, top)
+    }
+
+    /**
+     * the rectangle of an element of the pages in the scrolled content of the viewport: the offsets do not depend on the
+     * scroll position. iOS Safari: the client rectangles can still show the old scroll position for a frame after the
+     * view was scrolled, so moving the view by their difference moved it twice (it flashed or jumped back and forth)
+     */
+    private contentRect(el: HTMLElement): { left: number; top: number; right: number; bottom: number; width: number; height: number } {
+        let left = 0
+        let top = 0
+        for (let e: HTMLElement | null = el; e && e !== this.viewport; e = e.offsetParent as HTMLElement | null) {
+            left += e.offsetLeft
+            top += e.offsetTop
         }
+        const { width, height } = el.getBoundingClientRect()
+        return { left, top, right: left + width, bottom: top + height, width, height }
+    }
+
+    /** the view follows the playback or the playalong: scrolls to a position (the same result when repeated) */
+    private scrollViewTo(left: number, top: number): void {
+        const viewport = this.viewport
+        const x = Math.round(Math.max(0, Math.min(viewport.scrollWidth - viewport.clientWidth, left)))
+        const y = Math.round(Math.max(0, Math.min(viewport.scrollHeight - viewport.clientHeight, top)))
+        if (x === viewport.scrollLeft && y === viewport.scrollTop) {
+            return
+        }
+        this.scrollTarget = { left: x, top: y }
+        this.programmaticScroll++
+        viewport.scrollTo(x, y)
+        requestAnimationFrame(() => { this.programmaticScroll = Math.max(0, this.programmaticScroll - 1) })
     }
 
     /** the user moved the view while playing: the view stops following the cursor for 2 s (C++ moveCanvas) */
@@ -1812,9 +1839,10 @@ html, body { margin: 0; padding: 0; background: #fff; }
         }
         const viewport = this.viewport
         const mode = this.settings.viewMode
-        const pr = el.getBoundingClientRect()
+        // in the scrolled content (contentRect: iOS)
+        const pr = this.contentRect(el)
         const f = pr.width / pageSize(score, pageIdx).width
-        const vr = viewport.getBoundingClientRect()
+        const vr = { left: viewport.scrollLeft, top: viewport.scrollTop }
         const margin = 0.2 * f
         const inset = mode === 'continuous-horizontal' && this.panelBox.isConnected ? this.panelBox.getBoundingClientRect().width : 0
         const view = { left: vr.left + inset + margin, top: vr.top + margin, right: vr.left + viewport.clientWidth - margin, bottom: vr.top + viewport.clientHeight - margin }
@@ -1833,9 +1861,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
             dy = show.bottom - show.top <= view.bottom - view.top ? show.top - view.top : show.top - vr.top
         }
         if (Math.round(dx) || Math.round(dy)) {
-            this.programmaticScroll++
-            viewport.scrollBy(Math.round(dx), Math.round(dy))
-            requestAnimationFrame(() => { this.programmaticScroll = Math.max(0, this.programmaticScroll - 1) })
+            this.scrollViewTo(vr.left + dx, vr.top + dy)
             if (recheck) {
                 // once the panel is drawn for the new position (its width is known then)
                 requestAnimationFrame(() => requestAnimationFrame(() => this.showRectInView(pageIdx, r, context, ahead, false)))
@@ -1925,7 +1951,10 @@ html, body { margin: 0; padding: 0; background: #fff; }
                     this.renderVisible()
                 }, 60)
             }
-            if (!this.programmaticScroll) {
+            const t = this.scrollTarget
+            const atTarget = t && Math.abs(viewport.scrollLeft - t.left) <= 1 && Math.abs(viewport.scrollTop - t.top) <= 1
+            if (!this.programmaticScroll && !atTarget) {
+                this.scrollTarget = null
                 this.userMovedView()
             }
         }, { passive: true })

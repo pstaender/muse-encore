@@ -396,6 +396,63 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         await context.close()
     }, 120000)
 
+    it.runIf(app === 'viewer')('follows the playback cursor without moving the view back and forth (iOS: stale client rectangles)', async () => {
+        const { page, context } = await newPage()
+        await page.setViewportSize({ width: 390, height: 664 })
+        await openScore(page, 'amazing.mscz')
+        await page.selectOption('#zoom', '200')
+        // iOS Safari (as observed): the client rectangles of the pages can lag behind a scroll of the view; here for
+        // 50 ms, while scrollLeft/scrollTop are new at once
+        await page.evaluate(() => {
+            const viewport = $v('viewport')!
+            const original = Element.prototype.getBoundingClientRect
+            ;(window as unknown as Record<string, unknown>).realRect = original
+            let lag = { left: viewport.scrollLeft, top: viewport.scrollTop }
+            viewport.addEventListener('scroll', () => {
+                const now = { left: viewport.scrollLeft, top: viewport.scrollTop }
+                setTimeout(() => { lag = now }, 50)
+            })
+            Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
+                const r = original.call(this)
+                if (this === viewport || !viewport.contains(this)) {
+                    return r
+                }
+                return new DOMRect(r.x + viewport.scrollLeft - lag.left, r.y + viewport.scrollTop - lag.top, r.width, r.height)
+            }
+        })
+        // the frames of 6 s of playback: the scroll position and whether the cursor is in the view
+        const samples = (): Promise<{ left: number; top: number; inView: boolean }[]> => page.evaluate(() => new Promise((resolve) => {
+            const viewport = $v('viewport')!
+            const rect = (window as unknown as { realRect: () => DOMRect }).realRect
+            const out: { left: number; top: number; inView: boolean }[] = []
+            const end = performance.now() + 6000
+            const frame = (): void => {
+                const c = $vq('.playback-cursor')!
+                const cr = rect.call(c)
+                const vr = rect.call(viewport)
+                // a system can be higher than the view (a phone at 200%)
+                out.push({ left: viewport.scrollLeft, top: viewport.scrollTop,
+                    inView: !c.hidden && cr.left >= vr.left - 1 && cr.right <= vr.left + viewport.clientWidth + 1
+                        && cr.bottom > vr.top && cr.top < vr.top + viewport.clientHeight })
+                if (performance.now() < end) {
+                    requestAnimationFrame(frame)
+                } else {
+                    resolve(out)
+                }
+            }
+            requestAnimationFrame(frame)
+        }))
+        await page.click('#play')
+        await page.waitForFunction(() => !$vq('.playback-cursor')!.hidden, null, { timeout: 10000 })
+        const s = await samples()
+        // the view moves a few times (each time the cursor reaches the edge), not in every frame, and the cursor stays in it
+        const moves = s.filter((x, i) => i > 0 && (x.left !== s[i - 1].left || x.top !== s[i - 1].top)).length
+        expect(moves).toBeGreaterThan(0)
+        expect(moves, JSON.stringify(s.slice(0, 60))).toBeLessThan(20)
+        expect(s.filter(x => !x.inView).length).toBeLessThanOrEqual(2)
+        await context.close()
+    }, 120000)
+
     it.runIf(app === 'viewer')('lays out the continuous view (fit to window) as wide as the view', async () => {
         const { page, context } = await newPage()
         await openScore(page, 'amazing.mscz')
