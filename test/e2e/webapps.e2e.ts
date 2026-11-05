@@ -51,8 +51,8 @@ let server: ViteDevServer
 let browser: Browser
 let base = ''
 
-async function newPage(opts: { colorScheme?: 'light' | 'dark'; delayMs?: number } = {}): Promise<{ page: Page; context: BrowserContext }> {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: opts.colorScheme })
+async function newPage(opts: { colorScheme?: 'light' | 'dark'; delayMs?: number; hasTouch?: boolean } = {}): Promise<{ page: Page; context: BrowserContext }> {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: opts.colorScheme, hasTouch: opts.hasTouch })
     await presetNoMigration(context)
     await context.addInitScript(installHelpers)
     await context.route(`${SCORE_HOST}**`, async route => {
@@ -500,7 +500,8 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
     }, 120000)
 
     it.runIf(app === 'viewer')('full screen without the Fullscreen API (iPhone): the embedded viewer fills the window, the toolbar collapses, also in the app', async () => {
-        const { page, context } = await newPage()
+        // tapped (iOS: the button keeps :hover after a tap)
+        const { page, context } = await newPage({ hasTouch: true })
         await page.addInitScript(() => {
             Object.defineProperty(Document.prototype, 'fullscreenEnabled', { get: () => false })
         })
@@ -523,9 +524,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         expect(embedded.label).toBe('Full screen')
         expect(embedded.width).toBeLessThan(window.width)
         expect(embedded.height).toBeLessThan(window.height)
-        const click = (): Promise<void> => page.evaluate(() => {
-            document.querySelector('#score1 .muse-encore-viewer')!.shadowRoot!.getElementById('fullscreen')!.click()
-        })
+        const click = (): Promise<void> => page.tap('#score1 #fullscreen')
         await click()
         // the toolbar is shown briefly, then collapsed as in full screen
         const filled = await state()
@@ -534,9 +533,18 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
             const root = document.querySelector('#score1 .muse-encore-viewer')!.shadowRoot!.querySelector('.viewer')!
             return root.classList.contains('fullscreen') && !root.classList.contains('toolbar-shown')
         }, null, { timeout: 5000 })
-        await click()
+        // a tap at the top edge shows the toolbar again, the button leaves full screen
         await page.waitForTimeout(300) // the toolbar's transition
-        expect(await state()).toEqual(embedded)
+        await page.touchscreen.tap(window.width / 2, 4)
+        await page.waitForFunction(() => document.querySelector('#score1 .muse-encore-viewer')!.shadowRoot!.querySelector('.viewer')!
+            .classList.contains('toolbar-shown'))
+        await page.waitForTimeout(300) // the toolbar's transition
+        await click()
+        await page.waitForTimeout(300)
+        const left = await state()
+        expect({ ...left, onTop: embedded.onTop }).toEqual(embedded)
+        expect(await page.evaluate(() => document.querySelector('#score1 .muse-encore-viewer')!.shadowRoot!.querySelector('.viewer')!.className))
+            .not.toMatch(/fullscreen|toolbar-shown/)
         // the app has the button too (it fills the window already)
         await openScore(page, 'amazing.mscz')
         expect(await page.evaluate(() => $v('fullscreen')!.hidden)).toBe(false)

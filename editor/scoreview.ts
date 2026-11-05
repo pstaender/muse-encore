@@ -26,6 +26,7 @@ import { NotationConfiguration, NoteEntryMethod, drawShadowNote, hideShadowNote,
 import { setShortcutOverride } from './actions/actions'
 import { ELEMENT_DROP_EVENT, dragData, setDragData, type ElementDropDetail } from './dragcontroller'
 import { onSettingsChanged, settings as appSettings, updateSettings, type ViewSettings } from './settings'
+import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../shared/fullscreen'
 
 /** commands of the score view that the app handles */
 export const handlers = {
@@ -2048,13 +2049,17 @@ function showEdge(edge: Edge, autoHideMs = 0): void {
 function hideEdge(edge: Edge): void {
     clearTimeout(edges[edge].timer)
     const el = edges[edge].el
-    if (el && (el.matches(':hover') || el.matches(':has(:focus-visible)') || el.matches(':has([aria-haspopup][aria-expanded="true"])'))) {
+    if (el && (pointerIsOn(el) || el.matches(':has(:focus-visible)') || el.matches(':has([aria-haspopup][aria-expanded="true"])'))) {
         return // pointer on it, keyboard navigation or an open menu/popup in it (not an expanded section)
     }
     document.body.classList.remove(EDGE_CLASS[edge])
 }
 
-document.addEventListener('fullscreenchange', () => fullscreenChanged(!!document.fullscreenElement))
+onFullscreenChange(() => {
+    if (!windowFullscreen) {
+        fullscreenChanged(!!fullscreenElement())
+    }
+})
 
 function fullscreenChanged(fs: boolean): void {
     document.body.classList.toggle('fullscreen', fs)
@@ -2080,7 +2085,8 @@ export function setChrome(el: HTMLElement, edge: Edge = 'top'): void {
         }
     })
     el.addEventListener('focusout', () => {
-        if (isFullscreen() && !el.matches(':hover')) {
+        // a tap elsewhere (touch) leaves it to its timer
+        if (isFullscreen() && !touchInput() && !pointerIsOn(el)) {
             edges[edge].timer = window.setTimeout(() => hideEdge(edge), 300)
         }
     })
@@ -2120,15 +2126,25 @@ document.addEventListener('pointermove', (e) => {
     }
 })
 
+/**
+ * iOS (iPhone) has no Fullscreen API: the app fills the window already, the toolbars and panels collapse as in full
+ * screen (like the viewer)
+ */
+let windowFullscreen = false
+function toggleWindowFullscreen(): void {
+    windowFullscreen = !windowFullscreen
+    fullscreenChanged(windowFullscreen)
+}
+
 export function toggleFullscreen(): void {
-    if (!document.fullscreenEnabled) {
-        // iOS (iPhone) has no Fullscreen API: the app fills the window already, the toolbars and panels collapse as in
-        // full screen (like the viewer)
-        fullscreenChanged(!isFullscreen())
-    } else if (document.fullscreenElement) {
+    if (!document.fullscreenEnabled || windowFullscreen) {
+        toggleWindowFullscreen()
+    } else if (fullscreenElement()) {
         void document.exitFullscreen()
+    } else if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => toggleWindowFullscreen())
     } else {
-        void document.documentElement.requestFullscreen?.()
+        toggleWindowFullscreen()
     }
 }
 

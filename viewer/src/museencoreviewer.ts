@@ -14,6 +14,7 @@ import {
 import { centerViewOnMeasureOrPage } from '../../shared/centerview'
 import { CENTER_ICON } from '../../shared/icons'
 import { fileInputAccept } from '../../shared/fileinput'
+import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../../shared/fullscreen'
 import { spreadPages, stepSpread } from '../../shared/spreads'
 import { SOUNDFONT_CDN_URL } from '../../shared/playback/soundfont'
 import { ViewerMidiInput, type ViewerMidiSettings } from './midiinput'
@@ -657,15 +658,24 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
     }
 
     toggleFullScreen(): void {
-        if (!document.fullscreenEnabled) {
-            // iOS (iPhone) has no Fullscreen API: the viewer fills the window (the app does already) and collapses its
-            // toolbar like in full screen
-            this.fullScreenChanged(this.host.toggleAttribute('data-window-full-screen'))
-        } else if (document.fullscreenElement) {
+        if (!document.fullscreenEnabled || this.host.hasAttribute('data-window-full-screen')) {
+            this.toggleWindowFullScreen()
+        } else if (fullscreenElement()) {
             void document.exitFullscreen()
+        } else if (this.host.requestFullscreen) {
+            // refused (e.g. an element on the iPhone): the window instead
+            this.host.requestFullscreen().catch(() => this.toggleWindowFullScreen())
         } else {
-            void this.host.requestFullscreen?.()
+            this.toggleWindowFullScreen()
         }
+    }
+
+    /**
+     * iOS (iPhone) has no Fullscreen API: the viewer fills the window (the app does already) and collapses its toolbar
+     * like in full screen
+     */
+    private toggleWindowFullScreen(): void {
+        this.fullScreenChanged(this.host.toggleAttribute('data-window-full-screen'))
     }
 
     private fullScreenChanged(fullScreen: boolean): void {
@@ -841,7 +851,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         clearTimeout(this.toolbarHideTimer)
         clearTimeout(this.dragTimer)
         cancelAnimationFrame(this.panelFrame)
-        if (document.fullscreenElement === this.host) {
+        if (fullscreenElement() === this.host) {
             void document.exitFullscreen()
         }
         this.host.remove()
@@ -1918,7 +1928,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
 
     private hideToolbar(): void {
         clearTimeout(this.toolbarHideTimer)
-        if (this.toolbar.matches(':hover') || this.toolbar.matches(':has(:focus-visible)')) {
+        if (pointerIsOn(this.toolbar) || this.toolbar.matches(':has(:focus-visible)')) {
             return // pointer on it or keyboard navigation in it
         }
         this.root.classList.remove('toolbar-shown')
@@ -2054,7 +2064,11 @@ html, body { margin: 0; padding: 0; background: #fff; }
         }, { signal })
 
         // full screen
-        document.addEventListener('fullscreenchange', () => this.fullScreenChanged(document.fullscreenElement === this.host), { signal })
+        onFullscreenChange(() => {
+            if (!this.host.hasAttribute('data-window-full-screen')) {
+                this.fullScreenChanged(fullscreenElement() === this.host)
+            }
+        }, signal)
         const trigger = this.shadow.getElementById('toolbar-trigger')!
         on(trigger, 'pointerenter', () => this.showToolbar())
         on(trigger, 'pointerdown', () => this.showToolbar(3000)) // touch: tap at the top edge
@@ -2065,7 +2079,8 @@ html, body { margin: 0; padding: 0; background: #fff; }
             }
         })
         on(this.toolbar, 'focusout', () => {
-            if (this.root.classList.contains('fullscreen') && !this.toolbar.matches(':hover')) {
+            // a tap elsewhere (touch) leaves it to its timer
+            if (this.root.classList.contains('fullscreen') && !touchInput() && !pointerIsOn(this.toolbar)) {
                 this.toolbarHideTimer = window.setTimeout(() => this.hideToolbar(), 300)
             }
         })
