@@ -499,7 +499,7 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         await context.close()
     }, 120000)
 
-    it.runIf(app === 'viewer')('fills the window in an embedded viewer without the Fullscreen API (iPhone)', async () => {
+    it.runIf(app === 'viewer')('full screen without the Fullscreen API (iPhone): the embedded viewer fills the window, the toolbar collapses, also in the app', async () => {
         const { page, context } = await newPage()
         await page.addInitScript(() => {
             Object.defineProperty(Document.prototype, 'fullscreenEnabled', { get: () => false })
@@ -527,10 +527,22 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
             document.querySelector('#score1 .muse-encore-viewer')!.shadowRoot!.getElementById('fullscreen')!.click()
         })
         await click()
+        // the toolbar is shown briefly, then collapsed as in full screen
         const filled = await state()
         expect(filled).toEqual({ label: 'Exit full screen', width: window.width, height: window.height, toolbar: true, onTop: true })
+        await page.waitForFunction(() => {
+            const root = document.querySelector('#score1 .muse-encore-viewer')!.shadowRoot!.querySelector('.viewer')!
+            return root.classList.contains('fullscreen') && !root.classList.contains('toolbar-shown')
+        }, null, { timeout: 5000 })
         await click()
+        await page.waitForTimeout(300) // the toolbar's transition
         expect(await state()).toEqual(embedded)
+        // the app has the button too (it fills the window already)
+        await openScore(page, 'amazing.mscz')
+        expect(await page.evaluate(() => $v('fullscreen')!.hidden)).toBe(false)
+        await page.evaluate(() => $v('fullscreen')!.click())
+        expect(await page.evaluate(() => $vbody().classList.contains('fullscreen'))).toBe(true)
+        expect(await page.getAttribute('#fullscreen', 'aria-label')).toBe('Exit full screen')
         await context.close()
     }, 120000)
 

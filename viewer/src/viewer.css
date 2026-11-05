@@ -52,7 +52,7 @@
     color-scheme: dark;
 }
 
-/* full screen without the Fullscreen API (iPhone): the viewer fills the window, the toolbar stays */
+/* full screen without the Fullscreen API (iOS: iPhone): the viewer fills the window (the toolbar collapses as in full screen) */
 :host([data-window-full-screen]) {
     position: fixed;
     inset: 0;
@@ -314,6 +314,21 @@ button.link { padding: 0; color: var(--accent); text-decoration: underline; }
     right: 0;
     height: 8px;
     z-index: 4;
+}
+
+/* touch screens (no pointer to move to the edge): a taller strip with a subtle handle to tap (same in the editor) */
+@media (pointer: coarse) {
+    .viewer.fullscreen #toolbar-trigger { height: 20px; }
+    .viewer.fullscreen #toolbar-trigger::after {
+        content: '';
+        position: absolute;
+        top: 6px;
+        left: calc(50% - 20px);
+        width: 40px;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(128, 128, 128, .5);
+    }
 }
 
 .viewer.fullscreen .toolbar {

@@ -2054,8 +2054,9 @@ function hideEdge(edge: Edge): void {
     document.body.classList.remove(EDGE_CLASS[edge])
 }
 
-document.addEventListener('fullscreenchange', () => {
-    const fs = !!document.fullscreenElement
+document.addEventListener('fullscreenchange', () => fullscreenChanged(!!document.fullscreenElement))
+
+function fullscreenChanged(fs: boolean): void {
     document.body.classList.toggle('fullscreen', fs)
     publish({ fullscreen: fs })
     for (const edge of EDGES) {
@@ -2067,7 +2068,7 @@ document.addEventListener('fullscreenchange', () => {
             document.body.classList.remove(EDGE_CLASS[edge])
         }
     }
-})
+}
 
 /** the elements that are collapsed in full screen (set by the React app): the chrome at the top, the bottom bars, the panels */
 export function setChrome(el: HTMLElement, edge: Edge = 'top'): void {
@@ -2120,7 +2121,11 @@ document.addEventListener('pointermove', (e) => {
 })
 
 export function toggleFullscreen(): void {
-    if (document.fullscreenElement) {
+    if (!document.fullscreenEnabled) {
+        // iOS (iPhone) has no Fullscreen API: the app fills the window already, the toolbars and panels collapse as in
+        // full screen (like the viewer)
+        fullscreenChanged(!isFullscreen())
+    } else if (document.fullscreenElement) {
         void document.exitFullscreen()
     } else {
         void document.documentElement.requestFullscreen?.()

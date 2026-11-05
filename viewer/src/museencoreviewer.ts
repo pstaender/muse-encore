@@ -479,10 +479,6 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
         for (const el of this.root.querySelectorAll<HTMLElement>('[data-group]')) {
             el.hidden = !this.m_groups[el.dataset.group as keyof MuseEncoreViewerToolbarGroups]
         }
-        // without the Fullscreen API (iPhone) an embedded viewer fills the window instead; the app already does
-        if (!document.fullscreenEnabled && options.appTitle !== undefined) {
-            this.btn.fullscreen.hidden = true
-        }
         this.btn.help.hidden = !options.keyboardShortcuts
         const endGroup = this.toolbar.querySelector<HTMLElement>('.group.end')!
         endGroup.hidden = [...endGroup.children].every(c => (c as HTMLElement).hidden)
@@ -662,7 +658,9 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
 
     toggleFullScreen(): void {
         if (!document.fullscreenEnabled) {
-            this.updateFullScreenButton(this.host.toggleAttribute('data-window-full-screen'))
+            // iOS (iPhone) has no Fullscreen API: the viewer fills the window (the app does already) and collapses its
+            // toolbar like in full screen
+            this.fullScreenChanged(this.host.toggleAttribute('data-window-full-screen'))
         } else if (document.fullscreenElement) {
             void document.exitFullscreen()
         } else {
@@ -670,7 +668,14 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
         }
     }
 
-    private updateFullScreenButton(fullScreen: boolean): void {
+    private fullScreenChanged(fullScreen: boolean): void {
+        this.root.classList.toggle('fullscreen', fullScreen)
+        if (fullScreen) {
+            // briefly, so it is clear where it went
+            this.showToolbar(1200)
+        } else {
+            this.root.classList.remove('toolbar-shown')
+        }
         this.btn.fullscreen.title = fullScreen ? 'Exit full screen (F11)' : 'Full screen (F11)'
         this.btn.fullscreen.setAttribute('aria-label', fullScreen ? 'Exit full screen' : 'Full screen')
     }
@@ -2049,17 +2054,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         }, { signal })
 
         // full screen
-        document.addEventListener('fullscreenchange', () => {
-            const fs = document.fullscreenElement === this.host
-            this.root.classList.toggle('fullscreen', fs)
-            this.updateFullScreenButton(fs)
-            if (fs) {
-                // briefly, so it is clear where it went
-                this.showToolbar(1200)
-            } else {
-                this.root.classList.remove('toolbar-shown')
-            }
-        }, { signal })
+        document.addEventListener('fullscreenchange', () => this.fullScreenChanged(document.fullscreenElement === this.host), { signal })
         const trigger = this.shadow.getElementById('toolbar-trigger')!
         on(trigger, 'pointerenter', () => this.showToolbar())
         on(trigger, 'pointerdown', () => this.showToolbar(3000)) // touch: tap at the top edge

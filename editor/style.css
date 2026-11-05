@@ -390,6 +390,21 @@ body.fullscreen #toolbar-trigger { top: 0; left: 0; right: 0; height: 8px; }
 body.fullscreen #bottom-trigger { bottom: 0; left: 0; right: 0; height: 8px; }
 body.fullscreen #side-trigger { top: 0; bottom: 0; inset-inline-start: 0; width: 8px; }
 
+/* touch screens (no pointer to move to the edge): taller strips with a subtle handle to tap (same in the viewer) */
+@media (pointer: coarse) {
+    body.fullscreen #toolbar-trigger, body.fullscreen #bottom-trigger { height: 20px; }
+    body.fullscreen #side-trigger { width: 20px; }
+    body.fullscreen .edge-trigger::after {
+        content: '';
+        position: absolute;
+        border-radius: 2px;
+        background: rgba(128, 128, 128, .5);
+    }
+    body.fullscreen #toolbar-trigger::after { top: 6px; left: calc(50% - 20px); width: 40px; height: 4px; }
+    body.fullscreen #bottom-trigger::after { bottom: 6px; left: calc(50% - 20px); width: 40px; height: 4px; }
+    body.fullscreen #side-trigger::after { inset-inline-start: 6px; top: calc(50% - 20px); width: 4px; height: 40px; }
+}
+
 body.fullscreen .chrome,
 body.fullscreen .bottom-chrome,
 body.fullscreen .side-chrome {

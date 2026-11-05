@@ -2153,6 +2153,23 @@ describe.skipIf(!CHROME || !hasSubmodule)('editor', () => {
         expect((await page.locator('.page').first().screenshot()).equals(before)).toBe(true)
         await context.close()
     })
+    it('toggles full screen without the Fullscreen API (iPhone): the toolbars and panels collapse like the viewer\'s', async () => {
+        const { page, context } = await newPage()
+        await page.addInitScript(() => {
+            Object.defineProperty(Document.prototype, 'fullscreenEnabled', { get: () => false })
+        })
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        const button = '.tool-button[data-action="fullscreen"]'
+        await page.click(button)
+        expect(await page.evaluate(() => document.body.classList.contains('fullscreen'))).toBe(true)
+        await page.mouse.move(640, 400)
+        await page.waitForFunction(() => !document.body.className.includes('shown'), null, { timeout: 5000 })
+        await page.keyboard.press('F11')
+        expect(await page.evaluate(() => document.body.classList.contains('fullscreen'))).toBe(false)
+        await context.close()
+    }, 120000)
+
     it('switches the view mode in the status bar: continuous views, fit to window, smooth panning while playing', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
