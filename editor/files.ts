@@ -5,6 +5,7 @@
  */
 
 import { scoreBaseName } from '../src/index'
+import { fileInputAccept } from '../shared/fileinput'
 
 // the File System Access API is not in TypeScript's DOM library yet
 export interface FilePickerType {
@@ -152,7 +153,7 @@ export async function pickFile(type: FilePickerType): Promise<File | null> {
     return new Promise(resolve => {
         const input = document.createElement('input')
         input.type = 'file'
-        input.accept = Object.values(type.accept).flat().join(',')
+        input.accept = fileInputAccept(Object.values(type.accept).flat().join(','))
         input.addEventListener('change', () => resolve(input.files?.[0] ?? null))
         input.addEventListener('cancel', () => resolve(null))
         input.click()

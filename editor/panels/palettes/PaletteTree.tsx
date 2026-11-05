@@ -17,6 +17,7 @@ import {
 import { registerAction } from '../../actions/actions'
 import { ICON_CODES } from '../../actions/uiactiondata'
 import { MenuPopup } from '../../components/Menu'
+import { fileInputAccept } from '../../../shared/fileinput'
 import { setDragData } from '../../dragcontroller'
 import { arg, qtrc, useLanguage } from '../../i18n'
 import type { MenuItem } from '../../menus/appmenu'
@@ -121,7 +122,7 @@ function savePalette(id: string): void {
 function loadPalette(id: string): void {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.mpal'
+    input.accept = fileInputAccept('.mpal')
     input.addEventListener('change', () => {
         const f = input.files?.[0]
         if (f) {

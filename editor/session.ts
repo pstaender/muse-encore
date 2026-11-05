@@ -16,6 +16,7 @@ import {
 } from './db'
 import { baseName, isMsczName, msczFileName, pickFileToOpen, saveToComputer, writeFile, type FilePickerType } from './files'
 import { showMessage } from './components/MessageBox'
+import { fileInputAccept } from '../shared/fileinput'
 import { arg, qtrc, webtr } from './i18n'
 import {
     clearScore, currentMasterScore, currentScore, fontsReady, handlers, hideBusy, resumeBusy, scoreChanged, scoreSaved, setScoreName, setStatus, showBusy,
@@ -753,7 +754,7 @@ export function forgetScore(id: string): void {
 
 const fileInput = document.createElement('input')
 fileInput.type = 'file'
-fileInput.accept = openFileAccept()
+fileInput.accept = fileInputAccept(openFileAccept())
 fileInput.addEventListener('change', () => {
     const f = fileInput.files?.[0]
     if (f) {

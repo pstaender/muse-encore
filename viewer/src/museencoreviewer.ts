@@ -13,6 +13,7 @@ import {
 } from '../../src/index'
 import { centerViewOnMeasureOrPage } from '../../shared/centerview'
 import { CENTER_ICON } from '../../shared/icons'
+import { fileInputAccept } from '../../shared/fileinput'
 import { spreadPages, stepSpread } from '../../shared/spreads'
 import { SOUNDFONT_CDN_URL } from '../../shared/playback/soundfont'
 import { ViewerMidiInput, type ViewerMidiSettings } from './midiinput'
@@ -160,7 +161,7 @@ function template(appTitle: string): string {
         <button id="open" class="icon" title="Open… (Ctrl+O)" aria-label="Open file">${ICON.open}</button>
         <span id="title" class="title">${appTitle}</span>
         <button id="clear" class="icon" title="Close file" aria-label="Close file" hidden>${ICON.close}</button>
-        <input type="file" id="file" accept="${openFileAccept()}" hidden>
+        <input type="file" id="file" accept="${fileInputAccept(openFileAccept())}" hidden>
     </div>
 
     <div class="group" id="nav-group" data-group="pageNavigation">
