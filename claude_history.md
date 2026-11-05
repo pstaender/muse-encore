@@ -1848,3 +1848,4 @@
 - The example page shows code only in the configurator: the first three viewers no longer show theirs, so one module script runs them all (no more text/plain blocks). Each label of the configurator is in a section.
 - The example page has an overview of its sections at the left side from 1200px width on; the title of the section with the most pixels in the window is bold.
 - The configurator of the example page has a "Reset to defaults" button (a native form reset).
+- Viewer package: without the Fullscreen API (Safari on the iPhone, iframes without the permission) the full screen button is no longer hidden: the viewer fills the window with `position: fixed` and keeps its toolbar. The app still hides the button, as it fills the window already.

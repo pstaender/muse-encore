@@ -442,6 +442,41 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         await context.close()
     }, 120000)
 
+    it.runIf(app === 'viewer')('fills the window in an embedded viewer without the Fullscreen API (iPhone)', async () => {
+        const { page, context } = await newPage()
+        await page.addInitScript(() => {
+            Object.defineProperty(Document.prototype, 'fullscreenEnabled', { get: () => false })
+        })
+        await page.goto(`${base}embed.html?url=${encodeURIComponent(SCORE_HOST + 'amazing.mscz')}`)
+        const state = (): Promise<{ label: string | null; width: number; height: number; toolbar: boolean; onTop: boolean }> => page.evaluate(() => {
+            const host = document.querySelector<HTMLElement>('#score1 .muse-encore-viewer')!
+            const button = host.shadowRoot!.getElementById('fullscreen')!
+            const r = host.getBoundingClientRect()
+            const b = button.getBoundingClientRect()
+            return {
+                label: button.getAttribute('aria-label'),
+                width: r.width,
+                height: r.height,
+                toolbar: host.shadowRoot!.getElementById('toolbar')!.checkVisibility() && b.top >= 0 && b.bottom <= innerHeight,
+                onTop: document.elementFromPoint(innerWidth / 2, innerHeight - 1) === host,
+            }
+        })
+        const window = page.viewportSize()!
+        const embedded = await state()
+        expect(embedded.label).toBe('Full screen')
+        expect(embedded.width).toBeLessThan(window.width)
+        expect(embedded.height).toBeLessThan(window.height)
+        const click = (): Promise<void> => page.evaluate(() => {
+            document.querySelector('#score1 .muse-encore-viewer')!.shadowRoot!.getElementById('fullscreen')!.click()
+        })
+        await click()
+        const filled = await state()
+        expect(filled).toEqual({ label: 'Exit full screen', width: window.width, height: window.height, toolbar: true, onTop: true })
+        await click()
+        expect(await state()).toEqual(embedded)
+        await context.close()
+    }, 120000)
+
     it.runIf(app === 'viewer')('follows the score with the playalong on the notes of a MIDI device', async () => {
         const { page, context } = await newPage()
         await page.addInitScript(() => {

@@ -52,6 +52,15 @@
     color-scheme: dark;
 }
 
+/* full screen without the Fullscreen API (iPhone): the viewer fills the window, the toolbar stays */
+:host([data-window-full-screen]) {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483647;
+    width: auto !important;
+    height: auto !important;
+}
+
 * { box-sizing: border-box; }
 
 [hidden] { display: none !important; }

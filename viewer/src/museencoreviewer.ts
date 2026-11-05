@@ -476,15 +476,16 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
         for (const el of this.root.querySelectorAll<HTMLElement>('[data-group]')) {
             el.hidden = !this.m_groups[el.dataset.group as keyof MuseEncoreViewerToolbarGroups]
         }
+        // without the Fullscreen API (iPhone) an embedded viewer fills the window instead; the app already does
+        if (!document.fullscreenEnabled && options.appTitle !== undefined) {
+            this.btn.fullscreen.hidden = true
+        }
         this.btn.help.hidden = !options.keyboardShortcuts
         const endGroup = this.toolbar.querySelector<HTMLElement>('.group.end')!
         endGroup.hidden = [...endGroup.children].every(c => (c as HTMLElement).hidden)
         this.toolbar.hidden = !!options.disableToolbar || [...this.toolbar.children].every(c => (c as HTMLElement).hidden)
         $('statusbar').hidden = !options.showStatusBar
         $('drop-target').hidden = !this.m_groups.file
-        if (!document.fullscreenEnabled) {
-            this.btn.fullscreen.hidden = true
-        }
 
         // the view mode switch indicator, the continuous panel, the playback cursor
         this.viewSwitchIndicator = document.createElement('div')
@@ -657,11 +658,18 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
     }
 
     toggleFullScreen(): void {
-        if (document.fullscreenElement) {
+        if (!document.fullscreenEnabled) {
+            this.updateFullScreenButton(this.host.toggleAttribute('data-window-full-screen'))
+        } else if (document.fullscreenElement) {
             void document.exitFullscreen()
         } else {
             void this.host.requestFullscreen?.()
         }
+    }
+
+    private updateFullScreenButton(fullScreen: boolean): void {
+        this.btn.fullscreen.title = fullScreen ? 'Exit full screen (F11)' : 'Full screen (F11)'
+        this.btn.fullscreen.setAttribute('aria-label', fullScreen ? 'Exit full screen' : 'Full screen')
     }
 
     /** prints the pages (in a frame with only the pages, like MuseScore's Score::print in every view mode) */
@@ -2014,8 +2022,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         document.addEventListener('fullscreenchange', () => {
             const fs = document.fullscreenElement === this.host
             this.root.classList.toggle('fullscreen', fs)
-            btn.fullscreen.title = fs ? 'Exit full screen (F11)' : 'Full screen (F11)'
-            btn.fullscreen.setAttribute('aria-label', fs ? 'Exit full screen' : 'Full screen')
+            this.updateFullScreenButton(fs)
             if (fs) {
                 // briefly, so it is clear where it went
                 this.showToolbar(1200)

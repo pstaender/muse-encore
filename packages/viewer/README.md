@@ -83,6 +83,9 @@ The continuous views are MuseScore's continuous view (horizontal: one long syste
 page). `'window-fit'` (not in MuseScore) lays the score out as wide as the view, without system and page breaks, and
 again when the view's size or the zoom changes.
 
+Browsers without the Fullscreen API for elements (Safari on the iPhone) get a full screen button too: the viewer then
+fills the browser window instead of the screen, so the browser's own bars stay visible.
+
 ## The viewer object
 
 ```js
