@@ -104,8 +104,9 @@
     align-items: center;
     max-width: 28ch;
     min-width: 0;
+    gap: 6px;
     height: 26px;
-    padding: 0 10px;
+    padding: 0 10px 0 4px;
     border-radius: var(--radius);
     white-space: nowrap;
 }
@@ -113,6 +114,21 @@
 .file .name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
 .file.a { background: var(--color-a-bg); }
 .file.b { background: var(--color-b-bg); }
+
+.badge {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.file.a .badge { background: var(--color-a); }
+.file.b .badge { background: var(--color-b); }
 
 
 button {

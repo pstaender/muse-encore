@@ -391,10 +391,10 @@ export class ScoreDiffView {
 
     private updateControls(): void {
         const $ = (id: string): HTMLElement => this.shadow.getElementById(id)!
-        const fileLabel = (s: Side): string => `<span class="name">${esc(s.name)}</span>`
-        $('name-a').innerHTML = fileLabel(this.left())
+        const fileLabel = (role: 'A' | 'B', s: Side): string => `<span class="badge">${role}</span><span class="name">${esc(s.name)}</span>`
+        $('name-a').innerHTML = fileLabel('A', this.left())
         $('name-a').title = this.left().name
-        $('name-b').innerHTML = fileLabel(this.right())
+        $('name-b').innerHTML = fileLabel('B', this.right())
         $('name-b').title = this.right().name
         for (const b of this.shadow.querySelectorAll<HTMLButtonElement>('[data-mode]')) {
             b.setAttribute('aria-checked', String(b.dataset.mode === this.mode))
