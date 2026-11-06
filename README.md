@@ -35,7 +35,9 @@ Future versions are planned to stay in sync with the original MuseScore project.
 
 Like MuseScore, this project is licensed under the GNU General Public License v3.0 (see [LICENSE](LICENSE)).
 
-## Differences from MuseScore
+## Differences from the original application (MuseScore Studio)
+
+Features that MuseEncore adds to MuseScore Studio, or that work differently:
 
 * Note detection from the microphone (not in MuseScore yet): the editor detects the notes you play, enters them into
   the score in note input mode and offers a playalong mode that follows the score while you play. Everything is
@@ -48,6 +50,13 @@ Like MuseScore, this project is licensed under the GNU General Public License v3
 * Space: in the editor, holding Space and dragging moves the score, and Shift+Space starts and stops the playback
   (both can be changed in the settings). In the viewer, Space starts and stops the playback, and holding Space while
   dragging moves the score.
+* Comments: notes on a score, attached to a note, rest, text or measure and movable relative to it, with basic
+  formatting (`**bold**`, `*italic*`, `~~strikethrough~~`). The editor adds and edits them in the Comments panel
+  (View > Comments, undoable); the viewer shows them (option `comments`). They are saved in the `.mscz`/`.mscx` file
+  in a way MuseScore Studio keeps: it opens such files without errors, keeps the comments when it saves, but does not
+  show them.
+* Menu search (editor): a search field at the top of the Help menu, like in macOS applications, finds the items of all
+  menus and shows the current result highlighted in its menu. Cmd+Shift+/ (Ctrl+Shift+/) opens it.
 
 <img width="1616" height="648" alt="Screenshot 2026-10-23 at 11 03 02" src="https://github.com/user-attachments/assets/7901780a-4f20-412c-8dac-33f057f1deb5" />
 <img width="1573" height="799" alt="Screenshot 2026-10-23 at 11 04 20" src="https://github.com/user-attachments/assets/e3f33b44-9f1b-49f9-a225-95449a9bb388" />

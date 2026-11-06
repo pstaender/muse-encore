@@ -199,3 +199,5 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
 ## Progress tracking
 
 Keep `claude_history.md` up to date (what was done, what is missing, known differences).
+Every new feature that MuseScore Studio does not have (or a behavior that differs from it) must also be listed in
+README.md under "Differences from the original application (MuseScore Studio)".
