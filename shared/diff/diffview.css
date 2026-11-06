@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* The comparison of two scores (diffview.ts), inside its shadow root. The icon font "MusescoreIcon" is declared in the
-   document by the app (fonts in shadow roots are not loaded). The colors of A and B are those of a text diff. */
+   document by the app (fonts in shadow roots are not loaded). A is a light blue, B a firmer one (the tones of the accent). */
 
 :host {
     --bg: #eceef1;
@@ -11,10 +11,10 @@
     --hover: #eef0f3;
     --active: #e1e7f5;
     --accent: #2a6ad8;
-    --removed: #d1242f;
-    --removed-bg: #ffebe9;
-    --added: #1a7f37;
-    --added-bg: #dafbe1;
+    --color-a: #6c9cf2;
+    --color-a-bg: #e8f0fd;
+    --color-b: #2a6ad8;
+    --color-b-bg: #d3e1f8;
     --page-shadow: 0 1px 2px rgba(15, 23, 42, .08), 0 4px 16px rgba(15, 23, 42, .10);
     --radius: 6px;
     --backdrop: rgba(15, 23, 42, .18);
@@ -37,10 +37,10 @@
         --hover: #31353b;
         --active: #2f3a50;
         --accent: #6c9cf2;
-        --removed: #ff7b72;
-        --removed-bg: rgba(248, 81, 73, .18);
-        --added: #56d364;
-        --added-bg: rgba(46, 160, 67, .18);
+        --color-a: #8fb3f5;
+        --color-a-bg: rgba(108, 156, 242, .16);
+        --color-b: #4f86ec;
+        --color-b-bg: rgba(108, 156, 242, .32);
         --page-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .35);
         --backdrop: rgba(0, 0, 0, .45);
         color-scheme: dark;
@@ -56,10 +56,10 @@
     --hover: #31353b;
     --active: #2f3a50;
     --accent: #6c9cf2;
-    --removed: #ff7b72;
-    --removed-bg: rgba(248, 81, 73, .18);
-    --added: #56d364;
-    --added-bg: rgba(46, 160, 67, .18);
+    --color-a: #8fb3f5;
+    --color-a-bg: rgba(108, 156, 242, .16);
+    --color-b: #4f86ec;
+    --color-b-bg: rgba(108, 156, 242, .32);
     --page-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .35);
     --backdrop: rgba(0, 0, 0, .45);
     color-scheme: dark;
@@ -102,32 +102,18 @@
 .file {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
     max-width: 28ch;
     min-width: 0;
-    padding: 2px 8px 2px 3px;
-    border-radius: 999px;
+    height: 26px;
+    padding: 0 10px;
+    border-radius: var(--radius);
     white-space: nowrap;
 }
 
 .file .name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
-.file.a { background: var(--removed-bg); }
-.file.b { background: var(--added-bg); }
+.file.a { background: var(--color-a-bg); }
+.file.b { background: var(--color-b-bg); }
 
-.badge {
-    display: inline-grid;
-    place-items: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    color: #fff;
-    font-size: 11px;
-    font-weight: 700;
-    flex-shrink: 0;
-}
-
-.file.a .badge { background: var(--removed); }
-.file.b .badge { background: var(--added); }
 
 button {
     margin: 0;
@@ -298,8 +284,8 @@ label.check input { accent-color: var(--accent); }
     font-weight: 700;
 }
 
-.divider-label.a { right: 6px; background: var(--removed); }
-.divider-label.b { left: 4px; background: var(--added); }
+.divider-label.a { right: 6px; background: var(--color-a); }
+.divider-label.b { left: 4px; background: var(--color-b); }
 
 .message {
     position: absolute;

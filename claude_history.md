@@ -1994,3 +1994,6 @@
 - No continuous panel (staff names at the left edge) in the horizontal continuous view; no two-page spreads.
 - Moving the initial clef/key/time signature to an inserted first measure counts as a change of the old first measure.
 - Changes of the layout only (positions, breaks, style) are not marked: the overlay shows them.
+- Design: A and B in two blue tones of the accent (A light #6c9cf2, B firmer #1f56c4 on the pages; the file chips and
+  the A/B circles of the split screen's divider in the same tones), the file chips without the A/B circles. The
+  library's defaults DIFF_COLORS_REMOVED/ADDED stay red and green.

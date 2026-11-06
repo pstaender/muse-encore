@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The comparison of two scores (not in MuseScore) in both apps, read only: score A and score B in one of three modes
-// - side by side: A on the left, B on the right (the continuous view (horizontal): A above B); what only A has is red,
-//   what only B has green, like the removed and added lines of a text diff
+// - side by side: A on the left, B on the right (the continuous view (horizontal): A above B); what only A has is light
+//   blue, what only B has a firmer blue, like the removed and added lines of a text diff
 // - split screen: B over A, A is shown left of a divider that can be moved, B right of it (for almost equal scores)
 // - overlay: B over A with an opacity (differences of the layout)
 // A and B can be swapped (and so their colors). The page view and the continuous views are shown like in the viewer
@@ -9,8 +9,8 @@
 // Plain DOM in a shadow root (the viewer has no React; the editor shows it over its score view).
 import {
     compareScores, defaultInstrumentPairs, diffInstruments, diffMeasuresBounds, drawDiffPage, layoutScore, pageCount, pageSize,
-    sameInstruments, setViewMode, showOnlyInstruments, DIFF_COLORS_ADDED, DIFF_COLORS_REMOVED,
-    type DiffInstrumentPair, type DiffSideMarks, type MasterScore, type ScoreDiffResult, type ViewMode,
+    sameInstruments, setViewMode, showOnlyInstruments,
+    type DiffColors, type DiffInstrumentPair, type DiffSideMarks, type MasterScore, type ScoreDiffResult, type ViewMode,
 } from '../../src/index'
 import { SWAP_ICON, svgIcon } from '../icons'
 import css from './diffview.css?inline'
@@ -38,6 +38,10 @@ const MIN_ZOOM = 5
 const MAX_ZOOM = 1600
 const MAX_CANVAS_PIXELS = 16 * 1024 * 1024
 const GAP = 24
+
+/** the marks of A (a light blue) and B (a firmer blue) on the pages; the controls use the same tones (diffview.css) */
+const COLORS_A: DiffColors = { item: '#6c9cf2', background: 'rgba(108, 156, 242, 0.13)' }
+const COLORS_B: DiffColors = { item: '#1f56c4', background: 'rgba(42, 106, 216, 0.22)' }
 
 // MuseScore's icon codes (src/framework/ui/view/iconcodes.h)
 const ICON = { close: '&#xEF14;', zoomOut: '&#xEF16;', zoomIn: '&#xEF18;', prev: '&#xEF37;', next: '&#xEF36;', instruments: '&#xEF55;' }
@@ -387,10 +391,10 @@ export class ScoreDiffView {
 
     private updateControls(): void {
         const $ = (id: string): HTMLElement => this.shadow.getElementById(id)!
-        const fileLabel = (role: 'A' | 'B', s: Side): string => `<span class="badge">${role}</span><span class="name">${esc(s.name)}</span>`
-        $('name-a').innerHTML = fileLabel('A', this.left())
+        const fileLabel = (s: Side): string => `<span class="name">${esc(s.name)}</span>`
+        $('name-a').innerHTML = fileLabel(this.left())
         $('name-a').title = this.left().name
-        $('name-b').innerHTML = fileLabel('B', this.right())
+        $('name-b').innerHTML = fileLabel(this.right())
         $('name-b').title = this.right().name
         for (const b of this.shadow.querySelectorAll<HTMLButtonElement>('[data-mode]')) {
             b.setAttribute('aria-checked', String(b.dataset.mode === this.mode))
@@ -839,7 +843,7 @@ export class ScoreDiffView {
         c.height = Math.max(1, h)
         Object.assign(c.style, { left: `${x / fullW * 100}%`, top: `${y / fullH * 100}%`, width: `${w / fullW * 100}%`, height: `${h / fullH * 100}%` })
         drawDiffPage(side.score, pe.page, c.getContext('2d')!, {
-            dpi, region, marks: this.marks(pe.role), colors: pe.role === 0 ? DIFF_COLORS_REMOVED : DIFF_COLORS_ADDED,
+            dpi, region, marks: this.marks(pe.role), colors: pe.role === 0 ? COLORS_A : COLORS_B,
         })
         Object.assign(d, { dpi: key, tile: region ? '1' : '0', x: String(x), y: String(y), w: String(w), h: String(h) })
     }

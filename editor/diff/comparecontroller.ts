@@ -1,7 +1,7 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
  * Compare with another score (not in MuseScore; File > Compare with…): the open score (A, with its unsaved changes)
- * and a chosen file (B) in the comparison of shared/diff/diffview.ts (side by side in red and green, split screen,
+ * and a chosen file (B) in the comparison of shared/diff/diffview.ts (side by side with the differences marked, split screen,
  * overlay), read only. It fills the window in a modal dialog: the score behind it and the shortcuts are inactive;
  * Escape or its close button returns to the score.
  */
