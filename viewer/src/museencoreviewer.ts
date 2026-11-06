@@ -1778,8 +1778,17 @@ html, body { margin: 0; padding: 0; background: #fff; }
             this.playPosition.value = String(s.position)
         }
         if (s.loading !== null) {
-            this.playTime.textContent = Number.isNaN(s.loading) ? 'Loading sounds…' : `Loading sounds… ${Math.round(s.loading * 100)}%`
+            // the label keeps its width: a longer text wrapped the toolbar, the view became smaller and moved (twice)
+            if (!this.playTime.style.width) {
+                this.playTime.style.width = `${this.playTime.getBoundingClientRect().width}px`
+            }
+            this.playTime.textContent = Number.isNaN(s.loading) ? 'Loading…' : `Loading… ${Math.round(s.loading * 100)}%`
+            this.playTime.title = 'Loading sounds…'
         } else {
+            this.playTime.style.width = ''
+            if (this.playTime.title === 'Loading sounds…') {
+                this.playTime.title = ''
+            }
             this.playTime.textContent = `${formatTime(s.position)} / ${formatTime(s.totalTime)}`
         }
         if (s.error) {

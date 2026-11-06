@@ -176,6 +176,7 @@ select {
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
+.play-time { overflow: hidden; text-overflow: ellipsis; }
 
 .play-position {
     width: 120px;

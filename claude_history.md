@@ -2036,4 +2036,4 @@
 - Library: `nextPlayedMeasureTick(score, sec)` (playback/api.ts): the measure played next in the played order.
 - test/pageturn.test.ts. Checked in the viewer (Chrome): page view with two pages in the window turns to the third page
   once; the continuous view moves when the next bar is cut off.
-- Known: at the start of the playback the viewer's view moves a few pixels and back (seen once; not investigated).
+- Viewer: "Loading sounds… n%" in the toolbar made it wrap (the view became smaller and moved, twice): the label keeps its width while loading ("Loading… n%", full text as tooltip).
