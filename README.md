@@ -55,7 +55,8 @@ Features that MuseEncore adds to MuseScore Studio, or that work differently:
   formatting (`**bold**`, `*italic*`, `~~strikethrough~~`). The editor adds and edits them in the Comments panel
   (View > Comments, undoable); the viewer shows them (option `comments`). They are saved in the `.mscz`/`.mscx` file
   in a way MuseScore Studio keeps: it opens such files without errors, keeps the comments when it saves, but does not
-  show them. <img width="703" height="386" alt="Screenshot 2026-11-06 at 19 53 09" src="https://github.com/user-attachments/assets/1e6249f7-e1ce-4261-860c-a136a969785f" />
+  show them. <img width="702" height="366" alt="Screenshot 2026-11-06 at 19 56 08" src="https://github.com/user-attachments/assets/83d52422-b6bb-4157-9626-fa5c51874b0f" />
+
 
 * Comparing scores (editor: File > Compare with…; viewer: the Compare button, `compareWith()`): the open score and
   another file, read only, like a text diff: the measures are aligned by their contents (inserted and deleted measures
