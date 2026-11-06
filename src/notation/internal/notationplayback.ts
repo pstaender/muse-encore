@@ -92,6 +92,11 @@ export interface PlaybackChannel {
     chorus: number
     drum: boolean
     partId: string
+    /**
+     * the instrument of the MuseScore 4 track (InstrumentTrackId::instrumentId, the mixer channel): Instrument::id(),
+     * CHORD_SYMBOLS_INSTRUMENT_ID for the harmony channel (PlaybackModel::chordSymbolsTrackId)
+     */
+    instrumentId: string
     /** the name of the instrument channel ("normal", "pizzicato", "harmony", ...) */
     name: string
     /** the part is not played (Layout panel visibility, range playback of other parts) */
@@ -115,6 +120,11 @@ export interface PreviewNote {
     /** seconds */
     duration: number
 }
+
+/** PlaybackModel's track ids (playbackmodel.cpp): the metronome track and the chord symbols track of a part */
+export const METRONOME_INSTRUMENT_ID = 'metronome'
+export const METRONOME_PART_ID = '999'
+export const CHORD_SYMBOLS_INSTRUMENT_ID = 'chord_symbols'
 
 /** the MuseScore channel of the metronome (after the channels of the score) */
 export const METRONOME_CHANNEL_NAME = 'metronome'
@@ -298,6 +308,7 @@ export class NotationPlayback {
                             chorus: c.chorus(),
                             drum: preset.bank >= PERCUSSION_BANK,
                             partId: part.id(),
+                            instrumentId: c.name() === InstrChannel.HARMONY_NAME ? CHORD_SYMBOLS_INSTRUMENT_ID : instr.id(),
                             name: c.name(),
                             muted: !part.show(),
                         })

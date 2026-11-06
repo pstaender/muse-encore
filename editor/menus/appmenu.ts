@@ -82,6 +82,7 @@ function makeViewMenu(toolbarItems: () => MenuItem[]): MenuItem {
         item('toggle-navigator'),
         item('toggle-braille-panel'),
         item('toggle-timeline'),
+        item('toggle-mixer'),
         item('toggle-piano-keyboard'),
         item('toggle-percussion-panel'),
         sep,

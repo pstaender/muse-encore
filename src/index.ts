@@ -34,6 +34,8 @@ import { NotationProject, ProjectCreateOptions } from './project/internal/notati
 import { Sid } from './engraving/style/styledef'
 import { fontProvider } from './engraving/infrastructure/engravingcontext'
 import { MscLoader, loadScore as loadMasterScore } from './engraving/rw/mscloader'
+import { projectAudioSettings } from './project/internal/projectaudiosettings'
+import { instrumentTrackIds } from './playback/mixer'
 import { createNotationReadersRegister } from './importexport/readers'
 import { NotationReadError, type NotationReaderInteractive, type NotationReaderOptions } from './project/inotationreader'
 import { defaultMusicXmlImportSettings, musicXmlImportConfiguration, type MusicXmlImportSettings } from './importexport/musicxml/internal/musicxmlconfiguration'
@@ -159,7 +161,13 @@ export {
 
 /** Reads a .mscz (zip) or .mscx (xml) file. Fonts must be initialized before (initEngravingFonts). */
 export function loadScore(data: Uint8Array | ArrayBuffer): MasterScore {
-    const score = loadMasterScore(data)
+    // NotationProject::doLoad: the audio settings (the mixer)
+    const score = loadMasterScore(data, (reader, s) => {
+        const json = reader.fileData('audiosettings.json')
+        if (json) {
+            projectAudioSettings(s).read(json)
+        }
+    })
     // NotationProject::doLoad reads the cloud info with std::map::operator[], which adds these meta tags (saved files
     // contain them)
     for (const tag of ['source', 'sourceRevisionId', 'audioComUrl']) {
@@ -403,6 +411,8 @@ export function saveMscz(score: MasterScore, fileName?: string): Uint8Array {
     ensureLaidOut(score)
     const writer = new MscWriter({ filePath: fileName })
     new MscSaver().writeMscz(score, writer)
+    // NotationProject::writeProject: the audio settings with a track for each track of the score
+    writer.writeAudioSettingsJsonFile(projectAudioSettings(score).write(instrumentTrackIds(score)))
     return writer.zipData()
 }
 
@@ -1304,12 +1314,14 @@ export function undoStackInfo(score: Score): UndoStackInfo {
 
 /** true if the score was changed since it was opened, created or last saved (markSaved) */
 export function isModified(score: Score): boolean {
-    return score.dirty()
+    // NotationProject::isModified: the score or the audio settings (the mixer)
+    return score.dirty() || projectAudioSettings(score.masterScore()).isModified()
 }
 
 /** marks the current state as saved (undoing or redoing makes the score modified again) */
 export function markSaved(score: Score): void {
     score.undoStack().setClean()
+    projectAudioSettings(score.masterScore()).setSaved()
 }
 
 /**

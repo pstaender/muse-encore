@@ -82,6 +82,9 @@ export class SpessaSynthesizer implements Synthesizer {
     private m_synth: BasicSynthesizer | null = null
     private m_worker: Worker | null = null
     private m_gain: GainNode | null = null
+    private m_panner: StereoPannerNode | null = null
+    private m_outputGain = 1
+    private m_balance = 0
     private m_loading: Promise<void> | null = null
     private m_loaded = false
     private m_muted = false
@@ -138,9 +141,12 @@ export class SpessaSynthesizer implements Synthesizer {
                 synth = new WorkletSynthesizer(ctx)
             }
             this.m_gain = ctx.createGain()
-            this.m_gain.gain.value = this.m_muted ? 0 : 1
+            this.m_gain.gain.value = this.m_muted ? 0 : this.m_outputGain
+            this.m_panner = ctx.createStereoPanner()
+            this.m_panner.pan.value = this.m_balance
             synth.connect(this.m_gain)
-            this.m_gain.connect(ctx.destination)
+            this.m_gain.connect(this.m_panner)
+            this.m_panner.connect(ctx.destination)
             await synth.soundBankManager.addSoundBank(soundFont, 'main')
             await synth.isReady
             this.m_synth = synth
@@ -225,8 +231,21 @@ export class SpessaSynthesizer implements Synthesizer {
 
     setMuted(muted: boolean): void {
         this.m_muted = muted
+        this.updateGain()
+    }
+
+    setOutputGain(gain: number, balance: number): void {
+        this.m_outputGain = gain
+        this.m_balance = balance
+        this.updateGain()
+        if (this.m_panner && this.m_context) {
+            this.m_panner.pan.setTargetAtTime(balance, this.m_context.currentTime, 0.01)
+        }
+    }
+
+    private updateGain(): void {
         if (this.m_gain && this.m_context) {
-            this.m_gain.gain.setTargetAtTime(muted ? 0 : 1, this.m_context.currentTime, 0.01)
+            this.m_gain.gain.setTargetAtTime(this.m_muted ? 0 : this.m_outputGain, this.m_context.currentTime, 0.01)
         }
     }
 }

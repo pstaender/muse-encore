@@ -3,13 +3,16 @@
  * The viewer's playback: the events of MuseScore's MIDI renderer (notationPlayback(score).renderMidiEvents(), like the
  * editor's playback controller) on the shared player and synthesizer (shared/playback). The synthesizer
  * (SpessaSynth with MS Basic.sf3) is loaded on the first play; automated browsers (navigator.webdriver) play without
- * sound (the null synthesizer keeps the clock).
+ * sound (the null synthesizer keeps the clock). The mixer of the score (audiosettings.json, src/playback/mixer.ts) is
+ * applied by the mixing synthesizer.
  */
 import {
-    CTRL_PROGRAM, ME_CONTROLLER, ME_NOTEON, ME_PITCHBEND, notationPlayback, type MasterScore, type PlaybackMidiEvent,
+    CTRL_PROGRAM, ME_CONTROLLER, ME_NOTEON, ME_PITCHBEND, notationPlayback, onMixerChanged, synthChannelMix, type MasterScore,
+    type PlaybackChannel, type PlaybackMidiEvent,
 } from '../../src/index'
 import { Player, type PlayerEvent } from '../../shared/playback/player'
 import { NullSynthesizer, type SynthChannelSetup, type Synthesizer } from '../../shared/playback/synthesizer'
+import { MixingSynthesizer } from '../../shared/playback/mixingsynth'
 
 export interface ViewerPlaybackState {
     playing: boolean
@@ -37,7 +40,9 @@ function toPlayerEvent(e: PlaybackMidiEvent): PlayerEvent | null {
 }
 
 export class ViewerPlayback {
-    private m_synth: Synthesizer | null = null
+    private m_synth: MixingSynthesizer | null = null
+    private m_channels: PlaybackChannel[] = []
+    private m_removeMixerListener: (() => void) | null = null
     private m_player: Player | null = null
     private m_loading: Promise<Player | null> | null = null
     private m_score: MasterScore | null = null
@@ -62,6 +67,9 @@ export class ViewerPlayback {
         this.m_player?.stop()
         this.m_score = score
         this.m_rendered = null
+        this.m_channels = []
+        this.m_removeMixerListener?.()
+        this.m_removeMixerListener = score ? onMixerChanged(score, () => this.updateMix()) : null
         const totalTime = score ? notationPlayback(score).totalPlayTime() : 0
         this.m_player?.setEvents([], totalTime, new Map())
         this.m_player?.seek(0)
@@ -83,7 +91,7 @@ export class ViewerPlayback {
         this.m_loading ??= (async () => {
             this.publish({ loading: NaN, error: '' })
             try {
-                const synth = this.m_synth ?? await this.createSynthesizer()
+                const synth = this.m_synth ?? new MixingSynthesizer(await this.createSynthesizer())
                 this.m_synth = synth
                 await synth.resume()
                 await synth.load(p => this.publish({ loading: p.total ? p.loaded / p.total : NaN }))
@@ -124,6 +132,8 @@ export class ViewerPlayback {
                 muted.add(c.channel) // invisible parts are not played
             }
         }
+        this.m_channels = rendered.channels
+        this.updateMix()
         const position = this.m_state.position
         player.setEvents(events, rendered.totalPlayTime, setups)
         player.mutedChannels = muted
@@ -184,6 +194,14 @@ export class ViewerPlayback {
         this.update()
     }
 
+    /** the mixer of the score on the synthesizer channels */
+    private updateMix(): void {
+        if (this.m_synth && this.m_score) {
+            const mix = synthChannelMix(this.m_score, this.m_channels)
+            this.m_synth.setMix(mix.channels, mix.master)
+        }
+    }
+
     private update(): void {
         const player = this.m_player
         const score = this.m_score
@@ -200,6 +218,7 @@ export class ViewerPlayback {
     }
 
     dispose(): void {
+        this.m_removeMixerListener?.()
         this.m_player?.stop()
         cancelAnimationFrame(this.m_frame)
         this.m_synth?.stopAll(true)

@@ -144,12 +144,14 @@ describe.skipIf(!hasSubmodule)('textual comparison with MuseScore', () => {
 
     it('writes a complete .mscz container', () => {
         const zip = unzipSync(saveMscz(loadScore(readFileSync(`${VTEST}/accidental-11.mscz`)), 'accidental-11.mscz'))
-        expect(Object.keys(zip)).toEqual(['score_style.mss', 'accidental-11.mscx', 'META-INF/container.xml'])
+        // audiosettings.json like MuseScore (not written yet: thumbnail, automation.json, viewsettings.json)
+        expect(Object.keys(zip)).toEqual(['score_style.mss', 'accidental-11.mscx', 'audiosettings.json', 'META-INF/container.xml'])
         expect(strFromU8(zip['META-INF/container.xml'])).toBe(`<?xml version="1.0" encoding="UTF-8"?>
 <container>
   <rootfiles>
     <rootfile full-path="score_style.mss"/>
     <rootfile full-path="accidental-11.mscx"/>
+    <rootfile full-path="audiosettings.json"/>
     </rootfiles>
   </container>
 `)

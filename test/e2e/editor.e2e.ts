@@ -294,10 +294,10 @@ describe.skipIf(!CHROME || !hasSubmodule)('editor', () => {
         await page.keyboard.press('Escape')
         await page.waitForFunction(() => !document.querySelector('dialog[open]'))
 
-        // F10 focuses the menu bar; arrows and Enter open a menu and run an item (the mouse is moved away: hovering
+        // Alt alone focuses the menu bar; arrows and Enter open a menu and run an item (the mouse is moved away: hovering
         // an item makes it the active one)
         await page.mouse.move(600, 600)
-        await page.keyboard.press('F10')
+        await page.keyboard.press('Alt')
         await page.keyboard.press('ArrowRight') // Edit
         await page.keyboard.press('ArrowDown')
         expect(await page.textContent('.menu-popup .menu-item.active .menu-title')).toBe('Undo')
@@ -2083,6 +2083,49 @@ describe.skipIf(!CHROME || !hasSubmodule)('editor', () => {
             await context.close()
         }, 120000)
     }
+
+    it('mixer: View > Mixer (F10) shows the tracks; solo, mute and the fader change the sound and modify the score', async () => {
+        const { page, context } = await newPage()
+        await context.route('http://mixer.test/**', route => route.fulfill({
+            body: readFileSync(`${ROOT}MuseScore/vtest/scores/instrument-names-2.mscz`), headers: { 'access-control-allow-origin': '*' },
+        }))
+        await page.goto(`${base}?url=${encodeURIComponent('http://mixer.test/instrument-names-2.mscz')}`)
+        await scoreShown(page)
+        await page.click('#viewport')
+        await page.keyboard.press('F10')
+        await page.waitForSelector('.mixer-panel')
+        const names = await page.$$eval('.mixer-name', e => e.map(x => x.textContent))
+        expect(names).toEqual(['Oboe', 'Clarinet in B♭', 'Bass Clarinet', 'Metronome', 'Master'])
+
+        // solo of the first track: the mute buttons of the others are disabled and on
+        await page.click('.mixer-toggle.solo >> nth=0')
+        const mutes = await page.$$eval('.mixer-toggle.mute', e => e.map(b => [(b as HTMLButtonElement).disabled, b.getAttribute('aria-pressed')]))
+        expect(mutes).toEqual([[false, 'false'], [true, 'true'], [true, 'true']])
+
+        // the fader of the first track: its volume field and the gain of its synthesizer channels
+        await page.locator('.mixer-fader >> nth=0').fill('-12')
+        expect(await page.inputValue('.mixer-volume >> nth=0')).toBe('-12.0')
+        const mix = await page.evaluate(() => {
+            const m = (window as unknown as { __museencorePlayback: { mixer: { channelMix(c: number): { gain: number; muted: boolean } } } }).__museencorePlayback.mixer
+            return { first: m.channelMix(0), second: m.channelMix(4) }
+        })
+        expect(mix.first.gain).toBeCloseTo(Math.pow(10, -12 / 20), 3)
+        expect(mix.first.muted).toBe(false)
+        expect(mix.second.muted).toBe(true)
+        // the audio settings make the score modified
+        expect(await page.textContent('#title')).toMatch(/^\*/)
+
+        // closed with F10 again, opened with the button of the notation toolbar (NotationToolBarModel: Parts, Mixer)
+        await page.click('#viewport')
+        await page.keyboard.press('F10')
+        await page.waitForSelector('.mixer-panel', { state: 'detached' })
+        const mixerButton = page.locator('.tool-button[data-action="toggle-mixer"]')
+        expect(await mixerButton.textContent()).toContain('Mixer')
+        await mixerButton.click()
+        await page.waitForSelector('.mixer-panel')
+        expect(await mixerButton.getAttribute('aria-pressed')).toBe('true')
+        await context.close()
+    }, 120000)
 
     it('follows the playback cursor without moving the view back and forth (iOS: stale client rectangles, like the viewer)', async () => {
         const { page, context } = await newPage()

@@ -281,15 +281,11 @@ export function MenuBar({ menus }: { menus: MenuItem[] }): React.JSX.Element {
         return () => document.removeEventListener('pointerdown', onDown, true)
     }, [open])
 
-    // Alt alone or F10 moves the focus to the menu bar (like desktop applications)
+    // Alt alone moves the focus to the menu bar (like desktop applications; F10 is MuseScore's shortcut of the mixer)
     useEffect(() => {
         let altAlone = false
         const down = (e: KeyboardEvent): void => {
             altAlone = e.key === 'Alt'
-            if (e.key === 'F10' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && !document.querySelector('dialog[open]')) {
-                e.preventDefault()
-                buttons.current[0]?.focus()
-            }
         }
         const up = (e: KeyboardEvent): void => {
             if (e.key === 'Alt' && altAlone && !document.querySelector('dialog[open]')) {

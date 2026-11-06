@@ -24,6 +24,7 @@ export type {
     LoopBoundaries, MeasureBeat, PlaybackChannel, PlaybackEvents, PlaybackMidiEvent, PreviewNote,
 } from '../notation/internal/notationplayback'
 export { LoopBoundaryType } from '../engraving/dom/score'
+export * from './mixer'
 export { ControllerChangeType, INFINITE_DURATION, setPlaybackController, playbackController, type ControllerChangeEvent, type IPlaybackController, type PlayParams } from './iplaybackcontroller'
 export type { EngravingItem } from '../engraving/dom/engravingitem'
 export type { NoteVal } from '../engraving/dom/input'

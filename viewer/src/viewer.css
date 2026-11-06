@@ -505,3 +505,122 @@ dialog.midi-settings { max-width: 360px; }
 .midi-field { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 .midi-field select { flex: 1; min-width: 0; }
 .midi-message:empty { display: none; }
+
+/* ---- mixer (MuseScore's MixerPanel.qml: a column per strip, a row per section, the section names on the left) ---- */
+
+.mixer {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    max-height: 60%;
+    min-height: 0;
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    z-index: 2;
+}
+
+.mixer-titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 6px 2px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.mixer-title { font-weight: 600; }
+
+.mixer-scroll {
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+.mixer-strips {
+    display: flex;
+    width: max-content;
+    min-width: 100%;
+}
+
+.mixer-strip {
+    display: grid;
+    grid-template-rows: 56px 34px 150px 38px 30px;
+    width: 96px;
+    flex: none;
+    border-right: 1px solid var(--border);
+}
+
+.mixer-strip.master { border-left: 1px solid var(--border); margin-left: -1px; }
+
+/* the section names stay at the left edge while the strips are scrolled */
+.mixer-header {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    width: 72px;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.mixer-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-width: 0;
+    padding: 2px 6px;
+}
+
+.mixer-header .mixer-cell { justify-content: flex-start; }
+
+.mixer-pan { flex-direction: column; }
+.mixer-pan-slider { width: 100%; margin: 0; accent-color: var(--accent); }
+
+.mixer-number {
+    width: 52px;
+    height: 24px;
+    padding: 0 2px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    -moz-appearance: textfield;
+}
+
+.mixer-number::-webkit-inner-spin-button, .mixer-number::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.mixer-pan-value { width: 40px; height: 20px; }
+
+.mixer-fader-cell { min-height: 0; padding: 6px 0; overflow: hidden; }
+
+.mixer-fader {
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 24px;
+    height: 100%;
+    margin: 0;
+    accent-color: var(--accent);
+}
+
+.mixer-mute-solo button.icon { width: 30px; height: 30px; border: 1px solid var(--border); }
+
+.mixer-name {
+    justify-content: center;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.mixer-strip:not(.mixer-header) .mixer-name {
+    display: block;
+    padding-top: 6px;
+    text-align: center;
+    text-overflow: ellipsis;
+    font-size: 12px;
+}
+
+.viewer.narrow .mixer { max-height: 55%; }
+.viewer.narrow .mixer-strip { width: 80px; grid-template-rows: 56px 34px 120px 38px 30px; }
+.viewer.narrow .mixer-header { width: 56px; }

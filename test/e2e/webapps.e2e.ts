@@ -23,6 +23,7 @@ const SCORES: Record<string, string> = {
     'landscape.mscz': `${VTEST}/mmrest-measure-repeat-custom-staves.mscz`,
     'chopin.mscz': `${TEST_FILES}/Chopin_-_Nocturne_Op_9_No_2_E_Flat_Major.mscz`,
     'onesided.mscz': `${DEMOS}/All_Dudes.mscz`,
+    'parts.mscz': `${VTEST}/instrument-names-2.mscz`,
     // import formats
     'hello.musicxml': `${ROOT}MuseScore/src/importexport/musicxml/tests/data/testHello.xml`,
     'lyrics.mid': `${ROOT}MuseScore/src/importexport/midi/tests/midiimport_data/lyrics_voice_1.mid`,
@@ -393,6 +394,61 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         const firstOffset = await pageCenterOffset(page)
         expect(pausedOffset).not.toEqual(firstOffset)
         expect(await text(page, 'play-time')).toBe('0:00 / 0:41')
+        await context.close()
+    }, 120000)
+
+    it.runIf(app === 'viewer')('mixes the tracks in the mixer panel: volume, pan, mute and solo', async () => {
+        const { page, context } = await newPage()
+        await openScore(page, 'parts.mscz')
+        expect(await page.evaluate(() => $v('mixer')!.hidden)).toBe(true)
+        await page.click('#mixer-toggle')
+        expect(await page.getAttribute('#mixer-toggle', 'aria-pressed')).toBe('true')
+        const strips = (): Promise<{ title: string; mute: string | null; muteDisabled: boolean; solo: string | null }[]> => page.evaluate(() =>
+            $vqa('.mixer-strip:not(.mixer-header)').map(s => ({
+                title: s.querySelector('.mixer-name')!.textContent ?? '',
+                mute: s.querySelector('.mixer-mute')?.getAttribute('aria-pressed') ?? null,
+                muteDisabled: !!s.querySelector<HTMLButtonElement>('.mixer-mute')?.disabled,
+                solo: s.querySelector('.mixer-solo')?.getAttribute('aria-pressed') ?? null,
+            })))
+        // the parts, the master last (without mute and solo); no metronome in the viewer
+        const initial = await strips()
+        expect(initial.map(s => s.title)).toEqual(['Oboe', 'Clarinet in B♭', 'Bass Clarinet', 'Master'])
+        expect(initial[3].mute).toBe(null)
+        expect(initial.slice(0, 3).every(s => s.mute === 'false' && !s.muteDisabled)).toBe(true)
+        // solo on the first strip mutes the others (their mute buttons are disabled)
+        await page.click('.mixer-strip[data-key]:nth-child(2) .mixer-solo')
+        const soloed = await strips()
+        expect(soloed[0]).toMatchObject({ solo: 'true', mute: 'false', muteDisabled: false })
+        expect(soloed.slice(1, 3).every(s => s.mute === 'true' && s.muteDisabled)).toBe(true)
+        await page.click('.mixer-strip[data-key]:nth-child(2) .mixer-solo')
+        expect((await strips()).slice(0, 3).every(s => s.mute === 'false' && !s.muteDisabled)).toBe(true)
+        // the fader (keys: steps of 0.1 dB) updates the dB field and the other way round
+        const fader = '.mixer-strip[data-key]:nth-child(3) .mixer-fader'
+        const volume = '.mixer-strip[data-key]:nth-child(3) .mixer-volume'
+        expect(await page.getAttribute(fader, 'aria-label')).toBe('Clarinet in B♭ Volume')
+        const before = Number(await page.inputValue(volume))
+        await page.focus(fader)
+        for (let i = 0; i < 5; ++i) {
+            await page.keyboard.press('ArrowDown')
+        }
+        expect(Number(await page.inputValue(volume))).toBeCloseTo(before - 0.5, 5)
+        await page.fill(volume, '-12.5')
+        await page.press(volume, 'Enter')
+        expect(Number(await page.inputValue(fader))).toBe(-12.5)
+        // the pan: double click centers it
+        const pan = '.mixer-strip[data-key]:nth-child(3) .mixer-pan-slider'
+        await page.fill('.mixer-strip[data-key]:nth-child(3) .mixer-pan-value', '-40')
+        await page.press('.mixer-strip[data-key]:nth-child(3) .mixer-pan-value', 'Enter')
+        expect(await page.inputValue(pan)).toBe('-40')
+        await page.dblclick(pan)
+        expect(await page.inputValue('.mixer-strip[data-key]:nth-child(3) .mixer-pan-value')).toBe('0')
+        // the panel scrolls inside itself at phone width; closed with its button
+        await page.setViewportSize({ width: 375, height: 700 })
+        await page.waitForTimeout(200)
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+        await page.click('.mixer-close')
+        expect(await page.evaluate(() => $v('mixer')!.hidden)).toBe(true)
+        expect(await page.getAttribute('#mixer-toggle', 'aria-pressed')).toBe('false')
         await context.close()
     }, 120000)
 

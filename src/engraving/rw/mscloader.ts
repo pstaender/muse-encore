@@ -190,10 +190,15 @@ export function styleDefaultByMscVersion(mscVer: number): number {
     return MSC_VERSION
 }
 
-/** convenience: load an .mscz or .mscx file into a new MasterScore */
-export function loadScore(data: Uint8Array | ArrayBuffer): MasterScore {
+/**
+ * convenience: load an .mscz or .mscx file into a new MasterScore; onReader: reads the other files of the project
+ * (NotationProject::doLoad: audiosettings.json)
+ */
+export function loadScore(data: Uint8Array | ArrayBuffer, onReader?: (reader: MscReader, score: MasterScore) => void): MasterScore {
     const score = new MasterScore()
-    new MscLoader().loadMscz(score, new MscReader(data))
+    const reader = new MscReader(data)
+    new MscLoader().loadMscz(score, reader)
+    onReader?.(reader, score)
     // C++ EngravingProject::setupMasterScore()
     for (const p of score.parts()) {
         p.updateHarmonyChannels(false)

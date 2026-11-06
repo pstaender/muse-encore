@@ -63,6 +63,11 @@ export interface AppSettings {
         width: number
         collapsed: boolean
     }
+    /** the mixer panel below the score (MuseScore's DockPanel "mixerPanel", hidden by default, height 368) */
+    mixer: {
+        open: boolean
+        height: number
+    }
     /** the state of the palettes panel (palettes/ checks it); null = MuseScore's default palettes */
     palettes: Record<string, unknown> | null
     /** the playback (NotationConfiguration, PlaybackConfiguration) and the mute button of this app */
@@ -194,6 +199,7 @@ const DEFAULTS: AppSettings = {
     noteInputBar: null,
     noteInput: { defaultMethod: 'note-input-by-note-name', addAccidentalDotsArticulationsToNextNoteEntered: true, useNoteInputCursorInInputByDuration: false },
     panels: { open: ['palettesPanel', 'instrumentsPanel', 'inspectorPanel'], current: 'palettesPanel', width: 300, collapsed: false },
+    mixer: { open: false, height: 368 },
     palettes: null,
     playback: {
         muted: false, metronome: false, countIn: false, pan: true, smoothPan: false, playRepeats: true, playChordSymbols: true, playalongPractice: false, playalongOvertoneFilter: 'normal', playalongCalibration: null, playalongKeepMicrophone: false,
@@ -261,6 +267,10 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
             current: typeof s.panels?.current === 'string' ? s.panels.current : DEFAULTS.panels.current,
             width: typeof s.panels?.width === 'number' && Number.isFinite(s.panels.width) ? s.panels.width : DEFAULTS.panels.width,
             collapsed: s.panels?.collapsed === true,
+        },
+        mixer: {
+            open: s.mixer?.open === true,
+            height: typeof s.mixer?.height === 'number' && Number.isFinite(s.mixer.height) ? s.mixer.height : DEFAULTS.mixer.height,
         },
         palettes: s.palettes && typeof s.palettes === 'object' && !Array.isArray(s.palettes) ? s.palettes as Record<string, unknown> : null,
         playback: sanitizePlayback(s.playback ?? {}),

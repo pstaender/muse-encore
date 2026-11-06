@@ -63,7 +63,7 @@ const viewer = applyMuseEncoreViewer(targetElement, pathToMuseScoreFile, {
         pageNavigation: true,     // previous / next page, page indicator
         pageView: true,           // view mode (page / continuous views) and page layout
         zoom: true,               // zoom in / out, zoom levels, center measure
-        playback: false,          // play / pause, rewind, play position
+        playback: false,          // play / pause, rewind, play position, the mixer (volume, pan, mute, solo per track)
         print: true,              // print button
         fullScreen: true,         // full screen button
         file: false,              // open / close a file, file name, dropping files
@@ -114,6 +114,10 @@ The playback uses MuseScore's MIDI renderer and MuseScore's soundfont "MS Basic.
 [SpessaSynth](https://github.com/spessasus/spessasynth_lib) synthesizer. The soundfont is downloaded on the first
 playback and kept in the browser's Cache Storage. By default it is loaded from MuseScore's repository at the
 reference version (raw.githubusercontent.com); set `soundFontUrl` to serve it yourself.
+
+The Mixer button next to the playback controls (F10 with `keyboardShortcuts`) opens MuseScore's mixer below the
+score: volume (fader and dB), pan, mute and solo per instrument and the master volume. It starts with the mixer
+settings saved in the .mscz file (audiosettings.json); the changes last while the score is open.
 
 ## Playalong and MIDI input
 

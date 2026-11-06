@@ -1876,4 +1876,33 @@
   detection's (cross-origin package: a blob worker that imports it); the package has it in dist/assets.
 - Not checked: the crackling itself by listening in a real Firefox (headless Firefox has no audio device), Safari.
   Preview notes and MIDI input sound about 85 ms later in Firefox (WORKER_QUEUE can be lowered).
-- Still missing: the mixer.
+
+## Mixer and audiosettings.json
+
+- Library: src/project/internal/projectaudiosettings.ts (ProjectAudioSettings: audiosettings.json of the .mscz, read by
+  loadScore, written by saveMscz with a track for each track of the score; the JSON objects are kept as read and only
+  volumeDb, balance and soloMuteState are changed, so Muse Sounds resources, FX chains, aux sends and unknown keys survive;
+  Qt's toJson format: 4 spaces, sorted keys). Missing tracks get MuseScore's defaults (MS Basic, aux sends 0.3, the two
+  aux channels with Muse Reverb). Checked against MuseScore 4.7.5: for instrument-names.mscz our file equals
+  `mscore -o out.mscz` except the order of the tracks (MuseScore's is a hash map's); MuseScore opens our file with
+  changed volume, balance, mute, solo and master volume and keeps them when it saves. The solo/mute state is the master
+  notation's (kept in the track objects); the parts' own solo/mute states are not ported. Audio settings changes make
+  the score modified (isModified/markSaved, NotationProject::isModified).
+- src/playback/mixer.ts (public API): instrumentTrackIds (instruments of the parts, chord symbols tracks
+  {partId, "chord_symbols"}, the metronome {999, "metronome"}), mixerChannels (strips with titles like
+  PlaybackController::addTrack, solo/mute with forceMute like updateSoloMuteStates: a solo mutes the others, chord symbols
+  muted when not played, the metronome left out), setMixerChannel, onMixerChanged, synthChannelMix (the mix of the
+  synthesizer channels; PlaybackChannel has instrumentId now).
+- shared/playback/mixingsynth.ts: MixingSynthesizer wraps the app's synthesizer, so the playback, the preview notes and
+  the MIDI input are mixed: CC 7 = MIDI volume * sqrt(gain) (the SoundFont curve 40 log10), CC 10 = pan + balance * 64,
+  note ons of muted channels dropped (all notes off when muted while sounding), master -> Synthesizer.setOutputGain (a
+  GainNode and a StereoPannerNode in SpessaSynth). Limit: a track can be raised only up to CC 7 = 127.
+- Editor: editor/panels/mixer/MixerPanel.tsx (View > Mixer = toggle-mixer, F10 like MuseScore; the panel below the score
+  above the bottom toolbars, height 368 with a splitter (100..520), settings.mixer; header column + strips like
+  MixerPanel.qml: Pan, Volume field, fader, mute/solo, name). F10 no longer focuses the menu bar (Alt alone does).
+  "Restore the default layout" hides it.
+- Viewer: viewer/src/mixer.ts (ViewerMixer, plain DOM): the Mixer button in the playback group (F10 with keyboard
+  shortcuts), the panel between the score and the status bar; no metronome strip; the changes last while the score is
+  open (the viewer does not save). The viewer has no translations: English strings.
+- Not ported: Sound, Audio FX and Aux sends sections, meters, the mixer's context menu, aux channels; the pan is a slider.
+- Tests: test/audiosettings.test.ts, test/mixingsynth.test.ts, e2e: editor "mixer: ...", viewer "mixes the tracks ...".

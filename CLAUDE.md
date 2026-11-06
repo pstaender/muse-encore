@@ -76,7 +76,8 @@ src/
                         reading; midiimport: the MIDI import; midiconfiguration: its settings), musicxml (exportmusicxml: the MusicXML export, .musicxml and
                         .mxl; import/: the MusicXML import), capella (.cap/.capx import), guitarpro (Guitar Pro 1-7 and
                         Power Tab import); readers.ts registers the import readers (NotationReadersRegister)
-  playback              IPlaybackController (set by the app; the notation scene seeks/plays through it); api.ts
+  playback              IPlaybackController (set by the app; the notation scene seeks/plays through it); api.ts; mixer.ts
+                        (the mixer on project/internal/projectaudiosettings.ts = audiosettings.json of the .mscz)
   playalong             api.ts: the measures in the played order with their pitches, their rectangles (the editor's
                         Playalong, not in MuseScore)
   notationscene         NotationViewInputController (clicks, keys), NotationActionController (action codes -> commands),
@@ -100,12 +101,12 @@ tools/gen/              generators for tables derived from the C++ sources (re-r
 tools/                  node scripts: render to PNG, compare with MuseScore output
 viewer/                 MuseEncore Viewer: src/museencoreviewer.ts is the viewer component (plain DOM in a shadow root, styles in
                         src/viewer.css: page view, continuous views incl. fit to window, zoom, print, full screen, playback with
-                        src/playback.ts, playalong with src/playalong.ts (microphone or MIDI input, src/midiinput.ts); options and API types in src/types.ts); main.ts is the app (opening files, storage.ts),
+                        src/playback.ts, the mixer src/mixer.ts, playalong with src/playalong.ts (microphone or MIDI input, src/midiinput.ts); options and API types in src/types.ts); main.ts is the app (opening files, storage.ts),
                         src/index.ts the npm package's entry (applyMuseEncoreViewer), embed.html a dev page of the package API
 packages/viewer/        the npm package "muse-encore-viewer" (package.json, README; dist/ + fonts/ are built by
                         tools/build-viewer-package.ts with viewer/vite.lib.config.ts: one bundled ES module for CDNs)
 shared/                 code of both apps: icons.ts (SVG icons), playalong/follower.ts (the score following of the playalong), playback/ (Synthesizer interface, SpessaSynth + MS Basic.sf3 loaded on first use and
-                        cached, player.ts scheduler), vite-plugin-sound.ts (serves/copies the soundfont), notedetection/
+                        cached, in a Web Worker in Firefox (spessasynthworker.ts), player.ts scheduler, mixingsynth.ts = the mixer on the synthesizer), vite-plugin-sound.ts (serves/copies the soundfont), notedetection/
                         (NoteDetector interface: microphone -> notes; microphone.ts opens, closes or keeps the microphone; basicpitch/ = Spotify's basic-pitch, Apache-2.0,
                         vendored with its TensorFlow.js model, loaded on demand, running in a Web Worker (worker.ts;
                         the audio worklet sends the audio to it; levelgate.ts drops too quiet notes, overtonefilter.ts the overtones of low notes); calibration.ts (the values measured with
@@ -127,7 +128,7 @@ editor/                 MuseEncore (the editor), Vite score editor app: React UI
                         `?playalong-input=test-melody` instead of the microphone), midi/ (midicontroller.ts = MidiInputOutputController: connection, events to MidiRemote and the score,
                         settings.midi, midi-on, MIDI input pitch; only the visible, last focused tab takes the events; the permission is asked by
                         "Enable MIDI input" only), panels/ (the left dock: PanelDock.tsx tabs + splitter,
-                        panels.ts state, palettes/ (palette tree stored as PaletteTree XML in localStorage, dialogs),
+                        panels.ts state, mixer/ (the mixer panel below the score), palettes/ (palette tree stored as PaletteTree XML in localStorage, dialogs),
                         layout/, inspector/ UIs; editbridge.ts = all score changes of the
                         panels; the Layout panel's commands go through the library's NotationParts port)
 test/                   vitest tests

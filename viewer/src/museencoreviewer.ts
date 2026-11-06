@@ -19,6 +19,7 @@ import { contentRect, isAtScrollTarget, scrollViewTo } from '../../shared/scroll
 import { spreadPages, stepSpread } from '../../shared/spreads'
 import { SOUNDFONT_CDN_URL } from '../../shared/playback/soundfont'
 import { ViewerMidiInput, type ViewerMidiSettings } from './midiinput'
+import { ViewerMixer } from './mixer'
 import { ViewerPlayalong, type ViewerPlayalongState } from './playalong'
 import { ViewerPlayback, type ViewerPlaybackState } from './playback'
 import type {
@@ -147,7 +148,7 @@ const DEFAULT_GROUPS: Required<MuseEncoreViewerToolbarGroups> = {
 const ICON = {
     open: '&#xEF23;', close: '&#xEF14;', prev: '&#xF39C;', next: '&#xF39B;', pagesH: '&#xEF1C;', pagesV: '&#xF3AF;',
     twoPages: '&#xEF7F;', zoomOut: '&#xEF16;', zoomIn: '&#xEF18;', center: `<svg width="1em" height="1em" viewBox="${CENTER_ICON.viewBox}" aria-hidden="true" style="display:block"><path fill="currentColor" d="${CENTER_ICON.path}"/></svg>`, print: '&#xF3B7;', fullscreen: '&#xEF15;',
-    play: '', pause: '', rewind: '&#xEF26;', microphone: '&#xF41B;', measurePrev: '&#xEF35;', measureNext: '&#xEF34;', practice: '&#xEF1F;', midi: '&#xEF98;',
+    play: '', pause: '', rewind: '&#xEF26;', microphone: '&#xF41B;', measurePrev: '&#xEF35;', measureNext: '&#xEF34;', practice: '&#xEF1F;', midi: '&#xEF98;', mixer: '&#xEF27;',
 }
 
 const HOMEPAGE_URL = 'https://github.com/pstaender/muse-encore'
@@ -198,6 +199,7 @@ function template(appTitle: string): string {
         <button id="play" class="icon" title="Play" aria-label="Play">${ICON.play}</button>
         <input id="play-position" class="play-position" type="range" min="0" max="0" step="0.1" value="0" aria-label="Play position">
         <span id="play-time" class="play-time" aria-live="off">0:00 / 0:00</span>
+        <button id="mixer-toggle" class="icon toggle" title="Mixer (F10)" aria-label="Mixer" aria-pressed="false" aria-controls="mixer">${ICON.mixer}</button>
     </div>
 
     <div class="group" data-group="playalong">
@@ -249,6 +251,7 @@ function template(appTitle: string): string {
     <table>
         <tr data-group="file"><td><kbd>Ctrl</kbd> <kbd>O</kbd></td><td>Open file</td></tr>
         <tr data-group="playback"><td><kbd>Space</kbd></td><td>Play / pause</td></tr>
+        <tr data-group="playback"><td><kbd>F10</kbd></td><td>Show/hide mixer</td></tr>
         <tr data-group="playalong"><td><kbd>←</kbd> / <kbd>→</kbd></td><td>Previous / next measure during the playalong</td></tr>
         <tr><td><kbd>Ctrl</kbd> <kbd>+</kbd> / <kbd>Ctrl</kbd> <kbd>−</kbd></td><td>Zoom in / out</td></tr>
         <tr><td><kbd>Ctrl</kbd> <kbd>0</kbd></td><td>Zoom to 100%</td></tr>
@@ -356,7 +359,7 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
     private readonly playPosition: HTMLInputElement
     private readonly playTime: HTMLSpanElement
     private readonly btn: Record<'open' | 'open2' | 'clear' | 'prev' | 'next' | 'layoutH' | 'layoutV' | 'spread' | 'zoomIn' | 'zoomOut'
-        | 'print' | 'center' | 'fullscreen' | 'help' | 'play' | 'rewind' | 'playalong' | 'playalongPrev' | 'playalongNext' | 'playalongPractice' | 'midiSettings', HTMLButtonElement>
+        | 'print' | 'center' | 'fullscreen' | 'help' | 'play' | 'rewind' | 'playalong' | 'playalongPrev' | 'playalongNext' | 'playalongPractice' | 'midiSettings' | 'mixer', HTMLButtonElement>
     private readonly midiDialog: HTMLDialogElement
     private readonly midiOn: HTMLInputElement
     private readonly midiDevice: HTMLSelectElement
@@ -396,6 +399,7 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
     private panelFrame = 0
     private panelShownKey = ''
     private readonly playback: ViewerPlayback | null
+    private readonly mixer: ViewerMixer | null
     private readonly cursor: HTMLDivElement
     private readonly playalong: ViewerPlayalong | null
     private readonly midi: ViewerMidiInput | null
@@ -467,7 +471,7 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
             layoutV: $('layout-v'), spread: $('spread'), zoomIn: $('zoom-in'), zoomOut: $('zoom-out'), print: $('print'),
             center: $('center'), fullscreen: $('fullscreen'), help: $('help'), play: $('play'), rewind: $('rewind'),
             playalong: $('playalong'), playalongPrev: $('playalong-prev'), playalongNext: $('playalong-next'),
-            playalongPractice: $('playalong-practice'), midiSettings: $('midi-settings'),
+            playalongPractice: $('playalong-practice'), midiSettings: $('midi-settings'), mixer: $('mixer-toggle'),
         }
         this.midiDialog = $('midi-dialog')
         this.midiOn = $('midi-on')
@@ -506,6 +510,11 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
         this.playback = this.m_groups.playback
             ? new ViewerPlayback(options.soundFontUrl ?? SOUNDFONT_CDN_URL, s => this.playbackChanged(s))
             : null
+        // the mixer panel below the score (above the status bar)
+        this.mixer = this.playback ? new ViewerMixer(() => this.setMixerShown(false)) : null
+        if (this.mixer) {
+            this.viewport.after(this.mixer.element)
+        }
 
         this.playalongMarker = document.createElement('div')
         this.playalongMarker.className = 'playalong-marker'
@@ -785,6 +794,8 @@ html, body { margin: 0; padding: 0; background: #fff; }
             void this.print()
         } else if (key === 'F11') {
             this.toggleFullScreen()
+        } else if (key === 'F10' && !mod && this.mixer && this.score) {
+            this.setMixerShown(!this.mixer.isShown())
         } else if (!this.score || isTextInput(target)) {
             handled = false
         } else if (key === 'PageDown') {
@@ -827,6 +838,8 @@ html, body { margin: 0; padding: 0; background: #fff; }
     closeFile(): void {
         this.playback?.setScore(null)
         this.playalong?.setScore(null)
+        this.mixer?.setScore(null)
+        this.setMixerShown(false)
         this.score = null
         this.fileName = ''
         this.m_opts.onFileClosed?.()
@@ -844,6 +857,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         this.resizeObserver.disconnect()
         this.removeImageListener()
         this.playback?.dispose()
+        this.mixer?.dispose()
         this.playalong?.dispose()
         this.midi?.dispose()
         clearTimeout(this.renderTimer)
@@ -920,6 +934,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
             this.applyViewMode()
             ++this.layoutVersion
             this.playback?.setScore(s)
+            this.mixer?.setScore(s)
             this.playalong?.setScore(s)
             this.buildPages()
             this.showInitialPage()
@@ -1336,7 +1351,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         this.viewModeSelect.value = this.settings.viewMode
         btn.spread.disabled = !has || !pageView
         btn.spread.setAttribute('aria-pressed', String(this.spreadActive()))
-        for (const b of [btn.prev, btn.next, btn.zoomIn, btn.zoomOut, btn.center, btn.print, btn.play, btn.rewind, btn.playalong]) {
+        for (const b of [btn.prev, btn.next, btn.zoomIn, btn.zoomOut, btn.center, btn.print, btn.play, btn.rewind, btn.playalong, btn.mixer]) {
             b.disabled = !has
         }
         this.playPosition.disabled = !has
@@ -1863,6 +1878,15 @@ html, body { margin: 0; padding: 0; background: #fff; }
         }
     }
 
+    /** shows or hides the mixer panel (MuseScore's toggle-mixer) */
+    private setMixerShown(shown: boolean): void {
+        if (!this.mixer) {
+            return
+        }
+        this.mixer.setShown(shown)
+        this.btn.mixer.setAttribute('aria-pressed', String(shown))
+    }
+
     /** shows the state of the MIDI input in the dialog and the toolbar; the playalong takes the notes from where they are now */
     private midiChanged(): void {
         const midi = this.midi
@@ -2117,6 +2141,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         on(btn.playalongNext, 'click', () => this.playalong?.step(1))
         on(btn.playalongPractice, 'click', () => this.playalong?.togglePractice())
         on(btn.midiSettings, 'click', () => this.midiDialog.showModal())
+        on(btn.mixer, 'click', () => this.setMixerShown(!this.mixer?.isShown()))
         on(this.midiOn, 'change', () => this.midi?.setEnabled(this.midiOn.checked))
         on(this.midiDevice, 'change', () => this.midi?.selectDevice(this.midiDevice.value))
         on(this.midiDialog, 'close', () => viewport.focus({ preventScroll: true }))

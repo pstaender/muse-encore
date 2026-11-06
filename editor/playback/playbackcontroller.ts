@@ -11,7 +11,7 @@
 import { useSyncExternalStore } from 'react'
 import {
     BoundaryTick, ControllerChangeType, CTRL_PROGRAM, INFINITE_DURATION, LoopBoundaryType, ME_CONTROLLER, ME_NOTEON, ME_PITCHBEND, findAndSelectChordRest,
-    notationPlayback, rangeSelectionPartIds, selectionPlaybackInfo, setPlaybackController, type EngravingItem,
+    notationPlayback, onMixerChanged, rangeSelectionPartIds, selectionPlaybackInfo, setPlaybackController, synthChannelMix, type EngravingItem,
     type ControllerChangeEvent, type IPlaybackController, type MasterScore, type Score, type MeasureBeat, type NoteVal, type PlayParams, type PlaybackChannel,
     type PlaybackMidiEvent, type Segment,
 } from '../../src/index'
@@ -23,6 +23,7 @@ import { Player, type PlayerEvent } from '../../shared/playback/player'
 import { SpessaSynthesizer } from '../../shared/playback/spessasynth'
 import { appSoundFontUrl } from '../../shared/playback/soundfont'
 import { NullSynthesizer, type LoadProgress, type SynthChannelSetup, type Synthesizer } from '../../shared/playback/synthesizer'
+import { MixingSynthesizer } from '../../shared/playback/mixingsynth'
 
 // ---------------------------------------------------------------------------------
 //   the state shown by the UI (playback toolbar, cursor)
@@ -103,13 +104,15 @@ function createSynthesizer(): Synthesizer {
     return new SpessaSynthesizer(appSoundFontUrl(import.meta.env.BASE_URL))
 }
 
-const synth = createSynthesizer()
+/** the synthesizer with the mixer (the playback, the preview notes, the MIDI input all go through it) */
+const sound = createSynthesizer()
+const synth = new MixingSynthesizer(sound)
 synth.setMuted(pb().muted)
 const player = new Player(synth)
 player.metronomeEnabled = pb().metronome
 
 /** for tests: the synthesizer (the null synthesizer records its events) */
-;(window as unknown as { __museencorePlayback?: unknown }).__museencorePlayback = { synth, player, state: () => state }
+;(window as unknown as { __museencorePlayback?: unknown }).__museencorePlayback = { synth: sound, mixer: synth, player, state: () => state }
 
 let loading: Promise<boolean> | null = null
 
@@ -148,6 +151,7 @@ let s_channels: PlaybackChannel[] = []
 let s_metronomeChannel = 0
 let s_tempoMultiplier = 1
 let s_removeLoopListener: (() => void) | null = null
+let s_removeMixerListener: (() => void) | null = null
 
 function currentPlayback(): ReturnType<typeof notationPlayback> | null {
     const score = currentScore()
@@ -188,6 +192,21 @@ function switchScore(): void {
         updateLoop()
         publish({ loopVersion: state.loopVersion + 1 })
     }) : null
+    s_removeMixerListener?.()
+    s_removeMixerListener = score ? onMixerChanged(score.masterScore(), () => {
+        updateChannels() // the channels are known (also before the first playback)
+        updateMix()
+    }) : null
+}
+
+/** the mixer of the score (audiosettings.json) on the synthesizer channels */
+function updateMix(): void {
+    const score = currentScore()
+    if (!score) {
+        return
+    }
+    const mix = synthChannelMix(score.masterScore(), s_channels, s_metronomeChannel, { playChordSymbols: pb().playChordSymbols })
+    synth.setMix(mix.channels, mix.master)
 }
 
 /**
@@ -208,6 +227,7 @@ function updateChannels(): void {
     }
     s_channels = playback.channels()
     s_metronomeChannel = s_channels.reduce((m, c) => Math.max(m, c.channel + 1), 0)
+    updateMix()
     player.setDuration(playback.totalPlayTime())
 }
 
@@ -228,6 +248,7 @@ function updateEvents(): void {
     const rendered = playback.renderMidiEvents()
     s_channels = rendered.channels
     s_metronomeChannel = s_channels.reduce((m, c) => Math.max(m, c.channel + 1), 0)
+    updateMix()
 
     const events: PlayerEvent[] = []
     for (const e of rendered.events) {

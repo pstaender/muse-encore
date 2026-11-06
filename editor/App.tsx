@@ -40,6 +40,7 @@ import { arg, qtrc, useLanguage, webtr } from './i18n'
 import { appMenu, setRecentScoresProvider, type MenuItem } from './menus/appmenu'
 import { NewScoreDialog } from './newscore/NewScoreDialog'
 import { PanelDock } from './panels/PanelDock'
+import { MixerPanel } from './panels/mixer/MixerPanel'
 import { resetPalettesState } from './panels/palettes/palettestate'
 import { setChrome, useScoreView, viewport, viewShown } from './scoreview'
 import { answerDialog, openStored, saveChangesTitle, setView, showDialog, useSession } from './session'
@@ -227,6 +228,7 @@ export function App(): React.JSX.Element {
                 </div>
             </div>
             <div ref={bottomRef} className="bottom-chrome">
+                {score && <MixerPanel />}
                 {score && <ToolBarDock dock="bottom" />}
                 {score && layout.statusBar && <StatusBar />}
             </div>

@@ -90,8 +90,13 @@ function Separator(): React.JSX.Element {
 // ---------------------------------------------------------------------------------
 
 function NotationToolBar(): React.JSX.Element {
-    // NotationToolBarModel: "parts" and "toggle-mixer" (no mixer here)
-    return <ActionButton code="parts" showTitle bold />
+    // NotationToolBarModel: "parts" and "toggle-mixer" with their titles
+    return (
+        <>
+            <ActionButton code="parts" showTitle bold />
+            <ActionButton code="toggle-mixer" showTitle bold />
+        </>
+    )
 }
 
 function UndoRedoToolBar(): React.JSX.Element {

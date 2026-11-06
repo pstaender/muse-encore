@@ -173,6 +173,7 @@ export function setStatusBarVisible(visible: boolean): void {
 export function restoreDefaultLayout(): void {
     save({ docks: compact(structuredClone(DEFAULT_DOCKS)), hidden: [], statusBar: true })
     updateSettings('noteInputBar', null)
+    updateSettings('mixer', { open: false }) // the mixer panel is hidden by default (NotationPage.qml)
     restoreDefaultPanels()
 }
 

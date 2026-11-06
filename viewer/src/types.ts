@@ -17,7 +17,10 @@ export interface MuseEncoreViewerToolbarGroups {
     pageView?: boolean
     /** zoom in / out, the zoom levels and fit modes, center measure; default true */
     zoom?: boolean
-    /** play / pause, back to the start, the play position (MuseScore's MIDI renderer with MS Basic.sf3); default false */
+    /**
+     * play / pause, back to the start, the play position (MuseScore's MIDI renderer with MS Basic.sf3) and the mixer
+     * (volume, pan, mute and solo per track, while the score is open; F10); default false
+     */
     playback?: boolean
     /**
      * Playalong: the button that follows the score measure by measure while the user plays, into the microphone (the

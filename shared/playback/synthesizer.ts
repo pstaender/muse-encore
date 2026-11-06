@@ -46,6 +46,8 @@ export interface Synthesizer {
     /** stops all sounds now (force: without release) */
     stopAll(force?: boolean): void
     setMuted(muted: boolean): void
+    /** the master of the mixer: gain = the factor of the amplitude, balance -1 (left) .. 1 (right) */
+    setOutputGain(gain: number, balance: number): void
 }
 
 export interface SynthLogEntry {
@@ -95,4 +97,6 @@ export class NullSynthesizer implements Synthesizer {
     stopAll(): void { this.record('stopAll', -1, 0, 0) }
     setMuted(muted: boolean): void { this.m_muted = muted }
     muted(): boolean { return this.m_muted }
+    outputGain = { gain: 1, balance: 0 }
+    setOutputGain(gain: number, balance: number): void { this.outputGain = { gain, balance } }
 }

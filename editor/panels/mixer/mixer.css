@@ -1,0 +1,145 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* the mixer panel below the score (MixerPanel.qml: header column 98px, strips 108px) */
+
+.mixer-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-height: 0;
+    background: var(--panel);
+    border-top: 1px solid var(--border);
+}
+
+.mixer-splitter {
+    position: absolute;
+    inset-inline: 0;
+    top: -3px;
+    height: 5px;
+    cursor: row-resize;
+    z-index: 1;
+    touch-action: none;
+}
+
+.mixer-splitter:hover, .mixer-splitter.dragging, .mixer-splitter:focus-visible {
+    background: var(--accent);
+    opacity: .5;
+    outline: none;
+}
+
+.mixer-titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px 0 12px;
+    height: 32px;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.mixer-title { font-weight: 600; }
+.mixer-close { width: 28px; height: 28px; font-size: 12px; }
+.mixer-close:hover { background: var(--hover); }
+
+.mixer-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+}
+
+.mixer-grid {
+    display: grid;
+    grid-template-rows: auto auto minmax(60px, 1fr) auto auto;
+    height: 100%;
+    min-height: 200px;
+    width: max-content;
+}
+
+.mixer-header {
+    position: sticky;
+    inset-inline-start: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    padding: 4px 12px;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 12px;
+    border-inline-end: 1px solid var(--border);
+}
+
+.mixer-strip {
+    display: flex;
+    border-inline-end: 1px solid var(--border);
+    min-width: 0;
+}
+
+.mixer-strip.master { background: var(--bg); }
+
+.mixer-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 6px;
+    min-width: 0;
+}
+
+.mixer-pan { width: 64px; }
+.mixer-value { width: 28px; font-size: 11px; color: var(--muted); text-align: end; font-variant-numeric: tabular-nums; }
+
+.mixer-volume {
+    width: 56px;
+    height: 24px;
+    font-size: 12px;
+    text-align: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--fg);
+}
+
+/* the fader fills its row without sizing it (a vertical range input is very tall by itself) */
+.mixer-fader-cell { position: relative; }
+
+.mixer-fader {
+    position: absolute;
+    top: 8px;
+    inset-inline-start: calc(50% - 12px);
+    writing-mode: vertical-lr;
+    direction: rtl;
+    width: 24px;
+    height: calc(100% - 16px);
+    margin: 0;
+}
+
+.mixer-toggle {
+    display: inline-grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "MusescoreIcon";
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.mixer-toggle:hover:not(:disabled) { background: var(--hover); }
+.mixer-toggle:focus-visible, .mixer-volume:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.mixer-toggle:disabled { cursor: default; opacity: .6; }
+.mixer-toggle.mute.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mixer-toggle.solo.on { background: #e8a33d; border-color: #e8a33d; color: #fff; }
+
+.mixer-name {
+    display: block;
+    font-size: 12px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
