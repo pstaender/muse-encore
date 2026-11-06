@@ -41,7 +41,7 @@ const GAP = 24
 
 /** the marks of A (a light blue) and B (a firmer blue) on the pages; the controls use the same tones (diffview.css) */
 const COLORS_A: DiffColors = { item: '#6c9cf2', background: 'rgba(108, 156, 242, 0.13)' }
-const COLORS_B: DiffColors = { item: '#1f56c4', background: 'rgba(42, 106, 216, 0.22)' }
+const COLORS_B: DiffColors = { item: '#3066FD', background: 'rgba(42, 106, 216, 0.22)' }
 
 // MuseScore's icon codes (src/framework/ui/view/iconcodes.h)
 const ICON = { close: '&#xEF14;', zoomOut: '&#xEF16;', zoomIn: '&#xEF18;', prev: '&#xEF37;', next: '&#xEF36;', instruments: '&#xEF55;' }
