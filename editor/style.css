@@ -124,6 +124,13 @@ body {
 .menu-title { flex: 1; }
 .menu-shortcut { margin-left: 24px; color: var(--muted); font-size: 12px; }
 .menu-separator { height: 1px; margin: 4px 6px; background: var(--border); }
+/* the search field of the Help menu; the item of the current result is highlighted in its menu */
+.menu-search { padding: 2px 2px 4px; }
+.menu-search input { width: 100%; box-sizing: border-box; height: 24px; }
+.menu-search-results { max-height: 60vh; overflow-y: auto; }
+.menu-search-location { margin-left: 10px; color: var(--muted); font-size: 12px; }
+.menu-search-empty { justify-content: center; }
+.menu-item.search-highlight { background: color-mix(in srgb, var(--accent) 22%, transparent); box-shadow: inset 0 0 0 2px var(--accent); }
 
 .tabs-row {
     display: flex;

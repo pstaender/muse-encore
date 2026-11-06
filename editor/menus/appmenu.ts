@@ -3,6 +3,7 @@
  * The menu bar (port of MuseScore's AppMenuModel, src/appshell/qml/MuseScore/AppShell/appmenumodel.cpp).
  * Left out: everything about playback, sounds, the mixer and MIDI, plugins, online services (cloud, publishing,
  * audio/PDF import), updates, diagnostics and workspaces. Items whose action has no handler yet are disabled.
+ * Not in MuseScore: the search field at the top of the Help menu (like macOS' Help menu).
  */
 import type { TrString } from '../actions/uiactiondata'
 
@@ -10,6 +11,8 @@ export type MenuItem =
     | { kind: 'action'; code: string; title?: TrString; args?: readonly string[] }
     | { kind: 'menu'; id: string; title: TrString; items: MenuItem[] | (() => MenuItem[]) }
     | { kind: 'separator' }
+    /** the search field of the Help menu (not in MuseScore; like macOS): finds and shows the items of all menus */
+    | { kind: 'search' }
 
 const item = (code: string, title?: TrString): MenuItem => ({ kind: 'action', code, title })
 const menu = (title: TrString, items: MenuItem[] | (() => MenuItem[]), id = ''): MenuItem => ({ kind: 'menu', id, title, items })
@@ -223,6 +226,8 @@ function makeToolsMenu(): MenuItem {
 
 function makeHelpMenu(): MenuItem {
     return menu(['appshell/menu/help', '&Help'], [
+        { kind: 'search' },
+        sep,
         item('online-handbook'),
         item('ask-help'),
         sep,

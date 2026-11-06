@@ -1953,3 +1953,14 @@
 - The markers are always subtle; hovered and active ones (clicked, edited in the panel) are highlighted.
 - View > Comments (the panel) shows the markers (subtle) or hides them completely; "Show comments" was removed.
 - An empty text shows no popup. In the panel, Enter sets the text and returns to the score; Shift+Enter: a new line.
+
+## 2026-11-06 — Help > Search (menu search, like macOS)
+
+- Not in MuseScore: a search field at the top of the Help menu (editor/components/Menu.tsx, `{ kind: 'search' }` in
+  menus/appmenu.ts). It lists the action items of all menus (also submenus and dynamic ones like Open recent) whose
+  title contains all typed words (titles starting with the query first), with their menu path and shortcut; disabled
+  items are shown disabled. The current result (arrow keys, hover) is shown in its menu: the menu and its submenus
+  open beside the Help menu (passive popups that do not take the focus) and the item is highlighted. Enter or a
+  click runs it; Escape clears the field, then closes the menu. While searching, the Help menu moves to the side of
+  the window so the revealed menus are not covered. Mod+Shift+/ (Cmd+? on macOS) opens the field.
+- Strings: MuseScore's "Search" (ui) and "No results found" (global). The viewer has no menu bar, so nothing changes there.
