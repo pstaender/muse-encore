@@ -2041,6 +2041,63 @@ describe.skipIf(!CHROME || !hasSubmodule)('editor', () => {
         await context.close()
     }, 120000)
 
+    it('follows the playback cursor without moving the view back and forth (iOS: stale client rectangles, like the viewer)', async () => {
+        const { page, context } = await newPage()
+        await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)
+        await scoreShown(page)
+        await page.selectOption('.zoom-select', '400')
+        // iOS Safari (as observed): the client rectangles of the pages can lag behind a scroll of the view; here for
+        // 50 ms, while scrollLeft/scrollTop are new at once
+        await page.evaluate(() => {
+            const viewport = document.getElementById('viewport')!
+            const original = Element.prototype.getBoundingClientRect
+            ;(window as unknown as Record<string, unknown>).realRect = original
+            let lag = { left: viewport.scrollLeft, top: viewport.scrollTop }
+            viewport.addEventListener('scroll', () => {
+                const now = { left: viewport.scrollLeft, top: viewport.scrollTop }
+                setTimeout(() => { lag = now }, 50)
+            })
+            Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
+                const r = original.call(this)
+                if (this === viewport || !viewport.contains(this)) {
+                    return r
+                }
+                return new DOMRect(r.x + viewport.scrollLeft - lag.left, r.y + viewport.scrollTop - lag.top, r.width, r.height)
+            }
+        })
+        // the frames of 8 s from the start of the playback: the scroll position and whether the cursor is in the view
+        const sampling = page.evaluate(() => new Promise<{ left: number; top: number; inView: boolean }[]>((resolve) => {
+            const viewport = document.getElementById('viewport')!
+            const rect = (window as unknown as { realRect: () => DOMRect }).realRect
+            const out: { left: number; top: number; inView: boolean }[] = []
+            const end = performance.now() + 8000
+            const frame = (): void => {
+                const c = document.querySelector<HTMLElement>('.playback-cursor')
+                const cr = c ? rect.call(c) : null
+                const vr = rect.call(viewport)
+                out.push({ left: viewport.scrollLeft, top: viewport.scrollTop,
+                    inView: !!cr && !c!.hidden && cr.left >= vr.left - 1 && cr.right <= vr.left + viewport.clientWidth + 1
+                        && cr.bottom > vr.top && cr.top < vr.top + viewport.clientHeight })
+                if (performance.now() < end) {
+                    requestAnimationFrame(frame)
+                } else {
+                    resolve(out)
+                }
+            }
+            requestAnimationFrame(frame)
+        }))
+        await page.click(playButton)
+        // before the cursor is shown (the start of the playback), the frames are not counted as out of the view
+        const all = await sampling
+        const s = all.filter((x, i) => all.slice(0, i + 1).some(y => y.inView))
+        // the view moves a few times (each time the cursor reaches the edge), not in every frame, and the cursor stays in it
+        const moves = all.filter((x, i) => i > 0 && (x.left !== all[i - 1].left || x.top !== all[i - 1].top)).length
+        expect(moves, JSON.stringify(all.filter((x, i) => i % 30 === 0))).toBeGreaterThan(1)
+        expect(moves, JSON.stringify(all.slice(0, 60))).toBeLessThan(20)
+        expect(s.filter(x => !x.inView).length).toBeLessThanOrEqual(2)
+        await context.close()
+    }, 120000)
+
     it('plays the score from the toolbar and with Shift+Space, moves the playback cursor, mutes and plays notes on click', async () => {
         const layout = await amazingGraceLayout()
         const { page, context, box } = await openAmazingGrace()

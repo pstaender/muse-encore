@@ -27,6 +27,7 @@ import { setShortcutOverride } from './actions/actions'
 import { ELEMENT_DROP_EVENT, dragData, setDragData, type ElementDropDetail } from './dragcontroller'
 import { onSettingsChanged, settings as appSettings, updateSettings, type ViewSettings } from './settings'
 import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../shared/fullscreen'
+import { contentRect, isAtScrollTarget, scrollViewTo, viewRect } from '../shared/scrollview'
 
 /** commands of the score view that the app handles */
 export const handlers = {
@@ -332,6 +333,15 @@ export function pageInches(idx: number): { width: number; height: number } | nul
 }
 
 let s_programmaticScroll = 0
+/** the scroll position the view was last moved to by the script (its scroll event may come late, iOS) */
+let s_scrollTarget: { left: number; top: number } | null = null
+
+/** the view follows the playback or the playalong: scrolls to a position (the same result when repeated) */
+function scrollToPosition(left: number, top: number): void {
+    s_programmaticScroll++
+    s_scrollTarget = scrollViewTo(viewport, left, top) ?? s_scrollTarget
+    requestAnimationFrame(() => { s_programmaticScroll = Math.max(0, s_programmaticScroll - 1) })
+}
 
 /** a rectangle of a page (inches) */
 type Rect = { x: number; y: number; width: number; height: number }
@@ -347,9 +357,10 @@ export function adjustViewToRect(pageIdx: number, r: Rect, adjustVertically: boo
     if (!el || !score) {
         return false
     }
-    const pr = el.getBoundingClientRect()
+    // in the scrolled content (contentRect: iOS)
+    const pr = contentRect(viewport, el)
     const f = pr.width / pageSize(score, pageIdx).width
-    const vr = viewport.getBoundingClientRect()
+    const vr = viewRect(viewport)
     // account for the continuous panel if panning in the continuous view
     const panelWidth = settings.viewMode !== 'continuous-horizontal' ? 0
         : panelBox.isConnected ? panelBox.getBoundingClientRect().width : s_panelWidth
@@ -418,19 +429,17 @@ export function adjustViewToRect(pageIdx: number, r: Rect, adjustVertically: boo
     if (!dx && !dy) {
         return false
     }
-    s_programmaticScroll++
-    viewport.scrollBy(dx, dy)
+    scrollToPosition(pos.x, pos.y)
     if (afterPanel && settings.viewMode === 'continuous-horizontal') {
         // not in C++: the panel is drawn for the new position now, and the view corrects for its width (unknown when it
         // was not shown before, e.g. at the start of the score) instead of moving again in the next frame
         updateContinuousPanel()
         const d = Math.round((panelBox.isConnected ? panelBox.getBoundingClientRect().width : 0) - panelWidth)
         if (d) {
-            viewport.scrollBy(-d, 0)
+            scrollToPosition(pos.x - d, pos.y)
             updateContinuousPanel()
         }
     }
-    requestAnimationFrame(() => { s_programmaticScroll = Math.max(0, s_programmaticScroll - 1) })
     return true
 }
 
@@ -451,9 +460,10 @@ export function showRectInView(pageIdx: number, r: Rect, context?: Rect, ahead?:
     }
     const followX = settings.viewMode !== 'continuous-vertical'
     const followY = settings.viewMode !== 'continuous-horizontal'
-    const pr = el.getBoundingClientRect()
+    // in the scrolled content (contentRect: iOS)
+    const pr = contentRect(viewport, el)
     const f = pr.width / pageSize(score, pageIdx).width
-    const vr = viewport.getBoundingClientRect()
+    const vr = viewRect(viewport)
     const margin = marginInches * f
     // the panel appears when the view moves away from the start of the score: its last width
     const inset = settings.viewMode !== 'continuous-horizontal' ? 0
@@ -481,9 +491,7 @@ export function showRectInView(pageIdx: number, r: Rect, context?: Rect, ahead?:
     }
     const left = viewport.scrollLeft
     const top = viewport.scrollTop
-    s_programmaticScroll++
-    viewport.scrollBy(dx, dy)
-    requestAnimationFrame(() => { s_programmaticScroll = Math.max(0, s_programmaticScroll - 1) })
+    scrollToPosition(vr.left + dx, vr.top + dy)
     if (recheck) {
         // once the panel is drawn for the new position (its width is known then)
         requestAnimationFrame(() => requestAnimationFrame(() => showRectInView(pageIdx, r, context, ahead, marginInches, false)))
@@ -500,20 +508,16 @@ export function centerViewOnRect(pageIdx: number, r: { x: number; y: number; wid
     if (!el || !score) {
         return false
     }
-    const pr = el.getBoundingClientRect()
+    // in the scrolled content (contentRect: iOS)
+    const pr = contentRect(viewport, el)
     const f = pr.width / pageSize(score, pageIdx).width
-    const vr = viewport.getBoundingClientRect()
+    const vr = viewRect(viewport)
     const show = { left: pr.left + r.x * f, top: pr.top + r.y * f, width: r.width * f, height: r.height * f }
     const inView = show.left < vr.left + viewport.clientWidth && show.left + show.width > vr.left
         && show.top < vr.top + viewport.clientHeight && show.top + show.height > vr.top
     const left = viewport.scrollLeft
     const top = viewport.scrollTop
-    s_programmaticScroll++
-    viewport.scrollLeft += show.left - (vr.left + viewport.clientWidth / 2)
-    if (!inView) {
-        viewport.scrollTop += show.top - (vr.top + viewport.clientHeight / 2)
-    }
-    requestAnimationFrame(() => { s_programmaticScroll = Math.max(0, s_programmaticScroll - 1) })
+    scrollToPosition(show.left - viewport.clientWidth / 2, inView ? vr.top : show.top - viewport.clientHeight / 2)
     return viewport.scrollLeft !== left || viewport.scrollTop !== top
 }
 
@@ -1212,7 +1216,8 @@ function updatePageInfo(): void {
 }
 
 viewport.addEventListener('scroll', () => {
-    if (!s_programmaticScroll) {
+    if (!s_programmaticScroll && !isAtScrollTarget(viewport, s_scrollTarget)) {
+        s_scrollTarget = null
         userMovedView()
     }
     updatePageInfo()

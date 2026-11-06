@@ -15,6 +15,7 @@ import { centerViewOnMeasureOrPage } from '../../shared/centerview'
 import { CENTER_ICON } from '../../shared/icons'
 import { fileInputAccept } from '../../shared/fileinput'
 import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../../shared/fullscreen'
+import { contentRect, isAtScrollTarget, scrollViewTo } from '../../shared/scrollview'
 import { spreadPages, stepSpread } from '../../shared/spreads'
 import { SOUNDFONT_CDN_URL } from '../../shared/playback/soundfont'
 import { ViewerMidiInput, type ViewerMidiSettings } from './midiinput'
@@ -1713,7 +1714,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
     private adjustViewToCursor(pageEl: HTMLDivElement, smoothPan: boolean): void {
         const viewport = this.viewport
         const view = { left: viewport.scrollLeft, top: viewport.scrollTop, width: viewport.clientWidth, height: viewport.clientHeight }
-        const c = this.contentRect(this.cursor)
+        const c = contentRect(this.viewport, this.cursor)
         let left = view.left
         let top = view.top
         if (smoothPan) {
@@ -1725,40 +1726,17 @@ html, body { margin: 0; padding: 0; background: #fff; }
             }
             if (c.top < view.top || c.bottom > view.top + view.height) {
                 // the system at the top of the view (or centered if the page fits)
-                const pr = this.contentRect(pageEl)
+                const pr = contentRect(this.viewport, pageEl)
                 top = pr.height <= view.height ? pr.top + pr.height / 2 - view.height / 2 : c.top - border
             }
         }
         this.scrollViewTo(left, top)
     }
 
-    /**
-     * the rectangle of an element of the pages in the scrolled content of the viewport: the offsets do not depend on the
-     * scroll position. iOS Safari: the client rectangles can still show the old scroll position for a frame after the
-     * view was scrolled, so moving the view by their difference moved it twice (it flashed or jumped back and forth)
-     */
-    private contentRect(el: HTMLElement): { left: number; top: number; right: number; bottom: number; width: number; height: number } {
-        let left = 0
-        let top = 0
-        for (let e: HTMLElement | null = el; e && e !== this.viewport; e = e.offsetParent as HTMLElement | null) {
-            left += e.offsetLeft
-            top += e.offsetTop
-        }
-        const { width, height } = el.getBoundingClientRect()
-        return { left, top, right: left + width, bottom: top + height, width, height }
-    }
-
     /** the view follows the playback or the playalong: scrolls to a position (the same result when repeated) */
     private scrollViewTo(left: number, top: number): void {
-        const viewport = this.viewport
-        const x = Math.round(Math.max(0, Math.min(viewport.scrollWidth - viewport.clientWidth, left)))
-        const y = Math.round(Math.max(0, Math.min(viewport.scrollHeight - viewport.clientHeight, top)))
-        if (x === viewport.scrollLeft && y === viewport.scrollTop) {
-            return
-        }
-        this.scrollTarget = { left: x, top: y }
         this.programmaticScroll++
-        viewport.scrollTo(x, y)
+        this.scrollTarget = scrollViewTo(this.viewport, left, top) ?? this.scrollTarget
         requestAnimationFrame(() => { this.programmaticScroll = Math.max(0, this.programmaticScroll - 1) })
     }
 
@@ -1856,7 +1834,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         const viewport = this.viewport
         const mode = this.settings.viewMode
         // in the scrolled content (contentRect: iOS)
-        const pr = this.contentRect(el)
+        const pr = contentRect(this.viewport, el)
         const f = pr.width / pageSize(score, pageIdx).width
         const vr = { left: viewport.scrollLeft, top: viewport.scrollTop }
         const margin = 0.2 * f
@@ -1967,9 +1945,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
                     this.renderVisible()
                 }, 60)
             }
-            const t = this.scrollTarget
-            const atTarget = t && Math.abs(viewport.scrollLeft - t.left) <= 1 && Math.abs(viewport.scrollTop - t.top) <= 1
-            if (!this.programmaticScroll && !atTarget) {
+            if (!this.programmaticScroll && !isAtScrollTarget(viewport, this.scrollTarget)) {
                 this.scrollTarget = null
                 this.userMovedView()
             }
