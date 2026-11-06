@@ -160,23 +160,30 @@ export function pageSystemCount(score: Score, pageIdx: number): number {
 }
 
 /**
- * Not in MuseScore (the view turns the page early, shared/pageturn.ts): the raw start tick of the measure played after
- * the one at a play position (seconds), in the played order (repeats and jumps); -1 after the last measure.
+ * Not in MuseScore (the view turns the page early, shared/pageturn.ts): the raw start ticks of the (up to `count`)
+ * measures played after the one at a play position (seconds), in the played order (repeats and jumps)
  */
-export function nextPlayedMeasureTick(score: Score, sec: number): number {
+export function nextPlayedMeasureTicks(score: Score, sec: number, count: number): number[] {
+    const result: number[] = []
+    if (count <= 0) {
+        return result
+    }
     const playback = notationPlayback(score)
     const utick = playback.secToPlayedTick(sec)
-    const segments = score.masterScore().repeatList(playback.playRepeats)
     let found = false
-    for (const rs of segments) {
+    for (const rs of score.masterScore().repeatList(playback.playRepeats)) {
         const offset = rs.utick - rs.tick
         for (const m of rs.measureList()) {
             if (found) {
-                return m.tick().ticks()
+                result.push(m.tick().ticks())
+                if (result.length >= count) {
+                    return result
+                }
+                continue
             }
             const start = m.tick().ticks() + offset
             found = utick >= start && utick < start + m.ticks().ticks()
         }
     }
-    return -1
+    return result
 }

@@ -2037,3 +2037,10 @@
 - test/pageturn.test.ts. Checked in the viewer (Chrome): page view with two pages in the window turns to the third page
   once; the continuous view moves when the next bar is cut off.
 - Viewer: "Loading sounds… n%" in the toolbar made it wrap (the view became smaller and moved, twice): the label keeps its width while loading ("Loading… n%", full text as tooltip).
+- Setting (2026-11-06): the editor's Preferences > Web version "Turn pages early during playback and playalong"
+  (settings.web.pageTurn, default on) with "Bars ahead" 1-4 (web.pageTurnBars, default 2; DEFAULT/MAX_PAGE_TURN_BARS in
+  shared/pageturn.ts); off: the playback follows the cursor like MuseScore again (adjustViewToRect restored), the
+  playalong turns when its measure is cut off. Viewer option `pageTurnAhead` (default 2; false/0: the viewer's former
+  cursor following, adjustViewToCursor restored). The playalong states pass `aheadTicks` (up to 4) instead of
+  nextTick; library nextPlayedMeasureTicks(score, sec, count) replaces nextPlayedMeasureTick. pageTurnDelta takes
+  `ahead` (a list) and ignores bars that do not fit with the current one; followingBars is shared.

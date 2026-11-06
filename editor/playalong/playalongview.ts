@@ -6,6 +6,7 @@
  * played before it is shown too if it fits.
  */
 import { playalongMeasureBounds } from '../../src/index'
+import { settings } from '../settings'
 import { currentScore, followBar, onPagesBuilt, pageElement, pageInches } from '../scoreview'
 import { onPlayalongStateChanged, playalongState } from './playalongcontroller'
 
@@ -40,7 +41,11 @@ function update(scroll: boolean): void {
         const context = p && p.page === b.page && Math.abs(p.y - b.y) < 0.01 && p.x < b.x
             ? { x: p.x, y: b.y, width: b.x + b.width - p.x, height: b.height } : undefined
         // the page is turned early for the measure played next (shared/pageturn.ts)
-        followBar(b.page, b, context, st.nextTick >= 0 ? playalongMeasureBounds(score!, st.nextTick) : null)
+        // the bars ahead of the setting; without "Turn pages early" the view moves when the measure is cut off
+        const web = settings().web
+        const ahead = (web.pageTurn ? st.aheadTicks.slice(0, web.pageTurnBars) : [])
+            .map(t => playalongMeasureBounds(score!, t)).filter(x => !!x)
+        followBar(b.page, b, context, ahead)
     }
 }
 

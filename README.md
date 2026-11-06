@@ -49,12 +49,14 @@ Features that MuseEncore adds to MuseScore Studio, or that work differently:
   * an additional "fit to window" mode, which lays out the score as wide as the window <img width="909" height="296" alt="Screenshot 2026-11-06 at 09 12 50" src="https://github.com/user-attachments/assets/0efc5067-9990-4685-b9f5-a2e7a53ce1df" />
 
 * Proactive page turning: during playback and playalong, the view does not follow the cursor. It turns the "page"
-  early, so it moves seldom and you can see the next bar before it is played:
+  early, so it moves seldom and you can see the next bars before they are played (2 by default; in the editor's
+  Preferences > Web version 1 to 4, or off for MuseScore Studio's behaviour; the viewer's option `pageTurnAhead`):
   * page view, the page fits the width of the window: when the current bar is on a page that is not in the view (or
-    the next bar is cut off and its page is only partly visible), that page is centered.
-  * page view, zoomed in: when the next bar is cut off, the page is aligned to the right if the current bar stays
+    the next bars are cut off and its page is only partly visible), that page is centered.
+  * page view, zoomed in: when the next bars are cut off, the page is aligned to the right if the current bar stays
     visible; otherwise the current bar moves to the left of the view.
-  * continuous view: when the next bar is cut off, the current bar moves to the left (top) of the view.
+  * continuous view: when the next bars are cut off, the current bar moves to the left (top) of the view.
+  Bars that cannot be shown together with the current bar (zoomed in far) are not waited for.
   "Smooth panning" in the editor's settings still keeps the cursor in the middle of the continuous view.
 * Space: in the editor, holding Space and dragging moves the score, and Shift+Space starts and stops the playback
   (both can be changed in the settings). In the viewer, Space starts and stops the playback, and holding Space while

@@ -3,13 +3,14 @@
  * The playback in the score view (MuseScore's AbstractNotationPaintView: the playback cursor and the loop markers):
  * the cursor (the vertical line at the play position, PlaybackCursor) while playing, moved each frame; the view follows
  * it ("Pan score automatically"; paused for 2 s when the user moves the view; in the continuous view (horizontal) with
- * "Smooth panning" the score moves under the cursor in the middle of the view; otherwise, not like MuseScore's
- * adjustCanvasPosition, the page is turned early: shared/pageturn.ts); the markers of the loop boundaries (LoopMarker) while the loop is on. Both
+ * "Smooth panning" the score moves under the cursor in the middle of the view; with the web setting "Turn pages early"
+ * (not in MuseScore, the default) the page is turned early, shared/pageturn.ts, else the view follows the cursor like
+ * MuseScore's adjustCanvasPosition); the markers of the loop boundaries (LoopMarker) while the loop is on. Both
  * are elements on the page elements (in percent of the page, so they follow the zoom).
  */
-import { loopMarkers, nextPlayedMeasureTick, playalongMeasureBounds, playbackCursorBounds } from '../../src/index'
+import { loopMarkers, nextPlayedMeasureTicks, pageSystemCount, playalongMeasureBounds, playbackCursorBounds } from '../../src/index'
 import { settings } from '../settings'
-import { centerViewOnRect, currentScore, followBar, onPagesBuilt, onScoreViewChanged, onUserMovedView, pageElement, pageInches, scoreViewState } from '../scoreview'
+import { adjustViewToRect, centerViewOnRect, currentScore, followBar, onPagesBuilt, onScoreViewChanged, onUserMovedView, pageElement, pageInches, scoreViewState } from '../scoreview'
 import { onPlaybackPosition, onPlaybackStateChanged, playbackState } from './playbackcontroller'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -65,13 +66,32 @@ function movePlaybackCursor(tick: number, playing: boolean): void {
     if (pb.pan && pb.smoothPan && scoreViewState().viewMode === 'continuous-horizontal' && centerViewOnRect(b.page, b)) {
         return
     }
-    if (pb.pan && s_autoScrollEnabled) {
-        // not in MuseScore: the page is turned early (shared/pageturn.ts) for the bar played and the bar played next
+    if (!pb.pan || !s_autoScrollEnabled) {
+        return
+    }
+    const web = settings().web
+    if (web.pageTurn) {
+        // not in MuseScore: the page is turned early (shared/pageturn.ts) for the bar played and the bars played next
         const m = playalongMeasureBounds(score, tick)
         if (m) {
-            const nextTick = nextPlayedMeasureTick(score, playbackState().position)
-            followBar(m.page, m, null, nextTick >= 0 ? playalongMeasureBounds(score, nextTick) : null)
+            const ahead = nextPlayedMeasureTicks(score, playbackState().position, web.pageTurnBars)
+                .map(t => playalongMeasureBounds(score, t)).filter(x => !!x)
+            followBar(m.page, m, null, ahead)
         }
+        return
+    }
+    // needAdjustCanvasVerticallyWhilePlayback: vertically if the cursor is not in the view or the page has more systems
+    const r = cursor.getBoundingClientRect()
+    const vr = document.getElementById('viewport')!.getBoundingClientRect()
+    const inView = r.right > vr.left && r.left < vr.right && r.bottom > vr.top && r.top < vr.bottom
+    const adjustVertically = !inView || pageSystemCount(score, b.page) > 1
+    // BORDER_SPACING_RATIO = 3 spatium; the cursor is 0.4 spatium wide
+    const border = 3 * b.width / 0.4
+    // not in MuseScore: the continuous view (horizontal) shows the whole measure played, not only the cursor (it
+    // would be cut off at the right before the view moves, and its start would be at the left edge after it)
+    const m = scoreViewState().viewMode === 'continuous-horizontal' ? playalongMeasureBounds(score, tick) : null
+    if (!(m && m.page === b.page && adjustViewToRect(b.page, m, adjustVertically, border))) {
+        adjustViewToRect(b.page, b, adjustVertically, border)
     }
 }
 

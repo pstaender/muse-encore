@@ -66,6 +66,11 @@ export interface MuseEncoreViewerOptions {
     showStatusBar?: boolean
     /** the comments of the score (added in MuseEncore): markers above the staves that show their text; default true */
     comments?: boolean
+    /**
+     * the view turns the page early during playback and playalong, keeping this many bars ahead visible (1 to 4);
+     * default 2. false or 0: the view follows the playback cursor (like MuseScore Studio)
+     */
+    pageTurnAhead?: number | false
     /** the color scheme of the controls; default 'auto' (the browser's), as is any other value */
     colorScheme?: 'auto' | 'light' | 'dark'
     /**

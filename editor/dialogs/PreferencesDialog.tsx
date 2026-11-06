@@ -7,6 +7,7 @@
  * (ImportPreferencesPage.qml: the style for imports, MusicXML and MIDI; Overture, MEI and MNX are not ported) and "Web
  * version" with the settings of the web version (not in MuseScore).
  */
+import { MAX_PAGE_TURN_BARS } from '../../shared/pageturn'
 import { useEffect, useRef, useState } from 'react'
 import { actionTitle, formatShortcut, shortcuts } from '../actions/actions'
 import { ICON_CODES } from '../actions/uiactiondata'
@@ -337,6 +338,18 @@ function WebVersionPage(): React.JSX.Element {
                 {' '}
                 {webtr('Otherwise Space starts and stops playback and the middle mouse button moves the score.')}
             </p>
+            <label className="check">
+                <input type="checkbox" checked={web.pageTurn} onChange={e => updateSettings('web', { pageTurn: e.target.checked })} />
+                {webtr('Turn pages early during playback and playalong')}
+            </label>
+            <p className="muted hint">{webtr('Otherwise the view follows the playback cursor like MuseScore Studio.')}</p>
+            <div className="autosave-row">
+                <span>{webtr('Bars ahead')}</span>
+                <select aria-label={webtr('Bars ahead')} value={web.pageTurnBars} disabled={!web.pageTurn}
+                    onChange={e => updateSettings('web', { pageTurnBars: Number(e.target.value) })}>
+                    {Array.from({ length: MAX_PAGE_TURN_BARS }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+            </div>
         </section>
     )
 }

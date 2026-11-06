@@ -8,7 +8,7 @@
  */
 /// <reference types="vite/client" />
 import {
-    centerTargetBounds, NONE_DEVICE_ID, nextPlayedMeasureTick, playalongMeasureBounds, drawContinuousPanel, drawPage, drawPageSvg, firstPageIsRight, initEngravingFonts, layoutScore, onImageDecoded, openFileAccept, openScoreFile, scoreBaseName, pageCount,
+    centerTargetBounds, NONE_DEVICE_ID, nextPlayedMeasureTicks, playalongMeasureBounds, drawContinuousPanel, drawPage, drawPageSvg, firstPageIsRight, initEngravingFonts, layoutScore, onImageDecoded, openFileAccept, openScoreFile, scoreBaseName, pageCount,
     commentMarkers, pageSize, playbackCursorBounds, scoreComments, scoreTitle, setViewMode as setScoreViewMode, SvgGlyphDefs, withPageView, type MasterScore,
 } from '../../src/index'
 import { centerViewOnMeasureOrPage } from '../../shared/centerview'
@@ -19,7 +19,7 @@ import { CommentMarkersView } from '../../shared/comments/markers'
 import { fileInputAccept } from '../../shared/fileinput'
 import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../../shared/fullscreen'
 import { contentRect, isAtScrollTarget, scrollViewTo } from '../../shared/scrollview'
-import { followsInReadingOrder, pageTurnDelta, type ContentBox, type PageBarRect, type PageTurnMode } from '../../shared/pageturn'
+import { DEFAULT_PAGE_TURN_BARS, MAX_PAGE_TURN_BARS, followingBars, pageTurnDelta, type ContentBox, type PageBarRect, type PageTurnMode } from '../../shared/pageturn'
 import { spreadPages, stepSpread } from '../../shared/spreads'
 import { SOUNDFONT_CDN_URL } from '../../shared/playback/soundfont'
 import { ViewerMidiInput, type ViewerMidiSettings } from './midiinput'
@@ -1821,13 +1821,43 @@ html, body { margin: 0; padding: 0; background: #fff; }
         })
         this.cursor.hidden = false
         if (performance.now() >= this.autoScrollPausedUntil) {
-            // the page is turned early for the bar played and the bar played next (shared/pageturn.ts)
-            const m = playalongMeasureBounds(score, s.tick)
+            const bars = this.pageTurnBars()
+            const m = bars ? playalongMeasureBounds(score, s.tick) : null
             if (m) {
-                const nextTick = nextPlayedMeasureTick(score, s.position)
-                this.followBar(m.page, m, null, nextTick >= 0 ? playalongMeasureBounds(score, nextTick) : null)
+                // the page is turned early for the bar played and the bars played next (shared/pageturn.ts)
+                const ahead = nextPlayedMeasureTicks(score, s.position, bars)
+                    .map(t => playalongMeasureBounds(score, t)).filter(x => !!x)
+                this.followBar(m.page, m, null, ahead)
+            } else if (!bars) {
+                this.adjustViewToCursor(pageEl, b.page === 0 && this.settings.viewMode === 'continuous-horizontal')
             }
         }
+    }
+
+    /**
+     * AbstractNotationPaintView::adjustCanvasPosition: the view follows the cursor (with a border of 3 spatium, the
+     * cursor is 0.4 spatium wide), in the continuous view (horizontal) the cursor stays in the middle (smooth panning)
+     */
+    private adjustViewToCursor(pageEl: HTMLDivElement, smoothPan: boolean): void {
+        const viewport = this.viewport
+        const view = { left: viewport.scrollLeft, top: viewport.scrollTop, width: viewport.clientWidth, height: viewport.clientHeight }
+        const c = contentRect(this.viewport, this.cursor)
+        let left = view.left
+        let top = view.top
+        if (smoothPan) {
+            left = c.left - view.width / 2
+        } else {
+            const border = 3 * c.width / 0.4
+            if (c.left < view.left || c.right > view.left + view.width) {
+                left = c.left - border
+            }
+            if (c.top < view.top || c.bottom > view.top + view.height) {
+                // the system at the top of the view (or centered if the page fits)
+                const pr = contentRect(this.viewport, pageEl)
+                top = pr.height <= view.height ? pr.top + pr.height / 2 - view.height / 2 : c.top - border
+            }
+        }
+        this.scrollViewTo(left, top)
     }
 
     /** the view follows the playback or the playalong: scrolls to a position (the same result when repeated) */
@@ -1923,16 +1953,27 @@ html, body { margin: 0; padding: 0; background: #fff; }
             const context = p && p.page === b.page && Math.abs(p.y - b.y) < 0.01 && p.x < b.x
                 ? { x: p.x, y: b.y, width: b.x + b.width - p.x, height: b.height } : undefined
             // the page is turned early for the measure played next (shared/pageturn.ts)
-            this.followBar(b.page, b, context, st.nextTick >= 0 ? playalongMeasureBounds(score, st.nextTick) : null)
+            // without page turning the view moves when the measure is cut off
+            const ahead = st.aheadTicks.slice(0, this.pageTurnBars()).map(t => playalongMeasureBounds(score, t)).filter(x => !!x)
+            this.followBar(b.page, b, context, ahead)
         }
     }
 
     /**
      * the editor's followBar: the view follows the playback and the playalong by turning the page early
-     * (shared/pageturn.ts); `r`: the current bar (inches on its page), `context`: shown at the left if it fits, `next`:
-     * the bar played next
+     * (shared/pageturn.ts); `r`: the current bar (inches on its page), `context`: shown at the left if it fits, `ahead`:
+     * the bars played next (none: the view moves when the current bar is cut off)
      */
-    private followBar(pageIdx: number, r: PageRect, context?: PageRect | null, next?: PageBarRect | null, recheck = true): void {
+    /** the option pageTurnAhead: the bars ahead kept visible (0: the view follows the cursor) */
+    private pageTurnBars(): number {
+        const n = this.m_opts.pageTurnAhead
+        if (n === false) {
+            return 0
+        }
+        return typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.min(MAX_PAGE_TURN_BARS, Math.round(n))) : DEFAULT_PAGE_TURN_BARS
+    }
+
+    private followBar(pageIdx: number, r: PageRect, context?: PageRect | null, ahead: readonly PageBarRect[] = [], recheck = true): void {
         const el = this.pages[pageIdx]
         const score = this.score
         if (!el || !score) {
@@ -1964,14 +2005,14 @@ html, body { margin: 0; padding: 0; background: #fff; }
             page,
             current: box(pageIdx, r)!,
             context: context ? box(pageIdx, context) : null,
-            next: next && followsInReadingOrder({ page: pageIdx, ...r }, next) ? box(next.page, next) : null,
+            ahead: followingBars({ page: pageIdx, ...r }, ahead, n => box(n.page, n)),
             margin: 0.2 * f,
         })
         if (dx || dy) {
             this.scrollViewTo(vr.left + dx, vr.top + dy)
             if (recheck && mode === 'continuous-horizontal') {
                 // once the panel is drawn for the new position (its width is known then)
-                requestAnimationFrame(() => requestAnimationFrame(() => this.followBar(pageIdx, r, context, next, false)))
+                requestAnimationFrame(() => requestAnimationFrame(() => this.followBar(pageIdx, r, context, ahead, false)))
             }
         }
     }

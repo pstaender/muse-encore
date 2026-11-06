@@ -73,6 +73,7 @@ const viewer = applyMuseEncoreViewer(targetElement, pathToMuseScoreFile, {
     disableToolbar: false,        // no toolbar at all
     showStatusBar: false,         // the status bar below the score
     comments: true,               // the comments added in MuseEncore: subtle markers that show their text (with **bold**, *italic*, ~~strikethrough~~)
+    pageTurnAhead: 2,             // playback/playalong: the page is turned early, keeping this many bars ahead visible (1-4); false: follow the cursor like MuseScore Studio
     colorScheme: 'auto',          // 'light', 'dark'; auto: the browser's
     fontsUrl: undefined,          // the fonts directory; default: this package's fonts/ next to dist/
     soundFontUrl: undefined,      // MS Basic.sf3; default: MuseScore's repository (see Playback)
