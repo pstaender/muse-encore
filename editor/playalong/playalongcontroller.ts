@@ -10,7 +10,7 @@
  * are entered at the input position with enterMidiNotes). The microphone stays on when the note input starts or ends
  * (it then enters notes, or follows again); started in note input mode, it ends with the note input.
  */
-import { MAX_PAGE_TURN_BARS } from '../../shared/pageturn'
+import { BARS_AHEAD } from '../../shared/jumppreview'
 import { useSyncExternalStore } from 'react'
 import { enterMidiNotes, playalongMeasureBounds, playalongMeasures, rangeSelectionPartIds, selectionPlaybackInfo, type PlayalongMeasure } from '../../src/index'
 import { actionsChanged, registerAction, triggerAction } from '../actions/actions'
@@ -39,7 +39,7 @@ export interface PlayalongState {
     number: number
     /** the raw tick of the measure played before it (-1: none) */
     prevTick: number
-    /** the raw ticks of the measures played after it (up to MAX_PAGE_TURN_BARS: the view turns the page early) */
+    /** the raw ticks of the measures played after it (up to BARS_AHEAD: the page turning and the preview of a jump) */
     aheadTicks: number[]
     count: number
     practice: boolean
@@ -191,7 +191,7 @@ function showMeasure(): void {
     const m = s_measures[index]
     publish(m
         ? { index: m.index, tick: m.tick, number: m.number, prevTick: s_measures[m.index - 1]?.tick ?? -1,
-            aheadTicks: s_measures.slice(m.index + 1, m.index + 1 + MAX_PAGE_TURN_BARS).map(x => x.tick), count: s_measures.length }
+            aheadTicks: s_measures.slice(m.index + 1, m.index + 1 + BARS_AHEAD).map(x => x.tick), count: s_measures.length }
         : { index: -1, tick: -1, number: 0, prevTick: -1, aheadTicks: [], count: 0 })
 }
 

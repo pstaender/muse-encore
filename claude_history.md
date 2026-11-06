@@ -2056,3 +2056,10 @@
 - Preferences: "Bars ahead" is greyed out (.autosave-row.disabled) while "Turn pages early" is off.
 - Checked in the viewer (Chrome, marker-5.mscz at 400 %): the preview of bar 1 appears at the end repeat and disappears
   after the jump. Not checked in the browser: the editor (same code path).
+- The preview is shown directly after the bar the jump is made from (an element on the page in percent, over the bars
+  that are skipped), up to JUMP_PREVIEW_BARS = 4 bars before the jump (jumpIndex); for the page turning it takes the
+  place of the bar after the jump (previewJumpTarget returns the bars ahead), so it stays in the view. The apps look at
+  BARS_AHEAD = 5 bars played next. Checked in the viewer (marker-5.mscz, 400 %): shown 4 bars before the end repeat,
+  hidden after the jump.
+- Then: JUMP_PREVIEW_BARS = 2, and the preview shows the bars from the jump target up to the right edge of the view
+  (at least the target bar; placed again on scroll); for the page turning only the target bar counts.

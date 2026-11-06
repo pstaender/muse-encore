@@ -4,7 +4,7 @@ import { describe, expect, test } from 'vitest'
 import { layoutScore, nextPlayedMeasureTicks, notationPlayback } from '../src/index'
 import { VTEST, hasSubmodule, openScore } from './helpers'
 import { followsInReadingOrder, pageTurnDelta, type ContentBox } from '../shared/pageturn'
-import { isJump } from '../shared/jumppreview'
+import { isJump, jumpIndex, JUMP_PREVIEW_BARS } from '../shared/jumppreview'
 
 const box = (left: number, top: number, width: number, height: number): ContentBox =>
     ({ left, top, right: left + width, bottom: top + height })
@@ -159,4 +159,14 @@ test('a jump: the next bar is not the following bar of the score (shared/jumppre
     expect(isJump(r(0, 5, 2), r(0, 1, 2))).toBe(true) // a repeat back
     expect(isJump(r(0, 5, 2), r(0, 20, 2))).toBe(true) // to the coda
     expect(isJump(r(0, 5, 2), r(1, 7, 2))).toBe(true)
+})
+
+test('the first jump at most JUMP_PREVIEW_BARS bars ahead (jumpIndex)', () => {
+    const r = (x: number) => ({ page: 0, x, y: 1, width: 2, height: 2 })
+    // bars at 0, 2, 4, ...: a jump back to 0 after the bar at x
+    const played = (n: number) => [...Array.from({ length: n + 1 }, (_, i) => r(i * 2)), r(0)]
+    expect(jumpIndex([r(0), r(2), r(4)])).toBe(-1)
+    expect(jumpIndex(played(0))).toBe(0)
+    expect(jumpIndex(played(JUMP_PREVIEW_BARS))).toBe(JUMP_PREVIEW_BARS)
+    expect(jumpIndex(played(JUMP_PREVIEW_BARS + 1))).toBe(-1)
 })

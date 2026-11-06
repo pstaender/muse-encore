@@ -10,6 +10,7 @@
  */
 import { loopMarkers, nextPlayedMeasureTicks, pageSystemCount, playalongMeasureBounds, playbackCursorBounds } from '../../src/index'
 import { settings } from '../settings'
+import { BARS_AHEAD } from '../../shared/jumppreview'
 import { adjustViewToRect, centerViewOnRect, currentScore, followBar, previewJumpTarget, onPagesBuilt, onScoreViewChanged, onUserMovedView, pageElement, pageInches, scoreViewState } from '../scoreview'
 import { onPlaybackPosition, onPlaybackStateChanged, playbackState } from './playbackcontroller'
 
@@ -53,24 +54,23 @@ function movePlaybackCursor(tick: number, playing: boolean): void {
     const score = currentScore()
     if (!score || !playing) {
         cursor.hidden = true
-        previewJumpTarget(null, null)
+        previewJumpTarget(null, [])
         return
     }
     const b = playbackCursorBounds(score, tick)
     if (!b || !placeInPage(cursor, b.page, b)) {
         cursor.hidden = true
-        previewJumpTarget(null, null)
+        previewJumpTarget(null, [])
         return
     }
     cursor.hidden = false
 
-    // the bar played and the bars played next; not in MuseScore: the bar after a jump is previewed at the right edge of
-    // the continuous view (before the view moves: it keeps the current bar out of it)
+    // the bar played and the bars played next; not in MuseScore: the bar after a jump is previewed after the bar the jump
+    // is made from (continuous view), and takes its place for the page turning
     const web = settings().web
     const bar = playalongMeasureBounds(score, tick)
-    const ahead = bar ? nextPlayedMeasureTicks(score, playbackState().position, Math.max(1, web.pageTurnBars))
-        .map(t => playalongMeasureBounds(score, t)).filter(x => !!x) : []
-    previewJumpTarget(bar, ahead[0] ?? null)
+    const ahead = previewJumpTarget(bar, bar ? nextPlayedMeasureTicks(score, playbackState().position, BARS_AHEAD)
+        .map(t => playalongMeasureBounds(score, t)).filter(x => !!x) : [])
 
     const pb = settings().playback
     if (pb.pan && pb.smoothPan && scoreViewState().viewMode === 'continuous-horizontal' && centerViewOnRect(b.page, b)) {

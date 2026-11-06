@@ -5,7 +5,7 @@
  * is connected, else from the microphone (the note detection is loaded on the first start). Nothing is entered or
  * calibrated here, and all parts are followed (a viewer has no selection).
  */
-import { MAX_PAGE_TURN_BARS } from '../../shared/pageturn'
+import { BARS_AHEAD } from '../../shared/jumppreview'
 import { playalongMeasures, type MasterScore, type PlayalongMeasure } from '../../src/index'
 import { createNoteDetector, type NoteDetector } from '../../shared/notedetection/notedetector'
 import { ChordGrouper, PlayalongFollower } from '../../shared/playalong/follower'
@@ -19,7 +19,7 @@ export interface ViewerPlayalongState {
     tick: number
     number: number
     prevTick: number
-    /** the raw ticks of the measures played after it (up to MAX_PAGE_TURN_BARS: the view turns the page early) */
+    /** the raw ticks of the measures played after it (up to BARS_AHEAD: the page turning and the preview of a jump) */
     aheadTicks: number[]
     count: number
     practice: boolean
@@ -67,7 +67,7 @@ export class ViewerPlayalong {
             ...patch,
             ...(m ? {
                 index: m.index, tick: m.tick, number: m.number, prevTick: this.m_measures[m.index - 1]?.tick ?? -1,
-                aheadTicks: this.m_measures.slice(m.index + 1, m.index + 1 + MAX_PAGE_TURN_BARS).map(x => x.tick),
+                aheadTicks: this.m_measures.slice(m.index + 1, m.index + 1 + BARS_AHEAD).map(x => x.tick),
                 count: this.m_measures.length,
             } : NO_MEASURE),
         })

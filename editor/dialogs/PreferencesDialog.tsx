@@ -354,7 +354,7 @@ function WebVersionPage(): React.JSX.Element {
                 <input type="checkbox" checked={web.jumpPreview} onChange={e => updateSettings('web', { jumpPreview: e.target.checked })} />
                 {webtr('Preview the bar after a repeat or jump')}
             </label>
-            <p className="muted hint">{webtr('In the continuous view, during playback and playalong: shown at the right edge when it is not in the view.')}</p>
+            <p className="muted hint">{webtr('In the continuous view, during playback and playalong: shown after the bar with the jump, up to 2 bars in advance.')}</p>
         </section>
     )
 }

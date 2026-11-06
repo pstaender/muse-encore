@@ -29,7 +29,7 @@ function update(scroll: boolean): void {
         marker.hidden = true
         if (s_previewed) {
             s_previewed = false
-            previewJumpTarget(null, null)
+            previewJumpTarget(null, [])
         }
         return
     }
@@ -46,16 +46,14 @@ function update(scroll: boolean): void {
         const p = st.practice && st.prevTick >= 0 ? playalongMeasureBounds(score!, st.prevTick) : null
         const context = p && p.page === b.page && Math.abs(p.y - b.y) < 0.01 && p.x < b.x
             ? { x: p.x, y: b.y, width: b.x + b.width - p.x, height: b.height } : undefined
-        // the measure played after a jump is previewed at the right edge of the continuous view (before the view moves)
-        const next = st.aheadTicks.length ? playalongMeasureBounds(score!, st.aheadTicks[0]) : null
-        previewJumpTarget(b, next)
+        // the measure played after a jump is previewed after the measure the jump is made from (continuous view), and
+        // takes its place for the page turning
+        const bars = previewJumpTarget(b, st.aheadTicks.map(t => playalongMeasureBounds(score!, t)).filter(x => !!x))
         s_previewed = true
         // the page is turned early for the bars ahead of the setting (shared/pageturn.ts); without "Turn pages early"
         // the view moves when the measure is cut off
         const web = settings().web
-        const ahead = (web.pageTurn ? st.aheadTicks.slice(0, web.pageTurnBars) : [])
-            .map(t => playalongMeasureBounds(score!, t)).filter(x => !!x)
-        followBar(b.page, b, context, ahead)
+        followBar(b.page, b, context, web.pageTurn ? bars.slice(0, web.pageTurnBars) : [])
     }
 }
 

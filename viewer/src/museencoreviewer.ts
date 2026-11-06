@@ -19,7 +19,7 @@ import { CommentMarkersView } from '../../shared/comments/markers'
 import { fileInputAccept } from '../../shared/fileinput'
 import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../../shared/fullscreen'
 import { contentRect, isAtScrollTarget, scrollViewTo } from '../../shared/scrollview'
-import { barIsInView, isJump, JumpPreview } from '../../shared/jumppreview'
+import { BARS_AHEAD, barIsInView, jumpIndex, JumpPreview } from '../../shared/jumppreview'
 import { DEFAULT_PAGE_TURN_BARS, MAX_PAGE_TURN_BARS, followingBars, pageTurnDelta, type ContentBox, type PageBarRect, type PageTurnMode } from '../../shared/pageturn'
 import { spreadPages, stepSpread } from '../../shared/spreads'
 import { SOUNDFONT_CDN_URL } from '../../shared/playback/soundfont'
@@ -431,7 +431,8 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
     private readonly cursor: HTMLDivElement
     /** not in MuseScore: the bar after a jump at the right edge of the continuous view (shared/jumppreview.ts) */
     private readonly jumpPreview = new JumpPreview()
-    private jumpBar: (PageBarRect & { number: number }) | null = null
+    /** the bar shown (target) and the bar the jump is made from (after) */
+    private jump: { target: PageBarRect & { number: number }; after: PageBarRect } | null = null
     private readonly playalong: ViewerPlayalong | null
     private readonly midi: ViewerMidiInput | null
     private readonly playalongMarker: HTMLDivElement
@@ -1720,34 +1721,41 @@ html, body { margin: 0; padding: 0; background: #fff; }
             this.panelFrame = requestAnimationFrame(() => {
                 this.panelFrame = 0
                 this.updateContinuousPanel()
+                // the preview of the bar after a jump reaches to the right edge of the view
                 this.placeJumpPreview()
             })
         }
     }
 
     /**
-     * the option jumpPreview: the bar played next is previewed at the right edge of the continuous view (horizontal)
-     * when it is reached by a jump (a repeat, D.C., a coda, ...) and is not in the view; null: hides the preview
+     * the option jumpPreview: the bar played after a jump (a repeat, D.C., a coda, ...) is previewed directly after the
+     * bar the jump is made from, in the continuous view (horizontal), when the jump is at most JUMP_PREVIEW_BARS bars ahead
+     * and the bar is not in the view. `current`: the current bar (null: hides the preview), `ahead`: the bars played next.
+     * Returns the bars ahead for the page turning: the preview takes the place of the bar after the jump.
      */
-    private previewJumpTarget(current: PageBarRect | null, next: (PageBarRect & { number: number }) | null): void {
+    private previewJumpTarget(current: PageBarRect | null, ahead: readonly (PageBarRect & { number: number })[]): PageBarRect[] {
         const score = this.score
-        const el = next ? this.pages[next.page] : undefined
-        const show = !!current && !!next && !!el && !!score && this.m_opts.jumpPreview !== false
-            && this.settings.viewMode === 'continuous-horizontal' && isJump(current, next)
-            && !barIsInView(this.viewport, el, pageSize(score, next.page).width, next)
-        this.jumpBar = show ? next : null
-        this.placeJumpPreview()
+        const bars = current ? [current, ...ahead] : []
+        const i = jumpIndex(bars)
+        const target = i >= 0 ? ahead[i] : null
+        const el = target ? this.pages[target.page] : undefined
+        const show = !!target && !!el && !!score && this.m_opts.jumpPreview !== false
+            && this.settings.viewMode === 'continuous-horizontal'
+            && !barIsInView(this.viewport, el, pageSize(score, target.page).width, target)
+        this.jump = show ? { target: target!, after: bars[i] } : null
+        const rect = this.placeJumpPreview()
+        return rect ? [...ahead.slice(0, i), rect] : [...ahead]
     }
 
-    private placeJumpPreview(): void {
-        const bar = this.jumpBar
-        const el = bar ? this.pages[bar.page] : undefined
+    private placeJumpPreview(): PageBarRect | null {
+        const j = this.jump
+        const el = j ? this.pages[j.after.page] : undefined
         const score = this.score
-        if (!score || !bar || !el || this.settings.viewMode !== 'continuous-horizontal') {
+        if (!score || !j || !el || this.settings.viewMode !== 'continuous-horizontal') {
             this.jumpPreview.hide()
-            return
+            return null
         }
-        this.jumpPreview.show(score, this.viewport, el, bar.page, pageSize(score, bar.page), bar, bar.number)
+        return this.jumpPreview.show(score, this.viewport, el, pageSize(score, j.after.page), j.target, j.after, j.target.number)
     }
 
     private hideContinuousPanel(): void {
@@ -1836,7 +1844,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         if (!s || !score || !s.playing) {
             this.cursor.hidden = true
             if (!this.playalong?.state().active) {
-                this.previewJumpTarget(null, null)
+                this.previewJumpTarget(null, [])
             }
             return
         }
@@ -1844,7 +1852,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         const pageEl = b ? this.pages[b.page] : undefined
         if (!b || !pageEl) {
             this.cursor.hidden = true
-            this.previewJumpTarget(null, null)
+            this.previewJumpTarget(null, [])
             return
         }
         const size = pageSize(score, b.page)
@@ -1856,13 +1864,12 @@ html, body { margin: 0; padding: 0; background: #fff; }
             width: `${b.width / size.width * 100}%`, height: `${b.height / size.height * 100}%`,
         })
         this.cursor.hidden = false
-        // the bar played and the bars played next; the bar after a jump is previewed (before the view moves: it keeps the
-        // current bar out of it)
+        // the bar played and the bars played next; the bar after a jump is previewed after the bar the jump is made from
+        // (continuous view), and takes its place for the page turning
         const bars = this.pageTurnBars()
         const m = playalongMeasureBounds(score, s.tick)
-        const ahead = m ? nextPlayedMeasureTicks(score, s.position, Math.max(1, bars))
-            .map(t => playalongMeasureBounds(score, t)).filter(x => !!x) : []
-        this.previewJumpTarget(m, ahead[0] ?? null)
+        const ahead = this.previewJumpTarget(m, m ? nextPlayedMeasureTicks(score, s.position, BARS_AHEAD)
+            .map(t => playalongMeasureBounds(score, t)).filter(x => !!x) : [])
         if (performance.now() >= this.autoScrollPausedUntil) {
             if (bars && m) {
                 // the page is turned early for the bar played and the bars played next (shared/pageturn.ts)
@@ -1976,7 +1983,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         if (!b || !pageEl || !st || !score) {
             marker.hidden = true
             if (!this.playback?.state().playing) {
-                this.previewJumpTarget(null, null)
+                this.previewJumpTarget(null, [])
             }
             return
         }
@@ -1994,12 +2001,11 @@ html, body { margin: 0; padding: 0; background: #fff; }
             const p = st.practice && st.prevTick >= 0 ? playalongMeasureBounds(score, st.prevTick) : null
             const context = p && p.page === b.page && Math.abs(p.y - b.y) < 0.01 && p.x < b.x
                 ? { x: p.x, y: b.y, width: b.x + b.width - p.x, height: b.height } : undefined
-            // the measure played after a jump is previewed at the right edge of the continuous view (before the view moves)
-            this.previewJumpTarget(b, st.aheadTicks.length ? playalongMeasureBounds(score, st.aheadTicks[0]) : null)
-            // the page is turned early for the bars ahead (shared/pageturn.ts); without page turning the view moves when
-            // the measure is cut off
-            const ahead = st.aheadTicks.slice(0, this.pageTurnBars()).map(t => playalongMeasureBounds(score, t)).filter(x => !!x)
-            this.followBar(b.page, b, context, ahead)
+            // the measure played after a jump is previewed after the measure the jump is made from (continuous view), and
+            // takes its place for the page turning (shared/pageturn.ts); without page turning the view moves when the
+            // measure is cut off
+            const ahead = this.previewJumpTarget(b, st.aheadTicks.map(t => playalongMeasureBounds(score, t)).filter(x => !!x))
+            this.followBar(b.page, b, context, ahead.slice(0, this.pageTurnBars()))
         }
     }
 
@@ -2045,8 +2051,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         const inset = mode === 'continuous-horizontal' && this.panelBox.isConnected ? this.panelBox.getBoundingClientRect().width : 0
         const { dx, dy } = pageTurnDelta({
             mode,
-            // not under the preview of the bar after a jump at the right edge
-            view: { left: vr.left + inset, top: vr.top, right: vr.left + viewport.clientWidth - this.jumpPreview.width(), bottom: vr.top + viewport.clientHeight },
+            view: { left: vr.left + inset, top: vr.top, right: vr.left + viewport.clientWidth, bottom: vr.top + viewport.clientHeight },
             page,
             current: box(pageIdx, r)!,
             context: context ? box(pageIdx, context) : null,
