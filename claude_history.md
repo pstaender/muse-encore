@@ -1997,3 +1997,5 @@
 - Design: A and B in two blue tones of the accent (A light #6c9cf2, B firmer #3066FD on the pages; the file chips and
   the A/B circles of the split screen's divider in the same tones), the file chips without the A/B circles. The
   library's defaults DIFF_COLORS_REMOVED/ADDED stay red and green.
+- Comments in both apps in the blue tones of the comparison: the active marker and its line #3066FD, the popup #E6EBFF
+  (were orange and yellow).

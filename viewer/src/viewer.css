@@ -507,7 +507,7 @@ button.secondary:hover { background: var(--hover); }
 }
 .comment-marker svg { display: block; width: 100%; height: 100%; }
 .comment-marker path { fill: currentColor; }
-.comment-marker:hover, .comment-marker.active { z-index: 5; color: #c66b00; mix-blend-mode: normal; }
+.comment-marker:hover, .comment-marker.active { z-index: 5; color: #3066FD; mix-blend-mode: normal; }
 .comment-line {
     position: absolute;
     inset: 0;
@@ -520,7 +520,7 @@ button.secondary:hover { background: var(--hover); }
 }
 /* only for the active (selected) comment, and while a marker is dragged */
 .comment-line.active, .comment-line.dragging { display: block; }
-.comment-line line { stroke: #c66b00; stroke-width: 2.5px; stroke-linecap: round; }
+.comment-line line { stroke: #3066FD; stroke-width: 2.5px; stroke-linecap: round; }
 .comment-marker:focus-visible { outline: 2px solid #2a6ad8; outline-offset: 2px; border-radius: 2px; }
 .comment-popover {
     position: absolute;
@@ -530,7 +530,7 @@ button.secondary:hover { background: var(--hover); }
     margin-top: 4px;
     padding: 6px 10px;
     border-radius: 6px;
-    background: #fdf0c8;
+    background: #E6EBFF;
     color: #1d2127;
     font: 13px/1.4 system-ui, sans-serif;
     overflow-wrap: anywhere;
