@@ -12,7 +12,8 @@ import {
     commentMarkers, pageSize, playbackCursorBounds, scoreComments, scoreTitle, setViewMode as setScoreViewMode, SvgGlyphDefs, withPageView, type MasterScore,
 } from '../../src/index'
 import { centerViewOnMeasureOrPage } from '../../shared/centerview'
-import { CENTER_ICON, COMMENT_ICON } from '../../shared/icons'
+import { CENTER_ICON } from '../../shared/icons'
+import { CommentMarkersView } from '../../shared/comments/markers'
 import { fileInputAccept } from '../../shared/fileinput'
 import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../../shared/fullscreen'
 import { contentRect, isAtScrollTarget, scrollViewTo } from '../../shared/scrollview'
@@ -404,9 +405,12 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
     private readonly playalong: ViewerPlayalong | null
     private readonly midi: ViewerMidiInput | null
     private readonly playalongMarker: HTMLDivElement
-    /** the markers of the score's comments (read only: a click shows the text) and the open comment's text */
-    private commentEls: HTMLElement[] = []
-    private commentPopover: HTMLDivElement | null = null
+    /** the markers of the score's comments (read only: the text on hover, a click keeps it shown) */
+    private readonly commentMarkers = new CommentMarkersView({
+        pageElement: page => this.pages[page],
+        pageInches: page => this.score ? pageSize(this.score, page) : null,
+        onClick: id => this.commentMarkers.setActive(this.commentMarkers.active() === id ? '' : id, true),
+    })
     private playalongShownTick = -1
     private autoScrollPausedUntil = 0
     private programmaticScroll = 0
@@ -520,7 +524,7 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
         }
 
         // a click elsewhere closes the text of a comment
-        this.viewport.addEventListener('pointerdown', () => this.closeCommentPopover())
+        this.viewport.addEventListener('pointerdown', () => this.commentMarkers.setActive(''))
 
         this.playalongMarker = document.createElement('div')
         this.playalongMarker.className = 'playalong-marker'
@@ -1814,74 +1818,14 @@ html, body { margin: 0; padding: 0; background: #fff; }
     /** the measure followed is highlighted on its page (in percent of the page like the playback cursor) */
     /** the comments of the score (not in MuseScore; the editor adds them): markers above the staves */
     private updateCommentMarkers(): void {
-        this.closeCommentPopover()
-        for (const el of this.commentEls) {
-            el.remove()
-        }
-        this.commentEls = []
         const score = this.score
         if (!score || this.m_opts.comments === false) {
+            this.commentMarkers.clear()
             return
         }
         const comments = scoreComments(score)
-        for (const m of commentMarkers(score)) {
-            const pageEl = this.pages[m.page]
-            const text = comments.comment(m.id)?.text ?? ''
-            if (!pageEl) {
-                continue
-            }
-            const size = pageSize(score, m.page)
-            const el = document.createElement('button')
-            el.type = 'button'
-            el.className = 'comment-marker'
-            el.title = text.length > 300 ? `${text.slice(0, 300)}…` : text
-            el.setAttribute('aria-label', text || 'Comment')
-            el.innerHTML = COMMENT_ICON
-            Object.assign(el.style, {
-                left: `${m.x / size.width * 100}%`, top: `${m.y / size.height * 100}%`,
-                width: `${m.width / size.width * 100}%`, height: `${m.height / size.height * 100}%`,
-            })
-            // not a click on the score (panning, the playback position)
-            for (const type of ['pointerdown', 'mousedown', 'dblclick', 'contextmenu'] as const) {
-                el.addEventListener(type, e => e.stopPropagation())
-            }
-            el.addEventListener('click', (e) => {
-                e.stopPropagation()
-                const open = this.commentPopover?.dataset.comment === m.id
-                this.closeCommentPopover()
-                if (!open) {
-                    this.openCommentPopover(pageEl, el, m.id, text)
-                }
-            })
-            pageEl.appendChild(el)
-            this.commentEls.push(el)
-        }
-    }
-
-    private openCommentPopover(pageEl: HTMLElement, marker: HTMLElement, id: string, text: string): void {
-        const p = document.createElement('div')
-        p.className = 'comment-popover'
-        p.dataset.comment = id
-        p.setAttribute('role', 'note')
-        p.textContent = text
-        p.style.left = marker.style.left
-        p.style.top = `calc(${marker.style.top} + ${marker.style.height})`
-        for (const type of ['pointerdown', 'mousedown', 'dblclick', 'click', 'wheel'] as const) {
-            p.addEventListener(type, e => e.stopPropagation())
-        }
-        pageEl.appendChild(p)
-        marker.classList.add('active')
-        this.commentPopover = p
-    }
-
-    private closeCommentPopover(): void {
-        if (this.commentPopover) {
-            this.commentPopover.remove()
-            this.commentPopover = null
-            for (const el of this.commentEls) {
-                el.classList.remove('active')
-            }
-        }
+        this.commentMarkers.setSubtle(true)
+        this.commentMarkers.update(commentMarkers(score).map(m => ({ ...m, text: comments.comment(m.id)?.text ?? '' })))
     }
 
     private updatePlayalongMarker(scroll: boolean): void {

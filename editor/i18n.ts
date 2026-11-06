@@ -7,7 +7,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import { LANGUAGES, loaders } from 'virtual:musescore-locales'
-import { arg, qtrc, setTranslator } from '../src/index'
+import { arg, MUSEENCORE_TRANSLATION_CONTEXT, qtrc, setTranslator } from '../src/index'
 import type { TrString } from './actions/uiactiondata'
 import { settings, updateSettings } from './settings'
 import WEB_STRINGS from './locales/webstrings.json'
@@ -56,6 +56,11 @@ function makeTranslator(catalog: Catalog, lang: string): (context: string, key: 
     const rules = new Intl.PluralRules(lang.replace('_', '-').replace(/@.*/, ''))
     const categories = [...rules.resolvedOptions().pluralCategories].sort((a, b) => CLDR_ORDER.indexOf(a) - CLDR_ORDER.indexOf(b))
     return (context, key, disambiguation, n) => {
+        // the library's strings that MuseScore does not have (undo action names of the comments)
+        if (context === MUSEENCORE_TRANSLATION_CONTEXT) {
+            const w = (WEB_STRINGS as Record<string, Record<string, string> | undefined>)[key]
+            return w?.[lang] ?? w?.[lang.split(/[_@]/)[0]] ?? null
+        }
         const t = catalog[context]?.[disambiguation ? `${key}\u0004${disambiguation}` : key]
         if (t === undefined) {
             return null

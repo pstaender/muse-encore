@@ -156,7 +156,6 @@ export { NotationConfiguration } from './notation/internal/notationconfiguration
 export { NoteEntryMethod } from './engraving/dom/input'
 export * from './playalong/api'
 export * from './comments/api'
-import { scoreComments } from './comments/api'
 export {
     setFallbackFontEngine, createCanvasFallbackFontEngine, type FallbackFontEngine, type FallbackFont,
 } from './framework/draw/internal/fontprovider'
@@ -1316,15 +1315,14 @@ export function undoStackInfo(score: Score): UndoStackInfo {
 
 /** true if the score was changed since it was opened, created or last saved (markSaved) */
 export function isModified(score: Score): boolean {
-    // NotationProject::isModified: the score or the audio settings (the mixer); not in MuseScore: the comments
-    return score.dirty() || projectAudioSettings(score.masterScore()).isModified() || scoreComments(score).isModified()
+    // NotationProject::isModified: the score or the audio settings (the mixer)
+    return score.dirty() || projectAudioSettings(score.masterScore()).isModified()
 }
 
 /** marks the current state as saved (undoing or redoing makes the score modified again) */
 export function markSaved(score: Score): void {
     score.undoStack().setClean()
     projectAudioSettings(score.masterScore()).setSaved()
-    scoreComments(score).setSaved()
 }
 
 /**
@@ -2796,26 +2794,89 @@ export { writeMusicXml, writeMxl, type MusicXmlExportOptions } from './importexp
 export { writeMidi, type MidiExportOptions } from './importexport/midi/api'
 
 // ---------------------------------------------------------------------------------------------------------------------
-//   comments (not in MuseScore: comments/api.ts)
+//   comments (not in MuseScore: comments/api.ts): changed through the undo stack
 // ---------------------------------------------------------------------------------------------------------------------
 
-import { commentElement, type ScoreComment } from './comments/api'
+import { commentElement, scoreComments, type ScoreComment } from './comments/api'
+import { ChangeScoreComments } from './engraving/editing/editcomments'
 
-/**
- * adds a comment at the selection (the start of a range, else the first selected element); null without a selection
- * (or if the selected element is not in a measure)
- */
-export function addCommentAtSelection(score: Score, text = '', author = ''): ScoreComment | null {
+/** the translation context of the strings of this port that MuseScore does not have (the app translates them) */
+export const MUSEENCORE_TRANSLATION_CONTEXT = 'museencore'
+
+/** one undoable command that changes the comments (the copy of all comments is changed by `change`) */
+function changeComments(score: Score, actionName: string, change: (comments: ScoreComment[]) => boolean): boolean {
+    const comments = scoreComments(score)
+    const list = comments.cloneComments()
+    if (!change(list)) {
+        return false
+    }
+    const stack = notationState(score).interaction.undoStack()
+    stack.prepareChanges(new TranslatableString(MUSEENCORE_TRANSLATION_CONTEXT, actionName))
+    score.undo(new ChangeScoreComments(score.masterScore(), list))
+    stack.commitChanges()
+    return true
+}
+
+/** the comment a new comment of the selection would get (not added); null without a selection */
+function commentOfSelection(score: Score, text: string, author: string): ScoreComment | null {
     const sel = score.selection()
     const comments = scoreComments(score)
     if (sel.isRange()) {
-        return comments.addComment(score, sel.tickStart(), sel.staffStart(), text, author)
+        return comments.makeComment(score, sel.tickStart(), sel.staffStart(), text, author)
     }
     const el = sel.elements()[0]
-    if (!el || !el.findMeasure()) {
+    return el ? comments.makeCommentAt(el, text, author) : null
+}
+
+/**
+ * adds a comment at the selection (undoable): attached to the first selected element (a note, rest, text, ...; a
+ * measure: its start), or to the start of a range; null without a selection
+ */
+export function addCommentAtSelection(score: Score, text = '', author = ''): ScoreComment | null {
+    const c = commentOfSelection(score, text, author)
+    if (!c || !changeComments(score, 'Add comment', list => !!list.push(c))) {
         return null
     }
-    return comments.addCommentAt(el, text, author)
+    return c
+}
+
+/** true if a comment can be added at the selection */
+export function canAddCommentAtSelection(score: Score): boolean {
+    const sel = score.selection()
+    return sel.isRange() || (!!sel.elements()[0] && !sel.elements()[0].generated())
+}
+
+export function setCommentText(score: Score, id: string, text: string): boolean {
+    return changeComments(score, 'Edit comment', (list) => {
+        const c = list.find(x => x.id === id)
+        if (!c || c.text === text) {
+            return false
+        }
+        c.text = text
+        c.modified = new Date().toISOString()
+        return true
+    })
+}
+
+/** sets the offset of a comment's marker from its anchor (spatium) */
+export function moveComment(score: Score, id: string, dx: number, dy: number): boolean {
+    const round = (v: number): number => Math.round(v * 100) / 100
+    return changeComments(score, 'Move comment', (list) => {
+        const c = list.find(x => x.id === id)
+        if (!c || (c.dx === round(dx) && c.dy === round(dy))) {
+            return false
+        }
+        c.dx = round(dx)
+        c.dy = round(dy)
+        return true
+    })
+}
+
+export function removeComment(score: Score, id: string): boolean {
+    return changeComments(score, 'Delete comment', (list) => {
+        const i = list.findIndex(x => x.id === id)
+        return i >= 0 && !!list.splice(i, 1).length
+    })
 }
 
 /** selects the element at a comment's position (commentElement); false if there is none */
@@ -2825,6 +2886,6 @@ export function selectCommentElement(score: Score, id: string): boolean {
     if (!el) {
         return false
     }
-    notationState(score).interaction.select([el], SelectType.SINGLE, el.staffIdx())
+    notationState(score).interaction.select([el], SelectType.SINGLE, Math.max(0, el.staffIdx()))
     return true
 }

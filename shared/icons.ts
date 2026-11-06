@@ -9,4 +9,3 @@ export const CENTER_ICON = {
 
 /** a comment (speech bubble; the markers of comments in the editor and the viewer) */
 export const COMMENT_ICON_PATH = 'M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10l-5 4v-4H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z'
-export const COMMENT_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${COMMENT_ICON_PATH}"/></svg>`

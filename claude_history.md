@@ -1923,5 +1923,24 @@
 - test/comments.test.ts.
 
 ### Missing / known differences
-- No replies, authors in the UI or resolved state; editing a comment cannot be undone with Ctrl+Z.
+- No replies, authors in the UI or resolved state.
 - A comment whose measure was deleted falls back to its saved tick.
+
+## 2026-11-06 — Comments: undo, attached to elements, markdown, subtle markers
+
+### Done
+- Undo/redo: `ChangeScoreComments` (engraving/editing/editcomments.ts) sets all comments; it triggers the layout of
+  the first measure only (a command without a range lays out the whole score; the layout hash does not change).
+  addCommentAtSelection/setCommentText/moveComment/removeComment in index.ts are commands ("Add/Edit/Move/Delete
+  comment", context `museencore` = the editor's webstrings). The model's own modified flag is gone (the undo stack).
+  The panel sets the text when its field loses the focus (one command).
+- Anchors: `element` (EID of a note, rest, text, ... — MuseScore keeps the EIDs of notes, chords, rests, texts,
+  tempo, ...) with the position as fallback (an element outside of measures, e.g. a frame text: the next measure);
+  `dx`/`dy` in spatium: the marker can be dragged (shared/comments/markers.ts). An element counts as in the score if
+  the pages' scanElements has it (CommentResolver; removed elements keep their EID for undo). Markers of elements in
+  measures are above the staff.
+- Markdown (shared/comments/markdown.ts): **/__ bold, */_ italic, ~~ strikethrough, rendered as DOM nodes in the text
+  shown on hover/click (editor and viewer share the marker view).
+- Markers: one flat color; subtle (light gray, multiply) unless the Comments panel is the current panel (editor) or
+  the comment is hovered/active; the active one is highlighted and in front. A click on the score ends it.
+- scoreview buildPages no longer takes the focus from a text field of a panel.

@@ -587,7 +587,11 @@ function buildPages(keepPosition = false): void {
     } else {
         viewport.scrollTo(0, 0)
     }
-    viewport.focus({ preventScroll: true })
+    // not while a text field of a panel has the focus (a new comment: opening the panel resizes the view)
+    const focused = document.activeElement
+    if (!(focused instanceof HTMLTextAreaElement || focused instanceof HTMLInputElement) || viewport.contains(focused)) {
+        viewport.focus({ preventScroll: true })
+    }
 }
 
 /**

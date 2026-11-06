@@ -1,19 +1,23 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
- * Comments (not in MuseScore; the library's comments/api.ts): notes on a position of the score, saved in the
- * .mscz in a way MuseScore keeps (a metaTag). The actions add-comment (at the selection: the start of a range, else
- * the first selected element) and toggle-comments (the Comments panel); the markers above the staves (elements on
- * the page elements in percent of the page, like the playback cursor; show-comments hides them) open the comment in
- * the panel. Comments are
- * not on the undo stack; changing them makes the score modified.
+ * Comments (not in MuseScore; the library's comments/api.ts): notes on the score, saved in the .mscz in a way MuseScore
+ * keeps (a metaTag), changed through the undo stack. The actions add-comment (attached to the selected element, or to
+ * the start of a range), toggle-comments (the Comments panel) and show-comments; the markers above the staves
+ * (shared/comments/markers.ts: the text on hover, a click opens the comment in the panel, a drag moves the marker
+ * relative to its anchor). The markers are subtle (gray, behind the notation) unless the Comments panel is the
+ * current panel; the active comment is highlighted and in front.
  */
-import { addCommentAtSelection, commentMarkers, hasSelection, scoreComments, selectCommentElement, type MasterScore } from '../../src/index'
+import {
+    addCommentAtSelection, canAddCommentAtSelection, commentMarkers, moveComment, removeComment as removeScoreComment,
+    scoreComments, selectCommentElement, setCommentText as setScoreCommentText, type MasterScore,
+} from '../../src/index'
+import { CommentMarkersView } from '../../shared/comments/markers'
 import { registerAction } from '../actions/actions'
-import { isPanelOpen, setCurrentPanel, setPanelOpen, togglePanel } from '../panels/panels'
-import { currentScore, onPagesBuilt, onScoreViewChanged, pageElement, pageInches, scoreSaved, scoreViewState, selectionChanged } from '../scoreview'
+import { isPanelOpen, onPanelsChanged, panelsState, setCurrentPanel, setPanelOpen, togglePanel } from '../panels/panels'
+import {
+    currentScore, onPagesBuilt, onScoreViewChanged, pageElement, pageInches, scoreChanged, scoreViewState, selectionChanged,
+} from '../scoreview'
 import { settings, updateSettings } from '../settings'
-import { COMMENT_ICON_PATH } from '../../shared/icons'
-
 import './comments.css'
 
 export const COMMENTS_PANEL = 'commentsPanel'
@@ -49,30 +53,35 @@ function master(): MasterScore | null {
     return currentScore()?.masterScore() ?? null
 }
 
-export function setActiveComment(id: string): void {
+/** the comment highlighted in the panel and on the score; `pin`: its text is shown next to the marker */
+export function setActiveComment(id: string, pin = false): void {
+    s_markers.setActive(id, pin)
     if (id !== s_state.active) {
         publish({ active: id })
     }
 }
 
 export function focusDone(): void {
-    s_state = { ...s_state, focus: '' }
+    if (s_state.focus) {
+        publish({ focus: '' })
+    }
 }
 
-/** opens the Comments panel with the comment current (a click on its marker) */
+/** opens the Comments panel with the comment current */
 export function showComment(id: string, focusText = false): void {
     if (!isPanelOpen(COMMENTS_PANEL)) {
         setPanelOpen(COMMENTS_PANEL, true)
     } else {
         setCurrentPanel(COMMENTS_PANEL)
     }
+    s_markers.setActive(id, true)
     publish({ active: id, focus: focusText ? id : s_state.focus })
 }
 
 /** selects the position of a comment in the score and scrolls it into view */
 export function goToComment(id: string): void {
     const s = currentScore()
-    setActiveComment(id)
+    setActiveComment(id, true)
     if (s && selectCommentElement(s, id)) {
         selectionChanged(true)
     }
@@ -80,28 +89,27 @@ export function goToComment(id: string): void {
 
 export function addComment(): void {
     const s = currentScore()
-    if (!s) {
-        return
-    }
-    const c = addCommentAtSelection(s)
+    const c = s ? addCommentAtSelection(s) : null
     if (c) {
+        scoreChanged(false)
         showComment(c.id, true)
     }
 }
 
+/** the text of a comment (undoable; the panel sets it when its text field loses the focus) */
 export function setCommentText(id: string, text: string): void {
-    const m = master()
-    if (m) {
-        scoreComments(m).setText(id, text)
+    const s = currentScore()
+    if (s && setScoreCommentText(s, id, text)) {
+        scoreChanged(false)
     }
 }
 
 export function removeComment(id: string): void {
-    const m = master()
-    if (m) {
-        scoreComments(m).removeComment(id)
+    const s = currentScore()
+    if (s && removeScoreComment(s, id)) {
+        scoreChanged(false)
         if (s_state.active === id) {
-            publish({ active: '' })
+            setActiveComment('')
         }
     }
 }
@@ -112,7 +120,7 @@ export function registerCommentsActions(): void {
         run: addComment,
         enabled: () => {
             const s = currentScore()
-            return !!s && hasSelection(s)
+            return !!s && canAddCommentAtSelection(s)
         },
     }, { title: [null, 'Add comment'], description: [null, 'Add comment'], icon: 0 })
     registerAction('toggle-comments', {
@@ -134,80 +142,55 @@ export function registerCommentsActions(): void {
 //   the markers on the score
 // ---------------------------------------------------------------------------------
 
-const SVG_NS = 'http://www.w3.org/2000/svg'
-
-let s_markers: HTMLElement[] = []
-
-function makeMarker(id: string, text: string, active: boolean): HTMLElement {
-    const el = document.createElement('button')
-    el.type = 'button'
-    el.className = 'comment-marker'
-    el.classList.toggle('active', active)
-    el.dataset.comment = id
-    el.title = text.length > 300 ? `${text.slice(0, 300)}…` : text
-    el.setAttribute('aria-label', text || 'Comment')
-    const svg = document.createElementNS(SVG_NS, 'svg')
-    svg.setAttribute('viewBox', '0 0 24 24')
-    svg.setAttribute('aria-hidden', 'true')
-    const path = document.createElementNS(SVG_NS, 'path')
-    path.setAttribute('d', COMMENT_ICON_PATH)
-    svg.append(path)
-    el.append(svg)
-    // the score view must not select or start a drag
-    for (const type of ['pointerdown', 'mousedown', 'dblclick', 'contextmenu'] as const) {
-        el.addEventListener(type, e => e.stopPropagation())
-    }
-    el.addEventListener('click', (e) => {
-        e.stopPropagation()
+const s_markers = new CommentMarkersView({
+    pageElement,
+    pageInches,
+    onClick: (id) => {
         showComment(id)
         goToComment(id)
-    })
-    return el
+    },
+    onMove: (id, ddx, ddy) => {
+        const s = currentScore()
+        const c = s ? scoreComments(s).comment(id) : null
+        if (s && c && moveComment(s, id, c.dx + ddx, c.dy + ddy)) {
+            scoreChanged(false)
+        }
+        setActiveComment(id)
+    },
+})
+
+/** the Comments panel is shown: the markers are not subtle */
+function commentsPanelShown(): boolean {
+    const p = panelsState()
+    return p.open.includes(COMMENTS_PANEL) && p.current === COMMENTS_PANEL && !p.collapsed
 }
 
 function updateMarkers(): void {
-    for (const m of s_markers) {
-        m.remove()
-    }
-    s_markers = []
     const s = currentScore()
     if (!s || !settings().comments.show) {
+        s_markers.clear()
         return
     }
     const comments = scoreComments(s)
-    for (const m of commentMarkers(s)) {
-        const pageEl = pageElement(m.page)
-        const size = pageInches(m.page)
-        if (!pageEl || !size) {
-            continue
-        }
-        const el = makeMarker(m.id, comments.comment(m.id)?.text ?? '', m.id === s_state.active)
-        el.style.left = `${m.x / size.width * 100}%`
-        el.style.top = `${m.y / size.height * 100}%`
-        el.style.width = `${m.width / size.width * 100}%`
-        el.style.height = `${m.height / size.height * 100}%`
-        pageEl.appendChild(el)
-        s_markers.push(el)
-    }
+    s_markers.update(commentMarkers(s).map(m => ({ ...m, text: comments.comment(m.id)?.text ?? '' })))
 }
 
 let s_score: MasterScore | null = null
 let s_unlisten: (() => void) | null = null
 let s_scoreVersion = -1
 
-function scoreComponentsChanged(): void {
-    updateMarkers()
-    scoreSaved() // the modified flag
-    publish({})
-}
-
 onScoreViewChanged(() => {
     const m = master()
     if (m !== s_score) {
         s_unlisten?.()
         s_score = m
-        s_unlisten = m ? scoreComments(m).onChanged(scoreComponentsChanged) : null
-        publish({ active: '', focus: '' })
+        // undo/redo of a comment command
+        s_unlisten = m ? scoreComments(m).onChanged(() => {
+            updateMarkers()
+            publish({})
+        }) : null
+        setActiveComment('')
+        publish({ focus: '' })
     }
     const v = scoreViewState().scoreVersion
     if (v !== s_scoreVersion) {
@@ -219,12 +202,8 @@ onScoreViewChanged(() => {
 
 onPagesBuilt(updateMarkers)
 
-let s_active = ''
-onCommentsViewChanged(() => {
-    if (s_state.active !== s_active) {
-        s_active = s_state.active
-        for (const el of s_markers) {
-            el.classList.toggle('active', el.dataset.comment === s_active)
-        }
-    }
-})
+s_markers.setSubtle(!commentsPanelShown())
+onPanelsChanged(() => s_markers.setSubtle(!commentsPanelShown()))
+
+// a click on the score ends the active comment (its text is hidden, its marker subtle again)
+document.getElementById('viewport')?.addEventListener('pointerdown', () => setActiveComment(''))

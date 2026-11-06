@@ -85,7 +85,9 @@
 
 .comment-date { color: var(--muted); font-size: 11px; }
 
-/* the marker above the staff (size and position in percent of the page) */
+/* the marker above the staff (size and position in percent of the page): one flat color; subtle (light gray,
+   multiplied with the page, so the notation stays visible on it) unless the Comments panel is shown; the active
+   comment is highlighted and in front */
 .comment-marker {
     position: absolute;
     z-index: 3;
@@ -95,14 +97,38 @@
     background: none;
     cursor: pointer;
     color: var(--comment-color);
-    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .25));
+    touch-action: none;
 }
 
-.comment-marker svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.comment-marker path { fill: currentColor; stroke: #fff; stroke-width: 1.5; }
-.comment-marker:hover, .comment-marker.active { color: var(--comment-active-color); }
+.comment-marker svg { display: block; width: 100%; height: 100%; }
+.comment-marker path { fill: currentColor; }
+.comment-marker:hover { color: var(--comment-active-color); }
+.comment-marker.subtle { z-index: 1; color: var(--comment-subtle-color); mix-blend-mode: multiply; }
+.comment-marker.active, .comment-marker.subtle:hover { z-index: 5; color: var(--comment-active-color); mix-blend-mode: normal; }
+.comment-marker.dragging { z-index: 6; cursor: grabbing; }
 .comment-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 
-:root { --comment-color: #e5a50a; --comment-active-color: #c66b00; }
+/* the text of a comment (markdown rendered) below its marker */
+.comment-popover {
+    position: absolute;
+    z-index: 7;
+    width: max-content;
+    max-width: 280px;
+    margin-top: 4px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--comment-popover-bg);
+    color: #1d2127;
+    font: 13px/1.4 system-ui, sans-serif;
+    overflow-wrap: anywhere;
+    pointer-events: none;
+}
 
-@media print { .comment-marker { display: none; } }
+:root {
+    --comment-color: #e5a50a;
+    --comment-active-color: #c66b00;
+    --comment-subtle-color: #d4d7dc;
+    --comment-popover-bg: #fdf0c8;
+}
+
+@media print { .comment-marker, .comment-popover { display: none; } }
