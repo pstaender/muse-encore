@@ -235,6 +235,31 @@ select {
     pointer-events: none;
     box-shadow: 6px 0 18px -6px rgba(0, 0, 0, .3);
 }
+/* not in MuseScore: the bar played after a jump (repeat, D.C., coda, ...) at the right edge of the continuous view,
+   set off from the score by a soft shadow like the panel at the left edge, with its bar number */
+.page .jump-preview {
+    position: absolute;
+    top: 0;
+    z-index: 3;
+    overflow: hidden;
+    pointer-events: none;
+    background: #fff;
+    box-shadow: -6px 0 18px -6px rgba(0, 0, 0, .3);
+}
+.page .jump-preview canvas { left: 0; top: 0; }
+.jump-preview-label {
+    position: absolute;
+    top: 6px;
+    left: 8px;
+    padding: 1px 7px;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #fff;
+    font: 600 11px/16px system-ui, sans-serif;
+}
+.jump-preview-label::before { content: "\21AA\00A0"; }
+@media print { .page .jump-preview { display: none; } }
+
 /* the view mode changes: the score is greyed out with a spinner (set at once: no animation runs while the layout
    blocks the page) */
 #viewport.view-switching #pages { opacity: .35; }

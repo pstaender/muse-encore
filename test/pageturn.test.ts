@@ -4,6 +4,7 @@ import { describe, expect, test } from 'vitest'
 import { layoutScore, nextPlayedMeasureTicks, notationPlayback } from '../src/index'
 import { VTEST, hasSubmodule, openScore } from './helpers'
 import { followsInReadingOrder, pageTurnDelta, type ContentBox } from '../shared/pageturn'
+import { isJump } from '../shared/jumppreview'
 
 const box = (left: number, top: number, width: number, height: number): ContentBox =>
     ({ left, top, right: left + width, bottom: top + height })
@@ -150,4 +151,12 @@ describe.skipIf(!hasSubmodule)('the bars played next (nextPlayedMeasureTicks)', 
             expect(nextPlayedMeasureTicks(score, sec, 3)).toEqual(played.slice(i + 1, i + 4).map(p => p[1]))
         })
     })
+})
+
+test('a jump: the next bar is not the following bar of the score (shared/jumppreview.ts)', () => {
+    const r = (page: number, x: number, width: number) => ({ page, x, y: 1, width, height: 2 })
+    expect(isJump(r(0, 5, 2), r(0, 7, 2))).toBe(false)
+    expect(isJump(r(0, 5, 2), r(0, 1, 2))).toBe(true) // a repeat back
+    expect(isJump(r(0, 5, 2), r(0, 20, 2))).toBe(true) // to the coda
+    expect(isJump(r(0, 5, 2), r(1, 7, 2))).toBe(true)
 })

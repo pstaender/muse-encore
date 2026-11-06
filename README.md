@@ -57,6 +57,9 @@ Features that MuseEncore adds to MuseScore Studio, or that work differently:
     visible; otherwise the current bar moves to the left of the view.
   * continuous view: when the next bars are cut off, the current bar moves to the left (top) of the view.
   Bars that cannot be shown together with the current bar (zoomed in far) are not waited for.
+* Preview of the bar after a repeat or jump: in the continuous view, when the playback or the playalong is about to
+  jump (repeat, D.C./D.S., coda, volta) to a bar that is not in the view, that bar is shown at the right edge of the view,
+  set off by a soft shadow and marked with its bar number (editor: Preferences > Web version; viewer option `jumpPreview`).
   "Smooth panning" in the editor's settings still keeps the cursor in the middle of the continuous view.
 * Space: in the editor, holding Space and dragging moves the score, and Shift+Space starts and stops the playback
   (both can be changed in the settings). In the viewer, Space starts and stops the playback, and holding Space while

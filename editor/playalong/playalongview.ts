@@ -7,7 +7,7 @@
  */
 import { playalongMeasureBounds } from '../../src/index'
 import { settings } from '../settings'
-import { currentScore, followBar, onPagesBuilt, pageElement, pageInches } from '../scoreview'
+import { currentScore, followBar, previewJumpTarget, onPagesBuilt, pageElement, pageInches } from '../scoreview'
 import { onPlayalongStateChanged, playalongState } from './playalongcontroller'
 
 const marker = document.createElement('div')
@@ -16,6 +16,8 @@ marker.setAttribute('aria-hidden', 'true')
 marker.hidden = true
 
 let s_shown = { tick: -1, active: false }
+/** the playalong set the preview of the bar after a jump (it hides it when it ends) */
+let s_previewed = false
 
 function update(scroll: boolean): void {
     const st = playalongState()
@@ -25,6 +27,10 @@ function update(scroll: boolean): void {
     const size = b ? pageInches(b.page) : null
     if (!b || !pageEl || !size) {
         marker.hidden = true
+        if (s_previewed) {
+            s_previewed = false
+            previewJumpTarget(null, null)
+        }
         return
     }
     if (marker.parentElement !== pageEl) {
@@ -40,8 +46,12 @@ function update(scroll: boolean): void {
         const p = st.practice && st.prevTick >= 0 ? playalongMeasureBounds(score!, st.prevTick) : null
         const context = p && p.page === b.page && Math.abs(p.y - b.y) < 0.01 && p.x < b.x
             ? { x: p.x, y: b.y, width: b.x + b.width - p.x, height: b.height } : undefined
-        // the page is turned early for the measure played next (shared/pageturn.ts)
-        // the bars ahead of the setting; without "Turn pages early" the view moves when the measure is cut off
+        // the measure played after a jump is previewed at the right edge of the continuous view (before the view moves)
+        const next = st.aheadTicks.length ? playalongMeasureBounds(score!, st.aheadTicks[0]) : null
+        previewJumpTarget(b, next)
+        s_previewed = true
+        // the page is turned early for the bars ahead of the setting (shared/pageturn.ts); without "Turn pages early"
+        // the view moves when the measure is cut off
         const web = settings().web
         const ahead = (web.pageTurn ? st.aheadTicks.slice(0, web.pageTurnBars) : [])
             .map(t => playalongMeasureBounds(score!, t)).filter(x => !!x)

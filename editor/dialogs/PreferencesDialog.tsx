@@ -343,13 +343,18 @@ function WebVersionPage(): React.JSX.Element {
                 {webtr('Turn pages early during playback and playalong')}
             </label>
             <p className="muted hint">{webtr('Otherwise the view follows the playback cursor like MuseScore Studio.')}</p>
-            <div className="autosave-row">
+            <div className={`autosave-row${web.pageTurn ? '' : ' disabled'}`}>
                 <span>{webtr('Bars ahead')}</span>
                 <select aria-label={webtr('Bars ahead')} value={web.pageTurnBars} disabled={!web.pageTurn}
                     onChange={e => updateSettings('web', { pageTurnBars: Number(e.target.value) })}>
                     {Array.from({ length: MAX_PAGE_TURN_BARS }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
                 </select>
             </div>
+            <label className="check">
+                <input type="checkbox" checked={web.jumpPreview} onChange={e => updateSettings('web', { jumpPreview: e.target.checked })} />
+                {webtr('Preview the bar after a repeat or jump')}
+            </label>
+            <p className="muted hint">{webtr('In the continuous view, during playback and playalong: shown at the right edge when it is not in the view.')}</p>
         </section>
     )
 }

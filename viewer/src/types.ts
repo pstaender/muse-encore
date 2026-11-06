@@ -71,6 +71,11 @@ export interface MuseEncoreViewerOptions {
      * default 2. false or 0: the view follows the playback cursor (like MuseScore Studio)
      */
     pageTurnAhead?: number | false
+    /**
+     * the continuous view (horizontal): during playback and playalong, the bar played after a repeat or jump is
+     * previewed at the right edge of the view when it is not in the view; default true
+     */
+    jumpPreview?: boolean
     /** the color scheme of the controls; default 'auto' (the browser's), as is any other value */
     colorScheme?: 'auto' | 'light' | 'dark'
     /**

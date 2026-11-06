@@ -29,6 +29,7 @@ import { ELEMENT_DROP_EVENT, dragData, setDragData, type ElementDropDetail } fro
 import { onSettingsChanged, settings as appSettings, updateSettings, type ViewSettings } from './settings'
 import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../shared/fullscreen'
 import { contentRect, isAtScrollTarget, scrollViewTo, viewRect } from '../shared/scrollview'
+import { barIsInView, isJump, JumpPreview } from '../shared/jumppreview'
 import { followingBars, pageTurnDelta, type ContentBox, type PageBarRect, type PageTurnMode } from '../shared/pageturn'
 
 /** commands of the score view that the app handles */
@@ -487,7 +488,8 @@ export function followBar(pageIdx: number, r: Rect, context?: Rect | null, ahead
     const current = box(pageIdx, r)!
     const { dx, dy } = pageTurnDelta({
         mode,
-        view: { left: vr.left + inset, top: vr.top, right: vr.right, bottom: vr.bottom },
+        // not under the preview of the bar after a jump at the right edge
+        view: { left: vr.left + inset, top: vr.top, right: vr.right - s_jumpPreview.width(), bottom: vr.bottom },
         page: pageTurnBox(el),
         current,
         context: context ? box(pageIdx, context) : null,
@@ -1098,8 +1100,39 @@ function scheduleContinuousPanel(): void {
         panelFrame = requestAnimationFrame(() => {
             panelFrame = 0
             updateContinuousPanel()
+            placeJumpPreview()
         })
     }
+}
+
+// not in MuseScore: the preview of the bar after a jump at the right edge of the continuous view (shared/jumppreview.ts)
+const s_jumpPreview = new JumpPreview(false)
+let s_jumpBar: (PageBarRect & { number: number }) | null = null
+// new page elements: on the page again
+onPagesBuilt(() => placeJumpPreview())
+
+function placeJumpPreview(): void {
+    const bar = s_jumpBar
+    const el = bar ? pages[bar.page] : null
+    if (!score || !bar || !el || settings.viewMode !== 'continuous-horizontal') {
+        s_jumpPreview.hide()
+        return
+    }
+    s_jumpPreview.show(score, viewport, el, bar.page, pageSize(score, bar.page), bar, bar.number)
+}
+
+/**
+ * not in MuseScore: the playback and the playalong show the bar played next at the right edge of the continuous view
+ * (horizontal) when it is reached by a jump (a repeat, D.C., a coda, ...) and is not in the view (the web setting
+ * "Preview the bar after a repeat or jump"); null: no bar played next (hides the preview)
+ */
+export function previewJumpTarget(current: PageBarRect | null, next: (PageBarRect & { number: number }) | null): void {
+    const el = next ? pages[next.page] : null
+    const show = !!current && !!next && !!el && !!score && appSettings().web.jumpPreview
+        && settings.viewMode === 'continuous-horizontal' && isJump(current, next)
+        && !barIsInView(viewport, el, pageSize(score, next.page).width, next)
+    s_jumpBar = show ? next : null
+    placeJumpPreview()
 }
 
 function hideContinuousPanel(): void {

@@ -2044,3 +2044,15 @@
   cursor following, adjustViewToCursor restored). The playalong states pass `aheadTicks` (up to 4) instead of
   nextTick; library nextPlayedMeasureTicks(score, sec, count) replaces nextPlayedMeasureTick. pageTurnDelta takes
   `ahead` (a list) and ignores bars that do not fit with the current one; followingBars is shared.
+
+## 2026-11-06 — Preview of the bar after a repeat or jump (not in MuseScore)
+
+- `shared/jumppreview.ts` (JumpPreview, isJump, barIsInView): in the continuous view (horizontal), when the bar played
+  next is not the following bar of the score (a jump) and is not in the view, it is drawn (drawPage with a region) in an
+  element on the page at the right edge of the view, with a shadow like the continuous panel and a chip "↪ n". The view's
+  page turning (followBar) keeps the current bar out of it. Editor: scoreview.ts previewJumpTarget (playbackview.ts,
+  playalongview.ts), setting web.jumpPreview (Preferences > Web version, default on); viewer: option jumpPreview
+  (default true). playalongMeasureBounds also returns the bar number.
+- Preferences: "Bars ahead" is greyed out (.autosave-row.disabled) while "Turn pages early" is off.
+- Checked in the viewer (Chrome, marker-5.mscz at 400 %): the preview of bar 1 appears at the end repeat and disappears
+  after the jump. Not checked in the browser: the editor (same code path).

@@ -195,6 +195,11 @@ export interface WebSettings {
     pageTurn: boolean
     /** the bars ahead that are kept visible (1 to MAX_PAGE_TURN_BARS) */
     pageTurnBars: number
+    /**
+     * the continuous view (horizontal): the bar played after a jump (repeat, D.C., coda, ...) is previewed at the right
+     * edge of the view when it is not in the view (shared/jumppreview.ts)
+     */
+    jumpPreview: boolean
 }
 
 const DEFAULTS: AppSettings = {
@@ -218,7 +223,7 @@ const DEFAULTS: AppSettings = {
         inputEnabled: true, inputDeviceId: '', inputDeviceName: '', startNoteInputWhenPressingKey: true, advanceToNextNoteOnKeyRelease: true,
         realtimeDelay: 750, useWrittenPitch: true, useMidiVelocityAndDuration: true, useRemoteControl: true, mappings: [],
     },
-    web: { spacePan: true, pageTurn: true, pageTurnBars: DEFAULT_PAGE_TURN_BARS },
+    web: { spacePan: true, pageTurn: true, pageTurnBars: DEFAULT_PAGE_TURN_BARS, jumpPreview: true },
     export: defaultExportConfiguration(),
     import: { ...defaultImportConfiguration(), styleFile: null },
 }
@@ -288,6 +293,7 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
             pageTurn: typeof s.web?.pageTurn === 'boolean' ? s.web.pageTurn : DEFAULTS.web.pageTurn,
             pageTurnBars: typeof s.web?.pageTurnBars === 'number' && Number.isInteger(s.web.pageTurnBars)
                 ? Math.max(1, Math.min(MAX_PAGE_TURN_BARS, s.web.pageTurnBars)) : DEFAULTS.web.pageTurnBars,
+            jumpPreview: typeof s.web?.jumpPreview === 'boolean' ? s.web.jumpPreview : DEFAULTS.web.jumpPreview,
         },
         export: sanitizeExport(s.export ?? {}),
         import: sanitizeImport(s.import ?? {}),

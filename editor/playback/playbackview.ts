@@ -10,7 +10,7 @@
  */
 import { loopMarkers, nextPlayedMeasureTicks, pageSystemCount, playalongMeasureBounds, playbackCursorBounds } from '../../src/index'
 import { settings } from '../settings'
-import { adjustViewToRect, centerViewOnRect, currentScore, followBar, onPagesBuilt, onScoreViewChanged, onUserMovedView, pageElement, pageInches, scoreViewState } from '../scoreview'
+import { adjustViewToRect, centerViewOnRect, currentScore, followBar, previewJumpTarget, onPagesBuilt, onScoreViewChanged, onUserMovedView, pageElement, pageInches, scoreViewState } from '../scoreview'
 import { onPlaybackPosition, onPlaybackStateChanged, playbackState } from './playbackcontroller'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -53,14 +53,24 @@ function movePlaybackCursor(tick: number, playing: boolean): void {
     const score = currentScore()
     if (!score || !playing) {
         cursor.hidden = true
+        previewJumpTarget(null, null)
         return
     }
     const b = playbackCursorBounds(score, tick)
     if (!b || !placeInPage(cursor, b.page, b)) {
         cursor.hidden = true
+        previewJumpTarget(null, null)
         return
     }
     cursor.hidden = false
+
+    // the bar played and the bars played next; not in MuseScore: the bar after a jump is previewed at the right edge of
+    // the continuous view (before the view moves: it keeps the current bar out of it)
+    const web = settings().web
+    const bar = playalongMeasureBounds(score, tick)
+    const ahead = bar ? nextPlayedMeasureTicks(score, playbackState().position, Math.max(1, web.pageTurnBars))
+        .map(t => playalongMeasureBounds(score, t)).filter(x => !!x) : []
+    previewJumpTarget(bar, ahead[0] ?? null)
 
     const pb = settings().playback
     if (pb.pan && pb.smoothPan && scoreViewState().viewMode === 'continuous-horizontal' && centerViewOnRect(b.page, b)) {
@@ -69,14 +79,10 @@ function movePlaybackCursor(tick: number, playing: boolean): void {
     if (!pb.pan || !s_autoScrollEnabled) {
         return
     }
-    const web = settings().web
     if (web.pageTurn) {
         // not in MuseScore: the page is turned early (shared/pageturn.ts) for the bar played and the bars played next
-        const m = playalongMeasureBounds(score, tick)
-        if (m) {
-            const ahead = nextPlayedMeasureTicks(score, playbackState().position, web.pageTurnBars)
-                .map(t => playalongMeasureBounds(score, t)).filter(x => !!x)
-            followBar(m.page, m, null, ahead)
+        if (bar) {
+            followBar(bar.page, bar, null, ahead.slice(0, web.pageTurnBars))
         }
         return
     }
