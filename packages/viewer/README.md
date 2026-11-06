@@ -64,6 +64,7 @@ const viewer = applyMuseEncoreViewer(targetElement, pathToMuseScoreFile, {
         pageView: true,           // view mode (page / continuous views) and page layout
         zoom: true,               // zoom in / out, zoom levels, center measure
         playback: false,          // play / pause, rewind, play position, the mixer (volume, pan, mute, solo per track)
+        compare: false,           // compare with another score (side by side with the differences marked, split screen, overlay)
         print: true,              // print button
         fullScreen: true,         // full screen button
         file: false,              // open / close a file, file name, dropping files
@@ -106,8 +107,25 @@ viewer.stop()                      // back to the start
 viewer.isPlaying()
 await viewer.print()
 viewer.toggleFullScreen()
+await viewer.compareWith('other-version.mscz') // see "Comparing scores"
+viewer.closeComparison()
 viewer.destroy()
 ```
+
+## Comparing scores
+
+`viewer.compareWith(source)` (or the Compare button of `toolbarGroups: { compare: true }`) compares the open score (A)
+with another one (B), read only, like a text diff: the measures are aligned by their contents (inserted and deleted
+measures are found), and the elements only A has are light blue, those only B has a firmer blue, with a light background on the
+measures that differ. Three modes:
+
+* side by side: A on the left, B on the right (in the horizontal continuous view: A above B)
+* split screen: B over A with a divider that can be moved; A left of it, B right of it (for almost identical scores)
+* overlay: B over A with an adjustable opacity (to see differences of the layout)
+
+A and B can be swapped (and so their colors), the arrows go to the previous / next difference, and the page view and
+the continuous views work as in the viewer. If the scores have different instruments, a dialog asks which instrument
+of B is compared with each instrument of A; the others are hidden. The button closes the comparison.
 
 ## Playback
 

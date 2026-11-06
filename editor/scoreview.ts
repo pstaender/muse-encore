@@ -24,6 +24,7 @@ import {
 } from '../src/index'
 import { NotationConfiguration, NoteEntryMethod, drawShadowNote, hideShadowNote, rightClickAt, scoreBaseName, showShadowNote } from '../src/index'
 import { setShortcutOverride } from './actions/actions'
+import { useAppColors } from '../shared/colors'
 import { ELEMENT_DROP_EVENT, dragData, setDragData, type ElementDropDetail } from './dragcontroller'
 import { onSettingsChanged, settings as appSettings, updateSettings, type ViewSettings } from './settings'
 import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../shared/fullscreen'
@@ -197,6 +198,7 @@ export function hideBusy(): void {
 
 // the editor shows the layout break icons like MuseScore (not printed)
 setCanLayoutIcons(true)
+useAppColors()
 
 /** resolves when the engraving fonts are loaded (rejects if they cannot be loaded) */
 export const fontsReady = initEngravingFonts(async (path) => {

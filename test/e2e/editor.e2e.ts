@@ -405,12 +405,12 @@ describe.skipIf(!CHROME || !hasSubmodule)('editor', () => {
         await page.mouse.click(p.x + p.width * 0.22, p.y + p.height * 0.155)
         await page.waitForFunction(() => document.getElementById('status')!.textContent!.startsWith('Rest;'))
         expect(await status()).toContain('Measure: 1; Beat: 1; Staff 1 (Soprano)')
-        // MuseScore's selection color (the page is redrawn after the selection change)
+        // the selection color of voice 1 (the app's #3066FD, shared/colors.ts; the page is redrawn after the selection change)
         const blue = await page.waitForFunction(() => {
             const c = document.querySelector<HTMLCanvasElement>('.page canvas')!
             const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data
             for (let i = 0; i < d.length; i += 4) {
-                if (d[i + 2] - d[i] > 100 && d[i + 2] > d[i + 1] + 40) { // #0065BF, antialiased
+                if (d[i + 2] - d[i] > 100 && d[i + 2] > d[i + 1] + 40) { // #3066FD, antialiased
                     return true
                 }
             }

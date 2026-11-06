@@ -35,6 +35,8 @@ function makeFileMenu(): MenuItem {
         }, 'menu-file-open'),
         item('file-close'),
         sep,
+        item('file-compare'),
+        sep,
         item('file-save'),
         item('file-save-as'),
         menu(['appshell/menu/file', 'Save o&ther'], [

@@ -138,9 +138,9 @@
 }
 
 :root {
-    --comment-active-color: #c66b00;
+    --comment-active-color: #3066FD;
     --comment-subtle-color: #d4d7dc;
-    --comment-popover-bg: #fdf0c8;
+    --comment-popover-bg: #E6EBFF;
 }
 
 @media print { .comment-marker, .comment-popover, .comment-line { display: none; } }

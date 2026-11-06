@@ -28,6 +28,11 @@ export interface MuseEncoreViewerToolbarGroups {
      * default false
      */
     playalong?: boolean
+    /**
+     * compare the score with another one (not in MuseScore): the button that opens the other file and shows both side by
+     * side with the differences marked in two blue tones, as a split screen or as an overlay; default false
+     */
+    compare?: boolean
     /** print (vector pages on sheets of the score's page size); default true */
     print?: boolean
     /** full screen; default true */
@@ -128,6 +133,13 @@ export interface MuseEncoreViewer {
     isPlaying(): boolean
     print(): Promise<void>
     toggleFullScreen(): void
+    /**
+     * compares the open score (A) with another one (B), read only: side by side (what only A has in light blue, what
+     * only B has in a firmer blue), as a split screen or as an overlay; asks for the instruments to compare if they differ
+     */
+    compareWith(source: MuseEncoreScoreSource, fileName?: string): Promise<void>
+    /** closes the comparison */
+    closeComparison(): void
     /** removes the viewer from the page */
     destroy(): void
 }

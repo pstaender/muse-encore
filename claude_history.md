@@ -1964,3 +1964,49 @@
   click runs it; Escape clears the field, then closes the menu. While searching, the Help menu moves to the side of
   the window so the revealed menus are not covered. Mod+Shift+/ (Cmd+? on macOS) opens the field.
 - Strings: MuseScore's "Search" (ui) and "No results found" (global). The viewer has no menu bar, so nothing changes there.
+
+## 2026-11-06 — Comparing scores (not in MuseScore; proof of concept, read only)
+
+### Done
+- Library `src/diff/`: scorediff.ts (compareScores: per compared staff pair the tokens of each measure — chords
+  (duration, tuplet), notes (pitch, tpc, tie, head group, string/fret), articulations, lyrics, rests, clefs, key and
+  time signatures, annotations (texts, dynamics, tempo, harmony, ...), spanners starting in the measure (length in
+  ticks); measures aligned by the LCS of their keys, the gaps paired by position (element diff of the token
+  multisets) or inserted/deleted; hunks for the navigation), diffInstruments/defaultInstrumentPairs/sameInstruments,
+  showOnlyInstruments (Part.setShow). api.ts: drawDiffPage (the marked items in the side's color through
+  setItemColorOverride, a hook in EngravingItem.curColorWith; children of a marked chord/note take its color, texts and
+  articulations only their own; the differing measure staves get a light background via onPaintPageSheet),
+  diffMeasuresBounds.
+- shared/diff/diffview.ts (+ .css): ScoreDiffView, plain DOM in a shadow root, used by both apps: side by side (2
+  columns; horizontal continuous view: rows), split screen (B clipped left of a draggable divider), overlay (B with
+  opacity); swap, highlight on/off, previous/next difference, view modes incl. fit to window (each column), zoom (fit
+  to width/height, levels, Ctrl+wheel at the pointer), dragging; tiles like the viewer. Instruments dialog (each
+  instrument of A: an instrument of B or not compared), shown automatically when the visible instruments differ.
+- Viewer: toolbar group `compare` (default false, the app shows it), `compareWith()`/`closeComparison()`; A is a copy
+  loaded from the file's data. App: `?url=…&compare=…`.
+- Editor: File > Compare with… (`file-compare`, editor/diff/comparecontroller.ts): A = copy of the open score
+  (saveMscz -> loadScore, incl. unsaved changes), shown in a full-window modal dialog (shortcuts inactive, Escape
+  closes); `?url=…&compare=…`. Texts: MuseScore's where it has them, else webstrings.json.
+- test/scorediff.test.ts.
+
+### Missing / known differences
+- Read only; no editing or merging. Only the first min(staves) staves of a pair of instruments are compared.
+- No continuous panel (staff names at the left edge) in the horizontal continuous view; no two-page spreads.
+- Moving the initial clef/key/time signature to an inserted first measure counts as a change of the old first measure.
+- Changes of the layout only (positions, breaks, style) are not marked: the overlay shows them.
+- Design: A and B in two blue tones of the accent (A light #6c9cf2, B firmer #3066FD on the pages; the file chips and
+  the A/B circles of the split screen's divider in the same tones), the file chips without the A/B circles. The
+  library's defaults DIFF_COLORS_REMOVED/ADDED stay red and green.
+- Comments in both apps in the blue tones of the comparison: the active marker and its line #3066FD, the popup #E6EBFF
+  (were orange and yellow).
+
+## 2026-11-06 — The apps' blue #3066FD (not MuseScore's #0065BF)
+
+- `shared/colors.ts`: ACCENT_COLOR #3066FD; useAppColors() sets the selection color of voice 1 with the new library
+  function setVoiceColor (C++ the settings engraving/colors/voiceN; the library default stays #0065BF). Called by the
+  editor (scoreview.ts) and the viewer component.
+- Stylesheets (editor, viewer, comparison): --accent #3066FD (dark: #92ADFF), --active #E6EBFF, the playback cursor and
+  the playalong marker rgba(48, 102, 253, …); the comparison's B is #3066FD.
+- Voices 2-4 and "all voices": #00C950, #FB2C36, #E12AFB, #5D0EC0 (MuseScore #007F00, #C53F00, #C31989, #6038FC;
+  VOICE_COLORS).
+

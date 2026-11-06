@@ -20,6 +20,7 @@ import { currentLanguage } from '../i18n'
 import { registerPanelActions } from '../panels/PanelDock'
 import { registerMixerActions } from '../panels/mixer/MixerPanel'
 import { registerCommentsActions } from '../comments/commentscontroller'
+import { registerCompareActions } from '../diff/comparecontroller'
 import { isPanelOpen, onPanelsChanged, togglePanel } from '../panels/panels'
 import { canOpenStaffProperties, openStaffProperties } from '../dialogs/EditStaffDialog'
 import { openSelectDialog } from '../dialogs/SelectDialog'
@@ -149,6 +150,7 @@ export function registerAppActions(): void {
     registerPanelActions()
     registerMixerActions()
     registerCommentsActions()
+    registerCompareActions()
 
     // ---- zoom and pages (MuseScore: NotationActionController) ----
     registerAction('zoomin', { run: () => zoomStep(1), enabled: scoreShown })

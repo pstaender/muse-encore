@@ -9,8 +9,8 @@
     --muted: #6b7280;
     --border: #dfe2e7;
     --hover: #eef0f3;
-    --active: #e1e7f5;
-    --accent: #2a6ad8;
+    --active: #E6EBFF;
+    --accent: #3066FD;
     --page-shadow: 0 1px 2px rgba(15, 23, 42, .08), 0 4px 16px rgba(15, 23, 42, .10);
     --radius: 6px;
     --page-gap: 24px;
@@ -31,7 +31,7 @@
         --border: #363a41;
         --hover: #31353b;
         --active: #2f3a50;
-        --accent: #6c9cf2;
+        --accent: #92ADFF;
         --page-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .35);
         --backdrop: rgba(0, 0, 0, .45);
         color-scheme: dark;
@@ -46,7 +46,7 @@
     --border: #363a41;
     --hover: #31353b;
     --active: #2f3a50;
-    --accent: #6c9cf2;
+    --accent: #92ADFF;
     --page-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .35);
     --backdrop: rgba(0, 0, 0, .45);
     color-scheme: dark;
@@ -255,7 +255,7 @@ select {
 .playback-cursor {
     position: absolute;
     z-index: 2;
-    background: rgba(0, 101, 191, .7);
+    background: rgba(48, 102, 253, .7);
     pointer-events: none;
 }
 
@@ -507,7 +507,7 @@ button.secondary:hover { background: var(--hover); }
 }
 .comment-marker svg { display: block; width: 100%; height: 100%; }
 .comment-marker path { fill: currentColor; }
-.comment-marker:hover, .comment-marker.active { z-index: 5; color: #c66b00; mix-blend-mode: normal; }
+.comment-marker:hover, .comment-marker.active { z-index: 5; color: #3066FD; mix-blend-mode: normal; }
 .comment-line {
     position: absolute;
     inset: 0;
@@ -520,8 +520,8 @@ button.secondary:hover { background: var(--hover); }
 }
 /* only for the active (selected) comment, and while a marker is dragged */
 .comment-line.active, .comment-line.dragging { display: block; }
-.comment-line line { stroke: #c66b00; stroke-width: 2.5px; stroke-linecap: round; }
-.comment-marker:focus-visible { outline: 2px solid #2a6ad8; outline-offset: 2px; border-radius: 2px; }
+.comment-line line { stroke: #3066FD; stroke-width: 2.5px; stroke-linecap: round; }
+.comment-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .comment-popover {
     position: absolute;
     z-index: 7;
@@ -530,7 +530,7 @@ button.secondary:hover { background: var(--hover); }
     margin-top: 4px;
     padding: 6px 10px;
     border-radius: 6px;
-    background: #fdf0c8;
+    background: #E6EBFF;
     color: #1d2127;
     font: 13px/1.4 system-ui, sans-serif;
     overflow-wrap: anywhere;
@@ -541,8 +541,8 @@ button.secondary:hover { background: var(--hover); }
     position: absolute;
     z-index: 1;
     pointer-events: none;
-    background: rgba(0, 101, 191, .12);
-    border: 2px solid rgba(0, 101, 191, .6);
+    background: rgba(48, 102, 253, .12);
+    border: 2px solid rgba(48, 102, 253, .6);
     border-radius: 3px;
     box-sizing: border-box;
     transition: left .15s, top .15s, width .15s;

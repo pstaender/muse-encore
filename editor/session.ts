@@ -874,6 +874,11 @@ export async function startup(): Promise<void> {
     const legacy = await takeLegacyLastFile()
     if (url) {
         await openUrl(url)
+        // ?compare=<score url>: compared with the score of ?url= (not in MuseScore)
+        const compare = new URLSearchParams(location.search).get('compare')
+        if (compare && currentMasterScore()) {
+            await (await import('./diff/comparecontroller')).compareWithUrl(compare)
+        }
     } else {
         // the score that was open is not opened again (a large score or one that crashes the editor would be opened
         // at every start); the home screen lists it

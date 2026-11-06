@@ -127,6 +127,14 @@ export { MscLoadError } from './engraving/rw/mscloader'
 export function setCanLayoutIcons(v: boolean): void {
     EngravingConfiguration.setCanLayoutIcons(v)
 }
+
+/**
+ * the selection color of a voice (0-3; 4: all voices) as a CSS color (C++ the settings engraving/colors/voiceN;
+ * default MuseScore's #0065BF, #007F00, #C53F00, #C31989, #6038FC)
+ */
+export function setVoiceColor(voice: number, color: string): void {
+    EngravingConfiguration.setSelectionColor(voice, Color.fromString(color))
+}
 export { setTranslator, mtrc, qtrc, arg, type Translator } from './framework/global/translation'
 export type { MasterScore } from './engraving/dom/masterscore'
 export { NotationReadError, type NotationReaderInteractive, type NotationReaderOptions, type MusicXmlImportSettings, type MidiImportSettings }
@@ -156,6 +164,7 @@ export { NotationConfiguration } from './notation/internal/notationconfiguration
 export { NoteEntryMethod } from './engraving/dom/input'
 export * from './playalong/api'
 export * from './comments/api'
+export * from './diff/api'
 export {
     setFallbackFontEngine, createCanvasFallbackFontEngine, type FallbackFontEngine, type FallbackFont,
 } from './framework/draw/internal/fontprovider'

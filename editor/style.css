@@ -21,8 +21,8 @@
     --muted: #6b7280;
     --border: #dfe2e7;
     --hover: #eef0f3;
-    --active: #e1e7f5;
-    --accent: #2a6ad8;
+    --active: #E6EBFF;
+    --accent: #3066FD;
     --page-shadow: 0 1px 2px rgba(15, 23, 42, .08), 0 4px 16px rgba(15, 23, 42, .10);
     --radius: 6px;
     --page-gap: 24px;
@@ -40,7 +40,7 @@
         --border: #363a41;
         --hover: #31353b;
         --active: #2f3a50;
-        --accent: #6c9cf2;
+        --accent: #92ADFF;
         --page-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .35);
         --backdrop: rgba(0, 0, 0, .45);
         --danger: #e5574a;
@@ -1284,12 +1284,12 @@ dialog.about h2 { font-size: 20px; margin: 0; }
 .speed-popup .number-with-unit input { width: 64px; }
 .speed-popup input[type="range"] { grid-column: 1 / -1; width: 100%; }
 
-/* NotationConfiguration::playbackCursorColor: the selection color of voice 1 (#0065BF) with alpha 178 */
+/* NotationConfiguration::playbackCursorColor: the selection color of voice 1 (here #3066FD, shared/colors.ts; MuseScore #0065BF) with alpha 178 */
 .playback-cursor {
     position: absolute;
     z-index: 2;
     pointer-events: none;
-    background: rgba(0, 101, 191, .7);
+    background: rgba(48, 102, 253, .7);
 }
 .loop-marker { position: absolute; z-index: 2; pointer-events: none; overflow: visible; }
 .mute-button .tool-icon { position: relative; }
@@ -1490,8 +1490,8 @@ dialog.project-properties .dialog-buttons .spacer { flex: 1; }
     position: absolute;
     z-index: 1;
     pointer-events: none;
-    background: rgba(0, 101, 191, .12);
-    border: 2px solid rgba(0, 101, 191, .6);
+    background: rgba(48, 102, 253, .12);
+    border: 2px solid rgba(48, 102, 253, .6);
     border-radius: 3px;
     box-sizing: border-box;
     transition: left .15s, top .15s, width .15s;
