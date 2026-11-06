@@ -19,6 +19,7 @@ import { isToolBarVisible, onToolBarLayoutChanged, restoreDefaultLayout, setStat
 import { currentLanguage } from '../i18n'
 import { registerPanelActions } from '../panels/PanelDock'
 import { registerMixerActions } from '../panels/mixer/MixerPanel'
+import { registerCommentsActions } from '../comments/commentscontroller'
 import { isPanelOpen, onPanelsChanged, togglePanel } from '../panels/panels'
 import { canOpenStaffProperties, openStaffProperties } from '../dialogs/EditStaffDialog'
 import { openSelectDialog } from '../dialogs/SelectDialog'
@@ -147,6 +148,7 @@ export function registerAppActions(): void {
     }
     registerPanelActions()
     registerMixerActions()
+    registerCommentsActions()
 
     // ---- zoom and pages (MuseScore: NotationActionController) ----
     registerAction('zoomin', { run: () => zoomStep(1), enabled: scoreShown })

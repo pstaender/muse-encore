@@ -77,6 +77,7 @@ function makeViewMenu(toolbarItems: () => MenuItem[]): MenuItem {
         item('masterpalette'),
         item('toggle-instruments'),
         item('inspector'),
+        item('toggle-comments'),
         item('toggle-selection-filter'),
         item('toggle-undo-history-panel'),
         item('toggle-navigator'),
@@ -90,6 +91,7 @@ function makeViewMenu(toolbarItems: () => MenuItem[]): MenuItem {
         sep,
         menu(['appshell/menu/view', '&Show'], [
             item('show-invisible'),
+            item('show-comments'),
             item('show-unprintable'),
             item('show-frames'),
             item('show-pageborders'),
@@ -166,6 +168,9 @@ function makeAddMenu(): MenuItem {
             sep,
             item('insert-fretframe', ['appshell/menu/add/chordandfret', 'Fretboard diagram legend']),
         ], 'menu-chord-and-frets'),
+        // not in MuseScore (comments/)
+        sep,
+        item('add-comment'),
     ], 'menu-add')
 }
 

@@ -1,0 +1,108 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* the comments (not in MuseScore): the Comments panel and the markers on the score */
+
+.comments-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    padding-top: 12px;
+}
+
+.comments-controls { display: flex; padding: 0 12px; }
+
+.comments-add-button {
+    flex: 1;
+    height: 30px;
+    border-radius: var(--radius);
+    background: var(--hover);
+    font-weight: 500;
+}
+
+.comments-add-button:hover:not(:disabled) { background: var(--active); }
+.comments-add-button:disabled { opacity: .5; cursor: default; }
+.comments-add-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.comments-empty { margin: 0 20px; color: var(--muted); }
+
+.comments-list {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0 12px 12px;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.comment {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 8px 8px;
+    border: 1px solid var(--border);
+    border-inline-start: 3px solid var(--comment-color);
+    border-radius: var(--radius);
+    background: var(--panel);
+}
+
+.comment.active { background: var(--active); }
+
+.comment-header { display: flex; align-items: center; gap: 4px; }
+
+.comment-position {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-align: start;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    border-radius: 4px;
+}
+
+.comment-position:hover { text-decoration: underline; }
+.comment-position:focus-visible, .comment-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.comment-delete { flex-shrink: 0; width: 26px; height: 26px; }
+
+.comment-text {
+    width: 100%;
+    min-height: 2.4em;
+    resize: none;
+    overflow: hidden;
+    padding: 4px 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--fg);
+    font: inherit;
+    line-height: 1.35;
+}
+
+.comment-date { color: var(--muted); font-size: 11px; }
+
+/* the marker above the staff (size and position in percent of the page) */
+.comment-marker {
+    position: absolute;
+    z-index: 3;
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+    color: var(--comment-color);
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .25));
+}
+
+.comment-marker svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.comment-marker path { fill: currentColor; stroke: #fff; stroke-width: 1.5; }
+.comment-marker:hover, .comment-marker.active { color: var(--comment-active-color); }
+.comment-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+:root { --comment-color: #e5a50a; --comment-active-color: #c66b00; }
+
+@media print { .comment-marker { display: none; } }

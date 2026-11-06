@@ -28,6 +28,7 @@ import type { Segment } from '../../dom/segment'
 import type { EngravingItem } from '../../dom/engravingitem'
 import type { SelectionFilter } from '../../dom/selectionfilter'
 import { MScore } from '../../dom/mscore'
+import { metaTagsToWrite } from '../../dom/scorecomments'
 
 /** the version MuseScore 4.7.5 writes (Constants::MSC_VERSION_STR, application version and revision) */
 export const MSC_VERSION_STR = '4.70'
@@ -204,7 +205,8 @@ export class Writer {
         }
 
         // std::map: sorted by key
-        const metaTags = [...score.metaTags()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        // not in MuseScore: the comments of the main score (scorecomments.ts)
+        const metaTags = [...metaTagsToWrite(score)].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
         for (const [name, value] of metaTags) {
             // do not output "platform" and "creationDate" in test and save template mode
             // TODO(port): MScore::saveTemplateMode

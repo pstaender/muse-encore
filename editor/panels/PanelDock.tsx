@@ -14,6 +14,7 @@ import type { MenuItem } from '../menus/appmenu'
 import { InspectorForm, inspectorPanelMenu } from './inspector/InspectorForm'
 import { LayoutPanel, layoutPanelMenu } from './layout/LayoutPanel'
 import { PalettesPanel, palettesPanelMenu } from './palettes/PalettesPanel'
+import { CommentsPanel, commentsPanelMenu } from '../comments/CommentsPanel'
 import './panels.css'
 import {
     PANEL_MAX_WIDTH, PANEL_MIN_WIDTH, PANELS, expandPanel, setCurrentPanel, setPanelOpen, setPanelsCollapsed, setPanelWidth, usePanels,
@@ -23,6 +24,7 @@ const PANEL_CONTENT: Record<string, { component: () => React.JSX.Element; menu: 
     palettesPanel: { component: PalettesPanel, menu: palettesPanelMenu },
     instrumentsPanel: { component: LayoutPanel, menu: layoutPanelMenu },
     inspectorPanel: { component: InspectorForm, menu: inspectorPanelMenu },
+    commentsPanel: { component: CommentsPanel, menu: commentsPanelMenu },
 }
 
 /** DockPanelMenuModel: SET_DOCK_OPEN_ACTION_CODE with (name, false) -> "dock-close:<name>" */

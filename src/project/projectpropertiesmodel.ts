@@ -12,6 +12,7 @@
 import { qtrc } from '../framework/global/translation'
 import { TranslatableString } from '../framework/global/types/translatablestring'
 import { ChangeMetaTags } from '../engraving/editing/editscoreproperties'
+import { COMMENTS_META_TAG } from '../engraving/dom/scorecomments'
 import type { MasterScore } from '../engraving/dom/masterscore'
 import type { NotationUndoStack } from '../notation/internal/notationundostack'
 
@@ -136,7 +137,8 @@ export function projectMetaInfo(score: MasterScore, filePath = ''): ProjectMeta 
     }
 
     for (const [t, value] of allTags) {
-        if (isRepresentedInProjectMeta(t)) {
+        // not in MuseScore: the comments (scorecomments.ts) are not a property to edit
+        if (isRepresentedInProjectMeta(t) || t === COMMENTS_META_TAG) {
             continue
         }
 
@@ -182,6 +184,11 @@ export function setProjectMetaInfo(score: MasterScore, meta: ProjectMeta, undoSt
 
     for (const [t, value] of meta.additionalTags) {
         tags.set(t, value)
+    }
+    // not in MuseScore: keep the comments (hidden in the dialog)
+    const comments = score.metaTags().get(COMMENTS_META_TAG)
+    if (comments !== undefined) {
+        tags.set(COMMENTS_META_TAG, comments)
     }
 
     if (undoStack) {

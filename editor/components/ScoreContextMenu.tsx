@@ -4,7 +4,7 @@
  * right click on the score (outside of note input) at the pointer, with the library's items for the clicked element.
  */
 import { useSyncExternalStore } from 'react'
-import { contextMenuItems, type ContextMenuItem, type Score } from '../../src/index'
+import { contextMenuItems, hasSelection, type ContextMenuItem, type Score } from '../../src/index'
 import type { MenuItem } from '../menus/appmenu'
 import { MenuPopup } from './Menu'
 
@@ -34,7 +34,12 @@ function toMenuItems(items: readonly ContextMenuItem[]): MenuItem[] {
 
 /** shows the context menu of the score at the pointer (client coordinates) */
 export function showScoreContextMenu(score: Score, clientX: number, clientY: number): void {
-    setMenu({ key: ++s_key, items: toMenuItems(contextMenuItems(score)), anchor: new DOMRect(clientX, clientY, 0, 0) })
+    const items = toMenuItems(contextMenuItems(score))
+    // not in MuseScore: the comments (comments/)
+    if (hasSelection(score)) {
+        items.push({ kind: 'separator' }, { kind: 'action', code: 'add-comment' })
+    }
+    setMenu({ key: ++s_key, items, anchor: new DOMRect(clientX, clientY, 0, 0) })
 }
 
 export function ScoreContextMenuHost(): React.JSX.Element | null {

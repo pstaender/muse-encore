@@ -71,6 +71,7 @@ const viewer = applyMuseEncoreViewer(targetElement, pathToMuseScoreFile, {
     keyboardShortcuts: false,     // MuseScore's shortcuts while the viewer has the focus, and the "?" button
     disableToolbar: false,        // no toolbar at all
     showStatusBar: false,         // the status bar below the score
+    comments: true,               // the comments added in MuseEncore: markers that show their text
     colorScheme: 'auto',          // 'light', 'dark'; auto: the browser's
     fontsUrl: undefined,          // the fonts directory; default: this package's fonts/ next to dist/
     soundFontUrl: undefined,      // MS Basic.sf3; default: MuseScore's repository (see Playback)

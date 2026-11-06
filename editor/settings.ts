@@ -68,6 +68,10 @@ export interface AppSettings {
         open: boolean
         height: number
     }
+    /** not in MuseScore: the comments (comments/): their markers are shown on the score */
+    comments: {
+        show: boolean
+    }
     /** the state of the palettes panel (palettes/ checks it); null = MuseScore's default palettes */
     palettes: Record<string, unknown> | null
     /** the playback (NotationConfiguration, PlaybackConfiguration) and the mute button of this app */
@@ -200,6 +204,7 @@ const DEFAULTS: AppSettings = {
     noteInput: { defaultMethod: 'note-input-by-note-name', addAccidentalDotsArticulationsToNextNoteEntered: true, useNoteInputCursorInInputByDuration: false },
     panels: { open: ['palettesPanel', 'instrumentsPanel', 'inspectorPanel'], current: 'palettesPanel', width: 300, collapsed: false },
     mixer: { open: false, height: 368 },
+    comments: { show: true },
     palettes: null,
     playback: {
         muted: false, metronome: false, countIn: false, pan: true, smoothPan: false, playRepeats: true, playChordSymbols: true, playalongPractice: false, playalongOvertoneFilter: 'normal', playalongCalibration: null, playalongKeepMicrophone: false,
@@ -272,6 +277,7 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
             open: s.mixer?.open === true,
             height: typeof s.mixer?.height === 'number' && Number.isFinite(s.mixer.height) ? s.mixer.height : DEFAULTS.mixer.height,
         },
+        comments: { show: s.comments?.show !== false },
         palettes: s.palettes && typeof s.palettes === 'object' && !Array.isArray(s.palettes) ? s.palettes as Record<string, unknown> : null,
         playback: sanitizePlayback(s.playback ?? {}),
         midi: sanitizeMidi(s.midi ?? {}),

@@ -59,6 +59,8 @@ export interface MuseEncoreViewerOptions {
     disableToolbar?: boolean
     /** the status bar below the score (loading, number of pages, errors); default false */
     showStatusBar?: boolean
+    /** the comments of the score (added in MuseEncore): markers above the staves that show their text; default true */
+    comments?: boolean
     /** the color scheme of the controls; default 'auto' (the browser's), as is any other value */
     colorScheme?: 'auto' | 'light' | 'dark'
     /**

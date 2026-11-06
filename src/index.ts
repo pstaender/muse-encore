@@ -155,6 +155,8 @@ export { setMidiInputConfiguration, type MidiInputConfiguration } from './notati
 export { NotationConfiguration } from './notation/internal/notationconfiguration'
 export { NoteEntryMethod } from './engraving/dom/input'
 export * from './playalong/api'
+export * from './comments/api'
+import { scoreComments } from './comments/api'
 export {
     setFallbackFontEngine, createCanvasFallbackFontEngine, type FallbackFontEngine, type FallbackFont,
 } from './framework/draw/internal/fontprovider'
@@ -1314,14 +1316,15 @@ export function undoStackInfo(score: Score): UndoStackInfo {
 
 /** true if the score was changed since it was opened, created or last saved (markSaved) */
 export function isModified(score: Score): boolean {
-    // NotationProject::isModified: the score or the audio settings (the mixer)
-    return score.dirty() || projectAudioSettings(score.masterScore()).isModified()
+    // NotationProject::isModified: the score or the audio settings (the mixer); not in MuseScore: the comments
+    return score.dirty() || projectAudioSettings(score.masterScore()).isModified() || scoreComments(score).isModified()
 }
 
 /** marks the current state as saved (undoing or redoing makes the score modified again) */
 export function markSaved(score: Score): void {
     score.undoStack().setClean()
     projectAudioSettings(score.masterScore()).setSaved()
+    scoreComments(score).setSaved()
 }
 
 /**
@@ -2791,3 +2794,37 @@ export type { ImagesExportConfiguration } from './importexport/imagesexport/inte
 export { setExportCanvasFactory, type CanvasFactory } from './importexport/imagesexport/internal/pngwriter'
 export { writeMusicXml, writeMxl, type MusicXmlExportOptions } from './importexport/musicxml/api'
 export { writeMidi, type MidiExportOptions } from './importexport/midi/api'
+
+// ---------------------------------------------------------------------------------------------------------------------
+//   comments (not in MuseScore: comments/api.ts)
+// ---------------------------------------------------------------------------------------------------------------------
+
+import { commentElement, type ScoreComment } from './comments/api'
+
+/**
+ * adds a comment at the selection (the start of a range, else the first selected element); null without a selection
+ * (or if the selected element is not in a measure)
+ */
+export function addCommentAtSelection(score: Score, text = '', author = ''): ScoreComment | null {
+    const sel = score.selection()
+    const comments = scoreComments(score)
+    if (sel.isRange()) {
+        return comments.addComment(score, sel.tickStart(), sel.staffStart(), text, author)
+    }
+    const el = sel.elements()[0]
+    if (!el || !el.findMeasure()) {
+        return null
+    }
+    return comments.addCommentAt(el, text, author)
+}
+
+/** selects the element at a comment's position (commentElement); false if there is none */
+export function selectCommentElement(score: Score, id: string): boolean {
+    const c = scoreComments(score).comment(id)
+    const el = c ? commentElement(score, c) : null
+    if (!el) {
+        return false
+    }
+    notationState(score).interaction.select([el], SelectType.SINGLE, el.staffIdx())
+    return true
+}

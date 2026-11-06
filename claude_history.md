@@ -1906,3 +1906,22 @@
   open (the viewer does not save). The viewer has no translations: English strings.
 - Not ported: Sound, Audio FX and Aux sends sections, meters, the mixer's context menu, aux channels; the pan is a slider.
 - Tests: test/audiosettings.test.ts, test/mixingsynth.test.ts, e2e: editor "mixer: ...", viewer "mixes the tracks ...".
+
+## 2026-11-06 — Comments (not in MuseScore)
+
+### Done
+- Library: `engraving/dom/scorecomments.ts` (ScoreComments per main score, `scoreComments(score)`), public API
+  `comments/api.ts` (commentMarkers, commentElement, commentInfo) and `addCommentAtSelection`/`selectCommentElement`
+  in index.ts. Comments are saved as JSON in the metaTag `museEncoreComments` of the main score (Writer writes
+  `metaTagsToWrite(score)`; not in parts). MuseScore 4.7.5 opens such files without errors and keeps the tag and the
+  measure/staff EIDs on re-save (checked with `mscore -o`, twice). Anchor: measure EID + offset in the measure, staff
+  EID; absolute tick and staff index as fallback. Not on the undo stack; `isModified`/`markSaved` include them (like
+  the mixer). The project properties neither show the tag nor drop it (MuseScore shows it as an additional property).
+- Editor: `editor/comments/` (Comments panel in the left dock, View > Comments; markers above the staves that open the
+  comment; add-comment in the Add menu, the context menu and the panel; View > Show > Show comments).
+- Viewer: read-only markers that show the text (option `comments`, default true).
+- test/comments.test.ts.
+
+### Missing / known differences
+- No replies, authors in the UI or resolved state; editing a comment cannot be undone with Ctrl+Z.
+- A comment whose measure was deleted falls back to its saved tick.

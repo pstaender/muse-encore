@@ -22,6 +22,8 @@ export const PANELS: readonly PanelInfo[] = [
     { id: 'palettesPanel', title: ['appshell', 'Palettes'], toggleAction: 'toggle-palettes' },
     { id: 'instrumentsPanel', title: ['appshell', 'Layout'], toggleAction: 'toggle-instruments' },
     { id: 'inspectorPanel', title: ['appshell', 'Properties'], toggleAction: 'inspector' },
+    // not in MuseScore (comments/)
+    { id: 'commentsPanel', title: [null, 'Comments'], toggleAction: 'toggle-comments' },
 ]
 
 /** NotationPage.qml verticalPanelDefaultWidth (MuseScore's panels have this fixed width; here it can be changed) */
@@ -37,7 +39,7 @@ export interface PanelsState {
     collapsed: boolean
 }
 
-const DEFAULT_PANELS: PanelsState = { open: PANELS.map(p => p.id), current: 'palettesPanel', width: PANEL_DEFAULT_WIDTH, collapsed: false }
+const DEFAULT_PANELS: PanelsState = { open: PANELS.filter(p => p.id !== 'commentsPanel').map(p => p.id), current: 'palettesPanel', width: PANEL_DEFAULT_WIDTH, collapsed: false }
 
 function sanitize(): PanelsState {
     const s = settings().panels
