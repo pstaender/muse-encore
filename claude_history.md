@@ -1999,3 +1999,14 @@
   library's defaults DIFF_COLORS_REMOVED/ADDED stay red and green.
 - Comments in both apps in the blue tones of the comparison: the active marker and its line #3066FD, the popup #E6EBFF
   (were orange and yellow).
+
+## 2026-11-06 — The apps' blue #3066FD (not MuseScore's #0065BF)
+
+- `shared/colors.ts`: ACCENT_COLOR #3066FD; useAppColors() sets the selection color of voice 1 with the new library
+  function setVoiceColor (C++ the settings engraving/colors/voiceN; the library default stays #0065BF). Called by the
+  editor (scoreview.ts) and the viewer component.
+- Stylesheets (editor, viewer, comparison): --accent #3066FD (dark: #92ADFF), --active #E6EBFF, the playback cursor and
+  the playalong marker rgba(48, 102, 253, …); the comparison's B is #3066FD.
+- Voices 2-4 and "all voices": #00C950, #FB2C36, #E12AFB, #5D0EC0 (MuseScore #007F00, #C53F00, #C31989, #6038FC;
+  VOICE_COLORS).
+

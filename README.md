@@ -63,6 +63,11 @@ Features that MuseEncore adds to MuseScore Studio, or that work differently:
   differences); A and B can be swapped, the arrows go to the previous/next difference, and the page view and the
   continuous views work. If the instruments differ, a dialog asks which instruments are compared. `?url=…&compare=…`
   opens a comparison in both apps.
+* Colors: the blue of the interface and of the selection in the score (voice 1: selected elements, the note input
+  cursor, the playback cursor) is #3066FD instead of MuseScore's #0065BF; voice 2 is #00C950, voice 3 #FB2C36 and
+  voice 4 #E12AFB and "all voices" (e.g. dynamics) #5D0EC0 instead of #007F00,
+  #C53F00, #C31989 and #6038FC.
+  Comments use the same blue tones instead of orange and yellow.
 * Menu search (editor): a search field at the top of the Help menu, like in macOS applications, finds the items of all
   menus and shows the current result highlighted in its menu. Cmd+Shift+/ (Ctrl+Shift+/) opens it.
 

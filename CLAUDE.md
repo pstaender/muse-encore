@@ -153,6 +153,10 @@ methods keep their C++ names, so changes in MuseScore can be followed file by fi
   see share/locale/*.ts), so MuseScore's translations apply; commands are MuseScore's actions (codes, titles, icons,
   shortcuts from the generated table) registered with `registerAction`. Strings MuseScore does not have are
   translated in editor/locales/webstrings.json (all of MuseScore's languages; `webtr()`, `[null, text]` titles).
+- Colors: the apps' blue is #3066FD (`shared/colors.ts`: the UI's `--accent` in the stylesheets and voice 1's selection
+  color, set with `setVoiceColor` by `useAppColors()`, with the other voice colors `VOICE_COLORS`); the library keeps
+  MuseScore's defaults (#0065BF, ...), so the ported
+  engraving configuration stays as in C++. Use the accent variable or `ACCENT_COLOR`, not MuseScore's blue.
 - The same command has the same icon in the editor and the viewer: when an icon changes, change it in both. Both use
   MuseScore's icon codes (the viewer's `ICON` table, the editor's actions); SVG icons (for what MuseScore's icon font does
   not have) are defined once in `shared/icons.ts`.

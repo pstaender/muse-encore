@@ -14,6 +14,7 @@ import {
 import { centerViewOnMeasureOrPage } from '../../shared/centerview'
 import { CENTER_ICON, COMPARE_ICON, svgIcon } from '../../shared/icons'
 import { ScoreDiffView } from '../../shared/diff/diffview'
+import { useAppColors } from '../../shared/colors'
 import { CommentMarkersView } from '../../shared/comments/markers'
 import { fileInputAccept } from '../../shared/fileinput'
 import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../../shared/fullscreen'
@@ -123,6 +124,8 @@ function loadFonts(fontsUrl: string): Promise<void> {
 // ---------------------------------------------------------------------------------
 
 /** MuseScore's zoom steps (NotationViewInputController::ZOOM_LEVELS) */
+useAppColors()
+
 const ZOOM_LEVELS = [5, 10, 15, 25, 50, 75, 100, 150, 200, 400, 800, 1600]
 const MIN_ZOOM = ZOOM_LEVELS[0]
 const MAX_ZOOM = ZOOM_LEVELS[ZOOM_LEVELS.length - 1]
