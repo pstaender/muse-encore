@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>muse-encore-viewer example</title>
+    <title>muse-encore-viewer examples</title>
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/minimaxcss@latest/minimax-starter.css"
@@ -74,68 +74,155 @@
           font-weight: bold;
         }
       }
-      #configurator {
+      .show-code {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.6rem;
+        margin: -0.5rem 0 0.5rem;
+      }
+      #configurator-form {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
         gap: 1rem;
         margin-bottom: 1rem;
       }
-      #configurator fieldset {
+      #configurator-form fieldset {
         margin: 0;
         padding: 0.5rem 1rem 1rem;
         display: grid;
+        min-width: 0;
+        border: 2px solid currentColor;
+        border-radius: 8px;
+        box-shadow: 2px 2px 0 currentColor;
       }
-      #configurator section {
+      #configurator-form legend {
+        padding: 0 0.4rem;
+        font-weight: bold;
+      }
+      #configurator-form section {
         margin: 0.25rem 0;
         padding: 0;
       }
-      #configurator label {
+      #configurator-form label {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: 0.5rem;
         margin: 0;
+        cursor: pointer;
       }
-      #configurator fieldset:disabled {
-        opacity: 0.5;
+      #configurator-form fieldset:disabled {
+        opacity: 0.4;
+      }
+      #configurator-form fieldset:disabled label {
+        cursor: default;
+      }
+      /* the form elements of minimax-printable-forms.css, checked boxes black
+         with a white tick */
+      #configurator-form input[type="checkbox"] {
+        appearance: none;
+        -webkit-appearance: none;
+        flex: none;
+        margin: 0;
+        font: inherit;
+        color: currentColor;
+        width: 1.25em;
+        height: 1.25em;
+        border: 2px solid currentColor;
+        border-radius: 3px;
+        background-color: var(--background-color, white);
+        box-shadow: 1px 1px 0 currentColor;
+        display: inline-grid;
+        place-content: center;
+        cursor: inherit;
+        transition: background-color 120ms ease-in-out;
+      }
+      #configurator-form input[type="checkbox"]::before {
+        content: "";
+        width: 0.75em;
+        height: 0.75em;
+        transform: scale(0);
+        transition: 120ms transform ease-in-out;
+        background-color: var(--background-color, white);
+        clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+      }
+      #configurator-form input[type="checkbox"]:checked {
+        background-color: currentColor;
+      }
+      #configurator-form input[type="checkbox"]:checked::before {
+        transform: scale(1);
+      }
+      #configurator-form input[type="checkbox"]:focus-visible,
+      #configurator-form select:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 2px;
+      }
+      #configurator-form select {
+        appearance: none;
+        -webkit-appearance: none;
+        flex: 0 1 8rem;
+        min-width: 0;
+        margin: 0;
+        padding: 0.15rem 1.75rem 0.15rem 0.5rem;
+        font: inherit;
+        font-size: 0.9rem;
+        color: currentColor;
+        border: 2px solid currentColor;
+        border-radius: 3px;
+        box-shadow: 1px 1px 0 currentColor;
+        background: var(--background-color, white)
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E")
+          no-repeat right 0.5rem center / 0.65rem;
+        cursor: inherit;
       }
     </style>
   </head>
   <body>
     <nav id="overview" aria-label="Overview">
-      <a href="#default-options">A score on a web page, with the default options</a>
+      <a href="#continuous-view">Continuous view with playback and playalong (audio or MIDI)</a>
       <a href="#without-toolbar">Without a toolbar</a>
-      <a href="#continuous-view">Continuous view with granular toolbar settings</a>
-      <a href="#configurator-section">Configurator</a>
+      <a href="#optimized-view">Optimized view for screen</a>
+      <a href="#configurator">Configurator</a>
     </nav>
 
-    <h1>Examples</h1>
+    <h1>muse-encore-viewer examples</h1>
 
-    <h3 id="default-options">A score on a web page, with the default options</h3>
-    <div id="score1" class="score"></div>
-
-    <h3 id="without-toolbar">Without a toolbar</h3>
-    <div
-      id="score2"
-      class="score small"
-      style="aspect-ratio: 3/4; width: 100%; height: auto"
-    ></div>
-
-    <h3 id="continuous-view">Continuous view with granular toolbar settings</h3>
+    <h3 id="continuous-view">Continuous view with playback and playalong (audio or MIDI)</h3>
+    <p>
+      For playing along with an instrument (microphone or MIDI): one row of
+      systems, playback and playalong, no page controls.
+    </p>
     <div
       id="score3"
       class="score small"
       style="aspect-ratio: 2; width: 100%; height: auto"
     ></div>
 
-    <h3 id="configurator-section">Configurator</h3>
+    <h3 id="without-toolbar">Without a toolbar</h3>
     <p>
-      Change a setting and the viewer below is created again with the code shown
-      here, where <code>urlToMuseScoreFile</code> is the URL of your score.
+      The classical page view, close to sheet music on paper: only the pages, no
+      controls.
     </p>
-    <form id="configurator"></form>
+    <div
+      id="score2"
+      class="score small"
+      style="aspect-ratio: 3/4; width: 100%; height: auto"
+    ></div>
+
+    <h3 id="optimized-view">Optimized view for screen</h3>
     <p>
-      <button type="reset" form="configurator">Reset to defaults</button>
+      Uses the screen space as efficiently as possible: <code>"window-fit"</code>
+      lays out the systems to the viewer's width, without pages.
+    </p>
+    <div id="score1" class="score"></div>
+
+    <h3 id="configurator">Configurator</h3>
+    <p>
+      Change any setting to recreate the viewer below with the code shown here
+      (<code>urlToMuseScoreFile</code> is the URL of your score).
+    </p>
+    <form id="configurator-form"></form>
+    <p>
+      <button type="reset" form="configurator-form">Reset to defaults</button>
     </p>
     <pre><code id="configurator-code" class="hljs"></code></pre>
     <div id="configured" class="score"></div>
@@ -147,24 +234,64 @@
       const urlToMuseScoreFile =
         new URLSearchParams(location.search).get("url") ?? "bei_gezeiten.mscz";
 
-      applyMuseEncoreViewer("#score1", urlToMuseScoreFile);
-      applyMuseEncoreViewer("#score2", urlToMuseScoreFile, {
-        disableToolbar: true,
-        colorScheme: "light",
-      });
-      applyMuseEncoreViewer("#score3", urlToMuseScoreFile, {
-        continuousView: "horizontal",
-        toolbarGroups: {
-          playback: true,
-          playalong: true,
-          print: false,
-          fullScreen: false,
-          pageView: false,
+      const MODULE_URL =
+        "https://cdn.jsdelivr.net/npm/muse-encore-viewer@1.5.1/dist/muse-encore-viewer.js";
+
+      // the highlighted code that creates a viewer with these options
+      const viewerCode = (selector, options) => {
+        const args = Object.keys(options).length
+          ? ", " + JSON.stringify(options, null, 2).replace(/"(\w+)":/g, "$1:")
+          : "";
+        const source = `import applyMuseEncoreViewer from "${MODULE_URL}";\n\napplyMuseEncoreViewer("${selector}", urlToMuseScoreFile${args});`;
+        return hljs.highlight(source, { language: "javascript" }).value;
+      };
+
+      const EXAMPLES = {
+        "#score3": {
+          continuousView: "horizontal",
+          toolbarGroups: {
+            playback: true,
+            playalong: true,
+            print: false,
+            fullScreen: false,
+            pageView: false,
+          },
+          showStatusBar: true,
+          keyboardShortcuts: true,
+          colorScheme: "light",
         },
-        showStatusBar: true,
-        keyboardShortcuts: true,
-        colorScheme: "light",
-      });
+        "#score2": {
+          disableToolbar: true,
+          colorScheme: "light",
+        },
+        "#score1": {
+          continuousView: "window-fit",
+          zoom: 75,
+          toolbarGroups: {
+            pageNavigation: false,
+            pageView: false,
+          },
+        },
+      };
+      for (const [selector, options] of Object.entries(EXAMPLES)) {
+        applyMuseEncoreViewer(selector, urlToMuseScoreFile, options);
+
+        // a "Show JS Code" button below the viewer that opens its code
+        const pre = document.createElement("pre");
+        pre.hidden = true;
+        pre.innerHTML = `<code class="hljs">${viewerCode(selector, options)}</code>`;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "show-code";
+        button.textContent = "Show JS Code";
+        button.setAttribute("aria-expanded", "false");
+        button.addEventListener("click", () => {
+          pre.hidden = !pre.hidden;
+          button.textContent = pre.hidden ? "Show JS Code" : "Hide JS Code";
+          button.setAttribute("aria-expanded", String(!pre.hidden));
+        });
+        document.querySelector(selector).after(button, pre);
+      }
 
       // a boolean is a checkbox, a list a select; the default (a boolean, the
       // first entry of a list) is left out of the options. zoom's default
@@ -195,7 +322,7 @@
         },
       };
 
-      const form = document.getElementById("configurator");
+      const form = document.getElementById("configurator-form");
       const controls = [];
       for (const [group, settings] of Object.entries(SETTINGS)) {
         const fieldset = document.createElement("fieldset");
@@ -244,14 +371,10 @@
       };
 
       const showCode = (options) => {
-        const args = Object.keys(options).length
-          ? ", " + JSON.stringify(options, null, 2).replace(/"(\w+)":/g, "$1:")
-          : "";
-        const source = `import applyMuseEncoreViewer from "https://cdn.jsdelivr.net/npm/muse-encore-viewer@1.5.1/dist/muse-encore-viewer.js";\n\napplyMuseEncoreViewer("#configured", urlToMuseScoreFile${args});`;
-        document.getElementById("configurator-code").innerHTML = hljs.highlight(
-          source,
-          { language: "javascript" },
-        ).value;
+        document.getElementById("configurator-code").innerHTML = viewerCode(
+          "#configured",
+          options,
+        );
       };
 
       let viewer;
