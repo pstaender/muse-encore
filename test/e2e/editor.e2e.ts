@@ -2041,6 +2041,49 @@ describe.skipIf(!CHROME || !hasSubmodule)('editor', () => {
         await context.close()
     }, 120000)
 
+    for (const mode of ['worklet', 'worker']) {
+        it(`SpessaSynth (${mode}): the channels added above 16 are as loud as the first ones`, async () => {
+            const { page, context } = await newPage()
+            await page.goto(`${base}?synth=spessasynth-${mode}`)
+            await page.waitForFunction(() => !!(window as unknown as { __museencorePlayback?: unknown }).__museencorePlayback, null, { timeout: 30000 })
+            // the peak level of a note of a channel, measured after the synthesizer's gain
+            const levels = await page.evaluate(async () => {
+                type Spessa = {
+                    mode: string; load(): Promise<void>; resume(): Promise<void>; m_gain: GainNode; m_context: AudioContext
+                    setupChannel(c: number, s: object): void; noteOn(c: number, p: number, v: number): void; noteOff(c: number, p: number): void
+                }
+                const synth = (window as unknown as { __museencorePlayback: { synth: Spessa } }).__museencorePlayback.synth
+                await synth.resume()
+                await synth.load()
+                const analyser = synth.m_context.createAnalyser()
+                analyser.fftSize = 2048
+                synth.m_gain.connect(analyser)
+                const buf = new Float32Array(analyser.fftSize)
+                const level = async (channel: number): Promise<number> => {
+                    synth.setupChannel(channel, { program: 0, bank: 0, drum: false, volume: 100, pan: 64, reverb: 0, chorus: 0 })
+                    synth.noteOn(channel, 60, 100)
+                    let peak = 0
+                    for (let i = 0; i < 20; ++i) {
+                        await new Promise(r => setTimeout(r, 20))
+                        analyser.getFloatTimeDomainData(buf)
+                        for (const x of buf) {
+                            peak = Math.max(peak, Math.abs(x))
+                        }
+                    }
+                    synth.noteOff(channel, 60)
+                    await new Promise(r => setTimeout(r, 600))
+                    return peak
+                }
+                return { mode: synth.mode, first: await level(0), added: await level(40) }
+            })
+            expect(levels.mode).toBe(mode)
+            expect(levels.first).toBeGreaterThan(0.01)
+            // before: SpessaSynth left the expression of added channels at 0, they were silent
+            expect(levels.added).toBeGreaterThan(levels.first * 0.5)
+            await context.close()
+        }, 120000)
+    }
+
     it('follows the playback cursor without moving the view back and forth (iOS: stale client rectangles, like the viewer)', async () => {
         const { page, context } = await newPage()
         await page.goto(`${base}?url=${encodeURIComponent(`${SCORE_HOST}amazing.mscz`)}`)

@@ -90,13 +90,14 @@ const setPb = (patch: Partial<PlaybackSettings>): void => updateSettings('playba
 // ---------------------------------------------------------------------------------
 
 /**
- * ?synth=none: no sound (no audio device); ?synth=spessasynth: SpessaSynth. The default: SpessaSynth if the browser
- * has Web Audio, no sound in automated browsers (navigator.webdriver: the end-to-end tests)
+ * ?synth=none: no sound (no audio device); ?synth=spessasynth: SpessaSynth (spessasynth-worker / spessasynth-worklet:
+ * in that mode, spessasynth.ts). The default: SpessaSynth if the browser has Web Audio, no sound in automated browsers
+ * (navigator.webdriver: the end-to-end tests)
  */
 function createSynthesizer(): Synthesizer {
     const param = new URLSearchParams(location.search).get('synth')
     const webAudio = typeof AudioContext !== 'undefined' && typeof AudioWorkletNode !== 'undefined'
-    if (param === 'none' || !webAudio || (navigator.webdriver && param !== 'spessasynth')) {
+    if (param === 'none' || !webAudio || (navigator.webdriver && !param?.startsWith('spessasynth'))) {
         return new NullSynthesizer()
     }
     return new SpessaSynthesizer(appSoundFontUrl(import.meta.env.BASE_URL))

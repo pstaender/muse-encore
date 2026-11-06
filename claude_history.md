@@ -1851,3 +1851,29 @@
 - Viewer package: without the Fullscreen API (Safari on the iPhone, iframes without the permission) the full screen button is no longer hidden: the viewer fills the window with `position: fixed` and collapses its toolbar as in full screen; the same in the app (which fills the window already) and in the editor (toggleFullscreen sets the full screen state: toolbars and panels collapse). On touch screens (`pointer: coarse`) the collapsed edges have a 20 px strip with a subtle handle to tap (viewer and editor). WebKit/touch workarounds in `shared/fullscreen.ts` (both apps): the full screen state is read two frames after `fullscreenchange` (WebKit can report the old fullscreenElement during the event: entering and leaving looked swapped), also `webkitfullscreenchange`; a refused requestFullscreen fills the window instead; `pointerIsOn` ignores the :hover a tapped element keeps on iOS, and a focus leaving a bar after a tap no longer hides it (`touchInput`), so the toolbar collapses after the tap on the button and stays shown after a tap at the edge.
 - iOS (WebKit) workaround: the viewer follows the playback cursor and the playalong measure by scrolling to an absolute position computed from offsets (`contentRect`/`scrollViewTo`), not by the difference of client rectangles: iOS Safari can report the rectangles of the old scroll position after a scroll, so the view moved twice, flashed or jumped back and forth (every frame when a system is higher than the view); a late scroll event at the target position no longer counts as a move by the user. e2e test with simulated lagging rectangles. The same in the editor (scoreview.ts adjustViewToRect, showRectInView, centerViewOnRect: the playback, the playalong, smooth panning); the helpers are in `shared/scrollview.ts` (contentRect, viewRect, scrollViewTo, isAtScrollTarget), e2e test in both apps.
 - iOS/iPadOS (WebKit) workaround: `shared/fileinput.ts` fileInputAccept: no accept attribute on the file inputs on iOS (viewer, editor: open, import, palettes), as the picker greys out files with unknown suffixes (.mscz).
+
+## Playback: silent channels above 16, worker mode for Firefox
+
+- Only the first instruments of a score with several were heard (e.g. an imported multi-track MIDI file): each voice of an
+  instrument channel has its own synthesizer channel (synthChannel = instrumentChannel * 4 + voice), so from the
+  5th instrument channel on the channels are above 16, which SpessaSynth adds on demand. SpessaSynth resets the
+  controllers of its first 16 channels when the sound bank is loaded, but leaves those of added channels at 0: expression
+  (CC 11) 0 = silent, and balance, the sound controllers 71-78 (release, attack, brightness, ...) at 0 instead of 64.
+  Not a limit of the library (any number of channels, the voice cap grows), a missing reset: spessasynth.ts
+  resetAddedChannel sends the reset values (DEFAULT_MIDI_CONTROLLERS of spessasynth_core) and RPN null to each added
+  channel. Found by playing a generated 7-track MIDI file on spessasynth_core offline with the Player and measuring the
+  level of each channel (before: only channels 0 and 4 had sound). The old e2e test ("plays all instruments ...")
+  passed nevertheless: it only checked that voices started on the channels above 16; the new e2e test (both modes)
+  measures the level after the synthesizer's gain (channel 40 against channel 0; without the fix 0.00016 against 0.034).
+- Firefox crackled: SpessaSynth renders in the AudioWorklet, the real-time audio thread, which Firefox's could not
+  keep up with. New mode "worker" (SpessaSynthesizer.mode, spessasynthworker.ts = WorkerSynthesizerCore): the synthesizer
+  renders in a Web Worker 32 chunks of 128 frames (85 ms at 48 kHz) ahead, a small worklet only plays them. Default in
+  Firefox; elsewhere "worklet" (lower latency). `?synth=spessasynth-worker` / `?synth=spessasynth-worklet` select a mode
+  (the editor accepts them in automated browsers like `?synth=spessasynth`). The worker's clock lags the audio clock by
+  the queued chunks: the events are scheduled on the worker's clock (currentTime) and outputLatency adds the queue, so
+  the cursor matches the sound (measured in Playwright's Firefox: a scheduled note is heard 93 ms after its time,
+  outputLatency 85 ms + the 8 ms steps of the measurement, the same each time). The worker is created like the note
+  detection's (cross-origin package: a blob worker that imports it); the package has it in dist/assets.
+- Not checked: the crackling itself by listening in a real Firefox (headless Firefox has no audio device), Safari.
+  Preview notes and MIDI input sound about 85 ms later in Firefox (WORKER_QUEUE can be lowered).
+- Still missing: the mixer.
