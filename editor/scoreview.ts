@@ -1802,12 +1802,8 @@ setShortcutOverride((e) => {
 
 function clipboardTarget(e: ClipboardEvent): boolean {
     const t = e.target as Element | null
-    // an element of the score that has the focus (a comment in the panel); the event's target is the node of the
-    // page's text selection in it
-    const focused = document.activeElement
-    const inFocusedItem = !!focused?.matches('[data-score-clipboard]') && !!t && focused.contains(t)
     return !!score && document.body.dataset.view === 'score' && (t === textInput || t === viewport || t === document.body
-        || !!t?.closest?.('#viewport') || inFocusedItem)
+        || !!t?.closest?.('#viewport'))
 }
 
 /**

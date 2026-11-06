@@ -19,7 +19,7 @@ import { registerAction } from '../actions/actions'
 import { isPanelOpen, onPanelsChanged, setCurrentPanel, setPanelOpen, togglePanel } from '../panels/panels'
 import {
     currentScore, onPagesBuilt, onScoreViewChanged, pageElement, pageInches, scoreChanged, scoreViewState, selectionChanged,
-    setClipboardExtension,
+    setClipboardExtension, viewport,
 } from '../scoreview'
 import './comments.css'
 
@@ -66,10 +66,17 @@ export function setActiveComment(id: string, pin = false): void {
     }
 }
 
-/** selects a comment (and clears the score's selection: one selection at a time); '' = none */
+/**
+ * selects a comment (and clears the score's selection: one selection at a time); '' = none. The score view gets the
+ * focus: its keys (Delete/Backspace) and the clipboard events take the selected comment.
+ */
 export function selectComment(id: string): void {
     const s = currentScore()
     if (id) {
+        viewport.focus({ preventScroll: true })
+        // Firefox sends the clipboard events to the node of the page's selection (e.g. still in the text field of a
+        // comment edited before), not to the focused element
+        window.getSelection()?.removeAllRanges()
         setActiveComment(id, true)
         if (s && hasSelection(s) && clearSelection(s)) {
             selectionChanged()

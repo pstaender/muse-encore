@@ -235,6 +235,8 @@ export class CommentMarkersView {
             el.addEventListener(type, e => e.stopPropagation())
         }
         el.addEventListener('dblclick', () => this.m_opts.onDoubleClick?.(m.id))
+        // a click does not take the focus (the app's keys and the clipboard stay with the score)
+        el.addEventListener('mousedown', e => e.preventDefault())
         let drag: { pointer: number; x: number; y: number; moved: boolean } | null = null
         el.addEventListener('pointerdown', (e) => {
             e.stopPropagation()

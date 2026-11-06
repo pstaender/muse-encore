@@ -2022,3 +2022,5 @@
   pasteCommentAtSelection in index.ts.
 - A click on a marker no longer selects the element of the comment (the position button in the panel still does).
 - A double click on a marker opens the comment's text field in the panel (focused); also on an entry in the panel.
+- Selecting a comment does not move the focus to its marker or panel entry: the score view keeps it (focused again), so Delete/Backspace and the browser's copy/cut events (Safari fires them only with a suitable focus) take the selected comment.
+- Enter/Escape in a comment's text field returns to the score with the comment selected (Ctrl+C/Ctrl+X take it). Selecting a comment clears the page's text selection: Firefox sends the clipboard events to its node (e.g. the text field edited before). Checked in Firefox (Playwright).

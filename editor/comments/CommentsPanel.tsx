@@ -2,7 +2,8 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * The Comments panel (not in MuseScore; commentscontroller.ts): the comments of the score in the order of their
  * positions, each with its position (measure, staff, the element it is attached to) and its text. A click on a comment
- * (not on its text) selects it: Delete/Backspace removes it, Ctrl+C/Ctrl+X copy/cut it (scoreview.ts); a double click
+ * (not on its text) selects it (the score view keeps the focus: Delete/Backspace removes it, Ctrl+C/Ctrl+X
+ * copy/cut it, scoreview.ts); a double click
  * edits its text. The text is set (one undoable command) when its field loses the focus (Enter; Shift+Enter: a new
  * line); a click on the position selects it in the score;
  * "Add comment" adds one at the selection. The text may use **bold**, *italic* and ~~strikethrough~~.
@@ -14,7 +15,7 @@ import { qtrc, useLanguage, webtr } from '../i18n'
 import type { MenuItem } from '../menus/appmenu'
 import { currentScore, useScoreView } from '../scoreview'
 import {
-    commentsViewState, focusDone, goToComment, onCommentsViewChanged, removeComment, selectComment, setActiveComment,
+    commentsViewState, focusDone, goToComment, onCommentsViewChanged, selectComment, setActiveComment,
     setCommentText,
 } from './commentscontroller'
 
@@ -95,10 +96,11 @@ function CommentText({ comment, focus }: { comment: ScoreComment; focus: boolean
             }}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
-                // Enter (or Escape) sets the text and returns to the score; Shift+Enter: a new line
+                // Enter (or Escape) sets the text and returns to the score with the comment selected (Ctrl+C copies
+                // it); Shift+Enter: a new line
                 if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing)) {
                     e.preventDefault()
-                    document.getElementById('viewport')?.focus({ preventScroll: true })
+                    selectComment(comment.id)
                 }
                 e.stopPropagation() // no score shortcuts while typing (Ctrl+Z is the text field's undo)
             }} />
@@ -127,12 +129,11 @@ export function CommentsPanel(): React.JSX.Element {
                     const position = [measureNo ? qtrc('engraving', 'Measure: %1').replace('%1', String(measureNo)) : '', staffName, elementName]
                         .filter(Boolean).join(' · ')
                     return (
-                        <li key={c.id} tabIndex={-1} data-score-clipboard=""
+                        <li key={c.id}
                             className={`comment${c.id === state.active ? ' active' : ''}${c.id === state.selected ? ' selected' : ''}`}
                             onClick={(e) => {
                                 if (!(e.target as Element).closest('textarea, button')) {
                                     selectComment(c.id)
-                                    e.currentTarget.focus({ preventScroll: true })
                                 }
                             }}
                             onDoubleClick={(e) => {
@@ -141,13 +142,7 @@ export function CommentsPanel(): React.JSX.Element {
                                     e.currentTarget.querySelector('textarea')?.focus()
                                 }
                             }}
-                            onKeyDown={(e) => {
-                                if (e.target === e.currentTarget && (e.key === 'Delete' || e.key === 'Backspace')
-                                    && c.id === state.selected) {
-                                    e.preventDefault()
-                                    removeComment(c.id)
-                                }
-                            }}>
+>
                             <div className="comment-header">
                                 <button type="button" className="comment-position" title={position} onClick={() => goToComment(c.id)}>
                                     {position}
