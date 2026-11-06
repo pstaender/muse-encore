@@ -34,6 +34,11 @@ export interface CommentMarker {
     spatium: number
     /** the comment is attached to an element of the score (else to a position) */
     attached: boolean
+    /** the point the comment is attached to (the top of the element, or of the staff at the tick), inches */
+    anchorX: number
+    anchorY: number
+    /** the marker was moved from its default place (dx/dy): the app connects it with its anchor */
+    moved: boolean
 }
 
 export interface CommentListItem {
@@ -65,8 +70,12 @@ function elementInScore(score: Score, el: EngravingItem | null): EngravingItem |
     return el.findLinkedInScore(score)
 }
 
-/** the anchor of a marker without its offset: (x, bottom of the marker) in canvas coordinates, and its page */
-function anchorPoint(score: Score, c: ScoreComment, resolver: CommentResolver): { x: number; y: number; page: number; attached: boolean } | null {
+/**
+ * the place of a marker without its offset: (x, bottom of the marker) in canvas coordinates, its page and the point the
+ * comment is attached to (ax, ay)
+ */
+function anchorPoint(score: Score, c: ScoreComment, resolver: CommentResolver):
+    { x: number; y: number; ax: number; ay: number; page: number; attached: boolean } | null {
     const pos = scoreComments(score).position(c, resolver)
     if (!pos) {
         return null
@@ -85,7 +94,8 @@ function anchorPoint(score: Score, c: ScoreComment, resolver: CommentResolver): 
             if (system && sysStaff?.show()) {
                 y = Math.min(y, system.staffCanvasYpage(el.staffIdx()) - 1.5 * sp)
             }
-            return { x: r.x() + r.width() / 2, y, page: elPage, attached: true }
+            const x = r.x() + r.width() / 2
+            return { x, y, ax: x, ay: r.top(), page: elPage, attached: true }
         }
     }
     const staffIdx = staffInScore(score, pos.staffIdx)
@@ -110,7 +120,9 @@ function anchorPoint(score: Score, c: ScoreComment, resolver: CommentResolver): 
             return null
         }
     }
-    return { x: tickCanvasX(measure, pos.tick), y: system.staffCanvasYpage(idx) - 1.5 * sp, page: pages.indexOf(page), attached: false }
+    const x = tickCanvasX(measure, pos.tick)
+    const staffTop = system.staffCanvasYpage(idx)
+    return { x, y: staffTop - 1.5 * sp, ax: x, ay: staffTop, page: pages.indexOf(page), attached: false }
 }
 
 function markerOf(score: Score, c: ScoreComment, resolver: CommentResolver): CommentMarker | null {
@@ -132,6 +144,9 @@ function markerOf(score: Score, c: ScoreComment, resolver: CommentResolver): Com
         height: size / DPI,
         spatium: sp / DPI,
         attached: a.attached,
+        anchorX: (a.ax - pp.x()) / DPI,
+        anchorY: (a.ay - pp.y()) / DPI,
+        moved: c.dx !== 0 || c.dy !== 0,
     }
 }
 

@@ -1824,7 +1824,6 @@ html, body { margin: 0; padding: 0; background: #fff; }
             return
         }
         const comments = scoreComments(score)
-        this.commentMarkers.setSubtle(true)
         this.commentMarkers.update(commentMarkers(score).map(m => ({ ...m, text: comments.comment(m.id)?.text ?? '' })))
     }
 

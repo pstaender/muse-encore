@@ -2,10 +2,10 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * Comments (not in MuseScore; the library's comments/api.ts): notes on the score, saved in the .mscz in a way MuseScore
  * keeps (a metaTag), changed through the undo stack. The actions add-comment (attached to the selected element, or to
- * the start of a range), toggle-comments (the Comments panel) and show-comments; the markers above the staves
- * (shared/comments/markers.ts: the text on hover, a click opens the comment in the panel, a drag moves the marker
- * relative to its anchor). The markers are subtle (gray, behind the notation) unless the Comments panel is the
- * current panel; the active comment is highlighted and in front.
+ * the start of a range) and toggle-comments (View > Comments: the Comments panel; the markers are shown while it is
+ * open); the markers above the staves (shared/comments/markers.ts: subtle, the text on hover, a click opens the comment
+ * in the panel, a drag moves the marker relative to its anchor, with a line to it). The active comment (clicked, or
+ * edited in the panel) is highlighted and in front.
  */
 import {
     addCommentAtSelection, canAddCommentAtSelection, commentMarkers, moveComment, removeComment as removeScoreComment,
@@ -13,11 +13,10 @@ import {
 } from '../../src/index'
 import { CommentMarkersView } from '../../shared/comments/markers'
 import { registerAction } from '../actions/actions'
-import { isPanelOpen, onPanelsChanged, panelsState, setCurrentPanel, setPanelOpen, togglePanel } from '../panels/panels'
+import { isPanelOpen, onPanelsChanged, setCurrentPanel, setPanelOpen, togglePanel } from '../panels/panels'
 import {
     currentScore, onPagesBuilt, onScoreViewChanged, pageElement, pageInches, scoreChanged, scoreViewState, selectionChanged,
 } from '../scoreview'
-import { settings, updateSettings } from '../settings'
 import './comments.css'
 
 export const COMMENTS_PANEL = 'commentsPanel'
@@ -128,14 +127,6 @@ export function registerCommentsActions(): void {
         enabled: scoreShown,
         checked: () => isPanelOpen(COMMENTS_PANEL),
     }, { title: [null, 'Comments'], checkable: true, icon: 0 })
-    registerAction('show-comments', {
-        run: () => {
-            updateSettings('comments', { show: !settings().comments.show })
-            updateMarkers()
-        },
-        enabled: scoreShown,
-        checked: () => settings().comments.show,
-    }, { title: [null, 'Show comments'], checkable: true, icon: 0 })
 }
 
 // ---------------------------------------------------------------------------------
@@ -159,15 +150,10 @@ const s_markers = new CommentMarkersView({
     },
 })
 
-/** the Comments panel is shown: the markers are not subtle */
-function commentsPanelShown(): boolean {
-    const p = panelsState()
-    return p.open.includes(COMMENTS_PANEL) && p.current === COMMENTS_PANEL && !p.collapsed
-}
-
 function updateMarkers(): void {
     const s = currentScore()
-    if (!s || !settings().comments.show) {
+    // View > Comments (the panel) shows and hides them
+    if (!s || !isPanelOpen(COMMENTS_PANEL)) {
         s_markers.clear()
         return
     }
@@ -202,8 +188,13 @@ onScoreViewChanged(() => {
 
 onPagesBuilt(updateMarkers)
 
-s_markers.setSubtle(!commentsPanelShown())
-onPanelsChanged(() => s_markers.setSubtle(!commentsPanelShown()))
+let s_panelOpen = isPanelOpen(COMMENTS_PANEL)
+onPanelsChanged(() => {
+    if (isPanelOpen(COMMENTS_PANEL) !== s_panelOpen) {
+        s_panelOpen = isPanelOpen(COMMENTS_PANEL)
+        updateMarkers()
+    }
+})
 
 // a click on the score ends the active comment (its text is hidden, its marker subtle again)
 document.getElementById('viewport')?.addEventListener('pointerdown', () => setActiveComment(''))

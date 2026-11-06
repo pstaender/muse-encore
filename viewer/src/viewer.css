@@ -492,7 +492,8 @@ button.secondary:hover { background: var(--hover); }
 .playalong-status { margin: 0 6px; color: var(--muted); white-space: nowrap; }
 .playalong-status.error { color: #d33; }
 /* the comments (added in MuseEncore; size and position in percent of the page): one flat color, subtle (light
-   gray, multiplied with the page) until one is pointed at or clicked; the text (markdown rendered) below it */
+   gray, multiplied with the page) until one is pointed at or clicked; the text (markdown rendered) below it; the line
+   from a moved marker to the point it is attached to */
 .comment-marker {
     position: absolute;
     z-index: 1;
@@ -507,6 +508,19 @@ button.secondary:hover { background: var(--hover); }
 .comment-marker svg { display: block; width: 100%; height: 100%; }
 .comment-marker path { fill: currentColor; }
 .comment-marker:hover, .comment-marker.active { z-index: 5; color: #c66b00; mix-blend-mode: normal; }
+.comment-line {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: none;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+/* only for the active (selected) comment, and while a marker is dragged */
+.comment-line.active, .comment-line.dragging { display: block; }
+.comment-line line { stroke: #c66b00; stroke-width: 2.5px; stroke-linecap: round; }
 .comment-marker:focus-visible { outline: 2px solid #2a6ad8; outline-offset: 2px; border-radius: 2px; }
 .comment-popover {
     position: absolute;
@@ -522,7 +536,7 @@ button.secondary:hover { background: var(--hover); }
     overflow-wrap: anywhere;
     pointer-events: none;
 }
-@media print { .comment-marker, .comment-popover { display: none; } }
+@media print { .comment-marker, .comment-popover, .comment-line { display: none; } }
 .playalong-marker {
     position: absolute;
     z-index: 1;

@@ -9,7 +9,7 @@ import {
     type EngravingItem, type MasterScore,
 } from '../src/index'
 import { Fraction } from '../src/engraving/types/fraction'
-import { ElementType } from '../src/engraving/types/types'
+import { DPI, ElementType } from '../src/engraving/types/types'
 import { SelectType } from '../src/engraving/dom/select'
 import { projectMetaInfo, setProjectMetaInfo } from '../src/project/projectpropertiesmodel'
 import { commentPlainText, parseCommentMarkdown } from '../shared/comments/markdown'
@@ -120,6 +120,14 @@ describe.skipIf(!hasSubmodule)('comments', () => {
         const after = commentMarkers(score)[0]
         expect(after.x - before.x).toBeCloseTo(2 * before.spatium, 5)
         expect(after.y - before.y).toBeCloseTo(before.spatium, 5)
+        // the anchor (the top of the note) stays; the moved marker is connected with it
+        expect(before.moved).toBe(false)
+        expect(after.moved).toBe(true)
+        expect(after.anchorX).toBeCloseTo(before.anchorX, 6)
+        expect(after.anchorY).toBeCloseTo(before.anchorY, 6)
+        const r = note!.canvasBoundingRect()
+        const page = score.pages()[before.page].pos()
+        expect(before.anchorY).toBeCloseTo((r.top() - page.y()) / DPI, 6)
 
         // saved and read: still attached to the note (its EID)
         const loaded = loadScore(saveMscz(score))

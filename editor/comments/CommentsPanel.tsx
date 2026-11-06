@@ -2,7 +2,8 @@
  * SPDX-License-Identifier: GPL-3.0-only
  * The Comments panel (not in MuseScore; commentscontroller.ts): the comments of the score in the order of their
  * positions, each with its position (measure, staff, the element it is attached to), its text and a delete button. The
- * text is set (one undoable command) when its field loses the focus; a click on the position selects it in the score;
+ * text is set (one undoable command) when its field loses the focus (Enter; Shift+Enter: a new line); a click on the
+ * position selects it in the score;
  * "Add comment" adds one at the selection. The text may use **bold**, *italic* and ~~strikethrough~~.
  */
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -22,7 +23,7 @@ function useCommentsView(): ReturnType<typeof commentsViewState> {
 
 /** the menu of the panel's tab */
 export function commentsPanelMenu(): MenuItem[] {
-    return [{ kind: 'action', code: 'add-comment' }, { kind: 'action', code: 'show-comments' }]
+    return [{ kind: 'action', code: 'add-comment' }]
 }
 
 function formatDate(iso: string): string {
@@ -92,8 +93,8 @@ function CommentText({ comment, focus }: { comment: ScoreComment; focus: boolean
             }}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
-                // Escape (or Ctrl+Enter) sets the text and returns to the score
-                if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
+                // Enter (or Escape) sets the text and returns to the score; Shift+Enter: a new line
+                if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing)) {
                     e.preventDefault()
                     document.getElementById('viewport')?.focus({ preventScroll: true })
                 }

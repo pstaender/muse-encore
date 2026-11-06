@@ -1944,3 +1944,12 @@
 - Markers: one flat color; subtle (light gray, multiply) unless the Comments panel is the current panel (editor) or
   the comment is hovered/active; the active one is highlighted and in front. A click on the score ends it.
 - scoreview buildPages no longer takes the focus from a text field of a panel.
+
+## 2026-11-06 — Comments: lines to the anchor, always subtle, View > Comments
+
+- A moved marker (dx/dy) is connected with the point it is attached to (the top of the element, or of the staff at
+  the tick: CommentMarker.anchorX/anchorY, moved) by a line (2.5px, 0.5 spatium space at both ends), only while the
+  comment is active (selected) or dragged.
+- The markers are always subtle; hovered and active ones (clicked, edited in the panel) are highlighted.
+- View > Comments (the panel) shows the markers (subtle) or hides them completely; "Show comments" was removed.
+- An empty text shows no popup. In the panel, Enter sets the text and returns to the score; Shift+Enter: a new line.

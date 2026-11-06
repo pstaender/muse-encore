@@ -91,7 +91,6 @@ function makeViewMenu(toolbarItems: () => MenuItem[]): MenuItem {
         sep,
         menu(['appshell/menu/view', '&Show'], [
             item('show-invisible'),
-            item('show-comments'),
             item('show-unprintable'),
             item('show-frames'),
             item('show-pageborders'),

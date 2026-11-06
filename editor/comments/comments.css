@@ -44,7 +44,7 @@
     gap: 4px;
     padding: 6px 8px 8px;
     border: 1px solid var(--border);
-    border-inline-start: 3px solid var(--comment-color);
+    border-inline-start: 3px solid var(--comment-active-color);
     border-radius: var(--radius);
     background: var(--panel);
 }
@@ -85,28 +85,41 @@
 
 .comment-date { color: var(--muted); font-size: 11px; }
 
-/* the marker above the staff (size and position in percent of the page): one flat color; subtle (light gray,
-   multiplied with the page, so the notation stays visible on it) unless the Comments panel is shown; the active
-   comment is highlighted and in front */
+/* the marker (size and position in percent of the page): one flat color, subtle (light gray, multiplied with the
+   page, so the notation stays visible on it); the hovered and the active comment are highlighted and in front */
 .comment-marker {
     position: absolute;
-    z-index: 3;
+    z-index: 1;
     display: block;
     padding: 0;
     border: 0;
     background: none;
     cursor: pointer;
-    color: var(--comment-color);
+    color: var(--comment-subtle-color);
+    mix-blend-mode: multiply;
     touch-action: none;
 }
 
 .comment-marker svg { display: block; width: 100%; height: 100%; }
 .comment-marker path { fill: currentColor; }
-.comment-marker:hover { color: var(--comment-active-color); }
-.comment-marker.subtle { z-index: 1; color: var(--comment-subtle-color); mix-blend-mode: multiply; }
-.comment-marker.active, .comment-marker.subtle:hover { z-index: 5; color: var(--comment-active-color); mix-blend-mode: normal; }
+.comment-marker:hover, .comment-marker.active { z-index: 5; color: var(--comment-active-color); mix-blend-mode: normal; }
 .comment-marker.dragging { z-index: 6; cursor: grabbing; }
 .comment-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+/* the line from a moved marker to the point it is attached to (an SVG over the page in its inches) */
+.comment-line {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: none;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+}
+/* only for the active (selected) comment, and while a marker is dragged */
+.comment-line.active, .comment-line.dragging { display: block; }
+.comment-line line { stroke: var(--comment-active-color); stroke-width: 2.5px; stroke-linecap: round; }
 
 /* the text of a comment (markdown rendered) below its marker */
 .comment-popover {
@@ -125,10 +138,9 @@
 }
 
 :root {
-    --comment-color: #e5a50a;
     --comment-active-color: #c66b00;
     --comment-subtle-color: #d4d7dc;
     --comment-popover-bg: #fdf0c8;
 }
 
-@media print { .comment-marker, .comment-popover { display: none; } }
+@media print { .comment-marker, .comment-popover, .comment-line { display: none; } }
