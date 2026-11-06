@@ -12,7 +12,8 @@ import {
     commentMarkers, pageSize, playbackCursorBounds, scoreComments, scoreTitle, setViewMode as setScoreViewMode, SvgGlyphDefs, withPageView, type MasterScore,
 } from '../../src/index'
 import { centerViewOnMeasureOrPage } from '../../shared/centerview'
-import { CENTER_ICON } from '../../shared/icons'
+import { CENTER_ICON, COMPARE_ICON, svgIcon } from '../../shared/icons'
+import { ScoreDiffView } from '../../shared/diff/diffview'
 import { CommentMarkersView } from '../../shared/comments/markers'
 import { fileInputAccept } from '../../shared/fileinput'
 import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../../shared/fullscreen'
@@ -142,7 +143,7 @@ const VIEW_MODES: Record<ContinuousView, ViewerViewMode> = {
 }
 
 const DEFAULT_GROUPS: Required<MuseEncoreViewerToolbarGroups> = {
-    file: false, pageNavigation: true, pageView: true, zoom: true, playback: false, playalong: false, print: true, fullScreen: true,
+    file: false, pageNavigation: true, pageView: true, zoom: true, playback: false, playalong: false, compare: false, print: true, fullScreen: true,
 }
 
 // MuseScore's icon codes (src/framework/ui/view/iconcodes.h)
@@ -213,6 +214,11 @@ function template(appTitle: string): string {
         </span>
         <span id="playalong-status" class="playalong-status" role="status" hidden></span>
         <button id="midi-settings" class="icon toggle" title="MIDI settings" aria-label="MIDI settings" aria-pressed="false">${ICON.midi}</button>
+    </div>
+
+    <div class="group" data-group="compare">
+        <button id="compare" class="icon" title="Compare with another score…" aria-label="Compare with another score">${svgIcon(COMPARE_ICON)}</button>
+        <input type="file" id="compare-file" accept="${fileInputAccept(openFileAccept())}" hidden>
     </div>
 
     <div class="group end">
@@ -312,6 +318,17 @@ function isMouseWheel(e: WheelEvent): boolean {
     return e.deltaX === 0 && Number.isInteger(e.deltaY) && Math.abs(e.deltaY) >= 50
 }
 
+/** the file name of a score source */
+function sourceFileName(source: MuseEncoreScoreSource, fileName?: string): string {
+    if (fileName) {
+        return fileName
+    }
+    if (typeof source === 'string' || source instanceof URL) {
+        return urlFileName(String(source))
+    }
+    return (source instanceof Blob && (source as File).name) || 'score.mscz'
+}
+
 /** the file name of a URL (without query) */
 function urlFileName(url: string): string {
     try {
@@ -360,7 +377,8 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
     private readonly playPosition: HTMLInputElement
     private readonly playTime: HTMLSpanElement
     private readonly btn: Record<'open' | 'open2' | 'clear' | 'prev' | 'next' | 'layoutH' | 'layoutV' | 'spread' | 'zoomIn' | 'zoomOut'
-        | 'print' | 'center' | 'fullscreen' | 'help' | 'play' | 'rewind' | 'playalong' | 'playalongPrev' | 'playalongNext' | 'playalongPractice' | 'midiSettings' | 'mixer', HTMLButtonElement>
+        | 'print' | 'center' | 'fullscreen' | 'help' | 'play' | 'rewind' | 'playalong' | 'playalongPrev' | 'playalongNext' | 'playalongPractice' | 'midiSettings' | 'mixer'
+        | 'compare', HTMLButtonElement>
     private readonly midiDialog: HTMLDialogElement
     private readonly midiOn: HTMLInputElement
     private readonly midiDevice: HTMLSelectElement
@@ -372,6 +390,10 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
     // state
     private score: MasterScore | null = null
     private fileName = ''
+    /** the file of the score (for the comparison: a copy of the score is loaded from it) */
+    private fileData: ArrayBuffer | null = null
+    /** the comparison with another score (not in MuseScore) */
+    private diffView: ScoreDiffView | null = null
     private settings: MuseEncoreViewSettings
     private zoom = 100 // current zoom in percent
     private pages: HTMLDivElement[] = []
@@ -479,6 +501,7 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
             center: $('center'), fullscreen: $('fullscreen'), help: $('help'), play: $('play'), rewind: $('rewind'),
             playalong: $('playalong'), playalongPrev: $('playalong-prev'), playalongNext: $('playalong-next'),
             playalongPractice: $('playalong-practice'), midiSettings: $('midi-settings'), mixer: $('mixer-toggle'),
+            compare: $('compare'),
         }
         this.midiDialog = $('midi-dialog')
         this.midiOn = $('midi-on')
@@ -597,24 +620,8 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
         const token = ++this.loadToken
         let name = fileName ?? 'score.mscz'
         try {
-            let data: ArrayBuffer
-            if (typeof source === 'string' || source instanceof URL) {
-                const url = String(source)
-                name = fileName ?? urlFileName(url)
-                await this.showBusy(`Opening ${name}`, 'Downloading…')
-                const res = await fetch(url)
-                if (!res.ok) {
-                    throw new Error(`${res.status} ${res.statusText}`)
-                }
-                data = await res.arrayBuffer()
-            } else if (source instanceof Blob) {
-                name = fileName ?? ((source as File).name || name)
-                data = await source.arrayBuffer()
-            } else if (source instanceof Uint8Array) {
-                data = source.slice().buffer as ArrayBuffer
-            } else {
-                data = source
-            }
+            name = sourceFileName(source, fileName)
+            const data = await this.sourceData(source, name)
             if (token !== this.loadToken) {
                 throw new Error('superseded by another score')
             }
@@ -625,6 +632,73 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
             this.loadFailed(name, error)
             throw error
         }
+    }
+
+    /**
+     * Compares the open score (A) with another one (B): side by side, split screen or overlay (not in MuseScore).
+     * Read only; the comparison is closed with its close button or closeComparison().
+     */
+    async compareWith(source: MuseEncoreScoreSource, fileName?: string): Promise<void> {
+        if (!this.score) {
+            throw new Error('no score is open')
+        }
+        const nameB = sourceFileName(source, fileName)
+        try {
+            const dataB = await this.sourceData(source, nameB)
+            await this.showBusy(`Comparing with ${nameB}`, 'Laying out the scores…')
+            // copies: the comparison lays them out in its own way and shows only the compared instruments
+            const a = this.fileData ? await openScoreFile(this.fileData.slice(0), this.fileName) : null
+            const b = await openScoreFile(dataB, nameB)
+            if (!a) {
+                throw new Error('the file of the open score is not available')
+            }
+            layoutScore(a)
+            layoutScore(b)
+            this.closeComparison()
+            this.playback?.pause()
+            this.diffView = new ScoreDiffView(this.root, { score: a, name: scoreBaseName(this.fileName) }, { score: b, name: scoreBaseName(nameB) }, {
+                viewMode: this.settings.viewMode,
+                colorScheme: this.m_opts.colorScheme,
+                onClose: () => this.closeComparison(),
+            })
+            this.setStatus(`Comparing ${this.fileName} with ${nameB}`)
+        } catch (e) {
+            const error = e as Error
+            console.error(error)
+            this.setStatus(`Could not open ${nameB}: ${error.message}`, true)
+            throw error
+        } finally {
+            this.hideBusy()
+        }
+    }
+
+    /** closes the comparison of compareWith() */
+    closeComparison(): void {
+        if (!this.diffView) {
+            return
+        }
+        this.diffView.destroy()
+        this.diffView = null
+        this.viewport.focus({ preventScroll: true })
+    }
+
+    /** the data of a score source (a URL is downloaded) */
+    private async sourceData(source: MuseEncoreScoreSource, name: string): Promise<ArrayBuffer> {
+        if (typeof source === 'string' || source instanceof URL) {
+            await this.showBusy(`Opening ${name}`, 'Downloading…')
+            const res = await fetch(String(source))
+            if (!res.ok) {
+                throw new Error(`${res.status} ${res.statusText}`)
+            }
+            return await res.arrayBuffer()
+        }
+        if (source instanceof Blob) {
+            return await source.arrayBuffer()
+        }
+        if (source instanceof Uint8Array) {
+            return source.slice().buffer as ArrayBuffer
+        }
+        return source
     }
 
     pageCount(): number {
@@ -773,7 +847,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
             e.preventDefault()
             return true
         }
-        if (!this.m_opts.keyboardShortcuts || this.helpDialog.open || this.aboutDialog.open || this.midiDialog.open) {
+        if (!this.m_opts.keyboardShortcuts || this.helpDialog.open || this.aboutDialog.open || this.midiDialog.open || this.diffView) {
             return false
         }
         const mod = e.ctrlKey || e.metaKey
@@ -846,6 +920,8 @@ html, body { margin: 0; padding: 0; background: #fff; }
 
     /** closes the score (the app's close button) */
     closeFile(): void {
+        this.closeComparison()
+        this.fileData = null
         this.playback?.setScore(null)
         this.playalong?.setScore(null)
         this.mixer?.setScore(null)
@@ -863,6 +939,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         }
         this.m_destroyed = true
         this.m_abort.abort()
+        this.closeComparison()
         this.observer.disconnect()
         this.resizeObserver.disconnect()
         this.removeImageListener()
@@ -939,8 +1016,10 @@ html, body { margin: 0; padding: 0; background: #fff; }
             layoutScore(s)
             const n = pageCount(s) // the pages of the page view
             const t1 = performance.now()
+            this.closeComparison()
             this.score = s
             this.fileName = name
+            this.fileData = data.slice(0)
             this.applyViewMode()
             ++this.layoutVersion
             this.playback?.setScore(s)
@@ -1362,7 +1441,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         this.viewModeSelect.value = this.settings.viewMode
         btn.spread.disabled = !has || !pageView
         btn.spread.setAttribute('aria-pressed', String(this.spreadActive()))
-        for (const b of [btn.prev, btn.next, btn.zoomIn, btn.zoomOut, btn.center, btn.print, btn.play, btn.rewind, btn.playalong, btn.mixer]) {
+        for (const b of [btn.prev, btn.next, btn.zoomIn, btn.zoomOut, btn.center, btn.print, btn.play, btn.rewind, btn.playalong, btn.mixer, btn.compare]) {
             b.disabled = !has
         }
         this.playPosition.disabled = !has
@@ -2164,6 +2243,15 @@ html, body { margin: 0; padding: 0; background: #fff; }
         on(btn.playalongPractice, 'click', () => this.playalong?.togglePractice())
         on(btn.midiSettings, 'click', () => this.midiDialog.showModal())
         on(btn.mixer, 'click', () => this.setMixerShown(!this.mixer?.isShown()))
+        const compareInput = this.root.querySelector<HTMLInputElement>('#compare-file')!
+        on(btn.compare, 'click', () => compareInput.click())
+        on(compareInput, 'change', () => {
+            const f = compareInput.files?.[0]
+            compareInput.value = ''
+            if (f) {
+                void this.compareWith(f).catch(() => {})
+            }
+        })
         on(this.midiOn, 'change', () => this.midi?.setEnabled(this.midiOn.checked))
         on(this.midiDevice, 'change', () => this.midi?.selectDevice(this.midiDevice.value))
         on(this.midiDialog, 'close', () => viewport.focus({ preventScroll: true }))

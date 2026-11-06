@@ -334,6 +334,16 @@ export const itemFactories: {
     createItem?: (type: ElementType, parent: EngravingObject | null) => EngravingItem | null
 } = {}
 
+/**
+ * Not in MuseScore: a color that replaces the color of items while a page is painted (the score comparison, src/diff);
+ * null: the item's own color.
+ */
+let s_colorOverride: ((item: EngravingItem) => Color | null) | null = null
+
+export function setItemColorOverride(fn: ((item: EngravingItem) => Color | null) | null): void {
+    s_colorOverride = fn
+}
+
 export abstract class EngravingItem extends EngravingObject {
     protected m_z = -1
     protected m_color: Color = Color.BLACK.clone()
@@ -1008,6 +1018,11 @@ export abstract class EngravingItem extends EngravingObject {
 
     /** C++ curColor(bool isVisible, Color normalColor, const PaintOptions&) */
     curColorWith(isVisible: boolean, normalColor: Color, opt: PaintOptions = {}): Color {
+        // not in MuseScore: the colors of a score comparison (src/diff) while a page is painted
+        const override = s_colorOverride?.(this)
+        if (override) {
+            return override
+        }
         // the default element color is always interpreted as black in printing
         if (opt.isPrinting) {
             return normalColor.equals(EngravingConfiguration.defaultColor()) ? Color.BLACK : normalColor

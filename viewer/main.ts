@@ -18,7 +18,7 @@ const viewer = new MuseEncoreViewer(app, null, {
     fontsUrl: import.meta.env.BASE_URL,
     soundFontUrl: appSoundFontUrl(import.meta.env.BASE_URL),
     noteDetectionUrl: import.meta.env.BASE_URL,
-    toolbarGroups: { file: true, pageNavigation: true, pageView: true, zoom: true, playback: true, playalong: true, print: true, fullScreen: true },
+    toolbarGroups: { file: true, pageNavigation: true, pageView: true, zoom: true, playback: true, playalong: true, compare: true, print: true, fullScreen: true },
     keyboardShortcuts: true,
     showStatusBar: true,
     autoFocus: true,
@@ -73,8 +73,10 @@ window.addEventListener('afterprint', () => {
 
 // startup: ?url=<score url>, otherwise the last opened file
 const initialUrl = new URLSearchParams(location.search).get('url')
+// ?compare=<score url>: compared with the score of ?url= (not in MuseScore)
+const compareUrl = new URLSearchParams(location.search).get('compare')
 if (initialUrl) {
-    void viewer.load(initialUrl).catch(() => {})
+    void viewer.load(initialUrl).then(() => compareUrl ? viewer.compareWith(compareUrl) : undefined).catch(() => {})
 } else {
     void loadLastFile().then(f => {
         if (f) {

@@ -156,6 +156,7 @@ export { NotationConfiguration } from './notation/internal/notationconfiguration
 export { NoteEntryMethod } from './engraving/dom/input'
 export * from './playalong/api'
 export * from './comments/api'
+export * from './diff/api'
 export {
     setFallbackFontEngine, createCanvasFallbackFontEngine, type FallbackFontEngine, type FallbackFont,
 } from './framework/draw/internal/fontprovider'

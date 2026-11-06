@@ -56,6 +56,13 @@ Features that MuseEncore adds to MuseScore Studio, or that work differently:
   (View > Comments, undoable); the viewer shows them (option `comments`). They are saved in the `.mscz`/`.mscx` file
   in a way MuseScore Studio keeps: it opens such files without errors, keeps the comments when it saves, but does not
   show them. <img width="597" height="372" alt="Screenshot 2026-11-06 at 08 39 30" src="https://github.com/user-attachments/assets/951b22d9-cf16-4f54-ace8-797d48713e8b" />
+* Comparing scores (editor: File > Compare with…; viewer: the Compare button, `compareWith()`): the open score and
+  another file, read only, like a text diff: the measures are aligned by their contents (inserted and deleted measures
+  are found); what only the first score (A) has is red, what only the second one (B) has green. The modes: side by
+  side, split screen (B over A with a divider that can be moved) and overlay (B over A with an opacity, for layout
+  differences); A and B can be swapped, the arrows go to the previous/next difference, and the page view and the
+  continuous views work. If the instruments differ, a dialog asks which instruments are compared. `?url=…&compare=…`
+  opens a comparison in both apps.
 * Menu search (editor): a search field at the top of the Help menu, like in macOS applications, finds the items of all
   menus and shows the current result highlighted in its menu. Cmd+Shift+/ (Ctrl+Shift+/) opens it.
 

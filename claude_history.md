@@ -1964,3 +1964,33 @@
   click runs it; Escape clears the field, then closes the menu. While searching, the Help menu moves to the side of
   the window so the revealed menus are not covered. Mod+Shift+/ (Cmd+? on macOS) opens the field.
 - Strings: MuseScore's "Search" (ui) and "No results found" (global). The viewer has no menu bar, so nothing changes there.
+
+## 2026-11-06 — Comparing scores (not in MuseScore; proof of concept, read only)
+
+### Done
+- Library `src/diff/`: scorediff.ts (compareScores: per compared staff pair the tokens of each measure — chords
+  (duration, tuplet), notes (pitch, tpc, tie, head group, string/fret), articulations, lyrics, rests, clefs, key and
+  time signatures, annotations (texts, dynamics, tempo, harmony, ...), spanners starting in the measure (length in
+  ticks); measures aligned by the LCS of their keys, the gaps paired by position (element diff of the token
+  multisets) or inserted/deleted; hunks for the navigation), diffInstruments/defaultInstrumentPairs/sameInstruments,
+  showOnlyInstruments (Part.setShow). api.ts: drawDiffPage (the marked items in the side's color through
+  setItemColorOverride, a hook in EngravingItem.curColorWith; children of a marked chord/note take its color, texts and
+  articulations only their own; the differing measure staves get a light background via onPaintPageSheet),
+  diffMeasuresBounds.
+- shared/diff/diffview.ts (+ .css): ScoreDiffView, plain DOM in a shadow root, used by both apps: side by side (2
+  columns; horizontal continuous view: rows), split screen (B clipped left of a draggable divider), overlay (B with
+  opacity); swap, highlight on/off, previous/next difference, view modes incl. fit to window (each column), zoom (fit
+  to width/height, levels, Ctrl+wheel at the pointer), dragging; tiles like the viewer. Instruments dialog (each
+  instrument of A: an instrument of B or not compared), shown automatically when the visible instruments differ.
+- Viewer: toolbar group `compare` (default false, the app shows it), `compareWith()`/`closeComparison()`; A is a copy
+  loaded from the file's data. App: `?url=…&compare=…`.
+- Editor: File > Compare with… (`file-compare`, editor/diff/comparecontroller.ts): A = copy of the open score
+  (saveMscz -> loadScore, incl. unsaved changes), shown in a full-window modal dialog (shortcuts inactive, Escape
+  closes); `?url=…&compare=…`. Texts: MuseScore's where it has them, else webstrings.json.
+- test/scorediff.test.ts.
+
+### Missing / known differences
+- Read only; no editing or merging. Only the first min(staves) staves of a pair of instruments are compared.
+- No continuous panel (staff names at the left edge) in the horizontal continuous view; no two-page spreads.
+- Moving the initial clef/key/time signature to an inserted first measure counts as a change of the old first measure.
+- Changes of the layout only (positions, breaks, style) are not marked: the overlay shows them.

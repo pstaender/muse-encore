@@ -1,0 +1,343 @@
+/* SPDX-License-Identifier: GPL-3.0-only */
+/* The comparison of two scores (diffview.ts), inside its shadow root. The icon font "MusescoreIcon" is declared in the
+   document by the app (fonts in shadow roots are not loaded). The colors of A and B are those of a text diff. */
+
+:host {
+    --bg: #eceef1;
+    --panel: #ffffff;
+    --fg: #1d2127;
+    --muted: #6b7280;
+    --border: #dfe2e7;
+    --hover: #eef0f3;
+    --active: #e1e7f5;
+    --accent: #2a6ad8;
+    --removed: #d1242f;
+    --removed-bg: #ffebe9;
+    --added: #1a7f37;
+    --added-bg: #dafbe1;
+    --page-shadow: 0 1px 2px rgba(15, 23, 42, .08), 0 4px 16px rgba(15, 23, 42, .10);
+    --radius: 6px;
+    --backdrop: rgba(15, 23, 42, .18);
+    color-scheme: light;
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+    :host(:not([data-theme="light"])) {
+        --bg: #1b1d21;
+        --panel: #26292e;
+        --fg: #e7e9ec;
+        --muted: #9aa1ab;
+        --border: #363a41;
+        --hover: #31353b;
+        --active: #2f3a50;
+        --accent: #6c9cf2;
+        --removed: #ff7b72;
+        --removed-bg: rgba(248, 81, 73, .18);
+        --added: #56d364;
+        --added-bg: rgba(46, 160, 67, .18);
+        --page-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .35);
+        --backdrop: rgba(0, 0, 0, .45);
+        color-scheme: dark;
+    }
+}
+
+:host([data-theme="dark"]) {
+    --bg: #1b1d21;
+    --panel: #26292e;
+    --fg: #e7e9ec;
+    --muted: #9aa1ab;
+    --border: #363a41;
+    --hover: #31353b;
+    --active: #2f3a50;
+    --accent: #6c9cf2;
+    --removed: #ff7b72;
+    --removed-bg: rgba(248, 81, 73, .18);
+    --added: #56d364;
+    --added-bg: rgba(46, 160, 67, .18);
+    --page-shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 6px 20px rgba(0, 0, 0, .35);
+    --backdrop: rgba(0, 0, 0, .45);
+    color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+.toolbar, .stage, dialog {
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--fg);
+}
+
+.toolbar {
+    position: relative;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 48px;
+    padding: 6px 10px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    z-index: 2;
+}
+
+.group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 6px;
+}
+
+.group:not([hidden]) ~ .group { border-left: 1px solid var(--border); }
+.group.end { margin-left: auto; }
+.group.end, .group.end ~ .group { border-left: none !important; }
+
+.file {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 28ch;
+    min-width: 0;
+    padding: 2px 8px 2px 3px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.file .name { overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.file.a { background: var(--removed-bg); }
+.file.b { background: var(--added-bg); }
+
+.badge {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.file.a .badge { background: var(--removed); }
+.file.b .badge { background: var(--added); }
+
+button {
+    margin: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+button.icon {
+    display: inline-grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius);
+    font-family: "MusescoreIcon";
+    font-size: 16px;
+    line-height: 1;
+}
+
+button.text, .segmented button {
+    height: 30px;
+    padding: 0 10px;
+    border-radius: var(--radius);
+    white-space: nowrap;
+}
+
+button.icon:hover:not(:disabled), button.text:hover, .segmented button:hover { background: var(--hover); }
+button.icon:active:not(:disabled), button.text:active { background: var(--active); }
+button.icon:disabled { opacity: .35; cursor: default; }
+
+.segmented {
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) + 2px);
+}
+
+.segmented button { height: 26px; }
+.segmented button[aria-checked="true"] { background: var(--active); color: var(--accent); font-weight: 600; }
+
+button:focus-visible, select:focus-visible, input:focus-visible, .divider-handle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+select {
+    height: 30px;
+    margin: 0;
+    padding: 0 24px 0 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    appearance: none;
+    background: var(--panel);
+    background-image: linear-gradient(45deg, transparent 50%, var(--fg) 50%), linear-gradient(135deg, var(--fg) 50%, transparent 50%);
+    background-position: right 13px center, right 9px center;
+    background-size: 4px 4px;
+    background-repeat: no-repeat;
+    color: var(--fg);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+}
+
+label.opacity, label.check {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    padding: 0 4px;
+}
+
+label.opacity input { width: 100px; accent-color: var(--accent); }
+label.check input { accent-color: var(--accent); }
+
+.hunk-info {
+    min-width: 96px;
+    text-align: center;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* ---- the pages ---- */
+
+.stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    background: var(--bg);
+    overflow: hidden;
+}
+
+.viewport {
+    position: absolute;
+    inset: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    cursor: grab;
+}
+
+.viewport:focus { outline: none; }
+.viewport.dragging { cursor: grabbing; user-select: none; }
+
+.content { position: relative; margin: 0 auto; }
+
+.page {
+    position: absolute;
+    background: #fff;
+    box-shadow: var(--page-shadow);
+    overflow: hidden;
+}
+
+.page canvas { position: absolute; display: block; }
+
+/* B above A in the split screen and the overlay */
+.content.stacked .page.b { box-shadow: none; }
+.content.stacked .page.a { z-index: 0; }
+.content.stacked .page.b { z-index: 1; }
+
+/* ---- the split screen's divider ---- */
+
+.divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    z-index: 3;
+    border-left: 2px solid var(--accent);
+    pointer-events: none;
+}
+
+.divider-handle {
+    position: absolute;
+    top: 50%;
+    left: -15px;
+    width: 28px;
+    height: 44px;
+    margin-top: -22px;
+    border-radius: 14px;
+    background: var(--accent);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, .25);
+    cursor: ew-resize;
+    pointer-events: auto;
+    touch-action: none;
+}
+
+.divider-handle::before {
+    content: "";
+    position: absolute;
+    inset: 12px 10px;
+    border-left: 2px solid #fff;
+    border-right: 2px solid #fff;
+}
+
+.divider-label {
+    position: absolute;
+    top: 8px;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.divider-label.a { right: 6px; background: var(--removed); }
+.divider-label.b { left: 4px; background: var(--added); }
+
+.message {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    color: var(--muted);
+    font-size: 15px;
+    pointer-events: none;
+}
+
+/* ---- the instruments dialog ---- */
+
+dialog {
+    min-width: min(520px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 64px);
+    padding: 20px 24px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .25);
+}
+
+dialog::backdrop { background: var(--backdrop); }
+dialog h2 { margin: 0 0 8px; font-size: 16px; }
+.muted { color: var(--muted); font-weight: normal; }
+
+table.instruments { width: 100%; border-collapse: collapse; margin: 12px 0 16px; }
+table.instruments th { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); font-weight: 600; }
+table.instruments td { padding: 6px 8px; }
+table.instruments select { width: 100%; }
+
+.dialog-buttons { display: flex; justify-content: flex-end; gap: 8px; margin: 0; }
+.dialog-buttons button { height: 32px; padding: 0 16px; border-radius: var(--radius); border: 1px solid var(--border); }
+.dialog-buttons .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+@media (max-width: 640px) {
+    .file { max-width: 14ch; }
+    label.check { font-size: 12px; }
+}
