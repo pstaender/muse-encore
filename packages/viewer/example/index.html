@@ -142,7 +142,7 @@
 
     <!-- npm run build:viewer-package, then serve packages/viewer (e.g. npx vite packages/viewer) and open /example/?url=<score> -->
     <script type="module">
-      import applyMuseEncoreViewer from "https://cdn.jsdelivr.net/npm/muse-encore-viewer@1.4.4/dist/muse-encore-viewer.js";
+      import applyMuseEncoreViewer from "https://cdn.jsdelivr.net/npm/muse-encore-viewer@1.4.5/dist/muse-encore-viewer.js";
 
       const urlToMuseScoreFile =
         new URLSearchParams(location.search).get("url") ?? "bei_gezeiten.mscz";
@@ -247,7 +247,7 @@
         const args = Object.keys(options).length
           ? ", " + JSON.stringify(options, null, 2).replace(/"(\w+)":/g, "$1:")
           : "";
-        const source = `import applyMuseEncoreViewer from "https://cdn.jsdelivr.net/npm/muse-encore-viewer@1.4.4/dist/muse-encore-viewer.js";\n\napplyMuseEncoreViewer("#configured", urlToMuseScoreFile${args});`;
+        const source = `import applyMuseEncoreViewer from "https://cdn.jsdelivr.net/npm/muse-encore-viewer@1.4.5/dist/muse-encore-viewer.js";\n\napplyMuseEncoreViewer("#configured", urlToMuseScoreFile${args});`;
         document.getElementById("configurator-code").innerHTML = hljs.highlight(
           source,
           { language: "javascript" },
