@@ -13,8 +13,6 @@ export const JUMP_PREVIEW_BARS = 2
 /** the bars played next that the apps look at (the page turning, the preview: with the bar after the jump) */
 export const BARS_AHEAD = Math.max(MAX_PAGE_TURN_BARS, JUMP_PREVIEW_BARS + 1)
 
-/** the space shown before the bar, in inches */
-const PADDING = 0.15
 
 /** true if the whole bar (inches on its page) is in the view (CSS pixels of the page element) */
 export function barIsInView(viewport: HTMLElement, pageEl: HTMLElement, pageWidthInches: number, bar: PageBarRect): boolean {
@@ -74,10 +72,10 @@ export class JumpPreview {
         const vr = viewport.getBoundingClientRect()
         const f = pr.width / pageSize.width
         const x = after.x + after.width
-        const barWidth = target.width + PADDING
+        const barWidth = target.width
         // up to the right edge of the view (at least the target bar), not beyond the end of the score
         const toViewEdge = (vr.left + viewport.clientWidth - pr.left) / f - x
-        const widthIn = Math.min(Math.max(barWidth, toViewEdge), pageSize.width - target.x + PADDING)
+        const widthIn = Math.min(Math.max(barWidth, toViewEdge), pageSize.width - target.x)
         const widthCss = Math.round(widthIn * f)
         const heightCss = pr.height
         const dpr = window.devicePixelRatio || 1
@@ -94,7 +92,7 @@ export class JumpPreview {
             if (ctx) {
                 drawPage(score, target.page, ctx, {
                     dpi, pixelRatio: dpr, printing: this.m_printing,
-                    region: { x: (target.x - PADDING) * dpi, y: 0, width: w, height: h },
+                    region: { x: target.x * dpi, y: 0, width: w, height: h },
                 })
             }
             this.m_label.textContent = String(number)
