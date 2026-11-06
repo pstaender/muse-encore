@@ -50,6 +50,9 @@
 }
 
 .comment.active { background: var(--active); }
+/* the selected comment: Delete/Backspace removes it, Ctrl+C/Ctrl+X copy/cut it */
+.comment.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.comment:focus { outline: none; }
 
 .comment-header { display: flex; align-items: center; gap: 4px; }
 
@@ -66,8 +69,6 @@
 
 .comment-position:hover { text-decoration: underline; }
 .comment-position:focus-visible, .comment-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-
-.comment-delete { flex-shrink: 0; width: 26px; height: 26px; }
 
 .comment-text {
     width: 100%;
@@ -104,6 +105,7 @@
 .comment-marker path { fill: currentColor; }
 .comment-marker:hover, .comment-marker.active { z-index: 5; color: var(--comment-active-color); mix-blend-mode: normal; }
 .comment-marker.dragging { z-index: 6; cursor: grabbing; }
+.comment-marker.selected { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .comment-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 
 /* the line from a moved marker to the point it is attached to (an SVG over the page in its inches) */

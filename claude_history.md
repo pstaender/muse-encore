@@ -2010,3 +2010,15 @@
 - Voices 2-4 and "all voices": #00C950, #FB2C36, #E12AFB, #5D0EC0 (MuseScore #007F00, #C53F00, #C31989, #6038FC;
   VOICE_COLORS).
 
+
+## 2026-11-06 — Comments: selection, delete and copy/paste with the keyboard
+
+- The panel's delete button is gone. A click on a marker (or on a comment's entry in the panel, outside its text)
+  selects the comment (outlined; the score's selection is cleared, and a selection in the score deselects it). The
+  notation's delete (Delete/Backspace), copy and cut take a selected comment (scoreview.ts `setClipboardExtension`,
+  used by notationactions.ts and the copy/cut/paste events); paste of a copied comment attaches a new comment with its
+  text and author to the score's selection ("Paste comment", undoable).
+- Library: COMMENT_MIME_FORMAT (`application/x-museencore-comment`, JSON), commentMimeData, canPasteCommentAtSelection,
+  pasteCommentAtSelection in index.ts.
+- A click on a marker no longer selects the element of the comment (the position button in the panel still does).
+- A double click on a marker opens the comment's text field in the panel (focused); also on an entry in the panel.

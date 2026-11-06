@@ -7,7 +7,7 @@ import {
     changeInstrumentChange, executeAction, isTextEditingAction, selectedInstrumentChange, isActionChecked as isScoreActionChecked, isActionEnabled as isScoreActionEnabled, isCheckableAction,
     notationActionCodes, clipboardContents,
 } from '../../src/index'
-import { currentScore, scoreChanged, scoreViewState } from '../scoreview'
+import { clipboardExtensionAction, currentScore, scoreChanged, scoreViewState } from '../scoreview'
 import { session } from '../session'
 import { registerAction } from './actions'
 import { askInstrument } from '../dialogs/SelectInstrumentDialog'
@@ -21,6 +21,10 @@ export function registerNotationActions(): void {
             run: () => {
                 const score = currentScore()
                 if (!score) {
+                    return
+                }
+                // not in MuseScore: a selected comment (or a copied one to paste)
+                if (clipboardExtensionAction(code, true)) {
                     return
                 }
                 if (code === 'instrument-change-text') {
@@ -42,7 +46,7 @@ export function registerNotationActions(): void {
             },
             enabled: () => {
                 const score = currentScore()
-                return !!score && scoreShown() && isScoreActionEnabled(score, code)
+                return !!score && scoreShown() && (clipboardExtensionAction(code, false) || isScoreActionEnabled(score, code))
             },
             checked: isCheckableAction(code) ? () => {
                 const score = currentScore()

@@ -53,7 +53,8 @@ Features that MuseEncore adds to MuseScore Studio, or that work differently:
   dragging moves the score.
 * Comments: notes on a score, attached to a note, rest, text or measure and movable relative to it, with basic
   formatting (`**bold**`, `*italic*`, `~~strikethrough~~`). The editor adds and edits them in the Comments panel
-  (View > Comments, undoable); the viewer shows them (option `comments`). They are saved in the `.mscz`/`.mscx` file
+  (View > Comments, undoable); a comment selected (its marker or its entry in the panel clicked) is deleted with
+  Delete/Backspace (a double click edits its text) and copied or cut with Ctrl+C/Ctrl+X, and pasted onto the selected note, rest or measure; the viewer shows them (option `comments`). They are saved in the `.mscz`/`.mscx` file
   in a way MuseScore Studio keeps: it opens such files without errors, keeps the comments when it saves, but does not
   show them. <img width="702" height="366" alt="Screenshot 2026-11-06 at 19 56 08" src="https://github.com/user-attachments/assets/83d52422-b6bb-4157-9626-fa5c51874b0f" />
 

@@ -4,7 +4,8 @@
 import { describe, expect, test } from 'vitest'
 import { unzipSync } from 'fflate'
 import {
-    COMMENTS_META_TAG, addCommentAtSelection, commentElement, commentList, commentMarkers, isModified, layoutScore,
+    COMMENTS_META_TAG, COMMENT_MIME_FORMAT, addCommentAtSelection, canPasteCommentAtSelection, commentMimeData,
+    pasteCommentAtSelection, commentElement, commentList, commentMarkers, isModified, layoutScore,
     loadScore, markSaved, moveComment, redo, removeComment, saveMscz, scoreComments, setCommentText, undo,
     type EngravingItem, type MasterScore,
 } from '../src/index'
@@ -162,6 +163,37 @@ describe.skipIf(!hasSubmodule)('comments', () => {
         const id = addAtTick(score, m3.tick(), 0, 'x')
         const c = { ...scoreComments(score).comment(id)!, tick: 0 }
         expect(scoreComments(score).position(c)!.measure).toBe(m3)
+    })
+
+    test('copied and pasted at another element (undoable)', async () => {
+        const score = await open('measure-repeat-3.mscx')
+        score.select(score.firstMeasure()!)
+        const c = addCommentAtSelection(score, '**memo**', 'me')!
+        const data = commentMimeData(score, c.id)!
+        expect(data['text/plain']).toBe('**memo**')
+
+        // pasted onto a measure: attached to it, a new comment with the text and author
+        const m2 = score.firstMeasure()!.nextMeasure()!
+        score.select(m2)
+        expect(canPasteCommentAtSelection(score, data[COMMENT_MIME_FORMAT])).toBe(true)
+        expect(canPasteCommentAtSelection(score, 'not json')).toBe(false)
+        const pasted = pasteCommentAtSelection(score, data[COMMENT_MIME_FORMAT])!
+        expect(pasted.id).not.toBe(c.id)
+        expect(pasted.text).toBe('**memo**')
+        expect(pasted.author).toBe('me')
+        expect(scoreComments(score).position(pasted)!.measure).toBe(m2)
+        expect(scoreComments(score).comments()).toHaveLength(2)
+
+        // cut = copy + remove
+        expect(removeComment(score, c.id)).toBe(true)
+        expect(scoreComments(score).comments().map(x => x.id)).toEqual([pasted.id])
+        undo(score)
+        undo(score)
+        expect(scoreComments(score).comments().map(x => x.id)).toEqual([c.id])
+
+        // nothing selected: cannot paste
+        score.deselectAll()
+        expect(canPasteCommentAtSelection(score, data[COMMENT_MIME_FORMAT])).toBe(false)
     })
 
     test('the project properties neither show nor drop the comments', async () => {

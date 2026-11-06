@@ -4,11 +4,14 @@
  * keeps (a metaTag), changed through the undo stack. The actions add-comment (attached to the selected element, or to
  * the start of a range) and toggle-comments (View > Comments: the Comments panel; the markers are shown while it is
  * open); the markers above the staves (shared/comments/markers.ts: subtle, the text on hover, a click opens the comment
- * in the panel, a drag moves the marker relative to its anchor, with a line to it). The active comment (clicked, or
- * edited in the panel) is highlighted and in front.
+ * in the panel and selects it, a double click edits its text there, a drag moves the marker relative to its anchor, with a line to it). The active comment
+ * (clicked, or edited in the panel) is highlighted and in front. A selected comment (its marker or its entry in the
+ * panel clicked; the score's selection is cleared) takes the notation's delete (Delete/Backspace), copy and cut;
+ * a copied comment is pasted at the score's selection (attached to the selected element).
  */
 import {
-    addCommentAtSelection, canAddCommentAtSelection, commentMarkers, moveComment, removeComment as removeScoreComment,
+    addCommentAtSelection, canAddCommentAtSelection, canPasteCommentAtSelection, clearSelection, COMMENT_MIME_FORMAT,
+    commentMarkers, commentMimeData, hasSelection, moveComment, pasteCommentAtSelection, removeComment as removeScoreComment,
     scoreComments, selectCommentElement, setCommentText as setScoreCommentText, type MasterScore,
 } from '../../src/index'
 import { CommentMarkersView } from '../../shared/comments/markers'
@@ -16,6 +19,7 @@ import { registerAction } from '../actions/actions'
 import { isPanelOpen, onPanelsChanged, setCurrentPanel, setPanelOpen, togglePanel } from '../panels/panels'
 import {
     currentScore, onPagesBuilt, onScoreViewChanged, pageElement, pageInches, scoreChanged, scoreViewState, selectionChanged,
+    setClipboardExtension,
 } from '../scoreview'
 import './comments.css'
 
@@ -24,12 +28,14 @@ export const COMMENTS_PANEL = 'commentsPanel'
 interface CommentsViewState {
     /** the comment shown as current (highlighted in the panel and on the score) */
     active: string
+    /** the selected comment (delete, copy and cut take it; the score has no selection then) */
+    selected: string
     /** a comment whose text field gets the focus (a new comment) */
     focus: string
     version: number
 }
 
-let s_state: CommentsViewState = { active: '', focus: '', version: 0 }
+let s_state: CommentsViewState = { active: '', selected: '', focus: '', version: 0 }
 const listeners = new Set<() => void>()
 
 function publish(next: Partial<CommentsViewState>): void {
@@ -57,6 +63,21 @@ export function setActiveComment(id: string, pin = false): void {
     s_markers.setActive(id, pin)
     if (id !== s_state.active) {
         publish({ active: id })
+    }
+}
+
+/** selects a comment (and clears the score's selection: one selection at a time); '' = none */
+export function selectComment(id: string): void {
+    const s = currentScore()
+    if (id) {
+        setActiveComment(id, true)
+        if (s && hasSelection(s) && clearSelection(s)) {
+            selectionChanged()
+        }
+    }
+    s_markers.setSelected(id)
+    if (id !== s_state.selected) {
+        publish({ selected: id })
     }
 }
 
@@ -110,8 +131,33 @@ export function removeComment(id: string): void {
         if (s_state.active === id) {
             setActiveComment('')
         }
+        if (s_state.selected === id) {
+            selectComment('')
+        }
     }
 }
+
+// the notation's delete, copy, cut and paste of comments (scoreview.ts)
+setClipboardExtension({
+    formats: [COMMENT_MIME_FORMAT],
+    selectedData: () => {
+        const s = currentScore()
+        return s && s_state.selected ? commentMimeData(s, s_state.selected) : null
+    },
+    removeSelected: () => removeComment(s_state.selected),
+    canPaste: (data) => {
+        const s = currentScore()
+        return !!s && canPasteCommentAtSelection(s, data[COMMENT_MIME_FORMAT] ?? '')
+    },
+    paste: (data) => {
+        const s = currentScore()
+        const c = s ? pasteCommentAtSelection(s, data[COMMENT_MIME_FORMAT] ?? '') : null
+        if (c && isPanelOpen(COMMENTS_PANEL)) {
+            setActiveComment(c.id)
+        }
+        return !!c
+    },
+})
 
 export function registerCommentsActions(): void {
     const scoreShown = (): boolean => scoreViewState().hasScore
@@ -138,8 +184,10 @@ const s_markers = new CommentMarkersView({
     pageInches,
     onClick: (id) => {
         showComment(id)
-        goToComment(id)
+        selectComment(id)
     },
+    // the comment's text field in the panel
+    onDoubleClick: id => showComment(id, true),
     onMove: (id, ddx, ddy) => {
         const s = currentScore()
         const c = s ? scoreComments(s).comment(id) : null
@@ -164,6 +212,7 @@ function updateMarkers(): void {
 let s_score: MasterScore | null = null
 let s_unlisten: (() => void) | null = null
 let s_scoreVersion = -1
+let s_selectionVersion = -1
 
 onScoreViewChanged(() => {
     const m = master()
@@ -176,7 +225,17 @@ onScoreViewChanged(() => {
             publish({})
         }) : null
         setActiveComment('')
+        selectComment('')
         publish({ focus: '' })
+    }
+    // something selected in the score: the comment is not selected any more
+    const sel = scoreViewState().selectionVersion
+    if (sel !== s_selectionVersion) {
+        s_selectionVersion = sel
+        const s = currentScore()
+        if (s_state.selected && s && hasSelection(s)) {
+            selectComment('')
+        }
     }
     const v = scoreViewState().scoreVersion
     if (v !== s_scoreVersion) {
@@ -197,4 +256,7 @@ onPanelsChanged(() => {
 })
 
 // a click on the score ends the active comment (its text is hidden, its marker subtle again)
-document.getElementById('viewport')?.addEventListener('pointerdown', () => setActiveComment(''))
+document.getElementById('viewport')?.addEventListener('pointerdown', () => {
+    setActiveComment('')
+    selectComment('')
+})

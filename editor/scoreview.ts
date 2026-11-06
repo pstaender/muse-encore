@@ -1802,7 +1802,73 @@ setShortcutOverride((e) => {
 
 function clipboardTarget(e: ClipboardEvent): boolean {
     const t = e.target as Element | null
-    return !!score && document.body.dataset.view === 'score' && (t === textInput || t === viewport || t === document.body || !!t?.closest?.('#viewport'))
+    // an element of the score that has the focus (a comment in the panel); the event's target is the node of the
+    // page's text selection in it
+    const focused = document.activeElement
+    const inFocusedItem = !!focused?.matches('[data-score-clipboard]') && !!t && focused.contains(t)
+    return !!score && document.body.dataset.view === 'score' && (t === textInput || t === viewport || t === document.body
+        || !!t?.closest?.('#viewport') || inFocusedItem)
+}
+
+/**
+ * Not in MuseScore: an item selected outside of the score's selection (a comment, comments/commentscontroller.ts) takes
+ * the notation's delete, copy and cut; it pastes the clipboard data of its formats at the score's selection.
+ */
+export interface ClipboardExtension {
+    formats: readonly string[]
+    /** the clipboard data of the selected item; null if none is selected */
+    selectedData(): Record<string, string> | null
+    removeSelected(): void
+    canPaste(data: Record<string, string>): boolean
+    paste(data: Record<string, string>): boolean
+}
+
+let s_clipboardExtension: ClipboardExtension | null = null
+
+export function setClipboardExtension(ext: ClipboardExtension): void {
+    s_clipboardExtension = ext
+}
+
+function extensionPasteData(): Record<string, string> | null {
+    const data = clipboardContents()
+    return s_clipboardExtension?.formats.some(f => f in data) ? data : null
+}
+
+/**
+ * the notation's delete/copy/cut/paste when the clipboard extension takes them (`run`: do it); false: the score's
+ * own action
+ */
+export function clipboardExtensionAction(code: string, run: boolean): boolean {
+    const ext = s_clipboardExtension
+    if (!ext || !score) {
+        return false
+    }
+    if (code === 'action://notation/paste') {
+        const data = extensionPasteData()
+        if (!data || !ext.canPaste(data)) {
+            return false
+        }
+        if (run && ext.paste(data)) {
+            scoreChanged(false)
+        }
+        return true
+    }
+    if (!['action://notation/delete', 'action://notation/copy', 'action://notation/cut'].includes(code)) {
+        return false
+    }
+    const data = ext.selectedData()
+    if (!data) {
+        return false
+    }
+    if (run) {
+        if (code !== 'action://notation/delete') {
+            setClipboardContents(data)
+        }
+        if (code !== 'action://notation/copy') {
+            ext.removeSelected()
+        }
+    }
+    return true
 }
 
 function writeClipboard(e: ClipboardEvent): void {
@@ -1821,13 +1887,25 @@ function writeClipboard(e: ClipboardEvent): void {
 }
 
 document.addEventListener('copy', (e) => {
-    if (clipboardTarget(e) && executeAction(score!, 'action://notation/copy')) {
+    if (!clipboardTarget(e)) {
+        return
+    }
+    if (clipboardExtensionAction('action://notation/copy', true) || executeAction(score!, 'action://notation/copy')) {
         writeClipboard(e)
     }
 })
 
 document.addEventListener('cut', (e) => {
-    if (clipboardTarget(e) && isActionEnabled(score!, 'action://notation/cut')) {
+    if (!clipboardTarget(e)) {
+        return
+    }
+    if (clipboardExtensionAction('action://notation/copy', false)) {
+        clipboardExtensionAction('action://notation/copy', true)
+        writeClipboard(e)
+        clipboardExtensionAction('action://notation/delete', true)
+        return
+    }
+    if (isActionEnabled(score!, 'action://notation/cut')) {
         executeAction(score!, 'action://notation/copy')
         writeClipboard(e)
         executeAction(score!, 'action://notation/delete')
@@ -1843,13 +1921,14 @@ document.addEventListener('paste', (e) => {
     const dt = e.clipboardData
     if (dt) {
         const data: Record<string, string> = {}
-        for (const format of [...CLIPBOARD_FORMATS, 'text/plain']) {
+        const formats = [...CLIPBOARD_FORMATS, ...(s_clipboardExtension?.formats ?? [])]
+        for (const format of [...formats, 'text/plain']) {
             const d = dt.getData(format)
             if (d) {
                 data[format] = d
             }
         }
-        const hasMuseScoreData = CLIPBOARD_FORMATS.some(f => f in data)
+        const hasMuseScoreData = formats.some(f => f in data)
         const imageFile = hasMuseScoreData ? null : [...dt.files].find(f => f.type.startsWith('image/') && f.type !== 'image/svg+xml')
         if (imageFile) {
             // an image (Score::cmdPaste with QMimeData::hasImage): read the file, then paste
@@ -1869,6 +1948,10 @@ document.addEventListener('paste', (e) => {
         if (hasMuseScoreData || (data['text/plain'] !== undefined && data['text/plain'] !== current['text/plain'])) {
             setClipboardContents(data)
         }
+    }
+    if (extensionPasteData()) {
+        clipboardExtensionAction('action://notation/paste', true)
+        return
     }
     if (executeAction(score!, 'action://notation/paste')) {
         scoreChanged()
