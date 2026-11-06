@@ -46,7 +46,8 @@ Features that MuseEncore adds to MuseScore Studio, or that work differently:
   (in the Playback settings or the Preferences), and Safari has no MIDI support. There is no MIDI output.
 * Continuous view (see the screenshots below):
   * a different look (in my opinion, a better one)
-  * an additional "fit to window" mode, which lays out the score as wide as the window
+  * an additional "fit to window" mode, which lays out the score as wide as the window <img width="909" height="296" alt="Screenshot 2026-11-06 at 09 12 50" src="https://github.com/user-attachments/assets/0efc5067-9990-4685-b9f5-a2e7a53ce1df" />
+
 * Space: in the editor, holding Space and dragging moves the score, and Shift+Space starts and stops the playback
   (both can be changed in the settings). In the viewer, Space starts and stops the playback, and holding Space while
   dragging moves the score.
@@ -54,12 +55,9 @@ Features that MuseEncore adds to MuseScore Studio, or that work differently:
   formatting (`**bold**`, `*italic*`, `~~strikethrough~~`). The editor adds and edits them in the Comments panel
   (View > Comments, undoable); the viewer shows them (option `comments`). They are saved in the `.mscz`/`.mscx` file
   in a way MuseScore Studio keeps: it opens such files without errors, keeps the comments when it saves, but does not
-  show them.
+  show them. <img width="597" height="372" alt="Screenshot 2026-11-06 at 08 39 30" src="https://github.com/user-attachments/assets/951b22d9-cf16-4f54-ace8-797d48713e8b" />
 * Menu search (editor): a search field at the top of the Help menu, like in macOS applications, finds the items of all
   menus and shows the current result highlighted in its menu. Cmd+Shift+/ (Ctrl+Shift+/) opens it.
-
-<img width="1616" height="648" alt="Screenshot 2026-10-23 at 11 03 02" src="https://github.com/user-attachments/assets/7901780a-4f20-412c-8dac-33f057f1deb5" />
-<img width="1573" height="799" alt="Screenshot 2026-10-23 at 11 04 20" src="https://github.com/user-attachments/assets/e3f33b44-9f1b-49f9-a225-95449a9bb388" />
 
 
 ## Missing parts
@@ -68,11 +66,11 @@ A list of the parts that are not ported yet will follow.
 
 ## Browser compatibility
 
-Tested on desktop with:
+Tested on desktop with latest versions of:
 
 * Firefox
 * Chrome
-* Safari (partly: the playback works only in part)
+* Safari
 
 ## Getting started
 
