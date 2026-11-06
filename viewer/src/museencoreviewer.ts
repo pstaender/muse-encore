@@ -8,7 +8,7 @@
  */
 /// <reference types="vite/client" />
 import {
-    centerTargetBounds, NONE_DEVICE_ID, playalongMeasureBounds, drawContinuousPanel, drawPage, drawPageSvg, firstPageIsRight, initEngravingFonts, layoutScore, onImageDecoded, openFileAccept, openScoreFile, scoreBaseName, pageCount,
+    centerTargetBounds, NONE_DEVICE_ID, nextPlayedMeasureTick, playalongMeasureBounds, drawContinuousPanel, drawPage, drawPageSvg, firstPageIsRight, initEngravingFonts, layoutScore, onImageDecoded, openFileAccept, openScoreFile, scoreBaseName, pageCount,
     commentMarkers, pageSize, playbackCursorBounds, scoreComments, scoreTitle, setViewMode as setScoreViewMode, SvgGlyphDefs, withPageView, type MasterScore,
 } from '../../src/index'
 import { centerViewOnMeasureOrPage } from '../../shared/centerview'
@@ -19,6 +19,7 @@ import { CommentMarkersView } from '../../shared/comments/markers'
 import { fileInputAccept } from '../../shared/fileinput'
 import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../../shared/fullscreen'
 import { contentRect, isAtScrollTarget, scrollViewTo } from '../../shared/scrollview'
+import { followsInReadingOrder, pageTurnDelta, type ContentBox, type PageBarRect, type PageTurnMode } from '../../shared/pageturn'
 import { spreadPages, stepSpread } from '../../shared/spreads'
 import { SOUNDFONT_CDN_URL } from '../../shared/playback/soundfont'
 import { ViewerMidiInput, type ViewerMidiSettings } from './midiinput'
@@ -1811,34 +1812,13 @@ html, body { margin: 0; padding: 0; background: #fff; }
         })
         this.cursor.hidden = false
         if (performance.now() >= this.autoScrollPausedUntil) {
-            this.adjustViewToCursor(pageEl, b.page === 0 && this.settings.viewMode === 'continuous-horizontal')
-        }
-    }
-
-    /**
-     * AbstractNotationPaintView::adjustCanvasPosition: the view follows the cursor (with a border of 3 spatium, the
-     * cursor is 0.4 spatium wide), in the continuous view (horizontal) the cursor stays in the middle (smooth panning)
-     */
-    private adjustViewToCursor(pageEl: HTMLDivElement, smoothPan: boolean): void {
-        const viewport = this.viewport
-        const view = { left: viewport.scrollLeft, top: viewport.scrollTop, width: viewport.clientWidth, height: viewport.clientHeight }
-        const c = contentRect(this.viewport, this.cursor)
-        let left = view.left
-        let top = view.top
-        if (smoothPan) {
-            left = c.left - view.width / 2
-        } else {
-            const border = 3 * c.width / 0.4
-            if (c.left < view.left || c.right > view.left + view.width) {
-                left = c.left - border
-            }
-            if (c.top < view.top || c.bottom > view.top + view.height) {
-                // the system at the top of the view (or centered if the page fits)
-                const pr = contentRect(this.viewport, pageEl)
-                top = pr.height <= view.height ? pr.top + pr.height / 2 - view.height / 2 : c.top - border
+            // the page is turned early for the bar played and the bar played next (shared/pageturn.ts)
+            const m = playalongMeasureBounds(score, s.tick)
+            if (m) {
+                const nextTick = nextPlayedMeasureTick(score, s.position)
+                this.followBar(m.page, m, null, nextTick >= 0 ? playalongMeasureBounds(score, nextTick) : null)
             }
         }
-        this.scrollViewTo(left, top)
     }
 
     /** the view follows the playback or the playalong: scrolls to a position (the same result when repeated) */
@@ -1933,51 +1913,56 @@ html, body { margin: 0; padding: 0; background: #fff; }
             const p = st.practice && st.prevTick >= 0 ? playalongMeasureBounds(score, st.prevTick) : null
             const context = p && p.page === b.page && Math.abs(p.y - b.y) < 0.01 && p.x < b.x
                 ? { x: p.x, y: b.y, width: b.x + b.width - p.x, height: b.height } : undefined
-            // the measure played next if it follows on the page (not a jump back)
-            const n = st.nextTick >= 0 ? playalongMeasureBounds(score, st.nextTick) : null
-            const ahead = n && n.page === b.page && (n.y > b.y + 0.01 || (Math.abs(n.y - b.y) < 0.01 && n.x > b.x)) ? n : undefined
-            this.showRectInView(b.page, b, context, ahead)
+            // the page is turned early for the measure played next (shared/pageturn.ts)
+            this.followBar(b.page, b, context, st.nextTick >= 0 ? playalongMeasureBounds(score, st.nextTick) : null)
         }
     }
 
     /**
-     * the editor's showRectInView: the view moves only if the rectangle of a page (inches) or the measure after it would be
-     * cut off, and only in the direction of a continuous view (not under the continuous panel)
+     * the editor's followBar: the view follows the playback and the playalong by turning the page early
+     * (shared/pageturn.ts); `r`: the current bar (inches on its page), `context`: shown at the left if it fits, `next`:
+     * the bar played next
      */
-    private showRectInView(pageIdx: number, r: PageRect, context?: PageRect, ahead?: PageRect, recheck = true): void {
+    private followBar(pageIdx: number, r: PageRect, context?: PageRect | null, next?: PageBarRect | null, recheck = true): void {
         const el = this.pages[pageIdx]
         const score = this.score
         if (!el || !score) {
             return
         }
         const viewport = this.viewport
-        const mode = this.settings.viewMode
+        const mode: PageTurnMode = this.settings.viewMode === 'continuous-horizontal' ? 'continuous-horizontal'
+            : this.settings.viewMode === 'page' ? 'page' : 'continuous-vertical'
         // in the scrolled content (contentRect: iOS)
-        const pr = contentRect(this.viewport, el)
-        const f = pr.width / pageSize(score, pageIdx).width
+        const box = (idx: number, x: PageRect): ContentBox | null => {
+            const pageEl = this.pages[idx]
+            if (!pageEl) {
+                return null
+            }
+            const pr = contentRect(viewport, pageEl)
+            const f = pr.width / pageSize(score, idx).width
+            return { left: pr.left + x.x * f, top: pr.top + x.y * f, right: pr.left + (x.x + x.width) * f, bottom: pr.top + (x.y + x.height) * f }
+        }
+        // the page, or its spread if that fits the view's width
+        const spread = el.parentElement?.classList.contains('spread') ? el.parentElement : null
+        const sr = spread ? contentRect(viewport, spread) : null
+        const page = sr && sr.width <= viewport.clientWidth ? sr : contentRect(viewport, el)
+        const f = contentRect(viewport, el).width / pageSize(score, pageIdx).width
         const vr = { left: viewport.scrollLeft, top: viewport.scrollTop }
-        const margin = 0.2 * f
         const inset = mode === 'continuous-horizontal' && this.panelBox.isConnected ? this.panelBox.getBoundingClientRect().width : 0
-        const view = { left: vr.left + inset + margin, top: vr.top + margin, right: vr.left + viewport.clientWidth - margin, bottom: vr.top + viewport.clientHeight - margin }
-        const toView = (x: PageRect): { left: number; top: number; right: number; bottom: number } =>
-            ({ left: pr.left + x.x * f, top: pr.top + x.y * f, right: pr.left + (x.x + x.width) * f, bottom: pr.top + (x.y + x.height) * f })
-        const show = toView(r)
-        const next = ahead ? toView(ahead) : null
-        let dx = 0
-        let dy = 0
-        if (mode !== 'continuous-vertical' && (show.left < view.left || show.right > view.right
-            || (next && next.left >= show.left && next.right > view.right && Math.abs(next.top - show.top) < 1))) {
-            const c = context ? toView(context) : null
-            dx = (c && c.right - c.left <= view.right - view.left ? c : show).left - view.left
-        }
-        if (mode !== 'continuous-horizontal' && (show.top < view.top || show.bottom > view.bottom || (next && next.top > show.top && next.bottom > view.bottom))) {
-            dy = show.bottom - show.top <= view.bottom - view.top ? show.top - view.top : show.top - vr.top
-        }
-        if (Math.round(dx) || Math.round(dy)) {
+        const { dx, dy } = pageTurnDelta({
+            mode,
+            view: { left: vr.left + inset, top: vr.top, right: vr.left + viewport.clientWidth, bottom: vr.top + viewport.clientHeight },
+            page,
+            current: box(pageIdx, r)!,
+            context: context ? box(pageIdx, context) : null,
+            next: next && followsInReadingOrder({ page: pageIdx, ...r }, next) ? box(next.page, next) : null,
+            margin: 0.2 * f,
+        })
+        if (dx || dy) {
             this.scrollViewTo(vr.left + dx, vr.top + dy)
-            if (recheck) {
+            if (recheck && mode === 'continuous-horizontal') {
                 // once the panel is drawn for the new position (its width is known then)
-                requestAnimationFrame(() => requestAnimationFrame(() => this.showRectInView(pageIdx, r, context, ahead, false)))
+                requestAnimationFrame(() => requestAnimationFrame(() => this.followBar(pageIdx, r, context, next, false)))
             }
         }
     }

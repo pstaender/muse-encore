@@ -29,6 +29,7 @@ import { ELEMENT_DROP_EVENT, dragData, setDragData, type ElementDropDetail } fro
 import { onSettingsChanged, settings as appSettings, updateSettings, type ViewSettings } from './settings'
 import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../shared/fullscreen'
 import { contentRect, isAtScrollTarget, scrollViewTo, viewRect } from '../shared/scrollview'
+import { followsInReadingOrder, pageTurnDelta, type ContentBox, type PageBarRect, type PageTurnMode } from '../shared/pageturn'
 
 /** commands of the score view that the app handles */
 export const handlers = {
@@ -348,155 +349,63 @@ function scrollToPosition(left: number, top: number): void {
 /** a rectangle of a page (inches) */
 type Rect = { x: number; y: number; width: number; height: number }
 
-/**
- * C++ AbstractNotationPaintView::adjustCanvasPosition (and alignToCurrentPageBorder): moves the view so that a
- * rectangle of a page (inches) is visible, with a border; returns true if the view moved. Unlike C++, the continuous
- * views keep the position across their direction (vertical in the horizontal view, horizontal in the vertical one)
- * unless the rectangle is moved into the view on that axis: alignToCurrentPageBorder would align it to the page there.
- */
-export function adjustViewToRect(pageIdx: number, r: Rect, adjustVertically: boolean, borderInches: number): boolean {
-    const el = pages[pageIdx]
-    if (!el || !score) {
-        return false
-    }
-    // in the scrolled content (contentRect: iOS)
-    const pr = contentRect(viewport, el)
-    const f = pr.width / pageSize(score, pageIdx).width
-    const vr = viewRect(viewport)
-    // account for the continuous panel if panning in the continuous view
-    const panelWidth = settings.viewMode !== 'continuous-horizontal' ? 0
-        : panelBox.isConnected ? panelBox.getBoundingClientRect().width : s_panelWidth
-    const view = { left: vr.left + panelWidth, top: vr.top, width: viewport.clientWidth - panelWidth, height: viewport.clientHeight }
-    const show = { left: pr.left + r.x * f, top: pr.top + r.y * f, width: r.width * f, height: r.height * f }
-    const right = (b: { left: number; width: number }): number => b.left + b.width
-    const bottom = (b: { top: number; height: number }): number => b.top + b.height
-
-    if (view.width * view.height < show.width * show.height) {
-        return false
-    }
-    if (show.left >= view.left && right(show) <= right(view) && show.top >= view.top && bottom(show) <= bottom(view)) {
-        return false
-    }
-
-    const border = borderInches * f
-    const pos = { x: vr.left, y: vr.top }
-    let movedX = false
-    let movedY = false
-
-    // the rectangle is placed right of the panel
-    let afterPanel = false
-    if (show.left < view.left) {
-        pos.x = show.left - border - panelWidth
-        movedX = afterPanel = true
-    } else if (show.left > right(view)) {
-        pos.x = right(show) - viewport.clientWidth + border
-        movedX = true
-    } else if (view.width >= show.width && right(show) > right(view)) {
-        pos.x = show.left - border - panelWidth
-        movedX = afterPanel = true
-    }
-
-    if (adjustVertically) {
-        if (show.top < view.top && bottom(show) < bottom(view)) {
-            pos.y = show.top - border
-            movedY = true
-        } else if (show.top > bottom(view)) {
-            pos.y = bottom(show) - view.height + border
-            movedY = true
-        } else if (view.height >= show.height && bottom(show) > bottom(view)) {
-            pos.y = show.top - border
-            movedY = true
-        }
-    }
-
-    // alignToCurrentPageBorder
-    const fullWidth = viewport.clientWidth
-    if (settings.viewMode !== 'continuous-vertical' || movedX) {
-        if (pos.x < pr.left || fullWidth >= pr.width) {
-            pos.x = pr.left
-        } else if (fullWidth < pr.width && fullWidth + pos.x > pr.right) {
-            pos.x = pr.right - fullWidth
-        }
-    }
-    if (settings.viewMode !== 'continuous-horizontal' || movedY) {
-        if (pos.y < pr.top || view.height >= pr.height) {
-            pos.y = pr.top
-        } else if (view.height < pr.height && view.height + pos.y > pr.bottom) {
-            pos.y = pr.bottom - view.height
-        }
-    }
-
-    const dx = Math.round(pos.x - vr.left)
-    const dy = Math.round(pos.y - vr.top)
-    if (!dx && !dy) {
-        return false
-    }
-    scrollToPosition(pos.x, pos.y)
-    if (afterPanel && settings.viewMode === 'continuous-horizontal') {
-        // not in C++: the panel is drawn for the new position now, and the view corrects for its width (unknown when it
-        // was not shown before, e.g. at the start of the score) instead of moving again in the next frame
-        updateContinuousPanel()
-        const d = Math.round((panelBox.isConnected ? panelBox.getBoundingClientRect().width : 0) - panelWidth)
-        if (d) {
-            scrollToPosition(pos.x - d, pos.y)
-            updateContinuousPanel()
-        }
-    }
-    return true
+/** the page or its spread if that fits the view's width (scrolled content coordinates) */
+function pageTurnBox(el: HTMLElement): ContentBox {
+    const spread = el.parentElement?.classList.contains('spread') ? el.parentElement : null
+    const sr = spread ? contentRect(viewport, spread) : null
+    const r = sr && sr.width <= viewport.clientWidth ? sr : contentRect(viewport, el)
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }
 }
 
 /**
- * not in MuseScore (the playalong): moves the view so that a rectangle of a page (inches) is fully visible, not covered
- * by the continuous panel at the left edge, with a margin; if it has to move, `context` (a rectangle containing
- * `r`, e.g. with the previous measure) is shown instead when it fits. The rectangle is placed at the left (top) of the
- * view so that what follows is visible. `ahead` (what follows `r` on the page, e.g. the next measure) turns the view one
- * step early: it moves when `ahead` is cut off at the right (bottom), so the measure played next is visible before it is
- * reached. The continuous views only move in their direction (the horizontal one only horizontally, the vertical one
- * only vertically): the position across it stays where the user put it. Returns true if the view moved.
+ * Not in MuseScore: the view follows the playback and the playalong by turning the page early (shared/pageturn.ts):
+ * `r` is the current bar (inches on its page), `context` a rectangle containing it shown at the left when it fits (the
+ * practice mode: the bar before it), `next` the bar played next. Returns true if the view moved.
  */
-export function showRectInView(pageIdx: number, r: Rect, context?: Rect, ahead?: Rect, marginInches = 0.2,
-                               recheck = true): boolean {
+export function followBar(pageIdx: number, r: Rect, context?: Rect | null, next?: PageBarRect | null, marginInches = 0.2,
+                          recheck = true): boolean {
     const el = pages[pageIdx]
     if (!el || !score) {
         return false
     }
-    const followX = settings.viewMode !== 'continuous-vertical'
-    const followY = settings.viewMode !== 'continuous-horizontal'
+    const mode: PageTurnMode = settings.viewMode === 'continuous-horizontal' ? 'continuous-horizontal'
+        : settings.viewMode === 'page' ? 'page' : 'continuous-vertical'
     // in the scrolled content (contentRect: iOS)
+    const box = (idx: number, x: Rect): ContentBox | null => {
+        const pageEl = pages[idx]
+        if (!pageEl) {
+            return null
+        }
+        const pr = contentRect(viewport, pageEl)
+        const f = pr.width / pageSize(score!, idx).width
+        return { left: pr.left + x.x * f, top: pr.top + x.y * f, right: pr.left + (x.x + x.width) * f, bottom: pr.top + (x.y + x.height) * f }
+    }
     const pr = contentRect(viewport, el)
     const f = pr.width / pageSize(score, pageIdx).width
     const vr = viewRect(viewport)
-    const margin = marginInches * f
     // the panel appears when the view moves away from the start of the score: its last width
-    const inset = settings.viewMode !== 'continuous-horizontal' ? 0
+    const inset = mode !== 'continuous-horizontal' ? 0
         : panelBox.isConnected ? panelBox.getBoundingClientRect().width : s_panelWidth
-    const view = { left: vr.left + inset + margin, top: vr.top + margin, right: vr.left + viewport.clientWidth - margin, bottom: vr.top + viewport.clientHeight - margin }
-    const toView = (x: Rect): { left: number; top: number; right: number; bottom: number } =>
-        ({ left: pr.left + x.x * f, top: pr.top + x.y * f, right: pr.left + (x.x + x.width) * f, bottom: pr.top + (x.y + x.height) * f })
-    const show = toView(r)
-    const next = ahead ? toView(ahead) : null
-    let dx = 0
-    let dy = 0
-    if (followX && (show.left < view.left || show.right > view.right
-        || (next && next.left >= show.left && next.right > view.right && Math.abs(next.top - show.top) < 1))) {
-        const c = context ? toView(context) : null
-        const target = c && c.right - c.left <= view.right - view.left ? c : show
-        dx = target.left - view.left
-    }
-    if (followY && (show.top < view.top || show.bottom > view.bottom || (next && next.top > show.top && next.bottom > view.bottom))) {
-        dy = show.bottom - show.top <= view.bottom - view.top ? show.top - view.top : show.top - vr.top
-    }
-    dx = Math.round(dx)
-    dy = Math.round(dy)
+    const current = box(pageIdx, r)!
+    const ahead = next && followsInReadingOrder({ page: pageIdx, ...r }, next) ? box(next.page, next) : null
+    const { dx, dy } = pageTurnDelta({
+        mode,
+        view: { left: vr.left + inset, top: vr.top, right: vr.right, bottom: vr.bottom },
+        page: pageTurnBox(el),
+        current,
+        context: context ? box(pageIdx, context) : null,
+        next: ahead,
+        margin: marginInches * f,
+    })
     if (!dx && !dy) {
         return false
     }
     const left = viewport.scrollLeft
     const top = viewport.scrollTop
     scrollToPosition(vr.left + dx, vr.top + dy)
-    if (recheck) {
+    if (recheck && mode === 'continuous-horizontal') {
         // once the panel is drawn for the new position (its width is known then)
-        requestAnimationFrame(() => requestAnimationFrame(() => showRectInView(pageIdx, r, context, ahead, marginInches, false)))
+        requestAnimationFrame(() => requestAnimationFrame(() => followBar(pageIdx, r, context, next, marginInches, false)))
     }
     return viewport.scrollLeft !== left || viewport.scrollTop !== top
 }

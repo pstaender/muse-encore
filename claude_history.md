@@ -2024,3 +2024,16 @@
 - A double click on a marker opens the comment's text field in the panel (focused); also on an entry in the panel.
 - Selecting a comment does not move the focus to its marker or panel entry: the score view keeps it (focused again), so Delete/Backspace and the browser's copy/cut events (Safari fires them only with a suitable focus) take the selected comment.
 - Enter/Escape in a comment's text field returns to the score with the comment selected (Ctrl+C/Ctrl+X take it). Selecting a comment clears the page's text selection: Firefox sends the clipboard events to its node (e.g. the text field edited before). Checked in Firefox (Playwright).
+
+## 2026-11-06 — Proactive page turning during playback and playalong (not in MuseScore)
+
+- `shared/pageturn.ts`: pageTurnDelta (the scroll change for the current bar, an optional context and the bar played
+  next) and followsInReadingOrder; used by the editor (`scoreview.ts` followBar, for playbackview.ts and
+  playalongview.ts) and the viewer (museencoreviewer.ts followBar, playback and playalong). It replaces the editor's
+  playback following with adjustViewToRect (C++ adjustCanvasPosition, removed with showRectInView) and the viewer's
+  adjustViewToCursor (which always kept the cursor in the middle of the continuous view). The editor's "Smooth
+  panning" option (continuous view, horizontal) still centers the cursor.
+- Library: `nextPlayedMeasureTick(score, sec)` (playback/api.ts): the measure played next in the played order.
+- test/pageturn.test.ts. Checked in the viewer (Chrome): page view with two pages in the window turns to the third page
+  once; the continuous view moves when the next bar is cut off.
+- Known: at the start of the playback the viewer's view moves a few pixels and back (seen once; not investigated).
