@@ -46,7 +46,7 @@ Features that MuseEncore adds to MuseScore Studio, or that work differently:
   (in the Playback settings or the Preferences), and Safari has no MIDI support. There is no MIDI output.
 * Continuous view (see the screenshots below):
   * a different look (in my opinion, a better one)
-  * an additional "fit to window" mode, which lays out the score as wide as the window <img width="909" height="296" alt="Screenshot 2026-11-06 at 09 12 50" src="https://github.com/user-attachments/assets/0efc5067-9990-4685-b9f5-a2e7a53ce1df" />
+  * an additional "fit to window" mode, which lays out the score as wide as the window <br><br><img width="909" height="296" alt="Screenshot 2026-11-06 at 09 12 50" src="https://github.com/user-attachments/assets/0efc5067-9990-4685-b9f5-a2e7a53ce1df" />
 
 * Early page turns: during playback and playalong, the view does not follow the cursor. It turns the "page"
   early, so it moves seldom and you can see the next bars before they are played (2 by default; in the editor's
@@ -62,7 +62,9 @@ Features that MuseEncore adds to MuseScore Studio, or that work differently:
   it, up to the right edge of the view) is shown directly after the bar with the jump (over the bars that are skipped),
   set off by a soft shadow and marked with its bar number;
   the view keeps it visible like the bar played next (editor: Preferences > Web version; viewer option `jumpPreviewInHorizontalView`).
-  "Smooth panning" in the editor's settings still keeps the cursor in the middle of the continuous view.
+  "Smooth panning" in the editor's settings still keeps the cursor in the middle of the continuous view. <br><br><img width="3076" height="951" alt="Screenshot 2026-11-07 at 07 48 15_2" src="https://github.com/user-attachments/assets/b5c17d88-5d30-437d-9dae-4a07e4473b3d" />
+
+
 * Space: in the editor, holding Space and dragging moves the score, and Shift+Space starts and stops the playback
   (both can be changed in the settings). In the viewer, Space starts and stops the playback, and holding Space while
   dragging moves the score.
@@ -71,7 +73,7 @@ Features that MuseEncore adds to MuseScore Studio, or that work differently:
   (View > Comments, undoable); a comment selected (its marker or its entry in the panel clicked) is deleted with
   Delete/Backspace (a double click edits its text) and copied or cut with Ctrl+C/Ctrl+X, and pasted onto the selected note, rest or measure; the viewer shows them (option `comments`). They are saved in the `.mscz`/`.mscx` file
   in a way MuseScore Studio keeps: it opens such files without errors, keeps the comments when it saves, but does not
-  show them. <img width="702" height="366" alt="Screenshot 2026-11-06 at 19 56 08" src="https://github.com/user-attachments/assets/83d52422-b6bb-4157-9626-fa5c51874b0f" />
+  show them. <br><br><img width="702" height="366" alt="Screenshot 2026-11-06 at 19 56 08" src="https://github.com/user-attachments/assets/83d52422-b6bb-4157-9626-fa5c51874b0f" />
 
 
 * Comparing scores (editor: File > Compare with…; viewer: the Compare button, `compareWith()`): the open score and
