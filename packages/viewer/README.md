@@ -164,5 +164,7 @@ GPL-3.0-only, like MuseScore Studio. The fonts have their own licenses (see `fon
 
 In the repository: `npm run build:viewer-package` builds this package into `packages/viewer` (the module, its
 type declarations, the fonts and the license); then `npm publish` there. `packages/viewer/example/` shows a few
-viewers on a page and a configurator of the options (`npx vite packages/viewer`, then open `/example/?url=<score>`); it is online at
+viewers on a page and a configurator of the options (`npm run example:viewer`, then open `/example/?url=<score>`); it is online at
 [pstaender.github.io/muse-encore/viewer-package/example/](https://pstaender.github.io/muse-encore/viewer-package/example/).
+A select switches between the same page with the released version (`index.html`), `@latest` (`latest.html`) and the
+build of the repository (`current.html`).

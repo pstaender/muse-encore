@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>muse-encore-viewer examples</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/minimaxcss@latest/minimax-starter.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/styles/idea.min.css"
+    />
+    <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.11.1/build/highlight.min.js"></script>
+    <style>
+      body {
+        max-width: 960px;
+        margin: 32px auto;
+        padding: 0 16px;
+      }
+      pre {
+        padding: 0;
+        background: none;
+        border-radius: 8px;
+        margin-bottom: 2rem;
+        code.hljs {
+          background-color: var(--color-gray-light);
+        }
+      }
+      .score {
+        height: 560px;
+        margin: 24px 0;
+        border: 1px solid #ccc;
+      }
+      .score.small {
+        height: 360px;
+      }
+      p {
+        margin-bottom: 1rem;
+      }
+      h3 {
+        padding-top: 2rem;
+      }
+      h1 {
+        margin-bottom: -1rem;
+      }
+      #overview {
+        display: none;
+      }
+      @media (min-width: 1200px) {
+        body {
+          max-width: 1232px;
+          padding-left: 256px;
+        }
+        #overview {
+          display: block;
+          position: fixed;
+          top: 2rem;
+          left: max(16px, calc(50% - 600px));
+          width: 216px;
+          padding: 0.5rem 1rem;
+          border-radius: 8px;
+          font-size: 0.9rem;
+          background: var(--color-gray-light);
+        }
+        #overview a {
+          display: block;
+          margin-bottom: 0.75rem;
+          text-decoration: none;
+          color: currentColor;
+        }
+        #overview a[aria-current] {
+          font-weight: bold;
+        }
+      }
+      #version-switch {
+        display: flex;
+        width: fit-content;
+        margin: 1rem 0 1.5rem;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+      }
+      #version-switch select {
+        width: auto;
+        margin: 0;
+      }
+      .show-code {
+        font-size: 0.8rem;
+        padding: 0.2rem 0.6rem;
+        margin: -0.5rem 0 0.5rem;
+      }
+      #configurator-form {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+      #configurator-form fieldset {
+        margin: 0;
+        padding: 0.5rem 1rem 1rem;
+        display: grid;
+        min-width: 0;
+        border: 2px solid currentColor;
+        border-radius: 8px;
+        box-shadow: 2px 2px 0 currentColor;
+      }
+      #configurator-form legend {
+        padding: 0 0.4rem;
+        font-weight: bold;
+      }
+      #configurator-form section {
+        margin: 0.25rem 0;
+        padding: 0;
+      }
+      #configurator-form label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin: 0;
+        cursor: pointer;
+      }
+      #configurator-form fieldset:disabled {
+        opacity: 0.4;
+      }
+      #configurator-form fieldset:disabled label {
+        cursor: default;
+      }
+      /* the form elements of minimax-printable-forms.css, checked boxes black
+         with a white tick */
+      #configurator-form input[type="checkbox"] {
+        appearance: none;
+        -webkit-appearance: none;
+        flex: none;
+        margin: 0;
+        font: inherit;
+        color: currentColor;
+        width: 1.25em;
+        height: 1.25em;
+        border: 2px solid currentColor;
+        border-radius: 3px;
+        background-color: var(--background-color, white);
+        box-shadow: 1px 1px 0 currentColor;
+        display: inline-grid;
+        place-content: center;
+        cursor: inherit;
+        transition: background-color 120ms ease-in-out;
+      }
+      #configurator-form input[type="checkbox"]::before {
+        content: "";
+        width: 0.75em;
+        height: 0.75em;
+        transform: scale(0);
+        transition: 120ms transform ease-in-out;
+        background-color: var(--background-color, white);
+        clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+      }
+      #configurator-form input[type="checkbox"]:checked {
+        background-color: currentColor;
+      }
+      #configurator-form input[type="checkbox"]:checked::before {
+        transform: scale(1);
+      }
+      #configurator-form input[type="checkbox"]:focus-visible,
+      #configurator-form select:focus-visible {
+        outline: 2px solid currentColor;
+        outline-offset: 2px;
+      }
+      #configurator-form select {
+        appearance: none;
+        -webkit-appearance: none;
+        flex: 0 1 8rem;
+        min-width: 0;
+        margin: 0;
+        padding: 0.15rem 1.75rem 0.15rem 0.5rem;
+        font: inherit;
+        font-size: 0.9rem;
+        color: currentColor;
+        border: 2px solid currentColor;
+        border-radius: 3px;
+        box-shadow: 1px 1px 0 currentColor;
+        background: var(--background-color, white)
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='black' stroke-width='1.5'/%3E%3C/svg%3E")
+          no-repeat right 0.5rem center / 0.65rem;
+        cursor: inherit;
+      }
+    </style>
+  </head>
+  <body>
+    <nav id="overview" aria-label="Overview">
+      <a href="#continuous-view">Continuous view with playback and playalong (audio or MIDI)</a>
+      <a href="#without-toolbar">Without a toolbar</a>
+      <a href="#optimized-view">Optimized view for screen</a>
+      <a href="#configurator">Configurator</a>
+    </nav>
+
+    <h1>muse-encore-viewer examples</h1>
+    <!-- the same page with another build of the module: index.html (the version on the CDN), latest.html, current.html -->
+    <label id="version-switch">
+      Viewer module
+      <select>
+        <option value="index.html">released version (CDN)</option>
+        <option value="latest.html">@latest (CDN)</option>
+        <option value="current.html">current (local build of the repository)</option>
+      </select>
+    </label>
+
+    <h3 id="continuous-view">Continuous view with playback and playalong-mode</h3>
+    <p>
+      For playing along with an instrument (microphone or MIDI): one row of
+      systems, playback and playalong, no page controls.
+    </p>
+    <div
+      id="score3"
+      class="score small"
+      style="aspect-ratio: 2; width: 100%; height: auto"
+    ></div>
+
+    <h3 id="without-toolbar">Without a toolbar</h3>
+    <p>
+      The classical page view, close to sheet music on paper: only the pages, no
+      controls.
+    </p>
+    <div
+      id="score2"
+      class="score small"
+      style="aspect-ratio: 3/4; width: 100%; height: auto"
+    ></div>
+
+    <h3 id="optimized-view">Optimized view for screen</h3>
+    <p>
+      Uses the screen space as efficiently as possible: <code>"window-fit"</code>
+      lays out the systems to the viewer's width, without pages.
+    </p>
+    <div id="score1" class="score"></div>
+
+    <h3 id="configurator">Configurator</h3>
+    <p>
+      Change any setting to recreate the viewer below with the code shown here
+      (<code>urlToMuseScoreFile</code> is the URL of your score).
+    </p>
+    <form id="configurator-form"></form>
+    <p>
+      <button type="reset" form="configurator-form">Reset to defaults</button>
+    </p>
+    <pre><code id="configurator-code" class="hljs"></code></pre>
+    <div id="configured" class="score"></div>
+
+    <!-- npm run example:viewer (builds the package and serves packages/viewer), then open /example/?url=<score>.
+         index.html, latest.html and current.html are identical except MODULE_URL (test/viewer-examples.test.ts) -->
+    <script type="module">
+      const MODULE_URL = "../dist/muse-encore-viewer.js";
+      const { default: applyMuseEncoreViewer } = await import(MODULE_URL);
+
+      const urlToMuseScoreFile =
+        new URLSearchParams(location.search).get("url") ?? "bei_gezeiten.mscz";
+
+      // the version switch: the same page with another build of the module (keeps ?url=)
+      const versionSelect = document.querySelector("#version-switch select");
+      const page = location.pathname.split("/").pop() || "index.html";
+      versionSelect.value = page;
+      versionSelect.addEventListener("change", () => {
+        location.href = versionSelect.value + location.search + location.hash;
+      });
+
+      // the highlighted code that creates a viewer with these options
+      const viewerCode = (selector, options) => {
+        const args = Object.keys(options).length
+          ? ", " + JSON.stringify(options, null, 2).replace(/"(\w+)":/g, "$1:")
+          : "";
+        const source = `import applyMuseEncoreViewer from "${MODULE_URL}";\n\napplyMuseEncoreViewer("${selector}", urlToMuseScoreFile${args});`;
+        return hljs.highlight(source, { language: "javascript" }).value;
+      };
+
+      const EXAMPLES = {
+        "#score3": {
+          continuousView: "horizontal",
+          toolbarGroups: {
+            playback: true,
+            playalong: true,
+            print: false,
+            fullScreen: false,
+            pageView: false,
+          },
+          showStatusBar: true,
+          keyboardShortcuts: true,
+          colorScheme: "light",
+        },
+        "#score2": {
+          disableToolbar: true,
+          colorScheme: "light",
+        },
+        "#score1": {
+          continuousView: "window-fit",
+          zoom: 75,
+          toolbarGroups: {
+            pageNavigation: false,
+            pageView: false,
+          },
+        },
+      };
+      for (const [selector, options] of Object.entries(EXAMPLES)) {
+        applyMuseEncoreViewer(selector, urlToMuseScoreFile, options);
+
+        // a "Show JS Code" button below the viewer that opens its code
+        const pre = document.createElement("pre");
+        pre.hidden = true;
+        pre.innerHTML = `<code class="hljs">${viewerCode(selector, options)}</code>`;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "show-code";
+        button.textContent = "Show JS Code";
+        button.setAttribute("aria-expanded", "false");
+        button.addEventListener("click", () => {
+          pre.hidden = !pre.hidden;
+          button.textContent = pre.hidden ? "Show JS Code" : "Hide JS Code";
+          button.setAttribute("aria-expanded", String(!pre.hidden));
+        });
+        document.querySelector(selector).after(button, pre);
+      }
+
+      // a boolean is a checkbox, a list a select; the default (a boolean, the
+      // first entry of a list) is left out of the options. zoom's default
+      // depends on centerAndResizeToPage: null stands for not setting it
+      const SETTINGS = {
+        View: {
+          continuousView: [false, "horizontal", "vertical", "window-fit"],
+          pageOrientation: ["horizontal", "vertical"],
+          twoPages: false,
+          zoom: [null, "whole-page", "page-width", 50, 75, 100, 150, 200],
+          centerAndResizeToPage: [1, 2, 3, false],
+        },
+        Viewer: {
+          disableToolbar: false,
+          showStatusBar: false,
+          keyboardShortcuts: false,
+          colorScheme: ["auto", "light", "dark"],
+        },
+        toolbarGroups: {
+          file: false,
+          pageNavigation: true,
+          pageView: true,
+          zoom: true,
+          playback: false,
+          playalong: false,
+          print: true,
+          fullScreen: true,
+        },
+      };
+
+      const form = document.getElementById("configurator-form");
+      const controls = [];
+      for (const [group, settings] of Object.entries(SETTINGS)) {
+        const fieldset = document.createElement("fieldset");
+        fieldset.name = group;
+        fieldset.append(
+          Object.assign(document.createElement("legend"), { textContent: group }),
+        );
+        for (const [name, setting] of Object.entries(settings)) {
+          const label = document.createElement("label");
+          label.append(name);
+          let control;
+          if (Array.isArray(setting)) {
+            control = document.createElement("select");
+            for (const value of setting) {
+              control.add(
+                new Option(value === null ? "default" : value, JSON.stringify(value)),
+              );
+            }
+          } else {
+            control = document.createElement("input");
+            control.type = "checkbox";
+            control.defaultChecked = setting;
+          }
+          control.name = name;
+          label.append(control);
+          const section = document.createElement("section");
+          section.append(label);
+          fieldset.append(section);
+          controls.push({ group, name, setting, control });
+        }
+        form.append(fieldset);
+      }
+
+      const readOptions = () => {
+        const options = {};
+        const disableToolbar = form.elements.disableToolbar.checked;
+        form.elements.toolbarGroups.disabled = disableToolbar;
+        for (const { group, name, setting, control } of controls) {
+          const isList = Array.isArray(setting);
+          const value = isList ? JSON.parse(control.value) : control.checked;
+          if (value === (isList ? setting[0] : setting)) continue;
+          if (group !== "toolbarGroups") options[name] = value;
+          else if (!disableToolbar) (options.toolbarGroups ??= {})[name] = value;
+        }
+        return options;
+      };
+
+      const showCode = (options) => {
+        document.getElementById("configurator-code").innerHTML = viewerCode(
+          "#configured",
+          options,
+        );
+      };
+
+      let viewer;
+      const apply = () => {
+        const options = readOptions();
+        showCode(options);
+        viewer?.destroy();
+        viewer = applyMuseEncoreViewer("#configured", urlToMuseScoreFile, options);
+      };
+      form.addEventListener("change", apply);
+      // the event comes before the form's values are reset
+      form.addEventListener("reset", () => setTimeout(apply));
+      apply();
+
+      // the overview: the title of the section with the most pixels in the
+      // window is bold; a section ends at the next section's title
+      const links = [...document.querySelectorAll("#overview a")];
+      const titles = links.map((link) => document.querySelector(link.hash));
+      const markVisibleSection = () => {
+        const visible = titles.map((title, i) => {
+          const top = title.getBoundingClientRect().top;
+          const bottom =
+            titles[i + 1]?.getBoundingClientRect().top ??
+            document.body.getBoundingClientRect().bottom;
+          return Math.min(bottom, innerHeight) - Math.max(top, 0);
+        });
+        const most = visible.indexOf(Math.max(...visible));
+        links.forEach((link, i) => link.toggleAttribute("aria-current", i === most));
+      };
+      addEventListener("scroll", markVisibleSection, { passive: true });
+      addEventListener("resize", markVisibleSection);
+      new ResizeObserver(markVisibleSection).observe(document.body);
+    </script>
+  </body>
+</html>
