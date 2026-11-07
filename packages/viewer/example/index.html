@@ -197,13 +197,13 @@
     </nav>
 
     <h1>muse-encore-viewer examples</h1>
-    <!-- the same page with another build of the module: index.html (the version on the CDN), latest.html, current.html -->
+    <!-- the module the page imports: ?module=release (default), latest or current -->
     <label id="version-switch">
       Viewer module
       <select>
-        <option value="index.html">released version (CDN)</option>
-        <option value="latest.html">@latest (CDN)</option>
-        <option value="current.html">current (local build of the repository)</option>
+        <option value="release">released version (CDN)</option>
+        <option value="latest">@latest (CDN)</option>
+        <option value="current">current (local build of the repository)</option>
       </select>
     </label>
 
@@ -248,21 +248,28 @@
     <pre><code id="configurator-code" class="hljs"></code></pre>
     <div id="configured" class="score"></div>
 
-    <!-- npm run example:viewer (builds the package and serves packages/viewer), then open /example/?url=<score>.
-         index.html, latest.html and current.html are identical except MODULE_URL (test/viewer-examples.test.ts) -->
+    <!-- npm run example:viewer (builds the package and serves packages/viewer), then open /example/?url=<score> -->
     <script type="module">
-      const MODULE_URL = "https://cdn.jsdelivr.net/npm/muse-encore-viewer@1.5.1/dist/muse-encore-viewer.js";
+      // the viewer module: the released version (set by npm run bump-version), @latest, or the local build
+      const MODULES = {
+        release: "https://cdn.jsdelivr.net/npm/muse-encore-viewer@1.5.1/dist/muse-encore-viewer.js",
+        latest: "https://cdn.jsdelivr.net/npm/muse-encore-viewer@latest/dist/muse-encore-viewer.js",
+        current: "../dist/muse-encore-viewer.js",
+      };
+      const params = new URLSearchParams(location.search);
+      const moduleName = Object.hasOwn(MODULES, params.get("module")) ? params.get("module") : "release";
+      const MODULE_URL = MODULES[moduleName];
       const { default: applyMuseEncoreViewer } = await import(MODULE_URL);
 
-      const urlToMuseScoreFile =
-        new URLSearchParams(location.search).get("url") ?? "bei_gezeiten.mscz";
+      const urlToMuseScoreFile = params.get("url") ?? "bei_gezeiten.mscz";
 
-      // the version switch: the same page with another build of the module (keeps ?url=)
+      // the switch of the module: reloads the page with ?module= (keeps ?url=)
       const versionSelect = document.querySelector("#version-switch select");
-      const page = location.pathname.split("/").pop() || "index.html";
-      versionSelect.value = page;
+      versionSelect.value = moduleName;
       versionSelect.addEventListener("change", () => {
-        location.href = versionSelect.value + location.search + location.hash;
+        if (versionSelect.value === "release") params.delete("module");
+        else params.set("module", versionSelect.value);
+        location.search = params.toString();
       });
 
       // the highlighted code that creates a viewer with these options

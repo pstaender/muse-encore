@@ -166,5 +166,5 @@ In the repository: `npm run build:viewer-package` builds this package into `pack
 type declarations, the fonts and the license); then `npm publish` there. `packages/viewer/example/` shows a few
 viewers on a page and a configurator of the options (`npm run example:viewer`, then open `/example/?url=<score>`); it is online at
 [pstaender.github.io/muse-encore/viewer-package/example/](https://pstaender.github.io/muse-encore/viewer-package/example/).
-A select switches between the same page with the released version (`index.html`), `@latest` (`latest.html`) and the
-build of the repository (`current.html`).
+A select switches the module the page uses: the released version, `@latest` or the build of the repository
+(`?module=release`, `latest` or `current`).

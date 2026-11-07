@@ -2070,9 +2070,8 @@
   are called "Early page turns" (with "Bars ahead") and "Preview repeats and jumps"; the viewer's options are
   `pageTurnBarsAhead` (was `pageTurnAhead`) and `jumpPreviewInHorizontalView`. Both are on by default.
 
-## 2026-11-07 — Viewer package examples: released, @latest and local build
+## 2026-11-07 — Viewer package example: released, @latest and local build
 
-- packages/viewer/example: index.html (the released version on the CDN, set by bump-version), latest.html (@latest) and
-  current.html (../dist, the local build: `npm run example:viewer`) are the same page except `MODULE_URL` (the module is
-  imported with `import(MODULE_URL)`); a select below the title switches between them (keeps `?url=`).
-  test/viewer-examples.test.ts checks that they stay identical.
+- packages/viewer/example/index.html imports the module with `import(MODULE_URL)`: `?module=release` (default; the
+  version on the CDN, set by bump-version, whose pattern now only matches version numbers, not @latest), `latest`, or
+  `current` (../dist, the local build: `npm run example:viewer`); a select below the title switches (keeps `?url=`).
