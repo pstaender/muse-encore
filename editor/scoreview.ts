@@ -29,6 +29,8 @@ import { ELEMENT_DROP_EVENT, dragData, setDragData, type ElementDropDetail } fro
 import { onSettingsChanged, settings as appSettings, updateSettings, type ViewSettings } from './settings'
 import { fullscreenElement, onFullscreenChange, pointerIsOn, touchInput } from '../shared/fullscreen'
 import { contentRect, isAtScrollTarget, scrollViewTo, viewRect } from '../shared/scrollview'
+import { barIsInView, jumpIndex, JumpPreview } from '../shared/jumppreview'
+import { followingBars, pageTurnDelta, type ContentBox, type PageBarRect, type PageTurnMode } from '../shared/pageturn'
 
 /** commands of the score view that the app handles */
 export const handlers = {
@@ -445,58 +447,63 @@ export function adjustViewToRect(pageIdx: number, r: Rect, adjustVertically: boo
     return true
 }
 
+/** the page or its spread if that fits the view's width (scrolled content coordinates) */
+function pageTurnBox(el: HTMLElement): ContentBox {
+    const spread = el.parentElement?.classList.contains('spread') ? el.parentElement : null
+    const sr = spread ? contentRect(viewport, spread) : null
+    const r = sr && sr.width <= viewport.clientWidth ? sr : contentRect(viewport, el)
+    return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }
+}
+
 /**
- * not in MuseScore (the playalong): moves the view so that a rectangle of a page (inches) is fully visible, not covered
- * by the continuous panel at the left edge, with a margin; if it has to move, `context` (a rectangle containing
- * `r`, e.g. with the previous measure) is shown instead when it fits. The rectangle is placed at the left (top) of the
- * view so that what follows is visible. `ahead` (what follows `r` on the page, e.g. the next measure) turns the view one
- * step early: it moves when `ahead` is cut off at the right (bottom), so the measure played next is visible before it is
- * reached. The continuous views only move in their direction (the horizontal one only horizontally, the vertical one
- * only vertically): the position across it stays where the user put it. Returns true if the view moved.
+ * Not in MuseScore: the view follows the playback and the playalong by turning the page early (shared/pageturn.ts):
+ * `r` is the current bar (inches on its page), `context` a rectangle containing it shown at the left when it fits (the
+ * practice mode: the bar before it), `ahead` the bars played next (the setting's number of bars; none: the view moves
+ * when the current bar is cut off). Returns true if the view moved.
  */
-export function showRectInView(pageIdx: number, r: Rect, context?: Rect, ahead?: Rect, marginInches = 0.2,
-                               recheck = true): boolean {
+export function followBar(pageIdx: number, r: Rect, context?: Rect | null, ahead: readonly PageBarRect[] = [], marginInches = 0.2,
+                          recheck = true): boolean {
     const el = pages[pageIdx]
     if (!el || !score) {
         return false
     }
-    const followX = settings.viewMode !== 'continuous-vertical'
-    const followY = settings.viewMode !== 'continuous-horizontal'
+    const mode: PageTurnMode = settings.viewMode === 'continuous-horizontal' ? 'continuous-horizontal'
+        : settings.viewMode === 'page' ? 'page' : 'continuous-vertical'
     // in the scrolled content (contentRect: iOS)
+    const box = (idx: number, x: Rect): ContentBox | null => {
+        const pageEl = pages[idx]
+        if (!pageEl) {
+            return null
+        }
+        const pr = contentRect(viewport, pageEl)
+        const f = pr.width / pageSize(score!, idx).width
+        return { left: pr.left + x.x * f, top: pr.top + x.y * f, right: pr.left + (x.x + x.width) * f, bottom: pr.top + (x.y + x.height) * f }
+    }
     const pr = contentRect(viewport, el)
     const f = pr.width / pageSize(score, pageIdx).width
     const vr = viewRect(viewport)
-    const margin = marginInches * f
     // the panel appears when the view moves away from the start of the score: its last width
-    const inset = settings.viewMode !== 'continuous-horizontal' ? 0
+    const inset = mode !== 'continuous-horizontal' ? 0
         : panelBox.isConnected ? panelBox.getBoundingClientRect().width : s_panelWidth
-    const view = { left: vr.left + inset + margin, top: vr.top + margin, right: vr.left + viewport.clientWidth - margin, bottom: vr.top + viewport.clientHeight - margin }
-    const toView = (x: Rect): { left: number; top: number; right: number; bottom: number } =>
-        ({ left: pr.left + x.x * f, top: pr.top + x.y * f, right: pr.left + (x.x + x.width) * f, bottom: pr.top + (x.y + x.height) * f })
-    const show = toView(r)
-    const next = ahead ? toView(ahead) : null
-    let dx = 0
-    let dy = 0
-    if (followX && (show.left < view.left || show.right > view.right
-        || (next && next.left >= show.left && next.right > view.right && Math.abs(next.top - show.top) < 1))) {
-        const c = context ? toView(context) : null
-        const target = c && c.right - c.left <= view.right - view.left ? c : show
-        dx = target.left - view.left
-    }
-    if (followY && (show.top < view.top || show.bottom > view.bottom || (next && next.top > show.top && next.bottom > view.bottom))) {
-        dy = show.bottom - show.top <= view.bottom - view.top ? show.top - view.top : show.top - vr.top
-    }
-    dx = Math.round(dx)
-    dy = Math.round(dy)
+    const current = box(pageIdx, r)!
+    const { dx, dy } = pageTurnDelta({
+        mode,
+        view: { left: vr.left + inset, top: vr.top, right: vr.right, bottom: vr.bottom },
+        page: pageTurnBox(el),
+        current,
+        context: context ? box(pageIdx, context) : null,
+        ahead: followingBars({ page: pageIdx, ...r }, ahead, n => box(n.page, n)),
+        margin: marginInches * f,
+    })
     if (!dx && !dy) {
         return false
     }
     const left = viewport.scrollLeft
     const top = viewport.scrollTop
     scrollToPosition(vr.left + dx, vr.top + dy)
-    if (recheck) {
+    if (recheck && mode === 'continuous-horizontal') {
         // once the panel is drawn for the new position (its width is known then)
-        requestAnimationFrame(() => requestAnimationFrame(() => showRectInView(pageIdx, r, context, ahead, marginInches, false)))
+        requestAnimationFrame(() => requestAnimationFrame(() => followBar(pageIdx, r, context, ahead, marginInches, false)))
     }
     return viewport.scrollLeft !== left || viewport.scrollTop !== top
 }
@@ -1092,8 +1099,46 @@ function scheduleContinuousPanel(): void {
         panelFrame = requestAnimationFrame(() => {
             panelFrame = 0
             updateContinuousPanel()
+            // the preview of the bar after a jump reaches to the right edge of the view
+            placeJumpPreview()
         })
     }
+}
+
+// not in MuseScore: the preview of the bar after a jump in the continuous view (shared/jumppreview.ts)
+const s_jumpPreview = new JumpPreview(false)
+/** the bar shown (target) and the bar the jump is made from (after) */
+let s_jump: { target: PageBarRect & { number: number }; after: PageBarRect } | null = null
+// new page elements: on the page again
+onPagesBuilt(() => placeJumpPreview())
+
+function placeJumpPreview(): PageBarRect | null {
+    const j = s_jump
+    const el = j ? pages[j.after.page] : null
+    if (!score || !j || !el || settings.viewMode !== 'continuous-horizontal') {
+        s_jumpPreview.hide()
+        return null
+    }
+    return s_jumpPreview.show(score, viewport, el, pageSize(score, j.after.page), j.target, j.after, j.target.number)
+}
+
+/**
+ * not in MuseScore: the playback and the playalong preview the bar played after a jump (a repeat, D.C., a coda, ...)
+ * directly after the bar the jump is made from, in the continuous view (horizontal), when the jump is at most
+ * JUMP_PREVIEW_BARS bars ahead and the bar is not in the view (the web setting "Preview the bar after a repeat or
+ * jump"). `current`: the current bar (null: hides the preview), `ahead`: the bars played next. Returns the bars ahead for
+ * the page turning: the preview takes the place of the bar after the jump.
+ */
+export function previewJumpTarget(current: PageBarRect | null, ahead: readonly (PageBarRect & { number: number })[]): PageBarRect[] {
+    const bars = current ? [current, ...ahead] : []
+    const i = jumpIndex(bars)
+    const target = i >= 0 ? ahead[i] : null
+    const el = target ? pages[target.page] : null
+    const show = !!target && !!el && !!score && appSettings().web.jumpPreview && settings.viewMode === 'continuous-horizontal'
+        && !barIsInView(viewport, el, pageSize(score, target.page).width, target)
+    s_jump = show ? { target: target!, after: bars[i] } : null
+    const rect = placeJumpPreview()
+    return rect ? [...ahead.slice(0, i), rect] : [...ahead]
 }
 
 function hideContinuousPanel(): void {
@@ -1802,7 +1847,69 @@ setShortcutOverride((e) => {
 
 function clipboardTarget(e: ClipboardEvent): boolean {
     const t = e.target as Element | null
-    return !!score && document.body.dataset.view === 'score' && (t === textInput || t === viewport || t === document.body || !!t?.closest?.('#viewport'))
+    return !!score && document.body.dataset.view === 'score' && (t === textInput || t === viewport || t === document.body
+        || !!t?.closest?.('#viewport'))
+}
+
+/**
+ * Not in MuseScore: an item selected outside of the score's selection (a comment, comments/commentscontroller.ts) takes
+ * the notation's delete, copy and cut; it pastes the clipboard data of its formats at the score's selection.
+ */
+export interface ClipboardExtension {
+    formats: readonly string[]
+    /** the clipboard data of the selected item; null if none is selected */
+    selectedData(): Record<string, string> | null
+    removeSelected(): void
+    canPaste(data: Record<string, string>): boolean
+    paste(data: Record<string, string>): boolean
+}
+
+let s_clipboardExtension: ClipboardExtension | null = null
+
+export function setClipboardExtension(ext: ClipboardExtension): void {
+    s_clipboardExtension = ext
+}
+
+function extensionPasteData(): Record<string, string> | null {
+    const data = clipboardContents()
+    return s_clipboardExtension?.formats.some(f => f in data) ? data : null
+}
+
+/**
+ * the notation's delete/copy/cut/paste when the clipboard extension takes them (`run`: do it); false: the score's
+ * own action
+ */
+export function clipboardExtensionAction(code: string, run: boolean): boolean {
+    const ext = s_clipboardExtension
+    if (!ext || !score) {
+        return false
+    }
+    if (code === 'action://notation/paste') {
+        const data = extensionPasteData()
+        if (!data || !ext.canPaste(data)) {
+            return false
+        }
+        if (run && ext.paste(data)) {
+            scoreChanged(false)
+        }
+        return true
+    }
+    if (!['action://notation/delete', 'action://notation/copy', 'action://notation/cut'].includes(code)) {
+        return false
+    }
+    const data = ext.selectedData()
+    if (!data) {
+        return false
+    }
+    if (run) {
+        if (code !== 'action://notation/delete') {
+            setClipboardContents(data)
+        }
+        if (code !== 'action://notation/copy') {
+            ext.removeSelected()
+        }
+    }
+    return true
 }
 
 function writeClipboard(e: ClipboardEvent): void {
@@ -1821,13 +1928,25 @@ function writeClipboard(e: ClipboardEvent): void {
 }
 
 document.addEventListener('copy', (e) => {
-    if (clipboardTarget(e) && executeAction(score!, 'action://notation/copy')) {
+    if (!clipboardTarget(e)) {
+        return
+    }
+    if (clipboardExtensionAction('action://notation/copy', true) || executeAction(score!, 'action://notation/copy')) {
         writeClipboard(e)
     }
 })
 
 document.addEventListener('cut', (e) => {
-    if (clipboardTarget(e) && isActionEnabled(score!, 'action://notation/cut')) {
+    if (!clipboardTarget(e)) {
+        return
+    }
+    if (clipboardExtensionAction('action://notation/copy', false)) {
+        clipboardExtensionAction('action://notation/copy', true)
+        writeClipboard(e)
+        clipboardExtensionAction('action://notation/delete', true)
+        return
+    }
+    if (isActionEnabled(score!, 'action://notation/cut')) {
         executeAction(score!, 'action://notation/copy')
         writeClipboard(e)
         executeAction(score!, 'action://notation/delete')
@@ -1843,13 +1962,14 @@ document.addEventListener('paste', (e) => {
     const dt = e.clipboardData
     if (dt) {
         const data: Record<string, string> = {}
-        for (const format of [...CLIPBOARD_FORMATS, 'text/plain']) {
+        const formats = [...CLIPBOARD_FORMATS, ...(s_clipboardExtension?.formats ?? [])]
+        for (const format of [...formats, 'text/plain']) {
             const d = dt.getData(format)
             if (d) {
                 data[format] = d
             }
         }
-        const hasMuseScoreData = CLIPBOARD_FORMATS.some(f => f in data)
+        const hasMuseScoreData = formats.some(f => f in data)
         const imageFile = hasMuseScoreData ? null : [...dt.files].find(f => f.type.startsWith('image/') && f.type !== 'image/svg+xml')
         if (imageFile) {
             // an image (Score::cmdPaste with QMimeData::hasImage): read the file, then paste
@@ -1869,6 +1989,10 @@ document.addEventListener('paste', (e) => {
         if (hasMuseScoreData || (data['text/plain'] !== undefined && data['text/plain'] !== current['text/plain'])) {
             setClipboardContents(data)
         }
+    }
+    if (extensionPasteData()) {
+        clipboardExtensionAction('action://notation/paste', true)
+        return
     }
     if (executeAction(score!, 'action://notation/paste')) {
         scoreChanged()

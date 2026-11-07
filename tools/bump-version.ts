@@ -68,7 +68,7 @@ function setVersion(file: string, version: string): void {
 /** sets the version of the viewer package in its CDN URLs */
 function setCdnVersion(file: string, version: string): void {
     const path = join(ROOT, file)
-    writeFileSync(path, readFileSync(path, 'utf8').replace(/(muse-encore-viewer@)[^/'"\s]+/g, `$1${version}`))
+    writeFileSync(path, readFileSync(path, 'utf8').replace(/(muse-encore-viewer@)\d[^/'"\s]*/g, `$1${version}`))
 }
 
 async function main(rl: Interface): Promise<void> {

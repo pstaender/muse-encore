@@ -73,6 +73,8 @@ const viewer = applyMuseEncoreViewer(targetElement, pathToMuseScoreFile, {
     disableToolbar: false,        // no toolbar at all
     showStatusBar: false,         // the status bar below the score
     comments: true,               // the comments added in MuseEncore: subtle markers that show their text (with **bold**, *italic*, ~~strikethrough~~)
+    pageTurnBarsAhead: 2,         // "Early page turns" in playback/playalong: the page is turned early, keeping this many bars ahead visible (1-4); false: follow the cursor like MuseScore Studio
+    jumpPreviewInHorizontalView: true, // "Preview repeats and jumps" (continuous view, horizontal): the bar after a repeat or jump is previewed after the bar with the jump (up to 2 bars in advance)
     colorScheme: 'auto',          // 'light', 'dark'; auto: the browser's
     fontsUrl: undefined,          // the fonts directory; default: this package's fonts/ next to dist/
     soundFontUrl: undefined,      // MS Basic.sf3; default: MuseScore's repository (see Playback)
@@ -162,5 +164,7 @@ GPL-3.0-only, like MuseScore Studio. The fonts have their own licenses (see `fon
 
 In the repository: `npm run build:viewer-package` builds this package into `packages/viewer` (the module, its
 type declarations, the fonts and the license); then `npm publish` there. `packages/viewer/example/` shows a few
-viewers on a page and a configurator of the options (`npx vite packages/viewer`, then open `/example/?url=<score>`); it is online at
+viewers on a page and a configurator of the options (`npm run example:viewer`, then open `/example/?url=<score>`); it is online at
 [pstaender.github.io/muse-encore/viewer-package/example/](https://pstaender.github.io/muse-encore/viewer-package/example/).
+A select switches the module the page uses: the released version, `@latest` or the build of the repository
+(`?module=release`, `latest` or `current`).

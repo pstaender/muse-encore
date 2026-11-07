@@ -111,8 +111,11 @@ export function playalongMeasures(score: Score, partIds: readonly string[] | nul
     return result
 }
 
-/** the rectangle of the measure at a raw tick (the height of its system; a multimeasure rest if it covers it) */
-export function playalongMeasureBounds(score: Score, tick: number): { page: number; x: number; y: number; width: number; height: number } | null {
+/**
+ * the rectangle of the measure at a raw tick (the height of its system; a multimeasure rest if it covers it) and its
+ * number shown to the user
+ */
+export function playalongMeasureBounds(score: Score, tick: number): { page: number; x: number; y: number; width: number; height: number; number: number } | null {
     const m = score.tick2measureMM(Fraction.fromTicks(tick))
     const page = m?.system()?.page()
     if (!m || !page) {
@@ -131,5 +134,6 @@ export function playalongMeasureBounds(score: Score, tick: number): { page: numb
         y: (cursor.y() - pp.y()) / DPI,
         width: m.ldata().bbox().width() / DPI,
         height: cursor.height() / DPI,
+        number: m.no() + 1,
     }
 }

@@ -158,3 +158,32 @@ export function pageSystemCount(score: Score, pageIdx: number): number {
     const page = score.pages()[pageIdx]
     return page ? page.systems().filter(s => s.staves().length > 0).length : 0
 }
+
+/**
+ * Not in MuseScore (the view turns the page early, shared/pageturn.ts): the raw start ticks of the (up to `count`)
+ * measures played after the one at a play position (seconds), in the played order (repeats and jumps)
+ */
+export function nextPlayedMeasureTicks(score: Score, sec: number, count: number): number[] {
+    const result: number[] = []
+    if (count <= 0) {
+        return result
+    }
+    const playback = notationPlayback(score)
+    const utick = playback.secToPlayedTick(sec)
+    let found = false
+    for (const rs of score.masterScore().repeatList(playback.playRepeats)) {
+        const offset = rs.utick - rs.tick
+        for (const m of rs.measureList()) {
+            if (found) {
+                result.push(m.tick().ticks())
+                if (result.length >= count) {
+                    return result
+                }
+                continue
+            }
+            const start = m.tick().ticks() + offset
+            found = utick >= start && utick < start + m.ticks().ticks()
+        }
+    }
+    return result
+}

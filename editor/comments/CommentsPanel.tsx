@@ -1,20 +1,22 @@
 /*
  * SPDX-License-Identifier: GPL-3.0-only
  * The Comments panel (not in MuseScore; commentscontroller.ts): the comments of the score in the order of their
- * positions, each with its position (measure, staff, the element it is attached to), its text and a delete button. The
- * text is set (one undoable command) when its field loses the focus (Enter; Shift+Enter: a new line); a click on the
- * position selects it in the score;
+ * positions, each with its position (measure, staff, the element it is attached to) and its text. A click on a comment
+ * (not on its text) selects it (the score view keeps the focus: Delete/Backspace removes it, Ctrl+C/Ctrl+X
+ * copy/cut it, scoreview.ts); a double click
+ * edits its text. The text is set (one undoable command) when its field loses the focus (Enter; Shift+Enter: a new
+ * line); a click on the position selects it in the score;
  * "Add comment" adds one at the selection. The text may use **bold**, *italic* and ~~strikethrough~~.
  */
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { commentList, type ScoreComment } from '../../src/index'
 import { isActionEnabled, triggerAction, useActions } from '../actions/actions'
-import { ICON_CODES } from '../actions/uiactiondata'
 import { qtrc, useLanguage, webtr } from '../i18n'
 import type { MenuItem } from '../menus/appmenu'
 import { currentScore, useScoreView } from '../scoreview'
 import {
-    commentsViewState, focusDone, goToComment, onCommentsViewChanged, removeComment, setActiveComment, setCommentText,
+    commentsViewState, focusDone, goToComment, onCommentsViewChanged, selectComment, setActiveComment,
+    setCommentText,
 } from './commentscontroller'
 
 function useCommentsView(): ReturnType<typeof commentsViewState> {
@@ -84,6 +86,7 @@ function CommentText({ comment, focus }: { comment: ScoreComment; focus: boolean
             placeholder="…" spellCheck
             onFocus={() => {
                 focusDone()
+                selectComment('')
                 editing.current = true
                 setActiveComment(comment.id, true)
             }}
@@ -93,10 +96,11 @@ function CommentText({ comment, focus }: { comment: ScoreComment; focus: boolean
             }}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
-                // Enter (or Escape) sets the text and returns to the score; Shift+Enter: a new line
+                // Enter (or Escape) sets the text and returns to the score with the comment selected (Ctrl+C copies
+                // it); Shift+Enter: a new line
                 if (e.key === 'Escape' || (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing)) {
                     e.preventDefault()
-                    document.getElementById('viewport')?.focus({ preventScroll: true })
+                    selectComment(comment.id)
                 }
                 e.stopPropagation() // no score shortcuts while typing (Ctrl+Z is the text field's undo)
             }} />
@@ -125,14 +129,23 @@ export function CommentsPanel(): React.JSX.Element {
                     const position = [measureNo ? qtrc('engraving', 'Measure: %1').replace('%1', String(measureNo)) : '', staffName, elementName]
                         .filter(Boolean).join(' · ')
                     return (
-                        <li key={c.id} className={`comment${c.id === state.active ? ' active' : ''}`}>
+                        <li key={c.id}
+                            className={`comment${c.id === state.active ? ' active' : ''}${c.id === state.selected ? ' selected' : ''}`}
+                            onClick={(e) => {
+                                if (!(e.target as Element).closest('textarea, button')) {
+                                    selectComment(c.id)
+                                }
+                            }}
+                            onDoubleClick={(e) => {
+                                // edits the text
+                                if (!(e.target as Element).closest('textarea, button')) {
+                                    e.currentTarget.querySelector('textarea')?.focus()
+                                }
+                            }}
+>
                             <div className="comment-header">
                                 <button type="button" className="comment-position" title={position} onClick={() => goToComment(c.id)}>
                                     {position}
-                                </button>
-                                <button type="button" className="tool-button comment-delete" title={qtrc('global', 'Delete')}
-                                    aria-label={qtrc('global', 'Delete')} onClick={() => removeComment(c.id)}>
-                                    <span className="tool-icon" aria-hidden="true">{String.fromCodePoint(ICON_CODES.DELETE_TANK)}</span>
                                 </button>
                             </div>
                             <CommentText comment={c} focus={state.focus === c.id} />

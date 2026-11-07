@@ -2010,3 +2010,68 @@
 - Voices 2-4 and "all voices": #00C950, #FB2C36, #E12AFB, #5D0EC0 (MuseScore #007F00, #C53F00, #C31989, #6038FC;
   VOICE_COLORS).
 
+
+## 2026-11-06 — Comments: selection, delete and copy/paste with the keyboard
+
+- The panel's delete button is gone. A click on a marker (or on a comment's entry in the panel, outside its text)
+  selects the comment (outlined; the score's selection is cleared, and a selection in the score deselects it). The
+  notation's delete (Delete/Backspace), copy and cut take a selected comment (scoreview.ts `setClipboardExtension`,
+  used by notationactions.ts and the copy/cut/paste events); paste of a copied comment attaches a new comment with its
+  text and author to the score's selection ("Paste comment", undoable).
+- Library: COMMENT_MIME_FORMAT (`application/x-museencore-comment`, JSON), commentMimeData, canPasteCommentAtSelection,
+  pasteCommentAtSelection in index.ts.
+- A click on a marker no longer selects the element of the comment (the position button in the panel still does).
+- A double click on a marker opens the comment's text field in the panel (focused); also on an entry in the panel.
+- Selecting a comment does not move the focus to its marker or panel entry: the score view keeps it (focused again), so Delete/Backspace and the browser's copy/cut events (Safari fires them only with a suitable focus) take the selected comment.
+- Enter/Escape in a comment's text field returns to the score with the comment selected (Ctrl+C/Ctrl+X take it). Selecting a comment clears the page's text selection: Firefox sends the clipboard events to its node (e.g. the text field edited before). Checked in Firefox (Playwright).
+
+## 2026-11-06 — Proactive page turning during playback and playalong (not in MuseScore)
+
+- `shared/pageturn.ts`: pageTurnDelta (the scroll change for the current bar, an optional context and the bar played
+  next) and followsInReadingOrder; used by the editor (`scoreview.ts` followBar, for playbackview.ts and
+  playalongview.ts) and the viewer (museencoreviewer.ts followBar, playback and playalong). It replaces the editor's
+  playback following with adjustViewToRect (C++ adjustCanvasPosition, removed with showRectInView) and the viewer's
+  adjustViewToCursor (which always kept the cursor in the middle of the continuous view). The editor's "Smooth
+  panning" option (continuous view, horizontal) still centers the cursor.
+- Library: `nextPlayedMeasureTick(score, sec)` (playback/api.ts): the measure played next in the played order.
+- test/pageturn.test.ts. Checked in the viewer (Chrome): page view with two pages in the window turns to the third page
+  once; the continuous view moves when the next bar is cut off.
+- Viewer: "Loading sounds… n%" in the toolbar made it wrap (the view became smaller and moved, twice): the label keeps its width while loading ("Loading… n%", full text as tooltip).
+- Setting (2026-11-06): the editor's Preferences > Web version "Turn pages early during playback and playalong"
+  (settings.web.pageTurn, default on) with "Bars ahead" 1-4 (web.pageTurnBars, default 2; DEFAULT/MAX_PAGE_TURN_BARS in
+  shared/pageturn.ts); off: the playback follows the cursor like MuseScore again (adjustViewToRect restored), the
+  playalong turns when its measure is cut off. Viewer option `pageTurnBarsAhead` (default 2; false/0: the viewer's former
+  cursor following, adjustViewToCursor restored). The playalong states pass `aheadTicks` (up to 4) instead of
+  nextTick; library nextPlayedMeasureTicks(score, sec, count) replaces nextPlayedMeasureTick. pageTurnDelta takes
+  `ahead` (a list) and ignores bars that do not fit with the current one; followingBars is shared.
+
+## 2026-11-06 — Preview of the bar after a repeat or jump (not in MuseScore)
+
+- `shared/jumppreview.ts` (JumpPreview, isJump, barIsInView): in the continuous view (horizontal), when the bar played
+  next is not the following bar of the score (a jump) and is not in the view, it is drawn (drawPage with a region) in an
+  element on the page at the right edge of the view, with a shadow like the continuous panel and a chip "↪ n". The view's
+  page turning (followBar) keeps the current bar out of it. Editor: scoreview.ts previewJumpTarget (playbackview.ts,
+  playalongview.ts), setting web.jumpPreview (Preferences > Web version, default on); viewer: option jumpPreviewInHorizontalView
+  (default true). playalongMeasureBounds also returns the bar number.
+- Preferences: "Bars ahead" is greyed out (.autosave-row.disabled) while "Turn pages early" is off.
+- Checked in the viewer (Chrome, marker-5.mscz at 400 %): the preview of bar 1 appears at the end repeat and disappears
+  after the jump. Not checked in the browser: the editor (same code path).
+- The preview is shown directly after the bar the jump is made from (an element on the page in percent, over the bars
+  that are skipped), up to JUMP_PREVIEW_BARS = 4 bars before the jump (jumpIndex); for the page turning it takes the
+  place of the bar after the jump (previewJumpTarget returns the bars ahead), so it stays in the view. The apps look at
+  BARS_AHEAD = 5 bars played next. Checked in the viewer (marker-5.mscz, 400 %): shown 4 bars before the end repeat,
+  hidden after the jump.
+- Then: JUMP_PREVIEW_BARS = 2, and the preview shows the bars from the jump target up to the right edge of the view
+  (at least the target bar; placed again on scroll); for the page turning only the target bar counts.
+
+## 2026-11-07 — Names of the playback view settings, info tooltips
+
+- Preferences > Web version: the hints are (i) icons with a tooltip (hover or keyboard focus; `InfoTip`). The settings
+  are called "Early page turns" (with "Bars ahead") and "Preview repeats and jumps"; the viewer's options are
+  `pageTurnBarsAhead` (was `pageTurnAhead`) and `jumpPreviewInHorizontalView`. Both are on by default.
+
+## 2026-11-07 — Viewer package example: released, @latest and local build
+
+- packages/viewer/example/index.html imports the module with `import(MODULE_URL)`: `?module=release` (default; the
+  version on the CDN, set by bump-version, whose pattern now only matches version numbers, not @latest), `latest`, or
+  `current` (../dist, the local build: `npm run example:viewer`); a select below the title switches (keeps `?url=`).

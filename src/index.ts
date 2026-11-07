@@ -2888,6 +2888,42 @@ export function removeComment(score: Score, id: string): boolean {
     })
 }
 
+/** the clipboard format of a copied comment (not in MuseScore): JSON with its text and author */
+export const COMMENT_MIME_FORMAT = 'application/x-museencore-comment'
+
+/** a comment as clipboard data (COMMENT_MIME_FORMAT and its text as text/plain); null if there is no such comment */
+export function commentMimeData(score: Score, id: string): Record<string, string> | null {
+    const c = scoreComments(score).comment(id)
+    if (!c) {
+        return null
+    }
+    return { [COMMENT_MIME_FORMAT]: JSON.stringify({ text: c.text, author: c.author }), 'text/plain': c.text }
+}
+
+/** true if the data is a copied comment that can be pasted at the selection */
+export function canPasteCommentAtSelection(score: Score, data: string): boolean {
+    return !!parseCommentMimeData(data) && canAddCommentAtSelection(score)
+}
+
+function parseCommentMimeData(data: string): { text: string; author: string } | null {
+    try {
+        const v = JSON.parse(data) as { text?: unknown; author?: unknown }
+        return v && typeof v.text === 'string' ? { text: v.text, author: typeof v.author === 'string' ? v.author : '' } : null
+    } catch {
+        return null
+    }
+}
+
+/** pastes a copied comment (COMMENT_MIME_FORMAT) at the selection like addCommentAtSelection (undoable) */
+export function pasteCommentAtSelection(score: Score, data: string): ScoreComment | null {
+    const v = parseCommentMimeData(data)
+    const c = v ? commentOfSelection(score, v.text, v.author) : null
+    if (!c || !changeComments(score, 'Paste comment', list => !!list.push(c))) {
+        return null
+    }
+    return c
+}
+
 /** selects the element at a comment's position (commentElement); false if there is none */
 export function selectCommentElement(score: Score, id: string): boolean {
     const c = scoreComments(score).comment(id)

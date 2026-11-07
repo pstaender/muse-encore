@@ -10,6 +10,7 @@
  * are entered at the input position with enterMidiNotes). The microphone stays on when the note input starts or ends
  * (it then enters notes, or follows again); started in note input mode, it ends with the note input.
  */
+import { BARS_AHEAD } from '../../shared/jumppreview'
 import { useSyncExternalStore } from 'react'
 import { enterMidiNotes, playalongMeasureBounds, playalongMeasures, rangeSelectionPartIds, selectionPlaybackInfo, type PlayalongMeasure } from '../../src/index'
 import { actionsChanged, registerAction, triggerAction } from '../actions/actions'
@@ -38,8 +39,8 @@ export interface PlayalongState {
     number: number
     /** the raw tick of the measure played before it (-1: none) */
     prevTick: number
-    /** the raw tick of the measure played after it (-1: none) */
-    nextTick: number
+    /** the raw ticks of the measures played after it (up to BARS_AHEAD: the page turning and the preview of a jump) */
+    aheadTicks: number[]
     count: number
     practice: boolean
     /** the pitches of the last chord heard */
@@ -51,7 +52,7 @@ export interface PlayalongState {
 }
 
 let state: PlayalongState = {
-    active: false, mode: 'playalong', status: 'off', error: '', index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0,
+    active: false, mode: 'playalong', status: 'off', error: '', index: -1, tick: -1, number: 0, prevTick: -1, aheadTicks: [], count: 0,
     practice: settings().playback.playalongPractice, heard: [], latency: 0, calibration: null,
 }
 const listeners = new Set<() => void>()
@@ -190,8 +191,8 @@ function showMeasure(): void {
     const m = s_measures[index]
     publish(m
         ? { index: m.index, tick: m.tick, number: m.number, prevTick: s_measures[m.index - 1]?.tick ?? -1,
-            nextTick: s_measures[m.index + 1]?.tick ?? -1, count: s_measures.length }
-        : { index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0 })
+            aheadTicks: s_measures.slice(m.index + 1, m.index + 1 + BARS_AHEAD).map(x => x.tick), count: s_measures.length }
+        : { index: -1, tick: -1, number: 0, prevTick: -1, aheadTicks: [], count: 0 })
 }
 
 /** playalong started in note input mode: it ends with the note input (else it follows the score again) */
@@ -212,7 +213,7 @@ function startFollowing(): void {
 function enterNoteInputMode(): void {
     grouper.clear()
     s_follower = null
-    publish({ mode: 'noteinput', heard: [], index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0 })
+    publish({ mode: 'noteinput', heard: [], index: -1, tick: -1, number: 0, prevTick: -1, aheadTicks: [], count: 0 })
 }
 
 /** the calibration of the note detection (on the calibration sheet) */
@@ -300,7 +301,7 @@ async function stop(): Promise<void> {
     grouper.clear()
     s_follower = null
     s_calibrator = null
-    publish({ active: false, status: 'off', error: '', heard: [], index: -1, tick: -1, number: 0, prevTick: -1, nextTick: -1, count: 0, calibration: null })
+    publish({ active: false, status: 'off', error: '', heard: [], index: -1, tick: -1, number: 0, prevTick: -1, aheadTicks: [], count: 0, calibration: null })
     await s_detector?.stop()
 }
 

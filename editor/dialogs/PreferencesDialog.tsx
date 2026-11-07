@@ -7,6 +7,7 @@
  * (ImportPreferencesPage.qml: the style for imports, MusicXML and MIDI; Overture, MEI and MNX are not ported) and "Web
  * version" with the settings of the web version (not in MuseScore).
  */
+import { MAX_PAGE_TURN_BARS } from '../../shared/pageturn'
 import { useEffect, useRef, useState } from 'react'
 import { actionTitle, formatShortcut, shortcuts } from '../actions/actions'
 import { ICON_CODES } from '../actions/uiactiondata'
@@ -319,6 +320,16 @@ function ImportPage(): React.JSX.Element {
     )
 }
 
+/** an (i) icon showing `text` as a tooltip (hover or keyboard focus) */
+function InfoTip({ text }: { text: React.ReactNode }): React.JSX.Element {
+    return (
+        <span className="info-tip" tabIndex={0} aria-label={typeof text === 'string' ? text : undefined}>
+            <span className="info-tip-icon" aria-hidden="true">{'\uF3CF'}</span>
+            <span className="info-tip-text" role="tooltip">{text}</span>
+        </span>
+    )
+}
+
 /** the settings of the web version (not in MuseScore) */
 function WebVersionPage(): React.JSX.Element {
     useLanguage()
@@ -326,17 +337,40 @@ function WebVersionPage(): React.JSX.Element {
     return (
         <section className="preferences-section" aria-labelledby="pref-web">
             <h3 id="pref-web">{webtr('Web version')}</h3>
-            <label className="check">
-                <input type="checkbox" checked={web.spacePan} onChange={e => updateSettings('web', { spacePan: e.target.checked })} />
-                {webtr('Hold Space and drag to move the score')}
-            </label>
-            <p className="muted hint">
-                {/* playback then starts with Shift+Space and stops with Escape */}
-                {actionTitle('play-from-selection')}: {formatShortcut(shortcuts('play-from-selection')[0] ?? 'Shift+Space')},
-                {' '}{actionTitle('stop')}: {formatShortcut('Esc')}.
-                {' '}
-                {webtr('Otherwise Space starts and stops playback and the middle mouse button moves the score.')}
-            </p>
+            <div className="check-with-info">
+                <label className="check">
+                    <input type="checkbox" checked={web.spacePan} onChange={e => updateSettings('web', { spacePan: e.target.checked })} />
+                    {webtr('Hold Space and drag to move the score')}
+                </label>
+                <InfoTip text={<>
+                    {/* playback then starts with Shift+Space and stops with Escape */}
+                    {actionTitle('play-from-selection')}: {formatShortcut(shortcuts('play-from-selection')[0] ?? 'Shift+Space')},
+                    {' '}{actionTitle('stop')}: {formatShortcut('Esc')}.
+                    {' '}
+                    {webtr('Otherwise Space starts and stops playback and the middle mouse button moves the score.')}
+                </>} />
+            </div>
+            <div className="check-with-info">
+                <label className="check">
+                    <input type="checkbox" checked={web.pageTurn} onChange={e => updateSettings('web', { pageTurn: e.target.checked })} />
+                    {webtr('Early page turns')}
+                </label>
+                <InfoTip text={webtr('During playback and playalong, the page is turned before the end is reached, so the next bars are already visible. Otherwise the view follows the playback cursor like MuseScore Studio.')} />
+            </div>
+            <div className={`autosave-row indent${web.pageTurn ? '' : ' disabled'}`}>
+                <span>{webtr('Bars ahead')}</span>
+                <select aria-label={webtr('Bars ahead')} value={web.pageTurnBars} disabled={!web.pageTurn}
+                    onChange={e => updateSettings('web', { pageTurnBars: Number(e.target.value) })}>
+                    {Array.from({ length: MAX_PAGE_TURN_BARS }, (_, i) => i + 1).map(n => <option key={n} value={n}>{n}</option>)}
+                </select>
+            </div>
+            <div className="check-with-info">
+                <label className="check">
+                    <input type="checkbox" checked={web.jumpPreview} onChange={e => updateSettings('web', { jumpPreview: e.target.checked })} />
+                    {webtr('Preview repeats and jumps')}
+                </label>
+                <InfoTip text={webtr('In the continuous view, during playback and playalong: the bar played after a repeat, D.C., D.S. or coda is shown after the bar with the jump, up to 2 bars in advance.')} />
+            </div>
         </section>
     )
 }

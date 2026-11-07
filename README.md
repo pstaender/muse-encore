@@ -48,12 +48,28 @@ Features that MuseEncore adds to MuseScore Studio, or that work differently:
   * a different look (in my opinion, a better one)
   * an additional "fit to window" mode, which lays out the score as wide as the window <img width="909" height="296" alt="Screenshot 2026-11-06 at 09 12 50" src="https://github.com/user-attachments/assets/0efc5067-9990-4685-b9f5-a2e7a53ce1df" />
 
+* Early page turns: during playback and playalong, the view does not follow the cursor. It turns the "page"
+  early, so it moves seldom and you can see the next bars before they are played (2 by default; in the editor's
+  Preferences > Web version 1 to 4, or off for MuseScore Studio's behaviour; the viewer's option `pageTurnBarsAhead`):
+  * page view, the page fits the width of the window: when the current bar is on a page that is not in the view (or
+    the next bars are cut off and its page is only partly visible), that page is centered.
+  * page view, zoomed in: when the next bars are cut off, the page is aligned to the right if the current bar stays
+    visible; otherwise the current bar moves to the left of the view.
+  * continuous view: when the next bars are cut off, the current bar moves to the left (top) of the view.
+  Bars that cannot be shown together with the current bar (zoomed in far) are not waited for.
+* Preview repeats and jumps: in the continuous view, when the playback or the playalong will jump
+  (repeat, D.C./D.S., coda, volta) within the next 2 bars to a bar that is not in the view, that bar (and the bars after
+  it, up to the right edge of the view) is shown directly after the bar with the jump (over the bars that are skipped),
+  set off by a soft shadow and marked with its bar number;
+  the view keeps it visible like the bar played next (editor: Preferences > Web version; viewer option `jumpPreviewInHorizontalView`).
+  "Smooth panning" in the editor's settings still keeps the cursor in the middle of the continuous view.
 * Space: in the editor, holding Space and dragging moves the score, and Shift+Space starts and stops the playback
   (both can be changed in the settings). In the viewer, Space starts and stops the playback, and holding Space while
   dragging moves the score.
 * Comments: notes on a score, attached to a note, rest, text or measure and movable relative to it, with basic
   formatting (`**bold**`, `*italic*`, `~~strikethrough~~`). The editor adds and edits them in the Comments panel
-  (View > Comments, undoable); the viewer shows them (option `comments`). They are saved in the `.mscz`/`.mscx` file
+  (View > Comments, undoable); a comment selected (its marker or its entry in the panel clicked) is deleted with
+  Delete/Backspace (a double click edits its text) and copied or cut with Ctrl+C/Ctrl+X, and pasted onto the selected note, rest or measure; the viewer shows them (option `comments`). They are saved in the `.mscz`/`.mscx` file
   in a way MuseScore Studio keeps: it opens such files without errors, keeps the comments when it saves, but does not
   show them. <img width="702" height="366" alt="Screenshot 2026-11-06 at 19 56 08" src="https://github.com/user-attachments/assets/83d52422-b6bb-4157-9626-fa5c51874b0f" />
 

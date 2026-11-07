@@ -6,7 +6,8 @@
  * is on and the active comment (clicked, or selected in the editor's Comments panel) are highlighted and in front. A
  * marker shows the comment's text (markdown.ts; nothing for an empty text) while the pointer is on it and keeps
  * showing it when it is clicked. The active marker (and a dragged one) moved from its default place is connected with
- * the point it is attached to by a line (like an articulation with its note), with a little space at both ends. Draggable markers (the editor) report the moved offset in spatium.
+ * the point it is attached to by a line (like an articulation with its note), with a little space at both ends. The
+ * editor's selected comment has an outline. Draggable markers (the editor) report the moved offset in spatium.
  */
 import { COMMENT_ICON_PATH } from '../icons'
 import { commentPlainText, createCommentPopover } from './markdown'
@@ -35,6 +36,8 @@ export interface CommentMarkersOptions {
     pageInches: (page: number) => { width: number; height: number } | null
     /** a click on a marker (not a drag) */
     onClick?: (id: string) => void
+    /** a double click on a marker */
+    onDoubleClick?: (id: string) => void
     /** a marker was dragged: the change of its offset in spatium; without it, markers cannot be dragged */
     onMove?: (id: string, ddx: number, ddy: number) => void
 }
@@ -56,6 +59,7 @@ export class CommentMarkersView {
     private m_popover: HTMLDivElement | null = null
     private m_popoverId = ''
     private m_active = ''
+    private m_selected = ''
     private m_pinned = false
 
     constructor(private readonly m_opts: CommentMarkersOptions) {}
@@ -110,6 +114,12 @@ export class CommentMarkersView {
 
     active(): string { return this.m_active }
 
+    /** the selected comment (the editor: delete, copy and cut take it), marked with an outline */
+    setSelected(id: string): void {
+        this.m_selected = id
+        this.updateClasses()
+    }
+
     /** hides the pinned text (a click elsewhere) */
     closePopover(): void {
         this.m_pinned = false
@@ -119,6 +129,7 @@ export class CommentMarkersView {
     private updateClasses(): void {
         for (const [id, { el, line }] of this.m_markers) {
             el.classList.toggle('active', id === this.m_active)
+            el.classList.toggle('selected', id === this.m_selected)
             line?.classList.toggle('active', id === this.m_active)
         }
     }
@@ -223,6 +234,9 @@ export class CommentMarkersView {
         for (const type of ['mousedown', 'dblclick', 'contextmenu'] as const) {
             el.addEventListener(type, e => e.stopPropagation())
         }
+        el.addEventListener('dblclick', () => this.m_opts.onDoubleClick?.(m.id))
+        // a click does not take the focus (the app's keys and the clipboard stay with the score)
+        el.addEventListener('mousedown', e => e.preventDefault())
         let drag: { pointer: number; x: number; y: number; moved: boolean } | null = null
         el.addEventListener('pointerdown', (e) => {
             e.stopPropagation()

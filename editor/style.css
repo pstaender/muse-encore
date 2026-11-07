@@ -362,6 +362,31 @@ main.hand.dragging { cursor: grabbing; user-select: none; }
     box-shadow: 6px 0 18px -6px rgba(0, 0, 0, .3);
 }
 
+/* not in MuseScore: the bar played after a jump (repeat, D.C., coda, ...) at the right edge of the continuous view,
+   set off from the score by a soft shadow like the panel at the left edge, with its bar number */
+.page .jump-preview {
+    position: absolute;
+    top: 0;
+    z-index: 3;
+    overflow: hidden;
+    pointer-events: none;
+    background: #fff;
+    box-shadow: -6px 0 18px -6px rgba(0, 0, 0, .3);
+}
+.page .jump-preview canvas { left: 0; top: 0; }
+.jump-preview-label {
+    position: absolute;
+    top: 6px;
+    left: 8px;
+    padding: 1px 7px;
+    border-radius: 9px;
+    background: var(--accent);
+    color: #fff;
+    font: 600 11px/16px system-ui, sans-serif;
+}
+.jump-preview-label::before { content: "\21AA\00A0"; }
+@media print { .page .jump-preview { display: none; } }
+
 .page.placeholder { visibility: hidden; }
 
 /* ---- drag and drop of files ---- */
@@ -1197,6 +1222,8 @@ dialog.edit-midi-mapping .dialog-header { padding: 0; }
 .edit-midi-mapping-field { display: flex; align-items: center; gap: 10px; padding: 0; border: 0; }
 .edit-midi-mapping-field input { flex: 1; border-color: var(--accent); }
 .autosave-row { display: flex; align-items: center; gap: 12px; }
+/* a setting that applies only with another one (e.g. "Bars ahead" with "Turn pages early") */
+.autosave-row.disabled { opacity: .45; }
 .autosave-row .number-with-unit { display: inline-flex; align-items: center; gap: 4px; }
 .autosave-row input[type="number"] { width: 64px; }
 
@@ -1514,3 +1541,17 @@ dialog.project-properties .dialog-buttons .spacer { flex: 1; }
 .calibration-box p { margin: 0 0 8px; }
 .calibration-box .calibration-progress { color: var(--muted); font-size: .9em; }
 .calibration-buttons { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* an (i) icon with a tooltip (Preferences > Web version) */
+.check-with-info { position: relative; display: flex; align-items: center; gap: 6px; }
+.info-tip { display: inline-flex; color: var(--muted); cursor: help; border-radius: 50%; outline-offset: 2px; }
+.info-tip-icon { font-family: "MusescoreIcon"; font-size: 16px; line-height: 1; }
+.info-tip:hover, .info-tip:focus-visible { color: var(--accent); }
+.info-tip-text {
+    position: absolute; left: 0; top: calc(100% + 4px); z-index: 10;
+    width: max-content; max-width: 40ch; padding: 6px 8px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--panel); color: inherit; box-shadow: 0 2px 8px rgba(0, 0, 0, .18);
+    font-size: 12px; line-height: 1.4; white-space: normal; pointer-events: none;
+    visibility: hidden; opacity: 0; transition: opacity .12s;
+}
+.info-tip:hover .info-tip-text, .info-tip:focus-visible .info-tip-text { visibility: visible; opacity: 1; color: var(--fg); }

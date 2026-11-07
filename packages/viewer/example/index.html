@@ -74,6 +74,18 @@
           font-weight: bold;
         }
       }
+      #version-switch {
+        display: flex;
+        width: fit-content;
+        margin: 1rem 0 1.5rem;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+      }
+      #version-switch select {
+        width: auto;
+        margin: 0;
+      }
       .show-code {
         font-size: 0.8rem;
         padding: 0.2rem 0.6rem;
@@ -185,8 +197,17 @@
     </nav>
 
     <h1>muse-encore-viewer examples</h1>
+    <!-- the module the page imports: ?module=release (default), latest or current -->
+    <label id="version-switch">
+      Viewer module
+      <select>
+        <option value="release">released version (CDN)</option>
+        <option value="latest">@latest (CDN)</option>
+        <option value="current">current (local build of the repository)</option>
+      </select>
+    </label>
 
-    <h3 id="continuous-view">Continuous view with playback and playalong (audio or MIDI)</h3>
+    <h3 id="continuous-view">Continuous view with playback and playalong-mode</h3>
     <p>
       For playing along with an instrument (microphone or MIDI): one row of
       systems, playback and playalong, no page controls.
@@ -227,15 +248,29 @@
     <pre><code id="configurator-code" class="hljs"></code></pre>
     <div id="configured" class="score"></div>
 
-    <!-- npm run build:viewer-package, then serve packages/viewer (e.g. npx vite packages/viewer) and open /example/?url=<score> -->
+    <!-- npm run example:viewer (builds the package and serves packages/viewer), then open /example/?url=<score> -->
     <script type="module">
-      import applyMuseEncoreViewer from "https://cdn.jsdelivr.net/npm/muse-encore-viewer@1.5.1/dist/muse-encore-viewer.js";
+      // the viewer module: the released version (set by npm run bump-version), @latest, or the local build
+      const MODULES = {
+        release: "https://cdn.jsdelivr.net/npm/muse-encore-viewer@1.5.1/dist/muse-encore-viewer.js",
+        latest: "https://cdn.jsdelivr.net/npm/muse-encore-viewer@latest/dist/muse-encore-viewer.js",
+        current: "../dist/muse-encore-viewer.js",
+      };
+      const params = new URLSearchParams(location.search);
+      const moduleName = Object.hasOwn(MODULES, params.get("module")) ? params.get("module") : "release";
+      const MODULE_URL = MODULES[moduleName];
+      const { default: applyMuseEncoreViewer } = await import(MODULE_URL);
 
-      const urlToMuseScoreFile =
-        new URLSearchParams(location.search).get("url") ?? "bei_gezeiten.mscz";
+      const urlToMuseScoreFile = params.get("url") ?? "bei_gezeiten.mscz";
 
-      const MODULE_URL =
-        "https://cdn.jsdelivr.net/npm/muse-encore-viewer@1.5.1/dist/muse-encore-viewer.js";
+      // the switch of the module: reloads the page with ?module= (keeps ?url=)
+      const versionSelect = document.querySelector("#version-switch select");
+      versionSelect.value = moduleName;
+      versionSelect.addEventListener("change", () => {
+        if (versionSelect.value === "release") params.delete("module");
+        else params.set("module", versionSelect.value);
+        location.search = params.toString();
+      });
 
       // the highlighted code that creates a viewer with these options
       const viewerCode = (selector, options) => {

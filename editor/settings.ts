@@ -3,6 +3,7 @@
  * The app settings, kept in localStorage (small and read synchronously at startup, so the first paint already uses
  * them). Storage can be unavailable (private windows, blocked site data): then the defaults are used for the session.
  */
+import { DEFAULT_PAGE_TURN_BARS, MAX_PAGE_TURN_BARS } from '../shared/pageturn'
 import { useSyncExternalStore } from 'react'
 import type { DetectionCalibration, OvertoneFilterLevel } from '../shared/notedetection/notedetector'
 import { defaultExportConfiguration, defaultImportConfiguration, setImportConfiguration, type ExportConfiguration, type ImportConfiguration } from '../src/index'
@@ -187,6 +188,18 @@ function sanitizeMigration(v: unknown): AppSettings['project']['migration'] {
 export interface WebSettings {
     /** holding Space and dragging moves the score (the hand tool); playback is then Shift+Space (from the selection), Escape stops */
     spacePan: boolean
+    /**
+     * the view turns the page early during playback and playalong (shared/pageturn.ts); off: it follows the playback
+     * cursor like MuseScore ("Pan score automatically" still turns the following off completely)
+     */
+    pageTurn: boolean
+    /** the bars ahead that are kept visible (1 to MAX_PAGE_TURN_BARS) */
+    pageTurnBars: number
+    /**
+     * the continuous view (horizontal): the bar played after a jump (repeat, D.C., coda, ...) is previewed at the right
+     * edge of the view when it is not in the view (shared/jumppreview.ts)
+     */
+    jumpPreview: boolean
 }
 
 const DEFAULTS: AppSettings = {
@@ -210,7 +223,7 @@ const DEFAULTS: AppSettings = {
         inputEnabled: true, inputDeviceId: '', inputDeviceName: '', startNoteInputWhenPressingKey: true, advanceToNextNoteOnKeyRelease: true,
         realtimeDelay: 750, useWrittenPitch: true, useMidiVelocityAndDuration: true, useRemoteControl: true, mappings: [],
     },
-    web: { spacePan: true },
+    web: { spacePan: true, pageTurn: true, pageTurnBars: DEFAULT_PAGE_TURN_BARS, jumpPreview: true },
     export: defaultExportConfiguration(),
     import: { ...defaultImportConfiguration(), styleFile: null },
 }
@@ -275,7 +288,13 @@ function sanitize(s: Partial<{ [K in keyof AppSettings]: Partial<AppSettings[K]>
         palettes: s.palettes && typeof s.palettes === 'object' && !Array.isArray(s.palettes) ? s.palettes as Record<string, unknown> : null,
         playback: sanitizePlayback(s.playback ?? {}),
         midi: sanitizeMidi(s.midi ?? {}),
-        web: { spacePan: typeof s.web?.spacePan === 'boolean' ? s.web.spacePan : DEFAULTS.web.spacePan },
+        web: {
+            spacePan: typeof s.web?.spacePan === 'boolean' ? s.web.spacePan : DEFAULTS.web.spacePan,
+            pageTurn: typeof s.web?.pageTurn === 'boolean' ? s.web.pageTurn : DEFAULTS.web.pageTurn,
+            pageTurnBars: typeof s.web?.pageTurnBars === 'number' && Number.isInteger(s.web.pageTurnBars)
+                ? Math.max(1, Math.min(MAX_PAGE_TURN_BARS, s.web.pageTurnBars)) : DEFAULTS.web.pageTurnBars,
+            jumpPreview: typeof s.web?.jumpPreview === 'boolean' ? s.web.jumpPreview : DEFAULTS.web.jumpPreview,
+        },
         export: sanitizeExport(s.export ?? {}),
         import: sanitizeImport(s.import ?? {}),
     }
