@@ -2040,7 +2040,7 @@
 - Setting (2026-11-06): the editor's Preferences > Web version "Turn pages early during playback and playalong"
   (settings.web.pageTurn, default on) with "Bars ahead" 1-4 (web.pageTurnBars, default 2; DEFAULT/MAX_PAGE_TURN_BARS in
   shared/pageturn.ts); off: the playback follows the cursor like MuseScore again (adjustViewToRect restored), the
-  playalong turns when its measure is cut off. Viewer option `pageTurnAhead` (default 2; false/0: the viewer's former
+  playalong turns when its measure is cut off. Viewer option `pageTurnBarsAhead` (default 2; false/0: the viewer's former
   cursor following, adjustViewToCursor restored). The playalong states pass `aheadTicks` (up to 4) instead of
   nextTick; library nextPlayedMeasureTicks(score, sec, count) replaces nextPlayedMeasureTick. pageTurnDelta takes
   `ahead` (a list) and ignores bars that do not fit with the current one; followingBars is shared.
@@ -2051,7 +2051,7 @@
   next is not the following bar of the score (a jump) and is not in the view, it is drawn (drawPage with a region) in an
   element on the page at the right edge of the view, with a shadow like the continuous panel and a chip "↪ n". The view's
   page turning (followBar) keeps the current bar out of it. Editor: scoreview.ts previewJumpTarget (playbackview.ts,
-  playalongview.ts), setting web.jumpPreview (Preferences > Web version, default on); viewer: option jumpPreview
+  playalongview.ts), setting web.jumpPreview (Preferences > Web version, default on); viewer: option jumpPreviewInHorizontalView
   (default true). playalongMeasureBounds also returns the bar number.
 - Preferences: "Bars ahead" is greyed out (.autosave-row.disabled) while "Turn pages early" is off.
 - Checked in the viewer (Chrome, marker-5.mscz at 400 %): the preview of bar 1 appears at the end repeat and disappears
@@ -2063,3 +2063,9 @@
   hidden after the jump.
 - Then: JUMP_PREVIEW_BARS = 2, and the preview shows the bars from the jump target up to the right edge of the view
   (at least the target bar; placed again on scroll); for the page turning only the target bar counts.
+
+## 2026-11-07 — Names of the playback view settings, info tooltips
+
+- Preferences > Web version: the hints are (i) icons with a tooltip (hover or keyboard focus; `InfoTip`). The settings
+  are called "Early page turns" (with "Bars ahead") and "Preview repeats and jumps"; the viewer's options are
+  `pageTurnBarsAhead` (was `pageTurnAhead`) and `jumpPreviewInHorizontalView`. Both are on by default.

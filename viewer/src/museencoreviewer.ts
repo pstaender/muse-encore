@@ -1728,7 +1728,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
     }
 
     /**
-     * the option jumpPreview: the bar played after a jump (a repeat, D.C., a coda, ...) is previewed directly after the
+     * the option jumpPreviewInHorizontalView: the bar played after a jump (a repeat, D.C., a coda, ...) is previewed directly after the
      * bar the jump is made from, in the continuous view (horizontal), when the jump is at most JUMP_PREVIEW_BARS bars ahead
      * and the bar is not in the view. `current`: the current bar (null: hides the preview), `ahead`: the bars played next.
      * Returns the bars ahead for the page turning: the preview takes the place of the bar after the jump.
@@ -1739,7 +1739,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         const i = jumpIndex(bars)
         const target = i >= 0 ? ahead[i] : null
         const el = target ? this.pages[target.page] : undefined
-        const show = !!target && !!el && !!score && this.m_opts.jumpPreview !== false
+        const show = !!target && !!el && !!score && this.m_opts.jumpPreviewInHorizontalView !== false
             && this.settings.viewMode === 'continuous-horizontal'
             && !barIsInView(this.viewport, el, pageSize(score, target.page).width, target)
         this.jump = show ? { target: target!, after: bars[i] } : null
@@ -2009,20 +2009,20 @@ html, body { margin: 0; padding: 0; background: #fff; }
         }
     }
 
-    /**
-     * the editor's followBar: the view follows the playback and the playalong by turning the page early
-     * (shared/pageturn.ts); `r`: the current bar (inches on its page), `context`: shown at the left if it fits, `ahead`:
-     * the bars played next (none: the view moves when the current bar is cut off)
-     */
-    /** the option pageTurnAhead: the bars ahead kept visible (0: the view follows the cursor) */
+    /** the option pageTurnBarsAhead: the bars ahead kept visible (0: the view follows the cursor) */
     private pageTurnBars(): number {
-        const n = this.m_opts.pageTurnAhead
+        const n = this.m_opts.pageTurnBarsAhead
         if (n === false) {
             return 0
         }
         return typeof n === 'number' && Number.isFinite(n) ? Math.max(0, Math.min(MAX_PAGE_TURN_BARS, Math.round(n))) : DEFAULT_PAGE_TURN_BARS
     }
 
+    /**
+     * the editor's followBar: the view follows the playback and the playalong by turning the page early
+     * (shared/pageturn.ts); `r`: the current bar (inches on its page), `context`: shown at the left if it fits, `ahead`:
+     * the bars played next (none: the view moves when the current bar is cut off)
+     */
     private followBar(pageIdx: number, r: PageRect, context?: PageRect | null, ahead: readonly PageBarRect[] = [], recheck = true): void {
         const el = this.pages[pageIdx]
         const score = this.score

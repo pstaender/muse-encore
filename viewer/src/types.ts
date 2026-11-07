@@ -67,15 +67,16 @@ export interface MuseEncoreViewerOptions {
     /** the comments of the score (added in MuseEncore): markers above the staves that show their text; default true */
     comments?: boolean
     /**
-     * the view turns the page early during playback and playalong, keeping this many bars ahead visible (1 to 4);
+     * "Early page turns": the view turns the page early during playback and playalong, keeping this many bars ahead visible (1 to 4);
      * default 2. false or 0: the view follows the playback cursor (like MuseScore Studio)
      */
-    pageTurnAhead?: number | false
+    pageTurnBarsAhead?: number | false
     /**
-     * the continuous view (horizontal): during playback and playalong, the bar played after a repeat or jump is
-     * previewed at the right edge of the view when it is not in the view; default true
+     * "Preview repeats and jumps", the continuous view (horizontal): during playback and playalong, the bar played after
+     * a repeat, D.C., D.S. or coda is previewed after the bar with the jump (up to 2 bars in advance) when it is not in
+     * the view; default true
      */
-    jumpPreview?: boolean
+    jumpPreviewInHorizontalView?: boolean
     /** the color scheme of the controls; default 'auto' (the browser's), as is any other value */
     colorScheme?: 'auto' | 'light' | 'dark'
     /**
