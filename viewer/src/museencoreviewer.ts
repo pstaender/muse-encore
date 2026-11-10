@@ -26,7 +26,7 @@ import { SOUNDFONT_CDN_URL } from '../../shared/playback/soundfont'
 import { ViewerMidiInput, type ViewerMidiSettings } from './midiinput'
 import { ViewerMixer } from './mixer'
 import { ViewerPlayalong, type ViewerPlayalongState } from './playalong'
-import { ViewerPlayback, type ViewerPlaybackState } from './playback'
+import { MAX_TEMPO_MULTIPLIER, MIN_TEMPO_MULTIPLIER, ViewerPlayback, type ViewerPlaybackState } from './playback'
 import type {
     ContinuousView, MuseEncoreScoreInfo, MuseEncoreScoreSource, MuseEncoreViewer as IMuseEncoreViewer, MuseEncoreViewerOptions,
     MuseEncoreViewerToolbarGroups, MuseEncoreViewSettings,
@@ -91,6 +91,31 @@ function loadPlayalongSettings(): PlayalongSettings {
     }
 }
 
+/** the metronome and the count-in of the playback, kept between visits */
+const PLAYBACK_SETTINGS_KEY = 'musescoreweb:viewer-playback'
+
+interface PlaybackSettings {
+    metronome: boolean
+    countIn: boolean
+}
+
+function loadPlaybackSettings(): PlaybackSettings {
+    try {
+        const stored = JSON.parse(localStorage.getItem(PLAYBACK_SETTINGS_KEY) ?? '{}') as Partial<PlaybackSettings>
+        return { metronome: stored.metronome === true, countIn: stored.countIn === true }
+    } catch {
+        return { metronome: false, countIn: false }
+    }
+}
+
+function savePlaybackSettings(settings: PlaybackSettings): void {
+    try {
+        localStorage.setItem(PLAYBACK_SETTINGS_KEY, JSON.stringify(settings))
+    } catch {
+        // no storage (private mode): the settings last while the page is open
+    }
+}
+
 function savePlayalongSettings(settings: PlayalongSettings): void {
     try {
         localStorage.setItem(PLAYALONG_SETTINGS_KEY, JSON.stringify(settings))
@@ -148,7 +173,7 @@ const VIEW_MODES: Record<ContinuousView, ViewerViewMode> = {
 }
 
 const DEFAULT_GROUPS: Required<MuseEncoreViewerToolbarGroups> = {
-    file: false, pageNavigation: true, pageView: true, zoom: true, playback: false, playalong: false, compare: false, print: true, fullScreen: true,
+    file: false, pageNavigation: true, pageView: true, zoom: true, playback: false, speedAndMetronome: false, playalong: false, compare: false, print: true, fullScreen: true,
 }
 
 // MuseScore's icon codes (src/framework/ui/view/iconcodes.h)
@@ -156,6 +181,7 @@ const ICON = {
     open: '&#xEF23;', close: '&#xEF14;', prev: '&#xF39C;', next: '&#xF39B;', pagesH: '&#xEF1C;', pagesV: '&#xF3AF;',
     twoPages: '&#xEF7F;', zoomOut: '&#xEF16;', zoomIn: '&#xEF18;', center: `<svg width="1em" height="1em" viewBox="${CENTER_ICON.viewBox}" aria-hidden="true" style="display:block"><path fill="currentColor" d="${CENTER_ICON.path}"/></svg>`, print: '&#xF3B7;', fullscreen: '&#xEF15;',
     play: '', pause: '', rewind: '&#xEF26;', microphone: '&#xF41B;', measurePrev: '&#xEF35;', measureNext: '&#xEF34;', practice: '&#xEF1F;', midi: '&#xEF98;', mixer: '&#xEF27;',
+    metronome: '&#xEF20;', countIn: '&#xF3B1;',
 }
 
 const HOMEPAGE_URL = 'https://github.com/pstaender/muse-encore'
@@ -206,6 +232,11 @@ function template(appTitle: string): string {
         <button id="play" class="icon" title="Play" aria-label="Play">${ICON.play}</button>
         <input id="play-position" class="play-position" type="range" min="0" max="0" step="0.1" value="0" aria-label="Play position">
         <span id="play-time" class="play-time" aria-live="off">0:00 / 0:00</span>
+        <span class="speed-controls" data-group="speedAndMetronome">
+            <button id="speed" class="tempo-button" title="Speed" aria-label="Speed" aria-haspopup="dialog" aria-expanded="false" aria-controls="speed-popup"><span class="tempo-note" aria-hidden="true">♩</span><span id="tempo-value" class="tempo-value"> = 120</span></button>
+            <button id="metronome" class="icon toggle" title="Metronome" aria-label="Metronome" aria-pressed="false">${ICON.metronome}</button>
+            <button id="count-in" class="icon toggle" title="Enable count-in when playing" aria-label="Enable count-in when playing" aria-pressed="false">${ICON.countIn}</button>
+        </span>
         <button id="mixer-toggle" class="icon toggle" title="Mixer (F10)" aria-label="Mixer" aria-pressed="false" aria-controls="mixer">${ICON.mixer}</button>
     </div>
 
@@ -231,6 +262,14 @@ function template(appTitle: string): string {
         <button id="fullscreen" class="icon" title="Full screen (F11)" aria-label="Full screen" data-group="fullScreen">${ICON.fullscreen}</button>
         <button id="help" class="icon text" title="Keyboard shortcuts" aria-label="Keyboard shortcuts" aria-expanded="false">?</button>
     </div>
+</div>
+
+<!-- PlaybackSpeedPopup: 10 % to 300 % -->
+<div id="speed-popup" class="speed-popup" popover role="dialog" aria-label="Playback speed">
+    <label for="speed-percent">Speed</label>
+    <span class="speed-percent"><input id="speed-percent" type="number" min="10" max="300" step="5" value="100"> %</span>
+    <input id="speed-slider" type="range" min="${MIN_TEMPO_MULTIPLIER}" max="${MAX_TEMPO_MULTIPLIER}" step="0.05" value="1" aria-label="Speed">
+    <button id="speed-reset" type="button" class="secondary" title="Back to the score's tempo">100 %</button>
 </div>
 
 <div id="viewport" tabindex="0" aria-label="Score">
@@ -383,7 +422,11 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
     private readonly playTime: HTMLSpanElement
     private readonly btn: Record<'open' | 'open2' | 'clear' | 'prev' | 'next' | 'layoutH' | 'layoutV' | 'spread' | 'zoomIn' | 'zoomOut'
         | 'print' | 'center' | 'fullscreen' | 'help' | 'play' | 'rewind' | 'playalong' | 'playalongPrev' | 'playalongNext' | 'playalongPractice' | 'midiSettings' | 'mixer'
-        | 'compare', HTMLButtonElement>
+        | 'compare' | 'speed' | 'metronome' | 'countIn' | 'speedReset', HTMLButtonElement>
+    private readonly speedPopup: HTMLDivElement
+    private readonly speedPercent: HTMLInputElement
+    private readonly speedSlider: HTMLInputElement
+    private readonly tempoValue: HTMLSpanElement
     private readonly midiDialog: HTMLDialogElement
     private readonly midiOn: HTMLInputElement
     private readonly midiDevice: HTMLSelectElement
@@ -510,8 +553,12 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
             center: $('center'), fullscreen: $('fullscreen'), help: $('help'), play: $('play'), rewind: $('rewind'),
             playalong: $('playalong'), playalongPrev: $('playalong-prev'), playalongNext: $('playalong-next'),
             playalongPractice: $('playalong-practice'), midiSettings: $('midi-settings'), mixer: $('mixer-toggle'),
-            compare: $('compare'),
+            compare: $('compare'), speed: $('speed'), metronome: $('metronome'), countIn: $('count-in'), speedReset: $('speed-reset'),
         }
+        this.speedPopup = $('speed-popup')
+        this.speedPercent = $('speed-percent')
+        this.speedSlider = $('speed-slider')
+        this.tempoValue = $('tempo-value')
         this.midiDialog = $('midi-dialog')
         this.midiOn = $('midi-on')
         this.midiDevice = $('midi-device')
@@ -546,11 +593,18 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
         this.cursor.setAttribute('aria-hidden', 'true')
         this.cursor.hidden = true
 
+        // the metronome and the count-in: the stored ones with the speed controls, else the options (default off)
+        const speedControls = this.m_groups.playback && this.m_groups.speedAndMetronome
+        const playbackSettings = speedControls ? loadPlaybackSettings() : { metronome: false, countIn: false }
         this.playback = this.m_groups.playback
-            ? new ViewerPlayback(options.soundFontUrl ?? SOUNDFONT_CDN_URL, s => this.playbackChanged(s))
+            ? new ViewerPlayback(options.soundFontUrl ?? SOUNDFONT_CDN_URL, s => this.playbackChanged(s), {
+                metronome: options.metronome ?? playbackSettings.metronome, countIn: options.countIn ?? playbackSettings.countIn,
+            })
             : null
-        // the mixer panel below the score (above the status bar)
-        this.mixer = this.playback ? new ViewerMixer(() => this.setMixerShown(false)) : null
+        this.btn.metronome.setAttribute('aria-pressed', String(!!this.playback?.state().metronome))
+        this.btn.countIn.setAttribute('aria-pressed', String(!!this.playback?.state().countIn))
+        // the mixer panel below the score (above the status bar); the metronome's strip with its button
+        this.mixer = this.playback ? new ViewerMixer(() => this.setMixerShown(false), speedControls) : null
         if (this.mixer) {
             this.viewport.after(this.mixer.element)
         }
@@ -758,6 +812,47 @@ export class MuseEncoreViewer implements IMuseEncoreViewer {
 
     isPlaying(): boolean {
         return !!this.playback?.state().playing
+    }
+
+    setPlaybackSpeed(speed: number): void {
+        this.playback?.setTempoMultiplier(speed)
+    }
+
+    playbackSpeed(): number {
+        return this.playback?.state().tempoMultiplier ?? 1
+    }
+
+    setMetronome(on: boolean): void {
+        this.playback?.setMetronome(on)
+        this.savePlaybackSettings()
+    }
+
+    setCountIn(on: boolean): void {
+        this.playback?.setCountIn(on)
+        this.savePlaybackSettings()
+    }
+
+    private savePlaybackSettings(): void {
+        const s = this.playback?.state()
+        if (s && this.m_groups.speedAndMetronome) {
+            savePlaybackSettings({ metronome: s.metronome, countIn: s.countIn })
+        }
+    }
+
+    /** the speed popup below its button (PlaybackSpeedPopup) */
+    private toggleSpeedPopup(): void {
+        if (this.speedPopup.matches(':popover-open')) {
+            this.speedPopup.hidePopover()
+            return
+        }
+        this.speedPopup.showPopover()
+        this.btn.speed.setAttribute('aria-expanded', 'true') // the toggle event comes later
+        const a = this.btn.speed.getBoundingClientRect()
+        const w = this.speedPopup.offsetWidth
+        this.speedPopup.style.left = `${Math.max(8, Math.min(a.left + a.width / 2 - w / 2, window.innerWidth - w - 8))}px`
+        this.speedPopup.style.top = `${a.bottom + 4}px`
+        this.speedPercent.focus()
+        this.speedPercent.select()
     }
 
     toggleFullScreen(): void {
@@ -1452,7 +1547,7 @@ html, body { margin: 0; padding: 0; background: #fff; }
         this.viewModeSelect.value = this.settings.viewMode
         btn.spread.disabled = !has || !pageView
         btn.spread.setAttribute('aria-pressed', String(this.spreadActive()))
-        for (const b of [btn.prev, btn.next, btn.zoomIn, btn.zoomOut, btn.center, btn.print, btn.play, btn.rewind, btn.playalong, btn.mixer, btn.compare]) {
+        for (const b of [btn.prev, btn.next, btn.zoomIn, btn.zoomOut, btn.center, btn.print, btn.play, btn.rewind, btn.playalong, btn.mixer, btn.compare, btn.speed]) {
             b.disabled = !has
         }
         this.playPosition.disabled = !has
@@ -1831,6 +1926,20 @@ html, body { margin: 0; padding: 0; background: #fff; }
             }
             this.playTime.textContent = `${formatTime(s.position)} / ${formatTime(s.totalTime)}`
         }
+        // the tempo at the play position (multiplied) and the speed
+        const percent = Math.round(s.tempoMultiplier * 100)
+        this.tempoValue.textContent = ` = ${s.tempo}`
+        this.btn.speed.title = `Speed: ${percent} %`
+        this.btn.speed.setAttribute('aria-label', `Speed: ${percent} %, tempo ${s.tempo}`)
+        this.btn.speed.classList.toggle('changed', percent !== 100)
+        if (this.shadow.activeElement !== this.speedPercent) {
+            this.speedPercent.value = String(percent)
+        }
+        if (!this.speedSlider.matches(':active')) {
+            this.speedSlider.value = String(s.tempoMultiplier)
+        }
+        this.btn.metronome.setAttribute('aria-pressed', String(s.metronome))
+        this.btn.countIn.setAttribute('aria-pressed', String(s.countIn))
         if (s.error) {
             this.setStatus(`Could not load the sounds: ${s.error}`, true)
             this.playTime.title = s.error
@@ -2331,6 +2440,31 @@ html, body { margin: 0; padding: 0; background: #fff; }
         on(btn.playalongPractice, 'click', () => this.playalong?.togglePractice())
         on(btn.midiSettings, 'click', () => this.midiDialog.showModal())
         on(btn.mixer, 'click', () => this.setMixerShown(!this.mixer?.isShown()))
+        on(btn.speed, 'click', () => this.toggleSpeedPopup())
+        on(this.speedPopup, 'toggle', () => btn.speed.setAttribute('aria-expanded', String(this.speedPopup.matches(':popover-open'))))
+        on(this.speedPercent, 'input', () => {
+            const v = Number(this.speedPercent.value)
+            if (this.speedPercent.value !== '' && v >= MIN_TEMPO_MULTIPLIER * 100 && v <= MAX_TEMPO_MULTIPLIER * 100) {
+                this.setPlaybackSpeed(v / 100)
+            }
+        })
+        on(this.speedPercent, 'change', () => {
+            const v = Number(this.speedPercent.value)
+            if (this.speedPercent.value !== '' && Number.isFinite(v)) {
+                this.setPlaybackSpeed(v / 100) // limited to 10 .. 300 %
+            }
+            this.speedPercent.value = String(Math.round(this.playbackSpeed() * 100))
+        })
+        on(this.speedPercent, 'keydown', (e) => {
+            if ((e as KeyboardEvent).key === 'Enter') {
+                this.speedPopup.hidePopover()
+                btn.speed.focus()
+            }
+        })
+        on(this.speedSlider, 'input', () => this.setPlaybackSpeed(Number(this.speedSlider.value)))
+        on(btn.speedReset, 'click', () => this.setPlaybackSpeed(1))
+        on(btn.metronome, 'click', () => this.setMetronome(!this.playback?.state().metronome))
+        on(btn.countIn, 'click', () => this.setCountIn(!this.playback?.state().countIn))
         const compareInput = this.root.querySelector<HTMLInputElement>('#compare-file')!
         on(btn.compare, 'click', () => compareInput.click())
         on(compareInput, 'change', () => {

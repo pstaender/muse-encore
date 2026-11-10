@@ -64,6 +64,7 @@ const viewer = applyMuseEncoreViewer(targetElement, pathToMuseScoreFile, {
         pageView: true,           // view mode (page / continuous views) and page layout
         zoom: true,               // zoom in / out, zoom levels, center measure
         playback: false,          // play / pause, rewind, play position, the mixer (volume, pan, mute, solo per track)
+        speedAndMetronome: false, // with playback: the speed (tempo, 10-300 %), the metronome and the count-in
         compare: false,           // compare with another score (side by side with the differences marked, split screen, overlay)
         print: true,              // print button
         fullScreen: true,         // full screen button
@@ -72,6 +73,8 @@ const viewer = applyMuseEncoreViewer(targetElement, pathToMuseScoreFile, {
     keyboardShortcuts: false,     // MuseScore's shortcuts while the viewer has the focus, and the "?" button
     disableToolbar: false,        // no toolbar at all
     showStatusBar: false,         // the status bar below the score
+    metronome: false,             // the metronome during the playback (with speedAndMetronome: the one kept from the last visit)
+    countIn: false,               // the count-in clicks before the playback (with speedAndMetronome: the one kept from the last visit)
     comments: true,               // the comments added in MuseEncore: subtle markers that show their text (with **bold**, *italic*, ~~strikethrough~~)
     pageTurnBarsAhead: 2,         // "Early page turns" in playback/playalong: the page is turned early, keeping this many bars ahead visible (1-4); false: follow the cursor like MuseScore Studio
     jumpPreviewInHorizontalView: true, // "Preview repeats and jumps" (continuous view, horizontal): the bar after a repeat or jump is previewed after the bar with the jump (up to 2 bars in advance)
@@ -107,6 +110,10 @@ await viewer.play()                // call it from a user gesture (the browser's
 viewer.pause()
 viewer.stop()                      // back to the start
 viewer.isPlaying()
+viewer.setPlaybackSpeed(0.75)      // 1: the score's tempo (0.1 to 3); another score starts at 1
+viewer.playbackSpeed()
+viewer.setMetronome(true)
+viewer.setCountIn(true)
 await viewer.print()
 viewer.toggleFullScreen()
 await viewer.compareWith('other-version.mscz') // see "Comparing scores"
@@ -139,6 +146,11 @@ reference version (raw.githubusercontent.com); set `soundFontUrl` to serve it yo
 The Mixer button next to the playback controls (F10 with `keyboardShortcuts`) opens MuseScore's mixer below the
 score: volume (fader and dB), pan, mute and solo per instrument and the master volume. It starts with the mixer
 settings saved in the .mscz file (audiosettings.json); the changes last while the score is open.
+
+With `toolbarGroups: { playback: true, speedAndMetronome: true }` the playback controls also show the tempo at the play
+position (♩ = 120): its button opens the speed popup (10 % to 300 %, like MuseScore's), next to it are the Metronome
+and the count-in buttons (MuseScore's "Enable count-in when playing"). The mixer then also has the metronome's strip.
+The metronome and the count-in are kept between visits; the speed starts at 100 % with each score.
 
 ## Playalong and MIDI input
 

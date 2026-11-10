@@ -184,6 +184,58 @@ select {
     accent-color: var(--accent);
 }
 
+/* the speed, the metronome and the count-in (PlaybackToolBar: the tempo with the speed popup) */
+.speed-controls { display: inline-flex; align-items: center; gap: 2px; }
+.tempo-button {
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    min-width: 64px;
+    padding: 0 6px;
+    justify-content: center;
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.tempo-button:hover:not(:disabled) { background: var(--hover); }
+.tempo-button:disabled { opacity: .35; cursor: default; }
+.tempo-button[aria-expanded="true"] { background: var(--active); }
+.tempo-button.changed { color: var(--accent); }
+.tempo-note { font-size: 17px; line-height: 1; }
+.speed-popup {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    display: none;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 8px 12px;
+    width: 240px;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+    color: var(--fg);
+    font: 13px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .2);
+}
+.speed-popup:popover-open { display: grid; }
+.speed-percent { white-space: nowrap; }
+.speed-percent input {
+    width: 64px;
+    height: 28px;
+    padding: 0 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--fg);
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+}
+.speed-popup input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.speed-popup #speed-reset { grid-column: 1 / -1; justify-self: end; padding: 3px 12px; }
+
 /* ---- score view ---- */
 
 #viewport {
@@ -508,7 +560,7 @@ button.secondary:hover { background: var(--hover); }
 .viewer.narrow .toolbar { gap: 0; padding: 4px; }
 .viewer.narrow .group { padding: 0 2px; }
 .viewer.narrow .title { max-width: 14ch; }
-.viewer.narrow #help, .viewer.narrow .play-position { display: none; }
+.viewer.narrow #help, .viewer.narrow .play-position, .viewer.narrow #count-in { display: none; }
 .viewer.narrow { --page-gap: 12px; }
 
 /* ---- playalong ---- */

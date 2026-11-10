@@ -23,6 +23,12 @@ export interface MuseEncoreViewerToolbarGroups {
      */
     playback?: boolean
     /**
+     * with the playback: the speed (the tempo at the play position; its popup sets 10 % to 300 %), the metronome and the
+     * count-in (MuseScore's playback toolbar); the metronome's strip in the mixer. The metronome and the count-in are
+     * kept between visits; default false
+     */
+    speedAndMetronome?: boolean
+    /**
      * Playalong: the button that follows the score measure by measure while the user plays, into the microphone (the
      * browser asks for it; the note detection is loaded on the first start) or on a MIDI device, and the MIDI settings;
      * default false
@@ -64,6 +70,13 @@ export interface MuseEncoreViewerOptions {
     disableToolbar?: boolean
     /** the status bar below the score (loading, number of pages, errors); default false */
     showStatusBar?: boolean
+    /**
+     * the metronome during the playback (MuseScore's "Metronome"); default: off, or the one kept with the
+     * `speedAndMetronome` toolbar group
+     */
+    metronome?: boolean
+    /** the count-in clicks before the playback starts; default: off, or the one kept with the `speedAndMetronome` toolbar group */
+    countIn?: boolean
     /** the comments of the score (added in MuseEncore): markers above the staves that show their text; default true */
     comments?: boolean
     /**
@@ -142,6 +155,13 @@ export interface MuseEncoreViewer {
     /** stops and goes back to the start */
     stop(): void
     isPlaying(): boolean
+    /** the speed of the playback: 1 is the score's tempo (0.1 to 3; another score starts at 1) */
+    setPlaybackSpeed(speed: number): void
+    playbackSpeed(): number
+    /** the metronome on or off */
+    setMetronome(on: boolean): void
+    /** the count-in on or off */
+    setCountIn(on: boolean): void
     print(): Promise<void>
     toggleFullScreen(): void
     /**

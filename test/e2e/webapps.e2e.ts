@@ -397,6 +397,42 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
         await context.close()
     }, 120000)
 
+    it.runIf(app === 'viewer')('sets the speed of the playback, the metronome and the count-in', async () => {
+        const { page, context } = await newPage()
+        await openScore(page, 'amazing.mscz')
+        expect(await text(page, 'play-time')).toBe('0:00 / 0:41')
+        const tempo = await text(page, 'tempo-value')
+        expect(tempo).toMatch(/^ = \d+$/)
+        // the speed popup: 50 % doubles the play time and halves the tempo shown
+        await page.click('#speed')
+        expect(await page.getAttribute('#speed', 'aria-expanded')).toBe('true')
+        await page.fill('#speed-percent', '50')
+        // (the tail after the last note is not slower)
+        await page.waitForFunction(() => /^0:00 \/ 1:1\d$/.test($v('play-time')!.textContent ?? ''))
+        expect(await text(page, 'tempo-value')).toBe(` = ${Math.round(Number(tempo.slice(3)) / 2)}`)
+        expect(await page.inputValue('#speed-slider')).toBe('0.5')
+        // the play position stays at its place in the score
+        await page.evaluate(() => {
+            const s = $v('play-position') as HTMLInputElement
+            s.value = '20'
+            s.dispatchEvent(new Event('input'))
+        })
+        await page.click('#speed-reset')
+        await page.waitForFunction(() => $v('play-time')!.textContent === '0:10 / 0:41')
+        await page.keyboard.press('Escape')
+        await page.waitForFunction(() => $v('speed')!.getAttribute('aria-expanded') === 'false')
+        // metronome and count-in: toggles, kept between visits
+        await page.click('#metronome')
+        await page.click('#count-in')
+        expect(await page.getAttribute('#metronome', 'aria-pressed')).toBe('true')
+        expect(await page.getAttribute('#count-in', 'aria-pressed')).toBe('true')
+        await page.reload()
+        await page.waitForFunction(() => !!$v('metronome'))
+        expect(await page.getAttribute('#metronome', 'aria-pressed')).toBe('true')
+        expect(await page.getAttribute('#count-in', 'aria-pressed')).toBe('true')
+        await context.close()
+    }, 120000)
+
     it.runIf(app === 'viewer')('mixes the tracks in the mixer panel: volume, pan, mute and solo', async () => {
         const { page, context } = await newPage()
         await openScore(page, 'parts.mscz')
@@ -410,10 +446,11 @@ describe.skipIf(!CHROME || !hasSubmodule).each(['viewer', 'editor'])('%s', (app)
                 muteDisabled: !!s.querySelector<HTMLButtonElement>('.mixer-mute')?.disabled,
                 solo: s.querySelector('.mixer-solo')?.getAttribute('aria-pressed') ?? null,
             })))
-        // the parts, the master last (without mute and solo); no metronome in the viewer
+        // the parts, the metronome (with the speed and metronome controls) and the master last (both without mute and solo)
         const initial = await strips()
-        expect(initial.map(s => s.title)).toEqual(['Oboe', 'Clarinet in B♭', 'Bass Clarinet', 'Master'])
+        expect(initial.map(s => s.title)).toEqual(['Oboe', 'Clarinet in B♭', 'Bass Clarinet', 'Metronome', 'Master'])
         expect(initial[3].mute).toBe(null)
+        expect(initial[4].mute).toBe(null)
         expect(initial.slice(0, 3).every(s => s.mute === 'false' && !s.muteDisabled)).toBe(true)
         // solo on the first strip mutes the others (their mute buttons are disabled)
         await page.click('.mixer-strip[data-key]:nth-child(2) .mixer-solo')
