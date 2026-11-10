@@ -4,7 +4,8 @@
  * sections internal/Mixer*Section.qml): a strip per track with pan, volume, fader, mute and solo, and the name; the
  * master last (no mute and solo). Not ported: the sound, audio FX and aux send sections. The viewer cannot save the
  * score, so the changes last while the score is open (the library's mixer, src/playback/mixer.ts; ViewerPlayback
- * applies it to the sound). The viewer has no metronome: no metronome strip.
+ * applies it to the sound). The metronome's strip (volume and pan; no mute and solo: it is turned on and off with its
+ * button) is shown with the speed and metronome controls only.
  */
 import {
     BALANCE_SCALING_FACTOR, MIXER_VOLUME_MAX, MIXER_VOLUME_MIN, mixerChannels, onMixerChanged, setMixerChannel,
@@ -43,8 +44,8 @@ export class ViewerMixer {
     /** the number field being typed in (it keeps what is typed until it is committed) */
     private m_editing: HTMLInputElement | null = null
 
-    /** onClose: the close button of the panel */
-    constructor(onClose: () => void) {
+    /** onClose: the close button of the panel; metronome: the metronome's strip is shown */
+    constructor(onClose: () => void, private readonly m_metronome = false) {
         this.element = document.createElement('section')
         this.element.className = 'mixer'
         this.element.id = 'mixer'
@@ -98,7 +99,7 @@ export class ViewerMixer {
     }
 
     private channels(): MixerChannel[] {
-        return this.m_score ? mixerChannels(this.m_score).filter(c => c.type !== 'metronome') : []
+        return this.m_score ? mixerChannels(this.m_score).filter(c => this.m_metronome || c.type !== 'metronome') : []
     }
 
     private set(key: string, values: Parameters<typeof setMixerChannel>[2]): void {
@@ -187,11 +188,11 @@ export class ViewerMixer {
         fader.addEventListener('input', () => this.set(c.key, { volumeDb: Number(fader.value) }))
         fader.addEventListener('dblclick', () => this.set(c.key, { volumeDb: 0 }))
 
-        // Mute and solo (MixerMuteAndSoloSection.qml); the master has none
+        // Mute and solo (MixerMuteAndSoloSection.qml); the master and the metronome have none
         const muteCell = cell('mixer-mute-solo')
         let mute: HTMLButtonElement | null = null
         let solo: HTMLButtonElement | null = null
-        if (c.type !== 'master') {
+        if (c.type !== 'master' && c.type !== 'metronome') {
             mute = muteCell.appendChild(document.createElement('button'))
             mute.className = 'icon toggle mixer-mute'
             mute.innerHTML = MUTE_ICON

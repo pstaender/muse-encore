@@ -2075,3 +2075,16 @@
 - packages/viewer/example/index.html imports the module with `import(MODULE_URL)`: `?module=release` (default; the
   version on the CDN, set by bump-version, whose pattern now only matches version numbers, not @latest), `latest`, or
   `current` (../dist, the local build: `npm run example:viewer`); a select below the title switches (keeps `?url=`).
+
+## 2026-11-10 — Viewer: speed, metronome and count-in (issue #10)
+
+- The viewer's playback (viewer/src/playback.ts) has the editor's speed (tempo multiplier 10 % to 300 %; the play
+  position keeps its place in the score: secToPlayedTick before, playedTickToSec after), metronome (its clicks on the
+  channel after the score's, Player.metronomeEnabled) and count-in (countInEvents before player.play(delay)). Each score
+  starts at 100 % (like MuseScore's notation playback).
+- Toolbar group `speedAndMetronome` (default false; the viewer app shows it): the tempo at the play position (♩ = n,
+  accent color when the speed is not 100 %) opens the speed popup (a popover: number, slider, 100 %), the Metronome and
+  count-in buttons. The mixer then has the metronome's strip (no mute/solo). The metronome and the count-in are kept in
+  localStorage `musescoreweb:viewer-playback`; options `metronome`/`countIn` override them; API setPlaybackSpeed,
+  playbackSpeed, setMetronome, setCountIn.
+- Not done: a metronome during the playalong (the microphone would hear the clicks).

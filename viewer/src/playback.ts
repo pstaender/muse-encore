@@ -4,7 +4,8 @@
  * editor's playback controller) on the shared player and synthesizer (shared/playback). The synthesizer
  * (SpessaSynth with MS Basic.sf3) is loaded on the first play; automated browsers (navigator.webdriver) play without
  * sound (the null synthesizer keeps the clock). The mixer of the score (audiosettings.json, src/playback/mixer.ts) is
- * applied by the mixing synthesizer.
+ * applied by the mixing synthesizer. The speed (tempo multiplier), the metronome and the count-in work like the
+ * editor's (PlaybackController: setTempoMultiplier, the metronome's clicks on their own channel after the score's).
  */
 import {
     CTRL_PROGRAM, ME_CONTROLLER, ME_NOTEON, ME_PITCHBEND, notationPlayback, onMixerChanged, synthChannelMix, type MasterScore,
@@ -24,7 +25,17 @@ export interface ViewerPlaybackState {
     totalTime: number
     /** the (raw) tick of the play position */
     tick: number
+    /** the tempo at the play position (quarter notes per minute, multiplied) */
+    tempo: number
+    /** the speed: 0.1 .. 3 */
+    tempoMultiplier: number
+    metronome: boolean
+    countIn: boolean
 }
+
+/** PlaybackSpeedSlider: 10 % to 300 % */
+export const MIN_TEMPO_MULTIPLIER = 0.1
+export const MAX_TEMPO_MULTIPLIER = 3
 
 function toPlayerEvent(e: PlaybackMidiEvent): PlayerEvent | null {
     switch (e.type) {
@@ -47,11 +58,18 @@ export class ViewerPlayback {
     private m_loading: Promise<Player | null> | null = null
     private m_score: MasterScore | null = null
     private m_rendered: MasterScore | null = null
+    private m_metronomeChannel = -1
     private m_frame = 0
-    private m_state: ViewerPlaybackState = { playing: false, loading: null, error: '', position: 0, totalTime: 0, tick: 0 }
+    private m_state: ViewerPlaybackState = {
+        playing: false, loading: null, error: '', position: 0, totalTime: 0, tick: 0, tempo: 120, tempoMultiplier: 1, metronome: false, countIn: false,
+    }
 
     /** onChange: the state changed (each frame while playing) */
-    constructor(private readonly m_soundFontUrl: string, private readonly m_onChange: (state: ViewerPlaybackState) => void) {}
+    constructor(private readonly m_soundFontUrl: string, private readonly m_onChange: (state: ViewerPlaybackState) => void,
+                options: { metronome?: boolean; countIn?: boolean } = {}) {
+        this.m_state.metronome = !!options.metronome
+        this.m_state.countIn = !!options.countIn
+    }
 
     state(): ViewerPlaybackState {
         return this.m_state
@@ -68,12 +86,16 @@ export class ViewerPlayback {
         this.m_score = score
         this.m_rendered = null
         this.m_channels = []
+        this.m_metronomeChannel = -1
         this.m_removeMixerListener?.()
         this.m_removeMixerListener = score ? onMixerChanged(score, () => this.updateMix()) : null
-        const totalTime = score ? notationPlayback(score).totalPlayTime() : 0
+        // the speed is the score's (MuseScore: of its notation playback), 100 % when it is opened
+        const playback = score ? notationPlayback(score) : null
+        playback?.setTempoMultiplier(1)
+        const totalTime = playback?.totalPlayTime() ?? 0
         this.m_player?.setEvents([], totalTime, new Map())
         this.m_player?.seek(0)
-        this.publish({ playing: false, position: 0, tick: 0, totalTime })
+        this.publish({ playing: false, position: 0, tick: 0, totalTime, tempo: playback?.multipliedTempo(0) ?? 120, tempoMultiplier: 1 })
     }
 
     private async createSynthesizer(): Promise<Synthesizer> {
@@ -96,6 +118,7 @@ export class ViewerPlayback {
                 await synth.resume()
                 await synth.load(p => this.publish({ loading: p.total ? p.loaded / p.total : NaN }))
                 const player = new Player(synth)
+                player.metronomeEnabled = this.m_state.metronome
                 player.onEnded = () => this.update()
                 this.m_player = player
                 this.publish({ loading: null })
@@ -116,6 +139,7 @@ export class ViewerPlayback {
             return
         }
         const playback = notationPlayback(score)
+        playback.setTempoMultiplier(this.m_state.tempoMultiplier)
         const rendered = playback.renderMidiEvents()
         const events: PlayerEvent[] = []
         for (const e of rendered.events) {
@@ -124,6 +148,12 @@ export class ViewerPlayback {
                 events.push(pe)
             }
         }
+        // the metronome's clicks on the channel after the score's (played only while it is on)
+        const metronomeChannel = rendered.channels.reduce((m, c) => Math.max(m, c.channel + 1), 0)
+        for (const e of playback.metronomeEvents()) {
+            events.push({ time: e.time, channel: metronomeChannel, type: e.dataB ? 'on' : 'off', a: e.dataA, b: e.dataB, metronome: true })
+        }
+        events.sort((a, b) => a.time - b.time)
         const setups = new Map<number, SynthChannelSetup>()
         const muted = new Set<number>()
         for (const c of rendered.channels) {
@@ -132,14 +162,17 @@ export class ViewerPlayback {
                 muted.add(c.channel) // invisible parts are not played
             }
         }
+        const metronome = playback.metronomeProgram()
+        setups.set(metronomeChannel, { program: metronome.program, bank: metronome.bank, drum: metronome.bank >= 128, volume: 100, pan: 64, reverb: 0, chorus: 0 })
         this.m_channels = rendered.channels
+        this.m_metronomeChannel = metronomeChannel
         this.updateMix()
         const position = this.m_state.position
         player.setEvents(events, rendered.totalPlayTime, setups)
         player.mutedChannels = muted
         player.seek(Math.min(position, rendered.totalPlayTime))
         this.m_rendered = score
-        this.publish({ totalTime: rendered.totalPlayTime })
+        this.publish({ totalTime: rendered.totalPlayTime, position: player.position() })
     }
 
     async play(): Promise<void> {
@@ -156,8 +189,60 @@ export class ViewerPlayback {
         if (player.position() >= player.duration() - 0.01) {
             player.seek(0)
         }
-        player.play()
+        // the count-in clicks before the player starts (PlaybackController: the count-in of the metronome)
+        let delay = 0
+        if (this.m_state.countIn) {
+            const countIn = notationPlayback(this.m_score).countInEvents(notationPlayback(this.m_score).secToTick(player.position()))
+            const synth = player.synth()
+            const now = synth.currentTime() + 0.05
+            for (const e of countIn.events) {
+                if (e.dataB) {
+                    synth.noteOn(this.m_metronomeChannel, e.dataA, e.dataB, now + e.time)
+                } else {
+                    synth.noteOff(this.m_metronomeChannel, e.dataA, now + e.time)
+                }
+            }
+            delay = countIn.duration + 0.05
+        }
+        player.play(delay)
         this.update()
+    }
+
+    /** the speed (tempo multiplier, 0.1 .. 3; PlaybackController::setTempoMultiplier); the play position keeps its tick */
+    setTempoMultiplier(multiplier: number): void {
+        multiplier = Math.max(MIN_TEMPO_MULTIPLIER, Math.min(MAX_TEMPO_MULTIPLIER, multiplier))
+        if (!Number.isFinite(multiplier) || Math.abs(multiplier - this.m_state.tempoMultiplier) < 1e-9) {
+            return
+        }
+        const score = this.m_score
+        if (!score) {
+            return
+        }
+        // the play position stays where it is in the score (its times change with the speed)
+        const playback = notationPlayback(score)
+        const utick = playback.secToPlayedTick(this.m_player?.position() ?? this.m_state.position)
+        playback.setTempoMultiplier(multiplier)
+        const totalTime = playback.totalPlayTime()
+        const position = Math.min(playback.playedTickToSec(utick), totalTime)
+        this.m_state = { ...this.m_state, tempoMultiplier: multiplier, position }
+        this.m_player?.setDuration(totalTime)
+        this.m_rendered = null
+        if (this.m_player) {
+            this.prepareEvents(this.m_player)
+        }
+        this.publish({ tempoMultiplier: multiplier, totalTime, position })
+        this.update()
+    }
+
+    setMetronome(on: boolean): void {
+        if (this.m_player) {
+            this.m_player.metronomeEnabled = on
+        }
+        this.publish({ metronome: on })
+    }
+
+    setCountIn(on: boolean): void {
+        this.publish({ countIn: on })
     }
 
     pause(): void {
@@ -190,14 +275,15 @@ export class ViewerPlayback {
             this.m_player.setDuration(this.m_state.totalTime)
             this.m_player.seek(position)
         }
-        this.publish({ position, tick: notationPlayback(score).secToTick(position) })
+        const tick = notationPlayback(score).secToTick(position)
+        this.publish({ position, tick, tempo: notationPlayback(score).multipliedTempo(tick) })
         this.update()
     }
 
     /** the mixer of the score on the synthesizer channels */
     private updateMix(): void {
         if (this.m_synth && this.m_score) {
-            const mix = synthChannelMix(this.m_score, this.m_channels)
+            const mix = synthChannelMix(this.m_score, this.m_channels, this.m_metronomeChannel)
             this.m_synth.setMix(mix.channels, mix.master)
         }
     }
@@ -207,7 +293,11 @@ export class ViewerPlayback {
         const score = this.m_score
         if (player && score) {
             const position = player.position()
-            this.publish({ playing: player.isPlaying(), position, tick: notationPlayback(score).secToTick(position) })
+            const playback = notationPlayback(score)
+            const tick = playback.secToTick(position)
+            this.publish({ playing: player.isPlaying(), position, tick, tempo: playback.multipliedTempo(tick) })
+        } else if (score) {
+            this.publish({ tempo: notationPlayback(score).multipliedTempo(this.m_state.tick) })
         }
         if (this.m_state.playing && !this.m_frame) {
             this.m_frame = requestAnimationFrame(() => {
