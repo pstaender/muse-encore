@@ -213,7 +213,7 @@
       systems, playback and playalong, no page controls.
     </p>
     <div
-      id="score3"
+      id="score1"
       class="score small"
       style="aspect-ratio: 2; width: 100%; height: auto"
     ></div>
@@ -234,7 +234,7 @@
       Uses the screen space as efficiently as possible: <code>"window-fit"</code>
       lays out the systems to the viewer's width, without pages.
     </p>
-    <div id="score1" class="score"></div>
+    <div id="score3" class="score"></div>
 
     <h3 id="configurator">Configurator</h3>
     <p>
@@ -282,7 +282,7 @@
       };
 
       const EXAMPLES = {
-        "#score3": {
+        "#score1": {
           continuousView: "horizontal",
           toolbarGroups: {
             playback: true,
@@ -290,6 +290,7 @@
             print: false,
             fullScreen: true,
             pageView: false,
+            speedAndMetronome: true,
           },
           showStatusBar: true,
           keyboardShortcuts: true,
@@ -299,7 +300,7 @@
           disableToolbar: true,
           colorScheme: "light",
         },
-        "#score1": {
+        "#score3": {
           continuousView: "window-fit",
           zoom: 75,
           toolbarGroups: {
