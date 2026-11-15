@@ -32,6 +32,10 @@ Every contribution must keep these principles:
    runs in the browser; data is stored in the browser.
 3. **It works as a viewer in any modern browser**, to display and play MuseScore files.
 
+MuseEncore is a general-purpose application: pull requests should serve its users in general, not one person's
+particular purpose. If you need specific adaptations for your own needs, you are always welcome to fork the project
+(within the terms of the GPL).
+
 Features that MuseScore Studio does not have (or behavior that differs from it) must be listed in
 [README.md](README.md) under "Differences from the original application (MuseScore Studio)".
 
