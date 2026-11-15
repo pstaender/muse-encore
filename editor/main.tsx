@@ -9,9 +9,11 @@ import { App } from './App'
 import { initAutoSaver } from './autosave'
 import { applyLanguageSetting } from './i18n'
 import { startup } from './session'
+import './chorusBridge'
 
 registerAppActions()
 void applyLanguageSetting()
 createRoot(document.getElementById('app-root')!).render(<App />)
 initAutoSaver()
 void startup()
+
